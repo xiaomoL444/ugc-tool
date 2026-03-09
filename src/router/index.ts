@@ -1,25 +1,53 @@
-import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
-import HomeView from '../views/HomeView.vue'
+import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
+import HomeView from "../views/HomeView.vue";
+import StructViewer from "@/views/StructViewer/StructViewer.vue";
+import DebugView from "@/views/DebugView/DebugView.vue";
+import SoundEffectPlayer from "@/views/SoundEffectPlayer/SoundEffectPlayer.vue";
 
-const routes: Array<RouteRecordRaw> = [
+const routes = [
   {
-    path: '/',
-    name: 'home',
-    component: HomeView
+    path: "/",
+    name: "home",
+    component: HomeView,
   },
   {
-    path: '/about',
-    name: 'about',
+    path: "/about",
+    name: "about",
     // route level code-splitting
     // this generates a separate chunk (about.[hash].js) for this route
     // which is lazy-loaded when the route is visited.
-    component: () => import(/* webpackChunkName: "about" */ '../views/AboutView.vue')
+    component: () =>
+      import(/* webpackChunkName: "about" */ "../views/AboutView.vue"),
+  },
+  {
+    path: "/StructViewer",
+    name: "千星奇域·结构体编辑器",
+    component: StructViewer,
+    meta: {
+      title: "结构体编辑器",
+    },
+  },
+  {
+    path: "/DebugPanel",
+    name: "嗯，这是一个用来Debug的页面，你是怎么找到这里的？",
+    component: DebugView,
+    meta: {
+      title: "嗯，这是一个用来Debug的页面，你是怎么找到这里的？",
+    },
+  },
+  {
+    path: "/SoundEffectPlayer",
+    name: "音效播放器",
+    component: SoundEffectPlayer,
+    meta: {
+      title: "音效播放器",
+    },
   }
-]
+];
 
 const router = createRouter({
   history: createWebHistory(process.env.BASE_URL),
-  routes
-})
+  routes,
+});
 
-export default router
+export default router;
