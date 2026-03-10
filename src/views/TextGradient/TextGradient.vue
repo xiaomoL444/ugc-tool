@@ -18,6 +18,9 @@ const isUse4bit = ref(false);
 const isUseSize = ref(false);
 const isSkipSpace = ref(false);
 
+const displayBGClolrList = ["#333333",  "#000000","#7E7E7EFF","#FFF", "#FFF0"];
+const displayBGColorIndex = ref(0);
+
 const colorInputs = ref<(HTMLInputElement | null)[]>([]);
 const colors = ref([RandomColor(), RandomColor()]);
 const sizes = ref<number[]>([20, 20]);
@@ -365,7 +368,7 @@ function Clipboard(str: string) {
                 style="left: 0; border-radius: 0 100% 100% 0"
                 v-on:click="AddColor(0)"
               >
-               < <img src="@/assets/svg/Add12Filled.svg" alt="svg图标" />>
+                < <img src="@/assets/svg/Add12Filled.svg" alt="svg图标" />>
               </button>
               <button
                 ref="右边的加号"
@@ -514,7 +517,16 @@ function Clipboard(str: string) {
             v-model="text"
             placeholder="请输入文本..."
           />
-          <div class="display">
+          <div
+            class="display"
+            :style="{
+              background: displayBGClolrList[displayBGColorIndex],
+            }"
+            v-on:click="
+              displayBGColorIndex =
+                (displayBGColorIndex + 1) % displayBGClolrList.length
+            "
+          >
             <span
               v-for="(item, index) in charList"
               :key="index"
@@ -667,7 +679,7 @@ function Clipboard(str: string) {
   width: 100%;
   height: max-content;
   min-height: 75px;
-  background-color: #333333;
+  /* background-color: #333333; */
 
   border-radius: 10px;
 
