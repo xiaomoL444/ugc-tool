@@ -147,6 +147,7 @@ onBeforeMount(async () => {
       "预设配置2.json",
       "预设配置3.json",
       "预设配置4.json",
+      "预设配置5.json",
     ];
     await Promise.all(
       await presetFiles.map(async (fileName) => {
