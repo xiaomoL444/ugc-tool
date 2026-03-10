@@ -3,30 +3,71 @@ import PanelLayout from "@/components/Layout/PanelLayout.vue";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import { consola } from "consola";
 import chroma from "chroma-js";
-import { random, size } from "lodash";
-import { NColorPicker, NEllipsis, NIcon, NSwitch } from "naive-ui";
+import {
+  NCollapse,
+  NCollapseItem,
+  NColorPicker,
+  NEllipsis,
+  NIcon,
+  NRadio,
+  NRadioGroup,
+  NSpace,
+  NSwitch,
+} from "naive-ui";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
-import { computed, inject, onBeforeMount, ref } from "vue";
+import {
+  computed,
+  inject,
+  onBeforeMount,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from "vue";
 import { toast } from "vue-sonner";
 import ActionButton from "@/components/button/ActionButton.vue";
 import { StorageClass } from "@/services/storage/storage";
 import axios from "axios";
+import { lcm } from "./utils/math";
+import FormItemRow from "./components/form-item-row.vue";
 
 const isSetColor = ref(true);
 const isUse4bit = ref(false);
 const isUseSize = ref(false);
 const isSkipSpace = ref(false);
 
-const displayBGClolrList = ["#333333",  "#000000","#7E7E7EFF","#FFF", "#FFF0"];
+const displayBGClolrList = ["#333333", "#000000", "#7E7E7EFF", "#FFF", "#FFF0"];
 const displayBGColorIndex = ref(0);
 
-const colorInputs = ref<(HTMLInputElement | null)[]>([]);
 const colors = ref([RandomColor(), RandomColor()]);
 const sizes = ref<number[]>([20, 20]);
+
+const selectedColorStyle = ref<ColorStyleType>("normal");
+const colorStyles = ref<ColorStyle[]>([
+  { id: "normal", label: "普通" },
+  { id: "ColorFlow1", label: "流动1" },
+  { id: "ColorFlow2", label: "流动2" },
+]);
+
+const selectedSizeStyle = ref<SizeStyleType>("normal");
+const sizeStyle = ref<SizeStyle[]>([
+  { id: "normal", label: "普通" },
+  { id: "Jump1", label: "跳字(没什么用)" },
+]);
 const gradientStyle = computed(
   () => `linear-gradient(to right, ${colors.value.join(",")})`,
 );
+
+//动效设置区
+const colorJumpFrames = ref(0); //颜色跳帧
+const sizeJumpFrames = ref(0); //大小跳帧
+
+/**
+ * 0:最小值
+ * 1:最大值
+ */
+const sizeParams = ref([20, 40, 0, 0, 0, 0, 0, 0, 0, 0]); //大小的参数
 
 const storage = inject<StorageClass>("storage")!.setProject("文本渐变器"); //储存区
 
@@ -78,8 +119,8 @@ async function SelectPresetCard(title: string) {
     return;
   }
   toast.info(`读取预设「${title}」`);
-  colors.value = _config.colors;
-  sizes.value = _config.sizes;
+  colors.value = _config.colors.slice();
+  sizes.value = _config.sizes.slice();
   isSetColor.value = _config.option.isSetColor;
   isUse4bit.value = _config.option.isUse4bit;
   isUseSize.value = _config.option.isUseSize;
@@ -123,10 +164,6 @@ onBeforeMount(async () => {
   await RefreshConfig();
 });
 
-function ChoiseColor(index: number) {
-  consola.trace(gradientStyle.value);
-  colorInputs.value[index]?.click();
-}
 function onColorChange(event: Event, index: number) {
   let value = (event.target as HTMLInputElement).value;
   try {
@@ -169,37 +206,9 @@ function DeleteColor(index: number) {
   consola.trace(index);
   colors.value.splice(index, 1);
 }
-
-const output = computed<string[]>(() => {
-  let result: string[] = [];
-  let index: number = 0;
-  charList.value.forEach((item) => {
-    if (result.length <= index) {
-      result.push("");
-    }
-
-    let word = item.char;
-    if (isSetColor.value)
-      word = `<color=${
-        isUse4bit.value ? applyColorChannels(item.color) : item.color.hex()
-      }>${item.char}</color>`;
-    if (isUseSize.value) {
-      word = `<size=${item.size}>${word}</size>`;
-    }
-    if (word.length + result[index].length > 999) {
-      index++;
-      result.push("");
-    }
-    result[index] += word;
-  });
-
-  return result;
-});
-
 const text = ref(""); //用户输入的文字
 
 const chars = computed(() => text.value.split("")); //拆分的字符
-const bitDepth = computed<"8" | "4">(() => (isUse4bit.value ? "4" : "8"));
 
 function to4Bit(v: number) {
   return Math.round((v / 255) * 15); // 0~15
@@ -231,34 +240,161 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
-// 生成字符列表
-const charList = computed(() => {
-  const list = [];
-  let N = chars.value.length;
+//这个是颜色的帧
+const colorFrames = computed<chroma.Color[][]>(() => {
+  let list: chroma.Color[][] = [];
+  let frames: chroma.Color[] = [];
 
-  for (let i = 0; i < N; i++) {
-    let t = i / (N - 1);
+  let length = chars.value.length;
+  let frameSpeed = Math.max(1, colorJumpFrames.value + 1);
+  for (let i = 0; i < length; i++) {
+    let t = i / (length - 1);
     t = Number.isNaN(t) ? 0 : t;
 
-    // 大小插值
-    const sizeSegs = sizes.value.length - 1;
-    const sSeg = Math.min(Math.floor(t * sizeSegs), sizeSegs - 1);
-    const sT = t * sizeSegs;
-    const size = lerp(
-      sizes.value[sSeg],
-      sizes.value[sSeg + 1] || sizes.value[sSeg],
-      sT,
-    );
+    frames.push(chroma.scale(colors.value)(t));
+  }
 
-    list.push({
-      char: chars.value[i],
-      color: chroma.scale(colors.value)(t),
-      size: Math.round(size),
-    });
+  switch (selectedColorStyle.value) {
+    case "normal":
+      if (chars.value.length != 0) list.push(frames);
+      break;
+    case "ColorFlow1":
+      const frames2 = [
+        ...frames,
+        ...frames.slice(1, frames.length).reverse(),
+        ...frames.slice(1, frames.length),
+      ];
+      for (let i = 0; i < length * 2 - 2; i += frameSpeed) {
+        list.push(frames2.slice(i, i + length));
+      }
+      break;
+    case "ColorFlow2":
+      const frames3 = [
+        ...frames,
+        ...frames.slice(1, frames.length).reverse(),
+        ...frames.slice(1, frames.length),
+      ];
+      consola.trace(frames3.length);
+      for (let i = length * 2 - 2; i > 0; i -= frameSpeed) {
+        list.push(frames3.slice(i, i + length));
+      }
+      break;
   }
   return list;
 });
 
+//这个是size的帧
+const sizeFrams = computed<number[][]>(() => {
+  let list: number[][] = [];
+  let frames: number[] = [];
+
+  let length = chars.value.length;
+
+  switch (selectedSizeStyle.value) {
+    case "normal":
+      for (let i = 0; i < length; i++) {
+        let t = i / (length - 1);
+        t = Number.isNaN(t) ? 0 : t;
+
+        // 大小插值
+        const sizeSegs = sizes.value.length - 1;
+        const sSeg = Math.min(Math.floor(t * sizeSegs), sizeSegs - 1);
+        const sT = t * sizeSegs;
+        const size = lerp(
+          sizes.value[sSeg],
+          sizes.value[sSeg + 1] || sizes.value[sSeg],
+          sT,
+        );
+        frames.push(size)
+      }
+      if (chars.value.length != 0) list.push(frames);
+      break;
+    case "Jump1":
+      if (colorFrames) {
+        for (let i = 0; i < colorFrames.value.length; i++) {
+          const frame: number[] = [];
+          for (let index = 0; index < length; index++) {
+            frame.push(20);
+          }
+          for (let count = 0; count < 50; count++) {
+            frame[getRandomInt(0, frame.length - 1)] = getRandomInt(
+              sizeParams.value[0],
+              sizeParams.value[1],
+            );
+          }
+          list.push(frame);
+        }
+      }
+      break;
+  }
+  consola.trace(list);
+  return list;
+});
+
+//这个是循环的帧数
+const frameCount = computed(() => {
+  consola.trace(0)
+  return lcm(colorFrames.value.length, sizeFrams.value.length);
+});
+
+const currentFrame = ref(0); //当前的帧，会在游戏开始后随时间自增
+let timer: ReturnType<typeof setInterval>;
+const interval = ref(50);
+function startTimer() {
+  clearInterval(timer);
+
+  timer = setInterval(() => {
+    currentFrame.value++;
+  }, interval.value);
+}
+
+watch(interval, () => {
+  startTimer();
+});
+
+onMounted(() => {
+  startTimer();
+});
+onUnmounted(() => {
+  if (timer) {
+    clearInterval(timer);
+  }
+});
+
+function getCharList(frame: number) {
+  let result: string[] = [];
+  let line: number = 0;
+  chars.value.forEach((char, index) => {
+    if (result.length <= line) {
+      result.push("");
+    }
+
+    let word = char;
+
+    if (isSetColor.value)
+      //如果选择了颜色
+      word = `<color=${
+        isUse4bit.value
+          ? applyColorChannels(
+              colorFrames.value[frame % colorFrames.value.length][index],
+            )
+          : colorFrames.value[frame % colorFrames.value.length][index].hex()
+      }>${char}</color>`;
+    if (isUseSize.value) {
+      //如果选择了使用大小
+      word = `<size=${
+        sizeFrams.value[frame % sizeFrams.value.length][index]
+      }>${word}</size>`;
+    }
+    if (word.length + result[line].length > 999) {
+      line++;
+      result.push("");
+    }
+    result[line] += word;
+  });
+
+  return result;
+}
 function Clipboard(str: string) {
   navigator.clipboard
     .writeText(str)
@@ -338,17 +474,87 @@ function Clipboard(str: string) {
         </div>
       </SectionLayout>
     </SplitterPanel>
-    <SplitterPanel :size="15">
-      <SectionLayout title="选项卡">
-        是否设置颜色过渡<NSwitch v-model:value="isSetColor" />
-        是否使用4bit输出<NSwitch v-model:value="isUse4bit" />
-        是否缩放size<NSwitch v-model:value="isUseSize" />
-        <div v-if="isUseSize">
-          <input type="number" step="1" v-model="sizes[0]" />
-          <input type="number" step="1" v-model="sizes[1]" />
-        </div>
-        <!-- 是否忽略空格<NSwitch v-model:value="isSkipSpace" /> -->
-      </SectionLayout>
+    <SplitterPanel
+      :size="15"
+      style="display: flex; flex-direction: column; gap: 5px"
+    >
+      <SplitterPanel style="flex: 3">
+        <SectionLayout title="选项卡">
+          <FormItemRow title="颜色过渡"
+            ><NSwitch v-model:value="isSetColor"
+          /></FormItemRow>
+          <FormItemRow title="4bit输出"
+            ><NSwitch v-model:value="isUse4bit"
+          /></FormItemRow>
+          <FormItemRow title="缩放大小"
+            ><NSwitch v-model:value="isUseSize"
+          /></FormItemRow>
+          <div v-if="isUseSize">
+            <FormItemRow title="最小size">
+              <input type="number" step="1" v-model="sizes[0]"
+            /></FormItemRow>
+            <FormItemRow title="最大size">
+              <input type="number" step="1" v-model="sizes[1]"
+            /></FormItemRow>
+          </div>
+          <!-- 是否忽略空格<NSwitch v-model:value="isSkipSpace" /> -->
+        </SectionLayout>
+      </SplitterPanel>
+      <SplitterPanel style="flex: 7">
+        <SectionLayout title="动效">
+          <FormItemRow title="流速"
+            ><input type="number" v-model="interval"
+          /></FormItemRow>
+          <div>—— 颜色 ——</div>
+          <FormItemRow title="颜色跳帧"
+            ><input type="number" v-model="colorJumpFrames"
+          /></FormItemRow>
+          <NRadioGroup
+            v-model:value="selectedColorStyle"
+            name="radiogroup"
+            size="large"
+          >
+            <NSpace vertical align="start">
+              <n-radio
+                v-for="style in colorStyles"
+                :key="style.id"
+                :value="style.id"
+              >
+                {{ style.label }}
+              </n-radio>
+            </NSpace>
+          </NRadioGroup>
+          <div>—— 大小 ——</div>
+          <FormItemRow title="大小跳帧"
+            ><input type="number" v-model="sizeJumpFrames"
+          /></FormItemRow>
+          <FormItemRow
+            title="最小值"
+            v-if="['Jump1'].includes(selectedSizeStyle)"
+            ><input type="number" v-model="sizeParams[0]"
+          /></FormItemRow>
+          <FormItemRow
+            title="最大值"
+            v-if="['Jump1'].includes(selectedSizeStyle)"
+            ><input type="number" v-model="sizeParams[1]"
+          /></FormItemRow>
+          <NRadioGroup
+            v-model:value="selectedSizeStyle"
+            name="sizegroup"
+            size="large"
+          >
+            <NSpace vertical align="start">
+              <n-radio
+                v-for="style in sizeStyle"
+                :key="style.id"
+                :value="style.id"
+              >
+                {{ style.label }}
+              </n-radio>
+            </NSpace>
+          </NRadioGroup>
+        </SectionLayout>
+      </SplitterPanel>
     </SplitterPanel>
     <SplitterPanel :size="70">
       <SectionLayout title="预览、输出区域">
@@ -528,14 +734,25 @@ function Clipboard(str: string) {
             "
           >
             <span
-              v-for="(item, index) in charList"
+              v-for="(item, index) in chars"
               :key="index"
               :style="{
-                color: `${isSetColor ? item.color.hex() : '#FFF'}`,
-                fontSize: `${isUseSize ? item.size : 20}` + 'px',
+                color: `${
+                  isSetColor
+                    ? colorFrames[currentFrame % colorFrames.length][
+                        index
+                      ].hex()
+                    : '#FFF'
+                }`,
+                fontSize:
+                  `${
+                    isUseSize
+                      ? sizeFrams[currentFrame % sizeFrams.length][index]
+                      : 20
+                  }` + 'px',
               }"
             >
-              {{ item.char }}
+              {{ item }}
             </span>
           </div>
           <div
@@ -546,38 +763,59 @@ function Clipboard(str: string) {
               margin-top: 10px;
             "
           >
-            <PanelLayout
-              v-for="(item, index) in output"
-              :key="index"
-              class="output"
+            共计：{{ frameCount }}帧
+            <NCollapse
+              v-for="i in frameCount"
+              :key="i"
+              :defaultExpandedNames="
+                Array.from({ length: frameCount }, (_, i) => `${i}`)
+              "
             >
-              <div
-                style="
-                  display: flex;
-                  flex-direction: row;
-                  justify-items: center;
-                  align-items: center;
-                "
-                v-on:click="Clipboard(item)"
-              >
-                <div style="width: 24px; height: 24px; margin-left: 10px">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    xmlns:xlink="http://www.w3.org/1999/xlink"
-                    viewBox="0 0 24 24"
+              <NCollapseItem :name="`${i - 1}`">
+                <template #header> 第{{ i }}帧 </template>
+                <div
+                  style="
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    margin-top: 10px;
+                  "
+                >
+                  <PanelLayout
+                    v-for="(item, index) in getCharList(frameCount)"
+                    :key="index"
+                    class="output"
                   >
-                    <path
-                      d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
-                      fill="currentColor"
-                    ></path>
-                  </svg>
+                    <div
+                      style="
+                        display: flex;
+                        flex-direction: row;
+                        justify-items: center;
+                        align-items: center;
+                      "
+                      v-on:click="Clipboard(item)"
+                    >
+                      <div style="width: 24px; height: 24px; margin-left: 10px">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          xmlns:xlink="http://www.w3.org/1999/xlink"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+                            fill="currentColor"
+                          ></path>
+                        </svg>
+                      </div>
+                      <div style="width: 85%; margin-left: 10px">
+                        <NEllipsis> {{ item }}</NEllipsis>
+                      </div>
+                      <div>字符:{{ item.length }}</div>
+                    </div>
+                  </PanelLayout>
                 </div>
-                <div style="width: 85%; margin-left: 10px">
-                  <NEllipsis> {{ item }}</NEllipsis>
-                </div>
-                <div>字符:{{ item.length }}</div>
-              </div>
-            </PanelLayout>
+              </NCollapseItem>
+            </NCollapse>
           </div>
         </div>
       </SectionLayout>
@@ -599,10 +837,10 @@ function Clipboard(str: string) {
   display: none;
   position: absolute;
   z-index: 99;
-  right: 25px;
+  left: 2px;
   top: 5px;
-  width: 10px;
-  height: 15px;
+  width: 6px;
+  height: 6px;
   border-radius: 100%;
 }
 
@@ -676,14 +914,16 @@ function Clipboard(str: string) {
 }
 
 .display {
+  position: relative;
   width: 100%;
   height: max-content;
   min-height: 75px;
   /* background-color: #333333; */
-
+  justify-items: center;
+  align-items: center;
   border-radius: 10px;
-
   word-break: break-all;
+  padding: 20px;
 }
 
 .output {
