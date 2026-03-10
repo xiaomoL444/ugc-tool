@@ -279,7 +279,14 @@ function Clipboard(str: string) {
             添加预设
           </div></ActionButton
         >
-        <div style="display: flex; flex-direction: column;gap: 10px;margin-top: 10px;">
+        <div
+          style="
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 10px;
+          "
+        >
           <div v-for="(item, index) in config" :key="index" style="width: 100%">
             <PanelLayout>
               <button class="preset-card" @click="SelectPresetCard(item.title)">
@@ -358,7 +365,7 @@ function Clipboard(str: string) {
                 style="left: 0; border-radius: 0 100% 100% 0"
                 v-on:click="AddColor(0)"
               >
-                <img src="@/assets/svg/Add12Filled.svg" alt="svg图标" />
+               < <img src="@/assets/svg/Add12Filled.svg" alt="svg图标" />>
               </button>
               <button
                 ref="右边的加号"
@@ -571,7 +578,7 @@ function Clipboard(str: string) {
   height: 75px;
   width: 100%;
   background-color: transparent;
-  border-radius:10px 10px 0 0 ;
+  border-radius: 10px 10px 0 0;
   border: 0;
   overflow: hidden;
 }

@@ -30,7 +30,6 @@
     "vue-router": "^4.0.3",
     "vue-sonner": "^2.0.9",
     "vue-split-layout": "^0.0.16",
-    "vue-svg-loader": "^0.16.0",
     "vue-virtual-scroll-list": "^2.3.5",
     "vueuc": "^0.4.65"
   },

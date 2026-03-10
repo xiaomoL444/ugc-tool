@@ -9,17 +9,16 @@ module.exports = defineConfig({
       },
     },
   },
-  chainWebpack: config => {
-    const svgRule = config.module.rule('svg')
-
-    svgRule.exclude.add(/src\/assets\/svg/)
-
-    config.module
-      .rule('icons')
-      .test(/\.svg$/)
-      .include.add(/src\/assets\/svg/)
+  chainWebpack: (config) => {
+    const svgRule = config.module.rule('svg');
+ 
+    svgRule.uses.clear();
+ 
+    svgRule
+      .use('babel-loader')
+      .loader('babel-loader')
       .end()
       .use('vue-svg-loader')
-      .loader('vue-svg-loader')
+      .loader('vue-svg-loader');
   }
 })
