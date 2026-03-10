@@ -125,7 +125,7 @@ async function SelectPresetCard(title: string) {
   isUse4bit.value = _config.option.isUse4bit;
   isUseSize.value = _config.option.isUseSize;
   isSkipSpace.value = _config.option.isSkipSpace;
-  text.value = _config.text;
+  // text.value = _config.text;
 }
 
 async function RefreshConfig() {
