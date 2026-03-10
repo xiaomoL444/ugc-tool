@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
-    "build": "vue-cli-service build",
+    "build": "pnpm run sync-data && vue-cli-service build",
     "sync-data": "node scripts/sync-data.js",
     "push-data": "node scripts/push-data.js"
   },
