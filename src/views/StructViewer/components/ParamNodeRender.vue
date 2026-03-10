@@ -52,14 +52,29 @@
       v-if="(['Int32List','GuidList','ConfigReferenceList','ArmyList','EntityReferenceList']as ParamType[]).includes(param.param_type)"
       class="listParam"
     >
-      <div v-for="(value,index) in (param.value as string[])" :key="index">
+      <div
+        v-for="(value,index) in (param.value as string[])"
+        :key="index"
+        class="row"
+      >
         <input
           type="number"
           placeholder="0"
           :value="value"
           @change="onChange($event, index)"
         />
+        <div class="operation">
+          <RemoveListElementButton
+            v-on:update:selected="RemoveListElement(index)"
+          ></RemoveListElementButton>
+          <AddListElementButton
+            v-on:update:selected="AddListElement(index)"
+          ></AddListElementButton>
+        </div>
       </div>
+      <AppendListElementButton
+        v-on:update:selected="AppendListElement"
+      ></AppendListElementButton>
     </div>
 
     <!-- 浮点数 -->
@@ -78,7 +93,11 @@
       v-if="(['FloatList']as ParamType[]).includes(param.param_type)"
       class="listParam"
     >
-      <div v-for="(value,index) in (param.value as string[])" :key="index">
+      <div
+        v-for="(value,index) in (param.value as string[])"
+        :key="index"
+        class="row"
+      >
         <input
           type="number"
           step="0.01"
@@ -86,7 +105,18 @@
           :value="value"
           @change="onChange($event, index)"
         />
+        <div class="operation">
+          <RemoveListElementButton
+            v-on:update:selected="RemoveListElement(index)"
+          ></RemoveListElementButton>
+          <AddListElementButton
+            v-on:update:selected="AddListElement(index)"
+          ></AddListElementButton>
+        </div>
       </div>
+      <AppendListElementButton
+        v-on:update:selected="AppendListElement"
+      ></AppendListElementButton>
     </div>
 
     <!-- 布尔值 -->
@@ -102,12 +132,27 @@
       v-if="(['BoolList']as ParamType[]).includes(param.param_type)"
       class="listParam"
     >
-      <div v-for="(value,index) in (param.value as string[])" :key="index">
+      <div
+        v-for="(value,index) in (param.value as string[])"
+        :key="index"
+        class="row"
+      >
         <select :value="value" @change="onChange($event, index)">
           <option value="True">是</option>
           <option value="False">否</option>
         </select>
+        <div class="operation">
+          <RemoveListElementButton
+            v-on:update:selected="RemoveListElement(index)"
+          ></RemoveListElementButton>
+          <AddListElementButton
+            v-on:update:selected="AddListElement(index)"
+          ></AddListElementButton>
+        </div>
       </div>
+      <AppendListElementButton
+        v-on:update:selected="AppendListElement"
+      ></AppendListElementButton>
     </div>
 
     <!-- 三维向量 -->
@@ -144,7 +189,7 @@
       <div
         v-for="(value,index) in (param.value as string[])"
         :key="index"
-        class="vector3Param"
+        class="vector3Param row"
       >
         <input
           type="number"
@@ -166,7 +211,18 @@
           :value="(value as String).split(',')[2]"
           @change="onChange($event, index, true, 2, value)"
         />
+        <div class="operation">
+          <RemoveListElementButton
+            v-on:update:selected="RemoveListElement(index)"
+          ></RemoveListElementButton>
+          <AddListElementButton
+            v-on:update:selected="AddListElement(index)"
+          ></AddListElementButton>
+        </div>
       </div>
+      <AppendListElementButton
+        v-on:update:selected="AppendListElement"
+      ></AppendListElementButton>
     </div>
 
     <!-- 实体 -->
@@ -179,9 +235,24 @@
       v-if="(['EntityList']as ParamType[]).includes(param.param_type)"
       class="listParam"
     >
-      <div v-for="(value,index) in (param.value as string[])" :key="index">
+      <div
+        v-for="(value,index) in (param.value as string[])"
+        :key="index"
+        class="row"
+      >
         {{ value }}
+        <div class="operation">
+          <RemoveListElementButton
+            v-on:update:selected="RemoveListElement(index)"
+          ></RemoveListElementButton>
+          <AddListElementButton
+            v-on:update:selected="AddListElement(index)"
+          ></AddListElementButton>
+        </div>
       </div>
+      <AppendListElementButton
+        v-on:update:selected="AppendListElement"
+      ></AppendListElementButton>
     </div>
 
     <!-- 结构体 -->
@@ -226,12 +297,27 @@
       v-if="(['StructList']as ParamType[]).includes(param.param_type)"
       class="listParam"
     >
-      <ParamNodeRender
+      <div
         v-for="(childrenParam, index) in (param.value as StructListNode).value"
         :key="index"
-        :param="childrenParam"
-        :json-path="`${jsonPath}.value.value[${index}]`"
-      ></ParamNodeRender>
+        class="row"
+      >
+        <ParamNodeRender
+          :param="childrenParam"
+          :json-path="`${jsonPath}.value.value[${index}]`"
+        ></ParamNodeRender>
+        <div class="operation">
+          <RemoveListElementButton
+            v-on:update:selected="RemoveListElement(index)"
+          ></RemoveListElementButton>
+          <AddListElementButton
+            v-on:update:selected="AddListElement(index)"
+          ></AddListElementButton>
+        </div>
+      </div>
+      <AppendListElementButton
+        v-on:update:selected="AppendListElement"
+      ></AppendListElementButton>
     </div>
 
     <!-- 字典 -->
@@ -243,6 +329,7 @@
         style="display: flex; flex-direction: column"
         v-for="(childrenParam, index) in (param.value as DictNode).value"
         :key="index"
+        class="row"
       >
         <div class="dict">
           <ParamNodeRender
@@ -256,14 +343,25 @@
             :param="childrenParam.value"
             :json-path="`${jsonPath}.value.value[${index}.value`"
           ></ParamNodeRender>
+          <div class="operation">
+            <RemoveListElementButton
+              v-on:update:selected="RemoveListElement(index)"
+            ></RemoveListElementButton>
+            <AddListElementButton
+              v-on:update:selected="AddListElement(index)"
+            ></AddListElementButton>
+          </div>
         </div>
+        <AppendListElementButton
+          v-on:update:selected="AppendListElement"
+        ></AppendListElementButton>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { inject } from "vue";
+import { computed, inject, Ref } from "vue";
 import { BaseStruct } from "../types/WorkspaceManifest";
 import {
   DictNode,
@@ -278,8 +376,9 @@ import { ParamChange } from "../types/ParamChange";
 import AddListElementButton from "../button/AddListElementButton.vue";
 import RemoveListElementButton from "../button/RemoveListElementButton.vue";
 import AppendListElementButton from "../button/AppendListElementButton.vue";
+import { consola } from "consola";
 
-const baseStructList = inject<BaseStruct[]>("baseStructList");
+const baseStructList = inject<Ref<BaseStruct[]>>("baseStructList");
 
 const props = defineProps<{
   param: ParamNode;
@@ -333,17 +432,99 @@ function onChange(
   } as ParamChange);
 }
 
+function GetParamDefaultValue(param_type: ParamType, structId = ""): any {
+  switch (param_type) {
+    case "String":
+    case "StringList":
+      return " ";
+    case "Float":
+    case "FloatList":
+      return "0.00";
+    case "Bool":
+    case "BoolList":
+      return "False";
+    case "Vector3":
+    case "Vector3List":
+      return "0,0,0";
+    case "Int32":
+    case "Entity":
+    case "Guid":
+    case "ConfigReference":
+    case "EntityReference":
+    case "Army":
+    case "Int32List":
+    case "EntityList":
+    case "GuidList":
+    case "ConfigReferenceList":
+    case "EntityReferenceList":
+    case "ArmyList":
+      return "0";
+
+    case "Struct":
+      return {
+        param_type: "Struct",
+        value: {
+          structId: structId,
+          type: "Struct",
+          value: baseStructList?.value
+            ?.find((q) => q.structId == structId)
+            ?.structDefinition.value.map((v: any) => ({ ...v.value })),
+        },
+      };
+    case "StructList":
+      return GetParamDefaultValue("Struct", structId);
+    case "Dict":
+      return {
+        key: {
+          param_type: (props.param.value as DictNode).key_type,
+          value: GetParamDefaultValue((props.param.value as DictNode).key_type),
+        },
+        value: ["StructList", "Strcut"].includes(
+          (props.param.value as DictNode).value_type,
+        )
+          ? GetParamDefaultValue(
+              (props.param.value as DictNode).value_type,
+              structId,
+            )
+          : {
+              param_type: (props.param.value as DictNode).value_type,
+              value: GetParamDefaultValue(
+                (props.param.value as DictNode).value_type,
+                structId,
+              ),
+            },
+      };
+  }
+  return;
+}
+
 function AddListElement(index: number) {
-  const jsonPath = `${props.jsonPath}.value`;
+  let jsonPath = `${props.jsonPath}.value`;
+
+  if (["StructList", "Dict"].includes(props.param.param_type)) {
+    jsonPath += ".value";
+  }
+
+  let structId = "";
+  structId =
+    (props.param.param_type == "StructList"
+      ? (props.param.value as StructNode).structId
+      : (props.param.value as DictNode).value_structId) ?? "0";
+
   ApplyParamNodeChange?.({
     type: "add",
     path: jsonPath,
     index: index,
-    value: "",
+    value: GetParamDefaultValue(props.param.param_type, structId),
   } as ParamChange);
 }
 function RemoveListElement(index: number) {
-  const jsonPath = `${props.jsonPath}.value`;
+  let jsonPath = `${props.jsonPath}.value`;
+
+  if (["StructList", "Dict"].includes(props.param.param_type)) {
+    jsonPath += ".value";
+  }
+
   ApplyParamNodeChange?.({
     type: "delete",
     path: jsonPath,
@@ -351,15 +532,11 @@ function RemoveListElement(index: number) {
   } as ParamChange);
 }
 function AppendListElement() {
-  console.log("123");
-  const jsonPath = `${props.jsonPath}.value`;
-
-  ApplyParamNodeChange?.({
-    type: "add",
-    path: jsonPath,
-    index: (props.param.value as any[]).length,
-    value: "",
-  } as ParamChange);
+  if (["StructList", "Dict"].includes(props.param.param_type)) {
+    AddListElement(((props.param.value as any).value as any[]).length);
+    return;
+  }
+  AddListElement((props.param.value as any[]).length);
 }
 </script>
 

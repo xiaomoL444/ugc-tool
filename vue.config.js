@@ -9,4 +9,17 @@ module.exports = defineConfig({
       },
     },
   },
+  chainWebpack: config => {
+    const svgRule = config.module.rule('svg')
+
+    svgRule.exclude.add(/src\/assets\/svg/)
+
+    config.module
+      .rule('icons')
+      .test(/\.svg$/)
+      .include.add(/src\/assets\/svg/)
+      .end()
+      .use('vue-svg-loader')
+      .loader('vue-svg-loader')
+  }
 })

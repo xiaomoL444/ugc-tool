@@ -4,21 +4,24 @@
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
-    "build": "vue-cli-service build",
+    "build": "pnpm run sync-data && vue-cli-service build",
     "sync-data": "node scripts/sync-data.js",
     "push-data": "node scripts/push-data.js"
   },
   "dependencies": {
     "@primeuix/themes": "^2.0.3",
     "@tanstack/react-virtual": "^3.13.21",
+    "@types/chroma-js": "^3.1.2",
     "@zenfs/core": "^2.5.2",
     "@zenfs/dom": "^1.2.7",
     "axios": "^1.13.6",
+    "chroma-js": "^3.2.0",
     "consola": "^3.4.2",
     "core-js": "^3.8.3",
     "jsonpath-plus": "^10.3.0",
     "lodash": "^4.17.23",
     "lodash.set": "^4.3.2",
+    "naive-ui": "^2.44.1",
     "path": "^0.12.7",
     "path-browserify": "^1.0.1",
     "primevue": "^4.5.4",
@@ -27,6 +30,7 @@
     "vue-router": "^4.0.3",
     "vue-sonner": "^2.0.9",
     "vue-split-layout": "^0.0.16",
+    "vue-svg-loader": "^0.16.0",
     "vue-virtual-scroll-list": "^2.3.5",
     "vueuc": "^0.4.65"
   },

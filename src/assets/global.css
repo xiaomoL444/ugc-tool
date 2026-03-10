@@ -28,7 +28,8 @@
   display: flex;
 }
 
-input {
+textarea,
+input:not([type="color"]){
   width: 100%;
   border: none;
   border-radius: 6px;
@@ -42,4 +43,16 @@ input {
   transition: border-color 0.3s;
   /* 颜色渐变 */
   box-sizing: border-box;
+
+  /* 自动换行 */
+  white-space: pre-wrap; /* 换行并保留空格 */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+
+  /* 可选：垂直居中 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  resize: none; /* 禁止手动拉伸 */
+  font-family:'StarRailFont'
 }

@@ -34,7 +34,7 @@ function onClick(event) { if (!props.disabled) emit('click', event) }
 
 <template>
     <button :style="buttonStyle" class="base-button" @mousedown="onMouseDown" @mouseup="onMouseUp"
-        @mouseleave="onMouseUp" @click="onClick">
+        @mouseleave="onMouseUp" @click.stop="onClick">
         <slot />
     </button>
 </template>

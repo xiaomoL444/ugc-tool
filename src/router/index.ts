@@ -3,6 +3,7 @@ import HomeView from "../views/HomeView.vue";
 import StructViewer from "@/views/StructViewer/StructViewer.vue";
 import DebugView from "@/views/DebugView/DebugView.vue";
 import SoundEffectPlayer from "@/views/SoundEffectPlayer/SoundEffectPlayer.vue";
+import TextGradient from "@/views/TextGradient/TextGradient.vue";
 
 const routes = [
   {
@@ -41,6 +42,14 @@ const routes = [
     component: SoundEffectPlayer,
     meta: {
       title: "音效播放器",
+    },
+  },
+  {
+    path: "/TextGradient",
+    name: "文本渐变器",
+    component: TextGradient,
+    meta: {
+      title: "文本渐变器",
     },
   }
 ];

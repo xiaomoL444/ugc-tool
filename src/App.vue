@@ -27,6 +27,7 @@
     <h4>线上工具</h4>
     <router-link to="/StructViewer">结构体编辑器</router-link>
     <router-link to="/SoundEffectPlayer">音效播放器</router-link>
+    <router-link to="/TextGradient">文本渐变器</router-link>
   </nav>
 </div>
 

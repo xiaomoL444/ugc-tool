@@ -77,5 +77,6 @@ async function clear() {
 <style lang="css" scoped>
 .container {
   text-align: left;
+  overflow-y: scroll;
 }
 </style>

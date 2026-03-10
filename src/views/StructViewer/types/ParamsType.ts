@@ -19,6 +19,7 @@ export interface DictNode {
   key_type: ParamType;
   value_type: ParamType;
   value: DictEntry[];
+  value_structId?: string;//字典可能会有结构体的id
 }
 export interface DictEntry {
   key: ParamNode;
