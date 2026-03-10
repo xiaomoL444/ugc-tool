@@ -839,7 +839,7 @@ function Clipboard(str: string) {
   position: absolute;
   z-index: 99;
   left: 2px;
-  top: 5px;
+  top: 2px;
   width: 6px;
   height: 6px;
   border-radius: 100%;
