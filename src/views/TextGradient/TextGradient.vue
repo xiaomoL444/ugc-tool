@@ -125,9 +125,10 @@ async function SelectPresetCard(title: string) {
   isUse4bit.value = _config.option.isUse4bit;
   isUseSize.value = _config.option.isUseSize;
   isSkipSpace.value = _config.option.isSkipSpace;
-  // text.value = _config.text;
+  if (text.value == "") {
+    text.value = _config.text;
+  }
 }
-
 async function RefreshConfig() {
   const files = await storage.getFiles(`/`);
   config.value = await Promise.all(
@@ -306,7 +307,7 @@ const sizeFrams = computed<number[][]>(() => {
           sizes.value[sSeg + 1] || sizes.value[sSeg],
           sT,
         );
-        frames.push(size)
+        frames.push(size);
       }
       if (chars.value.length != 0) list.push(frames);
       break;
@@ -334,7 +335,7 @@ const sizeFrams = computed<number[][]>(() => {
 
 //这个是循环的帧数
 const frameCount = computed(() => {
-  consola.trace(0)
+  consola.trace(0);
   return lcm(colorFrames.value.length, sizeFrams.value.length);
 });
 
