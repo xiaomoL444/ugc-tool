@@ -261,17 +261,30 @@
       class="structNode"
     >
       <div
+        v-if="baseStructList?.some(q=>q.structId==(param.value as StructNode).structId)"
         v-for="(childrenParam, index) in (param.value as StructNode).value"
         :key="index"
+        style="overflow: visible"
       >
-        <PanelLayout class="param">
-          <div class="definition">
-            <div class="name">
-              {{
-                baseStructList?.find(
+        <PanelLayout
+          class="param"
+          style="overflow: visible"
+          v-if="childrenParam.param_type== baseStructList?.find(
                   (q) => q.structId == (param.value as StructNode).structId,
-                )?.structDefinition.value[index]?.key
-              }}:
+                )?.structDefinition.value[index]?.param_type"
+        >
+          <div
+            class="definition sticky-title"
+            :style="{ top: `${structListCount * 10 + 2}px` }"
+          >
+            <div class="name">
+              <NEllipsis>
+                {{
+                  baseStructList?.find(
+                    (q) => q.structId == (param.value as StructNode).structId,
+                  )?.structDefinition.value[index]?.key
+                }}
+              </NEllipsis>
             </div>
             <div
               class="paramType"
@@ -280,15 +293,44 @@
                 '--color': ParamMetaMap[childrenParam.param_type].color,
               }"
             >
-              {{ ParamMetaMap[childrenParam.param_type].title }}
+              <NEllipsis style="max-width: 100%">
+                {{ ParamMetaMap[childrenParam.param_type].title }}
+              </NEllipsis>
             </div>
           </div>
           <div class="value">
             <ParamNodeRender
               :param="childrenParam"
               :json-path="`${jsonPath}.value.value[${index}]`"
+              :struct-list-count="structListCount + 1"
             ></ParamNodeRender></div
         ></PanelLayout>
+        <PanelLayout
+          v-else
+          style="background: #ff89aabb; align-items: center; padding: 10px"
+          ><div>
+            字段类型错误！结构体id:{{ (param.value as StructNode).structId }}
+            <p>
+              变量类型：
+              {{ ParamMetaMap[childrenParam.param_type || "NULL"].title }}
+            </p>
+            提供的结构体定义类型：{{
+              ParamMetaMap[
+                (baseStructList?.find(
+                  (q) => q.structId == (param.value as StructNode).structId,
+                )?.structDefinition.value[index]?.param_type as ParamType) ||
+                  "NULL"
+              ].title
+            }}
+          </div></PanelLayout
+        >
+      </div>
+      <div v-else>
+        <PanelLayout
+          style="background: #ff89aabb; align-items: center; padding: 10px"
+        >
+          <div>结构体id不存在：{{ (param.value as StructNode).structId }}</div>
+        </PanelLayout>
       </div>
     </div>
 
@@ -302,11 +344,43 @@
         :key="index"
         class="row"
       >
-        <ParamNodeRender
-          :param="childrenParam"
-          :json-path="`${jsonPath}.value.value[${index}]`"
-        ></ParamNodeRender>
-        <div class="operation">
+        <div style="width: 100%">
+          <div
+            class="sticky-title"
+            style="
+              backdrop-filter: blur(12px);
+              -webkit-backdrop-filter: blur(12px); /* Safari */
+
+              background: rgba(255, 255, 255, 0.9);
+              border-radius: 12px;
+              padding-left: 20px;
+              width: 100%;
+              cursor: default;
+              user-select: none;
+            "
+            :style="{ top: `${structListCount * 10 - 10}px` }"
+            v-on:click="ClickCollapse(index)"
+          >
+            第{{ index }}项,{{ fastHash(JSON.stringify(childrenParam)) }}
+          </div>
+          <NCollapse
+            v-model:expanded-names="expandedNames"
+            style="position: relative; margin-top: -20px"
+            ><NCollapseItem :name="index" style="margin-left: 0">
+              <div style="display: flex; flex-direction: row">
+                <ParamNodeRender
+                  :param="childrenParam"
+                  :json-path="`${jsonPath}.value.value[${index}]`"
+                  :struct-list-count="structListCount + 1"
+                  style="position: relative"
+                ></ParamNodeRender>
+              </div> </NCollapseItem
+          ></NCollapse>
+        </div>
+        <div
+          class="operation sticky-title"
+          :style="{ top: `${structListCount * 10}px` }"
+        >
           <RemoveListElementButton
             v-on:update:selected="RemoveListElement(index)"
           ></RemoveListElementButton>
@@ -333,15 +407,18 @@
       >
         <div class="dict">
           <ParamNodeRender
-            class="key"
+            class="key sticky-title"
+            :style="{ top: `${structListCount * 10}px` }"
             :param="childrenParam.key"
             :json-path="`${jsonPath}.value.value[${index}.key`"
+            :struct-list-count="structListCount + 1"
           ></ParamNodeRender>
 
           <ParamNodeRender
             class="value"
             :param="childrenParam.value"
             :json-path="`${jsonPath}.value.value[${index}.value`"
+            :struct-list-count="structListCount + 1"
           ></ParamNodeRender>
           <div class="operation">
             <RemoveListElementButton
@@ -352,16 +429,24 @@
             ></AddListElementButton>
           </div>
         </div>
-        <AppendListElementButton
-          v-on:update:selected="AppendListElement"
-        ></AppendListElementButton>
       </div>
+      <AppendListElementButton
+        v-on:update:selected="AppendListElement"
+      ></AppendListElementButton>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, Ref } from "vue";
+import {
+  computed,
+  inject,
+  nextTick,
+  onBeforeMount,
+  onMounted,
+  ref,
+  Ref,
+} from "vue";
 import { BaseStruct } from "../types/WorkspaceManifest";
 import {
   DictNode,
@@ -377,13 +462,42 @@ import AddListElementButton from "../button/AddListElementButton.vue";
 import RemoveListElementButton from "../button/RemoveListElementButton.vue";
 import AppendListElementButton from "../button/AppendListElementButton.vue";
 import { consola } from "consola";
+import { NCollapse, NCollapseItem, NEllipsis } from "naive-ui";
+import { bus } from "@/services/bus/bus";
 
 const baseStructList = inject<Ref<BaseStruct[]>>("baseStructList");
 
 const props = defineProps<{
   param: ParamNode;
   jsonPath: string;
+  structListCount: number;
 }>();
+
+const expandedNames = ref<number[]>([]);
+onBeforeMount(() => {
+  expandedNames.value = Array.from(
+    { length: (props.param.value as StructListNode).value?.length },
+    (_, i) => i,
+  );
+
+  bus.on("closeCollapse", () => {
+    expandedNames.value = [];
+  });
+  bus.on("openCollapse", () => {
+    expandedNames.value = Array.from(
+      { length: (props.param.value as StructListNode).value?.length },
+      (_, i) => i,
+    );
+  });
+});
+
+function ClickCollapse(index: number) {
+  if (expandedNames.value.includes(index)) {
+    expandedNames.value = expandedNames.value.filter((q) => q != index);
+  } else {
+    expandedNames.value.push(index);
+  }
+}
 
 const ApplyParamNodeChange = inject<(paramChange: ParamChange) => void>(
   "ApplyParamNodeChange",
@@ -473,32 +587,50 @@ function GetParamDefaultValue(param_type: ParamType, structId = ""): any {
       };
     case "StructList":
       return GetParamDefaultValue("Struct", structId);
+    // return {
+    //   param_type: "StructList",
+    //   value: GetParamDefaultValue("Struct", structId),
+    // };
     case "Dict":
+      const key = {
+        param_type: (props.param.value as DictNode).key_type,
+        value: GetParamDefaultValue((props.param.value as DictNode).key_type),
+      };
+
+      let value;
+      if ((props.param.value as DictNode).value_type == "StructList") {
+        value = {
+          param_type: "StructList",
+          value: { structId: structId, value: [] },
+        };
+      } else if ((props.param.value as DictNode).value_type == "Struct") {
+        value = GetParamDefaultValue("Struct", structId);
+      } else {
+        value = {
+          param_type: (props.param.value as DictNode).value_type,
+          value: GetParamDefaultValue(
+            (props.param.value as DictNode).value_type,
+            structId,
+          ),
+        };
+      }
+
       return {
-        key: {
-          param_type: (props.param.value as DictNode).key_type,
-          value: GetParamDefaultValue((props.param.value as DictNode).key_type),
-        },
-        value: ["StructList", "Strcut"].includes(
-          (props.param.value as DictNode).value_type,
-        )
-          ? GetParamDefaultValue(
-              (props.param.value as DictNode).value_type,
-              structId,
-            )
-          : {
-              param_type: (props.param.value as DictNode).value_type,
-              value: GetParamDefaultValue(
-                (props.param.value as DictNode).value_type,
-                structId,
-              ),
-            },
+        key: key,
+        value: value,
       };
   }
   return;
 }
 
-function AddListElement(index: number) {
+function insertAndShift(list: number[], n: number) {
+  const newList = list.map((v) => (v >= n ? v + 1 : v));
+  newList.push(n);
+
+  return newList.sort((a, b) => a - b);
+}
+
+async function AddListElement(index: number) {
   let jsonPath = `${props.jsonPath}.value`;
 
   if (["StructList", "Dict"].includes(props.param.param_type)) {
@@ -511,6 +643,9 @@ function AddListElement(index: number) {
       ? (props.param.value as StructNode).structId
       : (props.param.value as DictNode).value_structId) ?? "0";
 
+  consola.trace(expandedNames);
+  insertAndShift(expandedNames.value, index);
+  await nextTick();
   ApplyParamNodeChange?.({
     type: "add",
     path: jsonPath,
@@ -538,6 +673,15 @@ function AppendListElement() {
   }
   AddListElement((props.param.value as any[]).length);
 }
+
+function fastHash(str: string) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (h << 5) - h + str.charCodeAt(i);
+    h |= 0;
+  }
+  return h;
+}
 </script>
 
 <style scoped>
@@ -552,12 +696,13 @@ function AppendListElement() {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 20px;
 }
 .listParam .row {
   display: flex;
   flex-direction: row;
   gap: 10px;
+  overflow: visible;
 }
 .listParam .row .input {
   flex: 1;
@@ -566,18 +711,25 @@ function AppendListElement() {
   display: flex;
   flex-direction: row;
   gap: 10px;
+  height: 20px;
 }
 
 .structNode {
   min-height: 0;
   width: 100%;
-  overflow-y: auto;
+  /* overflow-y: auto; */
   display: flex;
   flex-direction: column;
   gap: 10px;
   background: transparent;
   /* margin: 10px; */
   /* padding: 10px; */
+}
+
+.structNode .sticky-title {
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .structNode::-webkit-scrollbar {
@@ -589,14 +741,18 @@ function AppendListElement() {
   flex-direction: row;
   width: 100%;
   padding: 10px;
+  z-index: 20;
 }
 .structNode .param .definition {
   flex: 1;
-  width: 100%;
+  width: 120px;
+  z-index: 20;
   display: flex;
   flex-direction: row;
+  height: min-content;
 }
 .structNode .param .definition .name {
+  max-width: 50%;
 }
 .structNode .param .definition .paramType {
   background-color: var(--bg-color, #ccc);
@@ -605,12 +761,15 @@ function AppendListElement() {
   border-radius: 6px;
   padding: 4px 10px;
   margin: 0 5px;
-
+  max-width: 50%;
   font-size: 0.8rem;
 }
 .structNode .param .value {
-  flex: 5;
+  position: relative;
+  flex: 7;
   width: 100%;
+  overflow: visible;
+  left: 7px;
 }
 .vector3Param {
   display: flex;
@@ -625,6 +784,7 @@ function AppendListElement() {
 }
 .dict .key {
   width: 100px;
+  height: min-content;
 }
 .dict .value {
   flex: 1;

@@ -49,4 +49,5 @@ export type ParamType =
   | "ArmyList"
   | "Struct"
   | "StructList"
-  | "Dict";
+  | "Dict"
+  | 'NULL';

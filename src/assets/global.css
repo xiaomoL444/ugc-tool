@@ -50,7 +50,7 @@ input:not([type="color"]){
   overflow-wrap: break-word;
 
   /* 可选：垂直居中 */
-  display: flex;
+  /* display: flex; */
   align-items: center;
   justify-content: center;
   resize: none; /* 禁止手动拉伸 */

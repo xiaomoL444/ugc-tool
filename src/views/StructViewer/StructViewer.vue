@@ -92,16 +92,30 @@
     </div>
     <div class="editorPanel">
       <SectionLayout title="编辑区">
-        <ActionButton
-          v-on:update:selected="downloadJson"
-          style="width: 200px; margin-bottom: 10px"
-          >下载JSON</ActionButton
-        >
+        <div style="display: flex;flex-direction: row;gap: 10px;">
+          <ActionButton
+            v-on:update:selected="downloadJson"
+            style="width: 200px; margin-bottom: 10px"
+            >下载JSON</ActionButton
+          >
+          <ActionButton
+            v-on:update:selected="bus.emit('openCollapse')"
+            style="width: 200px; margin-bottom: 10px"
+            >展开所有列表</ActionButton
+          >
+          <ActionButton
+            v-on:update:selected="bus.emit('closeCollapse')"
+            style="width: 200px; margin-bottom: 10px"
+            >关闭所有列表</ActionButton
+          >
+        </div>
         <div class="editorArea">
           <ParamNodeRender
             v-if="paramNode"
             :param="paramNode"
             :json-path="'$'"
+            :struct-list-count="0"
+            style="overflow-y: auto"
           ></ParamNodeRender>
         </div>
       </SectionLayout>
@@ -298,6 +312,7 @@ import { BindNodeId, ResolveNodeId } from "./utils/nodeIdResolveMap";
 import { ParamChange } from "./types/ParamChange";
 import _, { cloneDeep } from "lodash";
 import { consola } from "consola";
+import { bus } from "@/services/bus/bus";
 async function ApplyParamNodeChange(
   paramChange: ParamChange,
   enableUndoHistory = true,
@@ -758,8 +773,8 @@ onBeforeMount(async () => {
             `/${workspaceName}/${baseStructKey}/${data.basic_struct_id}.json`,
             JSON.stringify(data),
           );
-        
-        consola.trace(data)
+
+          consola.trace(data);
         }),
       );
       await Promise.all(
@@ -891,111 +906,6 @@ let isProgrammaticChange = false;
 const variableSelect = ref(0);
 
 let oldValue = {};
-// 页面挂载时读取缓存
-// onBeforeMount(() => {
-//     const cached = localStorage.getItem(STORAGE_KEY)
-//     if (cached) {
-//         isProgrammaticChange = true;
-//         SaveData.value = JSON.parse(cached)
-//         oldValue = JSON.parse(JSON.stringify(SaveData.value));
-//         console.log('从缓存加载数据')
-//         nextTick(() => {
-//             isProgrammaticChange = false;
-//         });
-//     }
-//     window.addEventListener('keydown', handleKey);
-// })
-// onBeforeUnmount(() => {
-//     window.removeEventListener('keydown', handleKey)
-// })
-// watch(SaveData, (newVal) => {
-//     console.log('structList 变化了！', newVal)
-//     localStorage.setItem(STORAGE_KEY, JSON.stringify(newVal))//保存值
-//     // 记录重做
-//     if (!isProgrammaticChange) {  // 🚫 不记录由撤销/重做引起的修改
-
-//         if (oldValue !== null) {
-//             console.log('记录历史记录');
-//             undoStack.value.push(cloneDeep(oldValue))
-//             redoStack.value = [] // 只在用户输入时清空重做
-//         }
-//     }
-//     oldValue = JSON.parse(JSON.stringify(newVal));
-// }, { deep: true })
-
-// function handleKey(e) {
-//     if (e.ctrlKey && e.key === 'z') {
-//         e.preventDefault()
-//         undo()
-//     } else if (e.ctrlKey && e.key === 'y') {
-//         e.preventDefault()
-//         redo()
-//     }
-//     else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-//         e.preventDefault() // 阻止浏览器默认保存行为
-//         // 调用你自己的保存函数
-//         downloadJson();
-//     }
-// }
-
-// // 🔹 撤销
-// function undo() {
-//     if (undoStack.value.length === 0) {
-//         toast('无可撤销的内容', { position: 'top-center' })
-//         return
-//     }
-//     const prev = undoStack.value.pop()
-//     redoStack.value.push(cloneDeep(SaveData.value))
-//     isProgrammaticChange = true   // ✅ 暂停监听
-//     SaveData.value = prev
-//     toast.success('撤回成功,可撤销步骤剩余' + undoStack.value.length, { position: 'top-center' })
-//     nextTick(() => {
-//         isProgrammaticChange = false
-//     });
-// }
-
-// // 🔹 重做
-// function redo() {
-//     if (redoStack.value.length === 0) {
-//         toast('无可复原的内容', { position: 'top-center' })
-//         return
-//     }
-//     const next = redoStack.value.pop()
-//     undoStack.value.push(cloneDeep(SaveData.value))
-//     isProgrammaticChange = true   // ✅ 暂停监听
-//     SaveData.value = next
-//     toast.success('已复原，可复原步骤剩余' + redoStack.value.length, { position: 'top-center' })
-//     nextTick(() => {
-//         isProgrammaticChange = false
-//     });
-// }
-
-// function ImportFormOldDomain() {
-//     let input = prompt(`注意：！如果你是从pigest.top/UGCStructViewer（即该工具的前域名）来的，才能使用该功能
-
-//   该功能会直接！覆盖该网页的所有配置，当然，你也可以用这个重置本网页的缓存配置
-
-//   请再次确认你自己在做什么再使用这个功能
-
-//   请输入pigest.top/UGCStructViewer提供的缓存数据`, '{"advancedDataStruct":[],"structData":[]}')
-
-//     if (input == null) return;
-//     try {
-//         SaveData.value.advancedDataStruct = JSON.parse(input).advancedDataStruct;
-//         SaveData.value.structData = JSON.parse(input).structData;
-//     } catch {
-//         alert('导入失败！')
-//     }
-
-// }
-
-// const onAdvancedDataStructChange = (data) => {
-//     //  advancedDataStruct.value = data
-// };
-
-// const onCustomerVariableSelect = (index) => {
-//     variableSelect.value = index
-// };
 
 function downloadJson() {
   if (selectedVarialbeName.value == "") return;

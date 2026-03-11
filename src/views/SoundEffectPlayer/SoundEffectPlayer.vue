@@ -1,6 +1,6 @@
 <template>
   <Splitter style="height: 100%; width: 100%">
-    <SplitterPanel>
+    <SplitterPanel :size="70">
       <SectionLayout title="选择音效 ">
         <Splitter style="height: 100%; width: 100%" layout="vertical">
           <SplitterPanel :size="4">
@@ -41,7 +41,7 @@
                   >
                     <div class="item">
                       <div class="title">
-                        {{ dataJson[id].name }}
+                        <NEllipsis> {{ dataJson[id].name }} </NEllipsis>
                       </div>
                       <div class="subtitle">
                         id:{{ id }} / {{ dataJson[id].duration }}s
@@ -55,7 +55,7 @@
         >
       </SectionLayout></SplitterPanel
     >
-    <SplitterPanel>
+    <SplitterPanel :size="30">
       <SectionLayout title="播放器">
         <div class="player">
           <span>音效名称：{{ dataJson[selectedId]?.name }}</span
@@ -211,6 +211,7 @@ import { toast } from "vue-sonner";
 import ActionButton from "@/components/button/ActionButton.vue";
 import axios from "axios";
 import { consola } from "consola";
+import { NEllipsis } from "naive-ui";
 
 const ProjectName = "SoundEffectPlayer";
 
@@ -228,7 +229,7 @@ const interval = ref(0);
 const keys = computed(() =>
   Object.keys(dataJson).filter((key) => {
     const value = dataJson[key];
-    return value.name.includes(search.value) || value.id.includes(search.value);
+    return value.name?.includes(search.value) || value.id?.includes(search.value);
   }),
 );
 

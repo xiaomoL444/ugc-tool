@@ -15,16 +15,15 @@
 <div id="overlay" class="overlay" v-on:click="CloseSidebar" :class="{ show: open }"></div>
 
 <div id="sidebar" class="sidebar"     :class="{ open }">
-  <h3>我是一个简易的导航</h3>
-
-<nav>
+  <h2>导航</h2>
+<nav v-if="isLocal">
   <h4>测试工具</h4>
     <router-link to="/">Home</router-link>
     <router-link to="/about">About</router-link>
     <router-link to="/debugpanel">debugpanle</router-link>
 </nav>
   <nav>
-    <h4>线上工具</h4>
+    <h3>线上工具</h3>
     <router-link to="/StructViewer">结构体编辑器</router-link>
     <router-link to="/SoundEffectPlayer">音效播放器</router-link>
     <router-link to="/TextGradient">文本渐变器</router-link>
@@ -149,7 +148,7 @@ background-color: #0001;
   top:0;
   left:0;
 
-  width:200px;
+  width:250px;
   height:100%;
 
   padding:30px;
@@ -196,7 +195,7 @@ import 'vue-sonner/style.css'
 const route = useRoute()
 const pageTitle = computed(() => route.meta.title ?? '默认标题')
 
-
+const isLocal = process.env.NODE_ENV === "development"
 
 const open = ref(false)
 function OpenSidebar()

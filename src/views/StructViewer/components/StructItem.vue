@@ -1,7 +1,7 @@
 <template>
   <div class="container">
     <div class="name" @dblclick="doubleClick" :hidden="isInput">
-      {{ name }}
+      <NEllipsis> {{ name }}</NEllipsis>
     </div>
     <input
       ref="inputRef"
@@ -18,6 +18,7 @@
 </template>
 
 <script setup lang="ts">
+import { NEllipsis } from "naive-ui";
 import { nextTick, ref } from "vue";
 
 const props = defineProps({
@@ -64,7 +65,9 @@ function finishInput(e: Event) {
 }
 
 .name {
-  font-size: 1.2rem;
+  font-size: 1.1rem;
+  text-align: left;
+  width: 100%;
 }
 
 .id {

@@ -21,6 +21,7 @@
     "jsonpath-plus": "^10.3.0",
     "lodash": "^4.17.23",
     "lodash.set": "^4.3.2",
+    "mitt": "^3.0.1",
     "naive-ui": "^2.44.1",
     "path": "^0.12.7",
     "path-browserify": "^1.0.1",
@@ -31,6 +32,7 @@
     "vue-sonner": "^2.0.9",
     "vue-split-layout": "^0.0.16",
     "vue-virtual-scroll-list": "^2.3.5",
+    "vue-virtual-scroller": "2.0.0-beta.9",
     "vueuc": "^0.4.65"
   },
   "devDependencies": {

@@ -56,4 +56,5 @@ export const ParamMetaMap: Record<ParamType, ParamMeta> = {
     background: "#E6E6FA",
   },
   Dict: { title: "字典", color: "#FFB90F", background: "#FFFACD" },
+  NULL: { title: "空", color: "#B7B7B7FF", background: "#454545FF" },
 };

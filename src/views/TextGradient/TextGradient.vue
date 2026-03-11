@@ -499,7 +499,9 @@ function Clipboard(str: string) {
               <input type="number" step="1" v-model="sizes[1]"
             /></FormItemRow>
           </div>
-          <!-- 是否忽略空格<NSwitch v-model:value="isSkipSpace" /> -->
+          <!-- <FormItemRow title="忽略空格">
+            <NSwitch v-model:value="isSkipSpace"
+          /></FormItemRow> -->
         </SectionLayout>
       </SplitterPanel>
       <SplitterPanel style="flex: 7">

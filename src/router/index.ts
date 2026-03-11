@@ -4,6 +4,7 @@ import StructViewer from "@/views/StructViewer/StructViewer.vue";
 import DebugView from "@/views/DebugView/DebugView.vue";
 import SoundEffectPlayer from "@/views/SoundEffectPlayer/SoundEffectPlayer.vue";
 import TextGradient from "@/views/TextGradient/TextGradient.vue";
+import NotFound from "@/views/NotFound/NotFound.vue";
 
 const routes = [
   {
@@ -19,6 +20,10 @@ const routes = [
     // which is lazy-loaded when the route is visited.
     component: () =>
       import(/* webpackChunkName: "about" */ "../views/AboutView.vue"),
+  },
+  {
+    path: "/UGCStructViewer",
+    redirect: "/StructViewer",
   },
   {
     path: "/StructViewer",
@@ -37,6 +42,10 @@ const routes = [
     },
   },
   {
+    path: "/UGCSoundEffectPlayer",
+    redirect: "/SoundEffectPlayer",
+  },
+  {
     path: "/SoundEffectPlayer",
     name: "音效播放器",
     component: SoundEffectPlayer,
@@ -51,7 +60,15 @@ const routes = [
     meta: {
       title: "文本渐变器",
     },
-  }
+  }, // 404 路由
+  {
+    path: "/:pathMatch(.*)*",
+    name: "NotFound",
+    component: NotFound,
+    meta: {
+      title: "4~0~4~N~o~t~F~o~u~n~d~",
+    },
+  },
 ];
 
 const router = createRouter({
