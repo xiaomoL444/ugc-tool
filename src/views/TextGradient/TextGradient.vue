@@ -32,6 +32,8 @@ import axios from "axios";
 import { lcm } from "./utils/math";
 import FormItemRow from "@/components/Layout/form-item-row.vue";
 import { Clipboard } from "@/utils/clipboard";
+import { downloadJsonFile } from "@/utils/download";
+import { FileUtil } from "@/utils/fileUtil";
 
 const isSetColor = ref(true);
 const isUse4bit = ref(false);
@@ -74,6 +76,35 @@ const storage = inject<StorageClass>("storage")!.setProject("文本渐变器"); 
 
 const config = ref<config[]>([]);
 
+async function ImportConfig() {
+  const files = await FileUtil.pickFiles(".json", true);
+
+  await Promise.all(
+    files.map(async (q) => {
+      try {
+        consola.info(await q.text());
+        const json = JSON.parse(await q.text()) as config;
+
+        if (!json.title) {
+          throw new Error("内部标题名字为空，无法保存");
+        }
+
+        const filePath = `/${json.title}.json`;
+
+        if (await storage.exists(filePath)) {
+          throw new Error(`存在同名内部标题「${json.title}」的配置，无法添加`);
+        }
+
+        await storage.writeFile(filePath, JSON.stringify(json));
+
+        toast.success(`导入「${q.name}」，标题：{${json.title}}成功`)
+      } catch (error) {
+        toast.warning(`导入文件「${q.name}」时发生错误：${error}`);
+      }
+    }),
+  );
+  await RefreshConfig();
+}
 async function AddConfig() {
   const name = prompt("输入一个配置名（不可重复）");
   const filePath = `/${name}.json`;
@@ -110,6 +141,11 @@ async function DeleteConfig(name: string) {
   const path = `/${name}.json`;
   await storage.trash(path);
   await RefreshConfig();
+}
+
+async function ExportConfig(name: string) {
+  const content = JSON.parse(await storage.readFile(`/${name}.json`));
+  downloadJsonFile(content, `${name}.json`);
 }
 
 //读取部分
@@ -404,11 +440,18 @@ function getCharList(frame: number) {
   <Splitter style="height: 100%; width: 100%">
     <SplitterPanel :size="15">
       <SectionLayout title="预设">
-        <ActionButton v-on:update:selected="AddConfig"
-          ><div style="font-size: 1rem; color: white">
-            添加预设
-          </div></ActionButton
-        >
+        <div style="display: flex; gap: 5px">
+          <ActionButton v-on:update:selected="ImportConfig"
+            ><div style="font-size: 1rem; color: white">
+              导入预设
+            </div></ActionButton
+          >
+          <ActionButton v-on:update:selected="AddConfig"
+            ><div style="font-size: 1rem; color: white">
+              添加预设
+            </div></ActionButton
+          >
+        </div>
         <div
           style="
             display: flex;
@@ -430,36 +473,55 @@ function getCharList(frame: number) {
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512"><path d="M289.94 256l95-95A24 24 0 0 0 351 127l-95 95l-95-95a24 24 0 0 0-34 34l95 95l-95 95a24 24 0 1 0 34 34l95-95l95 95a24 24 0 0 0 34-34z" fill="currentColor"></path></svg></NIcon>
                   </ActionButton>
                 </div>
+                <div class="export-button">
+                  <ActionButton
+                    style="background-color: #4dacffff"
+                    v-on:update:selected="ExportConfig(item.title)"
+                  >
+                    <!-- prettier-ignore -->
+                    <NIcon :size="12">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 32 32"><path d="M13 21h13.17l-2.58 2.59L25 25l5-5l-5-5l-1.41 1.41L26.17 19H13v2z" fill="currentColor"></path><path d="M22 14v-4a1 1 0 0 0-.29-.71l-7-7A1 1 0 0 0 14 2H4a2 2 0 0 0-2 2v24a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2h-2v2H4V4h8v6a2 2 0 0 0 2 2h6v2zm-8-4V4.41L19.59 10z" fill="currentColor"></path></svg></NIcon>
+                  </ActionButton>
+                </div>
                 <div
                   ref="颜色"
                   :style="{
-                    background: `linear-gradient(to right, ${item.colors.join(
+                    background: `linear-gradient(to right, ${item.colors?.join(
                       ',',
                     )})`,
                   }"
                   style="
                     width: 120%;
-                    height: 100%;
+                    height: 80%;
                     position: relative;
                     left: -10px;
+                    top: -5px;
                   "
                 ></div>
-              </button>
-              <div
-                style="
-                  display: flex;
-                  flex-direction: row;
-                  justify-content: space-between;
-                  justify-items: center;
-                  align-items: center;
-                "
-              >
                 <div
-                  style="text-align: left; padding-left: 10px; font-size: 15px"
+                  style="
+                    display: flex;
+                    flex-direction: row;
+                    justify-content: space-between;
+                    justify-items: center;
+                    align-items: center;
+                    position: relative;
+                    z-index: 20;
+                    bottom: 0;
+                    left: -5px;
+                  "
                 >
-                  {{ item.title }}
+                  <div
+                    style="
+                      text-align: left;
+                      padding-left: 10px;
+                      font-size: 15px;
+                    "
+                  >
+                    {{ item.title }}
+                  </div>
                 </div>
-              </div>
+              </button>
             </PanelLayout>
           </div>
         </div>
@@ -818,7 +880,7 @@ function getCharList(frame: number) {
 
 <style scoped>
 .preset-card {
-  height: 75px;
+  height: 100px;
   width: 100%;
   background-color: transparent;
   border-radius: 10px 10px 0 0;
@@ -836,11 +898,23 @@ function getCharList(frame: number) {
   height: 6px;
   border-radius: 100%;
 }
+.export-button {
+  display: none;
+  position: absolute;
+  z-index: 99;
+  left: 40px;
+  top: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 100%;
+}
 
 .preset-card:hover .delete-button {
   display: block;
 }
-
+.preset-card:hover .export-button {
+  display: block;
+}
 .color-picker {
   width: 60px;
   height: 60px;
