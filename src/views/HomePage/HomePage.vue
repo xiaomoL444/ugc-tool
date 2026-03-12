@@ -4,15 +4,6 @@ import { onMounted, ref } from "vue";
 import { AppRoute, appRoutes } from "@/configs/routes";
 import axios from "axios";
 
-const avatar_src = ref("");
-onMounted(async () => {
-  const res = await axios.get(`/data/HomePage/avatar.jpg`, {
-    responseType: "blob",
-  });
-  const url = URL.createObjectURL(res.data);
-  avatar_src.value = url;
-});
-
 function jumpAddress(item: AppRoute) {
   window.location.href = item.path;
 }
@@ -32,7 +23,7 @@ function jumpAddress(item: AppRoute) {
     <img
       alt="Vue logo"
       style="height: 30%; border-radius: 10%"
-      :src="avatar_src"
+      src="@/assets/HomePage/avatar.jpg"
     />
     <h1>欢迎来到晓末L444的工具集</h1>
     <h2>客官想要什么下面请</h2>
