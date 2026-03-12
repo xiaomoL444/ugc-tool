@@ -1,10 +1,10 @@
 <template>
   <Toaster position="top-center" />
-
-  <div class="header">
-    <button id="menuBtn" v-on:click="OpenSidebar">☰</button>
-    <img src="@/assets/logo.png" style="height: 2.5rem; width: 2.5rem; margin:0rem 1rem;"></img>
-    <h2 class="title" style="color: white;">{{ pageTitle }}</h2>
+  <div class="topbar">
+    <button style="background-color:  #6a5acdAA; border-radius: 10%;" id="menuBtn" v-on:click="OpenSidebar" >☰</button>
+    <PanelLayout>
+      <div class="header" ><img src="@/assets/logo.png" style="height: 2.5rem; width: 2.5rem; margin:0rem 1rem;"></img>
+    <h2 class="title" style="color: white;">{{ pageTitle }}</h2></div></PanelLayout>
   </div>
   <main class="background">
     <div class="content">
@@ -75,14 +75,24 @@ nav a.router-link-exact-active {
   color: #42b983;
 }
 
+.topbar{
+  display: flex;
+  padding: 10px 10px 0 10px;
+  gap: 10px;
+  justify-items: center;
+  align-items: center;
+  height: 64px;
+}
+
 .header {
   display: flex;
   /* justify-content: center; */
   /* 水平居中 */
   align-items: center;
-  padding-left: 2rem;
+  /* padding-left: 2rem; */
+  padding-left: 20px;
   background: linear-gradient(90deg, #6a5acd, #00bfff);
-  height: 64px;
+
 }
 
 .background {
@@ -192,6 +202,7 @@ import { useRoute } from 'vue-router'
 import { computed, onBeforeMount, onMounted, provide, ref, watch } from 'vue'
 import { Toaster } from 'vue-sonner'
 import 'vue-sonner/style.css'
+import PanelLayout from './components/Layout/PanelLayout.vue'
 
 const route = useRoute()
 const pageTitle = computed(() => route.meta.title ?? '默认标题')
