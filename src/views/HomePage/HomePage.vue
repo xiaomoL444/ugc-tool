@@ -2,6 +2,10 @@
 import PanelLayout from "@/components/Layout/PanelLayout.vue";
 import { ref } from "vue";
 import { AppRoute, appRoutes } from "@/configs/routes";
+
+function jumpAddress(item: AppRoute) {
+  window.location.href = item.path;
+}
 </script>
 
 <template>
@@ -109,9 +113,3 @@ import { AppRoute, appRoutes } from "@/configs/routes";
   bottom: 0;
 }
 </style>
-
-<script lang="ts">
-function jumpAddress(item: AppRoute) {
-  window.location.href = item.path;
-}
-</script>

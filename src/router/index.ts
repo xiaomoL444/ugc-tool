@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
-import HomeView from "../views/HomeView.vue";
 import StructViewer from "@/views/StructViewer/StructViewer.vue";
 import DebugView from "@/views/DebugView/DebugView.vue";
 import TextGradient from "@/views/TextGradient/TextGradient.vue";
