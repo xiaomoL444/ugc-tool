@@ -1,9 +1,9 @@
 <template>
   <Toaster position="top-center" />
   <div class="topbar">
-    <button style="background-color:  #6a5acdAA; border-radius: 10%;" id="menuBtn" v-on:click="OpenSidebar" >☰</button>
+    <button style="width: 54px;height: 54px; background-color:  #6a5acdAA; border-radius: 15%;" id="menuBtn" v-on:click="OpenSidebar" >☰</button>
     <PanelLayout>
-      <div class="header" ><img src="@/assets/logo.png" style="height: 2.5rem; width: 2.5rem; margin:0rem 1rem;"></img>
+      <div class="header" ><img src="@/assets/logo.png" style="height: 36px; width: 36px; margin:0px,20px;"></img>
     <h2 class="title" style="color: white;">{{ pageTitle }}</h2></div></PanelLayout>
   </div>
   <main class="background">
@@ -18,17 +18,20 @@
   <h2>导航</h2>
 <nav v-if="isLocal">
   <h4>测试工具</h4>
-    <router-link to="/">Home</router-link>
     <router-link to="/about">About</router-link>
     <router-link to="/debugpanel">debugpanle</router-link>
 </nav>
-  <nav>
-    <h3>线上工具</h3>
-    <router-link to="/StructViewer">结构体编辑器</router-link>
-    <router-link to="/SoundEffectPlayer">音效播放器</router-link>
-    <router-link to="/TextGradient">文本渐变器</router-link>
-        <router-link to="/PixelArt">图片转像素画</router-link>
-  </nav>
+  <div>
+        <router-link to="/">标题页</router-link>
+    <h3 style="color: #0005; width: 100%; position: relative;">——线上工具——</h3>
+<router-link
+  v-for="route in appRoutes"
+  :key="route.path"
+  :to="route.path"
+>
+  {{ route.title }}
+</router-link>
+  </div>
 </div>
 
 </template>
@@ -40,7 +43,7 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
-background-color: #d9def3;
+background-color: #E7E7FFFF;
   /* line-height: 1.5; */
   /* font-size: 90%; */
   /* 让所有 rem 缩小为原来的 0.9 倍 */
@@ -89,12 +92,15 @@ nav a.router-link-exact-active {
   /* justify-content: center; */
   /* 水平居中 */
   align-items: center;
+  height: 54px;
   /* padding-left: 2rem; */
   padding-left: 20px;
   background: linear-gradient(90deg, #6a5acd, #00bfff);
 
 }
-
+.title{
+  padding-left: 5px;
+}
 .background {
   position: relative;
   overflow: hidden;
@@ -203,6 +209,7 @@ import { computed, onBeforeMount, onMounted, provide, ref, watch } from 'vue'
 import { Toaster } from 'vue-sonner'
 import 'vue-sonner/style.css'
 import PanelLayout from './components/Layout/PanelLayout.vue'
+import { appRoutes } from './configs/routes'
 
 const route = useRoute()
 const pageTitle = computed(() => route.meta.title ?? '默认标题')

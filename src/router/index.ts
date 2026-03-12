@@ -2,16 +2,29 @@ import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
 import HomeView from "../views/HomeView.vue";
 import StructViewer from "@/views/StructViewer/StructViewer.vue";
 import DebugView from "@/views/DebugView/DebugView.vue";
-import SoundEffectPlayer from "@/views/SoundEffectPlayer/SoundEffectPlayer.vue";
 import TextGradient from "@/views/TextGradient/TextGradient.vue";
 import NotFound from "@/views/NotFound/NotFound.vue";
 import PixelArt from "@/views/PixelArt/PixelArt.vue";
+import HomePage from "@/views/HomePage/HomePage.vue";
+import SoundEffectPlayer from "@/views/SoundEffectPlayer/SoundEffectPlayer.vue";
+import { appRoutes } from "@/configs/routes";
 
 const routes = [
+  ...appRoutes.map((r) => ({
+    path: r.path,
+    name: r.name,
+    component: () => import(`@/views/${r.name}/${r.name}.vue`),
+    meta: {
+      title: r.title,
+    },
+  })),
   {
     path: "/",
     name: "home",
-    component: HomeView,
+    component: HomePage,
+    meta: {
+      title: "标题页",
+    },
   },
   {
     path: "/about",
@@ -26,14 +39,7 @@ const routes = [
     path: "/UGCStructViewer",
     redirect: "/StructViewer",
   },
-  {
-    path: "/StructViewer",
-    name: "千星奇域·结构体编辑器",
-    component: StructViewer,
-    meta: {
-      title: "结构体编辑器",
-    },
-  },
+
   {
     path: "/DebugPanel",
     name: "嗯，这是一个用来Debug的页面，你是怎么找到这里的？",
@@ -47,33 +53,10 @@ const routes = [
     redirect: "/SoundEffectPlayer",
   },
   {
-    path: "/SoundEffectPlayer",
-    name: "音效播放器",
-    component: SoundEffectPlayer,
-    meta: {
-      title: "音效播放器",
-    },
-  },
-    {
     path: "/UGCPixelArt",
     redirect: "/PixelArt",
   },
-  {
-    path: "/PixelArt",
-    name: "音效播放器",
-    component: PixelArt,
-    meta: {
-      title: "图片转像素画",
-    },
-  },
-  {
-    path: "/TextGradient",
-    name: "文本渐变器",
-    component: TextGradient,
-    meta: {
-      title: "文本渐变器",
-    },
-  }, // 404 路由
+  // 404 路由
   {
     path: "/:pathMatch(.*)*",
     name: "NotFound",

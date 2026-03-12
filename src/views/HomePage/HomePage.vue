@@ -1,0 +1,91 @@
+<script setup lang="ts">
+import PanelLayout from "@/components/Layout/PanelLayout.vue";
+import { ref } from "vue";
+import { AppRoute, appRoutes } from "@/configs/routes";
+</script>
+
+<template>
+  <div
+    style="
+      padding-top: 30px;
+      display: flex;
+      flex-direction: column;
+      justify-items: center;
+      align-items: center;
+      width: 100%;
+    "
+  >
+    <img
+      alt="Vue logo"
+      style="height: 30%; border-radius: 10%"
+      src="/data/HomePage/avatar.jpg"
+    />
+    <h1>欢迎来到晓末L444的工具集</h1>
+    <h2>客官想要什么下面请</h2>
+    <div class="Grid">
+      <div v-for="(item, index) in appRoutes" :key="index">
+        <PanelLayout>
+          <div class="card" v-on:click="jumpAddress(item)">
+            <div style="position: absolute; top: 0; left: 10px">✦───────</div>
+            <div class="title" :style="{ color: item.titleColor ?? '#000' }">
+              {{ item.title }}
+            </div>
+            <div class="description">{{ item.description }}</div>
+            <div style="position: absolute; bottom: 0; right: 10px">
+              ───────✦
+            </div>
+          </div>
+        </PanelLayout>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.Grid {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 270px));
+  gap: 20px;
+  place-items: center;
+  justify-content: center;
+  box-sizing: content-box;
+}
+.card {
+  /* padding: 50px; */
+  width: 250px;
+  height: 143.6px;
+
+  padding: 10px;
+
+  cursor: default;
+  user-select: none;
+  box-sizing: content-box;
+
+  background-color: #fff5;
+}
+.card .title {
+  position: relative;
+  padding-top: 10px;
+  width: 100%;
+  text-align: left;
+  font-size: 20px;
+  color: #000a;
+}
+.card .description {
+  position: relative;
+  padding-top: 5px;
+  padding-left: 10px;
+  width: 100%;
+  text-align: left;
+  font-size: 15px;
+  color: #0008;
+}
+</style>
+
+<script lang="ts">
+function jumpAddress(item: AppRoute) {
+  window.location.href = item.path;
+}
+</script>
