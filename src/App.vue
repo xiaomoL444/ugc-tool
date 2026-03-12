@@ -27,6 +27,7 @@
     <router-link to="/StructViewer">结构体编辑器</router-link>
     <router-link to="/SoundEffectPlayer">音效播放器</router-link>
     <router-link to="/TextGradient">文本渐变器</router-link>
+        <router-link to="/PixelArt">图片转像素画</router-link>
   </nav>
 </div>
 

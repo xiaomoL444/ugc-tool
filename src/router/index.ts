@@ -5,6 +5,7 @@ import DebugView from "@/views/DebugView/DebugView.vue";
 import SoundEffectPlayer from "@/views/SoundEffectPlayer/SoundEffectPlayer.vue";
 import TextGradient from "@/views/TextGradient/TextGradient.vue";
 import NotFound from "@/views/NotFound/NotFound.vue";
+import PixelArt from "@/views/PixelArt/PixelArt.vue";
 
 const routes = [
   {
@@ -51,6 +52,18 @@ const routes = [
     component: SoundEffectPlayer,
     meta: {
       title: "音效播放器",
+    },
+  },
+    {
+    path: "/UGCPixelArt",
+    redirect: "/PixelArt",
+  },
+  {
+    path: "/PixelArt",
+    name: "音效播放器",
+    component: PixelArt,
+    meta: {
+      title: "图片转像素画",
     },
   },
   {

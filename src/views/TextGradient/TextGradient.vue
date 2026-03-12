@@ -30,7 +30,8 @@ import ActionButton from "@/components/button/ActionButton.vue";
 import { StorageClass } from "@/services/storage/storage";
 import axios from "axios";
 import { lcm } from "./utils/math";
-import FormItemRow from "./components/form-item-row.vue";
+import FormItemRow from "@/components/Layout/form-item-row.vue";
+import { Clipboard } from "@/utils/clipboard";
 
 const isSetColor = ref(true);
 const isUse4bit = ref(false);
@@ -397,18 +398,7 @@ function getCharList(frame: number) {
 
   return result;
 }
-function Clipboard(str: string) {
-  navigator.clipboard
-    .writeText(str)
-    .then(() => {
-      const length = 50;
-      const text = str.length > length ? str.substring(0, length) + "..." : str;
-      toast.success(` ${text} 复制成功`);
-    })
-    .catch((err) => {
-      toast.error("复制失败" + err);
-    });
-}
+
 </script>
 
 <template>

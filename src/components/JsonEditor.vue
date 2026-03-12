@@ -21,7 +21,7 @@ import StructField from './JsonField/StructField.vue'
 import Title from './Layout/Title.vue';
 
 import { ref, watch } from 'vue'
-import { getTypeComponentMap } from './utils/typeMap';
+import { getTypeComponentMap } from '../utils/typeMap';
 
 const emit = defineEmits(['onDownload'])
 

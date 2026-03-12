@@ -20,7 +20,7 @@
 </style>
 
 <script setup>
-import { getTypeNameMap } from '../utils/typeMap';
+import { getTypeNameMap } from '../../utils/typeMap';
 
 const props = defineProps({
     param_type: { type: String, request: true }
