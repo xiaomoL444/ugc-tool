@@ -26,18 +26,30 @@ import { AppRoute, appRoutes } from "@/configs/routes";
       <div v-for="(item, index) in appRoutes" :key="index">
         <PanelLayout>
           <div class="card" v-on:click="jumpAddress(item)">
-            <div style="position: absolute; top: 0; left: 10px">✦───────</div>
+            <div
+              style="position: absolute; top: 0; left: 10px; font-size: 14px"
+            >
+              ✦───────
+            </div>
             <div class="title" :style="{ color: item.titleColor ?? '#000' }">
               {{ item.title }}
             </div>
             <div class="description">{{ item.description }}</div>
-            <div style="position: absolute; bottom: 0; right: 10px">
+            <div
+              style="
+                position: absolute;
+                bottom: 0;
+                right: 10px;
+                font-size: 14px;
+              "
+            >
               ───────✦
             </div>
           </div>
         </PanelLayout>
       </div>
     </div>
+    <!-- <div class="bottom-line">发现这个头像有点欲迎还拒的感觉，很可爱</div> -->
   </div>
 </template>
 
@@ -59,15 +71,24 @@ import { AppRoute, appRoutes } from "@/configs/routes";
 
   padding: 10px;
 
-  cursor: default;
+  cursor: pointer;
   user-select: none;
   box-sizing: content-box;
 
   background-color: #fff5;
 }
+.container {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.container:hover {
+  transform: scale(1.05); /* 放大 */
+  border-color: #4fa3ff; /* 边框亮起 */
+  box-shadow: 0 0 12px #4fa3ff50; /* 发光效果 */
+}
 .card .title {
   position: relative;
   padding-top: 10px;
+  padding-left: 10px;
   width: 100%;
   text-align: left;
   font-size: 20px;
@@ -81,6 +102,11 @@ import { AppRoute, appRoutes } from "@/configs/routes";
   text-align: left;
   font-size: 15px;
   color: #0008;
+}
+.bottom-line {
+  position: fixed;
+  height: auto;
+  bottom: 0;
 }
 </style>
 
