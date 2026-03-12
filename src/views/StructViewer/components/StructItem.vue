@@ -56,21 +56,27 @@ function finishInput(e: Event) {
 .container {
   height: 100%;
   width: 100%;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, auto) auto;
   /* 上 → 下 */
-  align-items: flex-start;
+  align-items: center;
   /* 左对齐 */
   gap: 0.1rem;
+
 }
 
 .name {
   font-size: 1.1rem;
   text-align: left;
   width: 100%;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .id {
   font-size: 0.8rem;
+  width: 100px;
 }
 </style>
