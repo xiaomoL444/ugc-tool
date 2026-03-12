@@ -398,7 +398,6 @@ function getCharList(frame: number) {
 
   return result;
 }
-
 </script>
 
 <template>
@@ -568,7 +567,7 @@ function getCharList(frame: number) {
                 style="left: 0; border-radius: 0 100% 100% 0"
                 v-on:click="AddColor(0)"
               >
-                < <img src="@/assets/svg/Add12Filled.svg" alt="svg图标" />>
+                <img src="@/assets/svg/Add12Filled.svg" alt="svg图标" />
               </button>
               <button
                 ref="右边的加号"
