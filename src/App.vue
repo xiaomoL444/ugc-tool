@@ -44,6 +44,7 @@ body {
   padding: 0;
   height: 100%;
 background-color: #E7E7FFFF;
+overflow: hidden;
   /* line-height: 1.5; */
   /* font-size: 90%; */
   /* 让所有 rem 缩小为原来的 0.9 倍 */
