@@ -18,6 +18,7 @@ function jumpAddress(item: AppRoute) {
       justify-items: center;
       align-items: center;
       width: 100%;
+      overflow-y:auto;
     "
   >
     <img
