@@ -71,4 +71,8 @@ const router = createRouter({
   routes,
 });
 
+router.afterEach((to) => {
+  document.title = (to.meta.title as string) || "默认标题";
+});
+
 export default router;
