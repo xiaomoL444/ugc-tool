@@ -1,5 +1,5 @@
 <template>
-  <div style="height: 100%; display: flex; flex-direction: row ;gap: 8px;">
+  <div style="height: 100%; display: flex; flex-direction: row; gap: 8px">
     <SectionLayout title="选择图片" style="flex: 1"
       ><div
         style="
@@ -65,6 +65,12 @@
             v-model="maxPixelWidth"
             @blur="refreshImg"
             @keyup.enter="refreshImg"
+        /></FormItemRow>
+        <FormItemRow title="4bit输出"
+          ><NSwitch v-model:value="isUse4bit"
+        /></FormItemRow>
+        <FormItemRow title="透明度"
+          ><NSwitch v-model:value="isUseAlpha"
         /></FormItemRow>
         —————下载部分—————
         <FormItemRow title="结构体ID">
@@ -135,7 +141,7 @@
 <script setup lang="ts">
 /* eslint-disable */
 
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import CopyBox from "./components/CopyBox.vue";
 import "vue-sonner/style.css";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
@@ -143,7 +149,7 @@ import ActionButton from "@/components/button/ActionButton.vue";
 import FormItemRow from "@/components/Layout/form-item-row.vue";
 import { Clipboard } from "@/utils/clipboard";
 import PanelLayout from "@/components/Layout/PanelLayout.vue";
-import { NCollapse, NCollapseItem, NEllipsis } from "naive-ui";
+import { NCollapse, NCollapseItem, NEllipsis, NSwitch } from "naive-ui";
 import { downloadJsonFile } from "@/utils/download";
 
 const canvas = ref<HTMLCanvasElement>();
@@ -152,6 +158,16 @@ const pixelHeight = ref(20); //像素画高
 const pixelWidth = ref(20); //像素画宽
 const maxPixelWidth = ref(20); //每行最大像素画宽
 const pixels = ref<string[][]>([]);
+
+const isUse4bit = ref(false);
+const isUseAlpha = ref(true);
+
+watch(isUse4bit, () => {
+  refreshImg();
+});
+watch(isUseAlpha, () => {
+  refreshImg();
+});
 
 const structId = ref(1077936129);
 
@@ -197,7 +213,12 @@ function drawToPixelCanvas(img: HTMLImageElement) {
 
   // 清空画布
   ctx.clearRect(0, 0, pixelWidth.value, pixelHeight.value);
+  if (!isUseAlpha.value) {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, pixelWidth.value, pixelHeight.value);
 
+    ctx.drawImage(img, 0, 0, pixelWidth.value, pixelHeight.value);
+  }
   // 把原图压缩绘制到小 canvas
   ctx.drawImage(img, 0, 0, pixelWidth.value, pixelHeight.value);
 
@@ -211,7 +232,9 @@ function drawToPixelCanvas(img: HTMLImageElement) {
   let pixelLineIndex = 0;
 
   let line = "";
-  let isTrans = false;
+  let lastColor = "";
+  let lastIsSame = false;
+  let isStart = true;
   for (let i = 0; i < data.length; i += 4) {
     pixelIndex++;
     pixelLineIndex++;
@@ -223,22 +246,30 @@ function drawToPixelCanvas(img: HTMLImageElement) {
       data[i + 3],
     );
 
-    if (data[i + 3] == 0) {
-      if (isTrans) {
-        line += "█";
-      } else {
-        line += `<color=${hexWithAlpha}>█`;
-        isTrans = true;
-      }
+    const isSameColor = hexWithAlpha == lastColor;
+
+    if (isSameColor) {
+      line += "█";
     } else {
-      if (isTrans) {
-        line += `</color><color=${hexWithAlpha}>█</color>`;
-        isTrans = false;
-      } else {
-        line += `<color=${hexWithAlpha}>█</color>`;
-      }
-      isTrans = false;
+      line += `${isStart ? "" : "</color>"}<color=${hexWithAlpha}>█`;
+      isStart = false;
     }
+
+    // if (lastIsSame) {
+    //   if (isSameColor) {
+    //     line += "█";
+    //   } else {
+    //     line += `<color=${hexWithAlpha}>█`;
+    //   }
+    // } else {
+    //   if (isSameColor) {
+    //     line += `</color><color=${hexWithAlpha}>█</color>`;
+    //   } else {
+    //     line += `<color=${hexWithAlpha}>█</color>`;
+    //   }
+    // }
+    lastColor = hexWithAlpha;
+    lastIsSame = isSameColor;
 
     if (
       pixelIndex >= maxPixelWidth.value ||
@@ -249,13 +280,15 @@ function drawToPixelCanvas(img: HTMLImageElement) {
         pixelLineIndex = 0;
       }
 
-      if (isTrans) {
+      if (isSameColor) {
         line += "</color>";
       }
 
       result.push(line);
       line = ""; //清空line
-      isTrans = false;
+      lastColor = "";
+      lastIsSame = false;
+      isStart = true;
     }
   }
 
@@ -271,8 +304,22 @@ function chunkStrings(arr: string[], size: number): string[][] {
 }
 
 function rgbaToHex(r: number, g: number, b: number, a = 255) {
-  const toHex = (v: number) => v.toString(16).padStart(2, "0").toUpperCase();
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}${toHex(a)}`;
+  const toHex8 = (v: number) => v.toString(16).padStart(2, "0").toUpperCase();
+
+  const toHex4 = (v: number) =>
+    Math.round(v / 17)
+      .toString(16)
+      .toUpperCase(); // 255 / 15 ≈ 17
+
+  if (!isUse4bit.value) {
+    return `#${toHex8(r)}${toHex8(g)}${toHex8(b)}${
+      isUseAlpha.value ? toHex8(a) : ""
+    }`;
+  } else {
+    return `#${toHex4(r)}${toHex4(g)}${toHex4(b)}${
+      isUseAlpha.value ? toHex4(a) : ""
+    }`;
+  }
 }
 
 function downloadJson() {
