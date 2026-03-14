@@ -3,7 +3,7 @@ interface ColorStyle {
   label: string;
 }
 
-type ColorStyleType = "normal" | "ColorFlow1"| "ColorFlow2";
+type ColorStyleType = "normal" | "ColorFlow1"| "ColorFlow2" |'FadeOut'|'FadeIn';
 
 interface SizeStyle {
   id: SizeStyleType;

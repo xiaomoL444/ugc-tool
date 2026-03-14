@@ -51,6 +51,8 @@ const colorStyles = ref<ColorStyle[]>([
   { id: "normal", label: "普通" },
   { id: "ColorFlow1", label: "流动1" },
   { id: "ColorFlow2", label: "流动2" },
+  { id: "FadeIn", label: "淡入" },
+  { id: "FadeOut", label: "淡出" },
 ]);
 
 const selectedSizeStyle = ref<SizeStyleType>("normal");
@@ -97,7 +99,7 @@ async function ImportConfig() {
 
         await storage.writeFile(filePath, JSON.stringify(json));
 
-        toast.success(`导入「${q.name}」，标题：{${json.title}}成功`)
+        toast.success(`导入「${q.name}」，标题：{${json.title}}成功`);
       } catch (error) {
         toast.warning(`导入文件「${q.name}」时发生错误：${error}`);
       }
@@ -303,7 +305,7 @@ const colorFrames = computed<chroma.Color[][]>(() => {
         ...frames.slice(1, frames.length).reverse(),
         ...frames.slice(1, frames.length),
       ];
-      for (let i = 0; i < length * 2 - 2; i += frameSpeed) {
+      for (let i = 0; i < length * 2 - 1; i += frameSpeed) {
         list.push(frames2.slice(i, i + length));
       }
       break;
@@ -313,9 +315,28 @@ const colorFrames = computed<chroma.Color[][]>(() => {
         ...frames.slice(1, frames.length).reverse(),
         ...frames.slice(1, frames.length),
       ];
-      consola.trace(frames3.length);
-      for (let i = length * 2 - 2; i > 0; i -= frameSpeed) {
+      for (let i = length * 2 - 2; i > -1; i -= frameSpeed) {
         list.push(frames3.slice(i, i + length));
+      }
+      break;
+    case "FadeIn":
+      const FadeInFrames = 24;
+      for (let i = 0; i < FadeInFrames; i += frameSpeed) {
+        list.push(
+          frames.map((q) => q.alpha(q.rgba()[3] * (i / (FadeInFrames - 1)))),
+        );
+      }
+      break;
+    case "FadeOut":
+      const FadeOutFrames = 24;
+      for (let i = 0; i < FadeOutFrames; i += frameSpeed) {
+        list.push(
+          frames.map((q) =>
+            q.alpha(
+              (q.rgba()[3] * (FadeOutFrames - i - 1)) / (FadeOutFrames - 1),
+            ),
+          ),
+        );
       }
       break;
   }
@@ -407,7 +428,6 @@ function getCharList(frame: number) {
     if (result.length <= line) {
       result.push("");
     }
-
     let word = char;
 
     if (isSetColor.value)
@@ -837,7 +857,7 @@ function getCharList(frame: number) {
                   "
                 >
                   <PanelLayout
-                    v-for="(item, index) in getCharList(frameCount)"
+                    v-for="(item, index) in getCharList(i - 1)"
                     :key="index"
                     class="output"
                   >
