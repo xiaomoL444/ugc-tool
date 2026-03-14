@@ -233,7 +233,6 @@ function drawToPixelCanvas(img: HTMLImageElement) {
 
   let line = "";
   let lastColor = "";
-  let lastIsSame = false;
   let isStart = true;
   for (let i = 0; i < data.length; i += 4) {
     pixelIndex++;
@@ -269,7 +268,6 @@ function drawToPixelCanvas(img: HTMLImageElement) {
     //   }
     // }
     lastColor = hexWithAlpha;
-    lastIsSame = isSameColor;
 
     if (
       pixelIndex >= maxPixelWidth.value ||
@@ -280,14 +278,11 @@ function drawToPixelCanvas(img: HTMLImageElement) {
         pixelLineIndex = 0;
       }
 
-      if (isSameColor) {
-        line += "</color>";
-      }
+      line += "</color>";
 
       result.push(line);
       line = ""; //清空line
       lastColor = "";
-      lastIsSame = false;
       isStart = true;
     }
   }
