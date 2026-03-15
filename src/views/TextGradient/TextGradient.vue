@@ -441,9 +441,9 @@ function getCharList(frame: number) {
       }>${char}</color>`;
     if (isUseSize.value) {
       //如果选择了使用大小
-      word = `<size=${
-        sizeFrams.value[frame % sizeFrams.value.length][index]
-      }>${word}</size>`;
+      word = `<size=${Math.round(
+        sizeFrams.value[frame % sizeFrams.value.length][index],
+      )}>${word}</size>`;
     }
     if (word.length + result[line].length > 999) {
       line++;
