@@ -229,7 +229,9 @@ const interval = ref(0);
 const keys = computed(() =>
   Object.keys(dataJson).filter((key) => {
     const value = dataJson[key];
-    return value.name?.includes(search.value) || value.id?.includes(search.value);
+    return (
+      value.name?.includes(search.value) || value.id?.includes(search.value)
+    );
   }),
 );
 
@@ -336,14 +338,13 @@ function stop() {
 function prevTrack() {
   const index = keys.value.indexOf(selectedId.value);
 
-  selectedId.value =
-    keys.value[(index - 1 + keys.value.length) % keys.value.length];
+  SelectSound(keys.value[(index - 1 + keys.value.length) % keys.value.length]);
 }
 
 function nextTrack() {
   const index = keys.value.indexOf(selectedId.value);
 
-  selectedId.value = keys.value[(index + 1) % keys.value.length];
+  SelectSound(keys.value[(index + 1) % keys.value.length]);
 }
 
 // 时间控制
