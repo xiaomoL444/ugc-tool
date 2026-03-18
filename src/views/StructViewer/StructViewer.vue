@@ -336,7 +336,7 @@ async function ApplyParamNodeChange(
       if (hasInvalidChar(newValue)) {
         consola.warn("含有非法字符！");
         toast.warning("含有非法字符");
-        _.set(paramNode.value, path.replace("$.", ""), " ");
+        _.set(paramNode.value, path.replace("$.", ""), crypto.randomUUID());
         _.set(paramNode.value, path.replace("$.", ""), oldValue);
         return;
       }
