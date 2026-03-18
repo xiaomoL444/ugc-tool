@@ -92,7 +92,7 @@
     </div>
     <div class="editorPanel">
       <SectionLayout title="编辑区">
-        <div style="display: flex; flex-direction: row; gap: 10px">
+        <div style="display: flex;flex-direction: row;gap: 10px;">
           <ActionButton
             v-on:update:selected="downloadJson"
             style="width: 200px; margin-bottom: 10px"
@@ -317,12 +317,6 @@ async function ApplyParamNodeChange(
   paramChange: ParamChange,
   enableUndoHistory = true,
 ) {
-  consola.trace(`设置字段${JSON.stringify(paramChange)}`);
-
-  function hasInvalidChar(str: string) {
-    // 只允许：字母、数字、下划线、中文
-    return /[^\w\u4e00-\u9fa5]/.test(str);
-  }
   if (paramNode?.value == undefined) {
     consola.warn(`无法应用,因为根字段不存在值`);
     return;
@@ -332,14 +326,6 @@ async function ApplyParamNodeChange(
       const path = paramChange.path;
       const oldValue = JSONPath({ path, json: paramNode.value })[0];
       const newValue = paramChange.value;
-
-      if (hasInvalidChar(newValue)) {
-        consola.warn("含有非法字符！");
-        toast.warning("含有非法字符");
-        _.set(paramNode.value, path.replace("$.", ""), crypto.randomUUID());
-        _.set(paramNode.value, path.replace("$.", ""), oldValue);
-        return;
-      }
 
       _.set(paramNode.value, path.replace("$.", ""), newValue);
 
@@ -891,6 +877,9 @@ async function handleKey(e: KeyboardEvent) {
     e.preventDefault(); // 阻止浏览器默认保存行为
     // 调用你自己的保存函数
     downloadJson();
+  } else if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+    e.preventDefault(); // 阻止浏览器默认保存行为
+    consola.trace(udnoManager.getCommands());
   }
 }
 
