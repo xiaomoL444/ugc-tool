@@ -464,6 +464,7 @@ import AppendListElementButton from "../button/AppendListElementButton.vue";
 import { consola } from "consola";
 import { NCollapse, NCollapseItem, NEllipsis } from "naive-ui";
 import { bus } from "@/services/bus/bus";
+import { toast } from "vue-sonner";
 
 const baseStructList = inject<Ref<BaseStruct[]>>("baseStructList");
 
@@ -537,6 +538,16 @@ function onChange(
       })
       .join(",");
   }
+
+  if (
+    props.param.param_type == "String" ||
+    props.param.param_type == "StringList"
+  ) {
+    if (value.length >= 500) {
+      toast.warning(`输入的字符超过500,会导致导入千星编辑器失败（但该网页允许保存），请重新输入一遍，目前字数：${value.length}`);
+    }
+  }
+
   console.log(value);
   console.log(jsonPath);
   ApplyParamNodeChange?.({

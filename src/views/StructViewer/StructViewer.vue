@@ -326,7 +326,7 @@ async function ApplyParamNodeChange(
       const path = paramChange.path;
       const oldValue = JSONPath({ path, json: paramNode.value })[0];
       const newValue = paramChange.value;
-
+      
       _.set(paramNode.value, path.replace("$.", ""), newValue);
 
       //添加回撤部分
@@ -877,9 +877,6 @@ async function handleKey(e: KeyboardEvent) {
     e.preventDefault(); // 阻止浏览器默认保存行为
     // 调用你自己的保存函数
     downloadJson();
-  } else if ((e.ctrlKey || e.metaKey) && e.key === "a") {
-    e.preventDefault(); // 阻止浏览器默认保存行为
-    consola.trace(udnoManager.getCommands());
   }
 }
 
