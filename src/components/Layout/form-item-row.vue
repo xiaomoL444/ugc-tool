@@ -18,7 +18,7 @@ const props = defineProps({ title: String });
   flex-direction: row;
   padding: 2px;
   gap: 5px;
-  height: 100%;
+  height: auto;
 }
 .title {
     position: relative;
@@ -30,7 +30,7 @@ const props = defineProps({ title: String });
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: auto;
+  height:auto;
   flex: 1;
 }
 </style>
