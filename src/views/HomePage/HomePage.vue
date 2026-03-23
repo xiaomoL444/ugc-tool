@@ -18,7 +18,7 @@ function jumpAddress(item: AppRoute) {
       justify-items: center;
       align-items: center;
       width: 100%;
-      overflow-y:auto;
+      overflow-y: auto;
     "
   >
     <img
@@ -29,6 +29,56 @@ function jumpAddress(item: AppRoute) {
     <h1>欢迎来到晓末L444的工具集</h1>
     <h2>客官想要什么下面请</h2>
     <div class="Grid">
+      <PanelLayout>
+        <a
+          href="http://ys.tewasa.com/"
+          style="color: inherit; text-decoration: none"
+        >
+          <div
+            class="card"
+            style="
+              background: -webkit-linear-gradient(
+                90deg,
+                #99f8ff,
+                #d6feff
+              ); /* Chrome 10-25, Safari 5.1-6 */
+              background: linear-gradient(
+                45deg,
+                #99f8ff,
+                #d6feff
+              ); /* W3C, IE 10+/ Edge, Firefox 16+, Chrome 26+, Opera 12+, Safari 7+ */
+            "
+          >
+            <div
+              style="position: absolute; top: 0; left: 10px; font-size: 14px"
+            >
+              ✦───────
+            </div>
+            <div class="title">奇域？迷因？铁花洒！!</div>
+            <div class="description">
+              铁花洒到底是什么口牙！
+              <p>
+                <img
+                  src="https://pinksheep-arc.cn-nb1.rains3.com/Xiaomol444/tewasa_icon.png"
+                  style="border-radius: 100%"
+                />
+              </p>
+            </div>
+
+            <div
+              style="
+                position: absolute;
+                bottom: 0;
+                right: 10px;
+                font-size: 14px;
+              "
+            >
+              ───────✦
+            </div>
+          </div>
+        </a>
+      </PanelLayout>
+
       <div v-for="(item, index) in appRoutes" :key="index">
         <PanelLayout>
           <div class="card" v-on:click="jumpAddress(item)">
@@ -98,7 +148,7 @@ function jumpAddress(item: AppRoute) {
   width: 100%;
   text-align: left;
   font-size: 20px;
-  color: #000a;
+  color: #000;
 }
 .card .description {
   position: relative;
