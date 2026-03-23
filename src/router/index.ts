@@ -7,6 +7,7 @@ import PixelArt from "@/views/PixelArt/PixelArt.vue";
 import HomePage from "@/views/HomePage/HomePage.vue";
 import SoundEffectPlayer from "@/views/SoundEffectPlayer/SoundEffectPlayer.vue";
 import { appRoutes } from "@/configs/routes";
+import DSFGStudio from "@/views/DSFGStudio/DSFGStudio.vue";
 
 const routes = [
   ...appRoutes.map((r) => ({
@@ -32,13 +33,12 @@ const routes = [
     // this generates a separate chunk (about.[hash].js) for this route
     // which is lazy-loaded when the route is visited.
     component: () =>
-      import(/* webpackChunkName: "about" */ "../views/AboutView.vue"),
+      import(/* webpackChunkName: "about" */ "../views/AboutView/AboutView.vue"),
   },
   {
     path: "/UGCStructViewer",
     redirect: "/StructViewer",
   },
-
   {
     path: "/DebugPanel",
     name: "嗯，这是一个用来Debug的页面，你是怎么找到这里的？",
@@ -54,6 +54,14 @@ const routes = [
   {
     path: "/UGCPixelArt",
     redirect: "/PixelArt",
+  },
+  {
+    path: "/DSFGStudio",
+    name: "对话模版编辑器",
+    component: DSFGStudio,
+    meta: {
+      title: "DSFGStudio",
+    },
   },
   // 404 路由
   {

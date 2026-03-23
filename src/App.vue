@@ -20,6 +20,7 @@
   <h4>测试工具</h4>
     <router-link to="/about">About</router-link>
     <router-link to="/debugpanel">debugpanle</router-link>
+    <router-link to="/DSFGStudio">对话模版编辑器</router-link>
 </nav>
   <div>
         <router-link to="/">标题页</router-link>

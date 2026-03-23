@@ -13,15 +13,22 @@ const props = defineProps({ title: String });
 
 <style scoped>
 .container {
+  position: relative;
   display: flex;
   flex-direction: row;
   padding: 2px;
   gap: 5px;
+  height: 100%;
 }
 .title {
+    position: relative;
   flex-shrink: 0;
+  height: 100%;
 }
 .content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: auto;
   flex: 1;
