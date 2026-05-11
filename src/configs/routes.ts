@@ -36,4 +36,11 @@ export const appRoutes: AppRoute[] = [
     description:
       "支持将图片转成像素画文本或以千星奇域字符串列表结构体变量形式的JSON",
   },
+    {
+    path: "/BgmPlayer",
+    name: "BgmPlayer",
+    title: "BGM播放器",
+    description:
+      "可在线播放千星奇域「月之六」（6.5）版本之前的BGM",
+  },
 ];
