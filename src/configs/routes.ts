@@ -48,6 +48,8 @@ export const appRoutes: AppRoute[] = [
     name: "MiniMapMapper",
     title: "小地图场景映射计算",
     description:
-      "小地图场景映射计算",
+      `小地图场景映射计算
+      
+      ————无边世界第一制作提供`,
   },
 ];

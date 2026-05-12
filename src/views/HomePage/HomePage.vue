@@ -158,6 +158,8 @@ function jumpAddress(item: AppRoute) {
   text-align: left;
   font-size: 15px;
   color: #0008;
+
+  white-space: pre-wrap;
 }
 .bottom-line {
   position: fixed;
