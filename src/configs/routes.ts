@@ -42,5 +42,12 @@ export const appRoutes: AppRoute[] = [
     title: "BGM播放器",
     description:
       "可在线播放千星奇域「月之六」（6.5）版本之前的BGM",
+  },   
+   {
+    path: "/MiniMapMapper",
+    name: "MiniMapMapper",
+    title: "小地图场景映射计算",
+    description:
+      "小地图场景映射计算",
   },
 ];
