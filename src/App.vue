@@ -112,8 +112,9 @@ nav a.router-link-exact-active {
 }
 .content {
   position: relative;
-  overflow: hidden;
+  overflow: auto;
   height: 100%;
+  /* padding: 50px; */
 /* margin: 10px; */
 }
 
