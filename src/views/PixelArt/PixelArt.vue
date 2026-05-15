@@ -1,8 +1,7 @@
 <template>
   <div style="height: 100%; display: flex; flex-direction: row; gap: 8px">
-    <SectionLayout title="选择图片" style="flex: 1"
-      ><div
-        style="
+    <SectionLayout title="选择图片" style="flex: 1">
+      <div style="
           margin: 0.25rem;
           display: flex;
           flex-direction: column;
@@ -10,15 +9,8 @@
           width: auto;
           justify-items: center;
           /* align-items: center; */
-        "
-      >
-        <input
-          ref="fileInput"
-          type="file"
-          style="display: none"
-          accept="image/*"
-          @change="onFileChange"
-        />
+        ">
+        <input ref="fileInput" type="file" style="display: none" accept="image/*" @change="onFileChange" />
 
         <!-- 原图显示 -->
         <!-- 原图：<img v-if="imgUrl" :src="imgUrl" class="preview" /> -->
@@ -26,100 +18,62 @@
         <!-- 像素画 canvas -->
         预览：
         <div>
-          <canvas
-            :style="{
-              height: (200 * pixelHeight) / pixelWidth + 'px',
-              width: '200px',
-            }"
-            ref="canvas"
-            :width="pixelWidth"
-            :height="pixelHeight"
-          ></canvas>
+          <canvas :style="{
+            height: (200 * pixelHeight) / pixelWidth + 'px',
+            width: '200px',
+          }" ref="canvas" :width="pixelWidth" :height="pixelHeight"></canvas>
         </div>
 
-        <ActionButton
-          v-on:update:selected="selectFile"
-          style="height: 50px; font-size: 20px"
-          >选择文件</ActionButton
-        >
+        <ActionButton v-on:update:selected="selectFile" style="height: 50px; font-size: 20px">选择文件</ActionButton>
         <FormItemRow title="高度">
-          <input
-            class="input"
-            type="number"
-            v-model="pixelHeight"
-            @blur="refreshImg"
-            @keyup.enter="refreshImg"
-        /></FormItemRow>
+          <input class="input" type="number" v-model="pixelHeight" @blur="refreshImg" @keyup.enter="refreshImg" />
+        </FormItemRow>
         <FormItemRow title="宽度">
-          <input
-            class="input"
-            type="number"
-            v-model="pixelWidth"
-            @blur="refreshImg"
-            @keyup.enter="refreshImg"
-        /></FormItemRow>
+          <input class="input" type="number" v-model="pixelWidth" @blur="refreshImg" @keyup.enter="refreshImg" />
+        </FormItemRow>
         <FormItemRow title="每行最大像素宽：">
-          <input
-            class="input"
-            type="number"
-            v-model="maxPixelWidth"
-            @blur="refreshImg"
-            @keyup.enter="refreshImg"
-        /></FormItemRow>
-        <FormItemRow title="4bit输出"
-          ><NSwitch v-model:value="isUse4bit"
-        /></FormItemRow>
-        <FormItemRow title="透明度"
-          ><NSwitch v-model:value="isUseAlpha"
-        /></FormItemRow>
+          <input class="input" type="number" v-model="maxPixelWidth" @blur="refreshImg" @keyup.enter="refreshImg" />
+        </FormItemRow>
+        <FormItemRow title="4bit输出">
+          <NSwitch v-model:value="isUse4bit" />
+        </FormItemRow>
+        <FormItemRow title="透明度">
+          <NSwitch v-model:value="isUseAlpha" />
+        </FormItemRow>
+        <FormItemRow title="使用空格代替空白">
+          <NSwitch v-model:value="isUseSpace" />
+        </FormItemRow>
         —————下载部分—————
         <FormItemRow title="结构体ID">
-          <input class="input" type="number" v-model="structId" /></FormItemRow
-        ><ActionButton
-          v-on:update:selected="downloadJson"
-          style="height: 50px; font-size: 20px"
-          >下载JSON</ActionButton
-        >
-      </div> </SectionLayout
-    ><SectionLayout title="分段输出" style="flex: 6">
-      <NCollapse
-        class="outputContainer"
-        v-for="(line, index) in pixels"
-        :key="index"
-        :defaultExpandedNames="
-          Array.from({ length: pixels.length }, (_, i) => i)
-        "
-      >
+          <input class="input" type="number" v-model="structId" />
+        </FormItemRow>
+        <ActionButton v-on:update:selected="downloadJson" style="height: 50px; font-size: 20px">下载JSON</ActionButton>
+      </div>
+    </SectionLayout>
+    <SectionLayout title="分段输出" style="flex: 6">
+      <NCollapse class="outputContainer" v-for="(line, index) in pixels" :key="index" :defaultExpandedNames="Array.from({ length: pixels.length }, (_, i) => i)
+        ">
         <NCollapseItem :name="index">
           <template #header> 第{{ index }}行 </template>
-          <div
-            style="
+          <div style="
               display: flex;
               flex-direction: column;
               gap: 10px;
               margin-top: 10px;
-            "
-          >
+            ">
             <PanelLayout v-for="(item, i) in line" :key="i" class="output">
-              <div
-                style="
+              <div style="
                   display: flex;
                   flex-direction: row;
                   justify-items: center;
                   align-items: center;
-                "
-                v-on:click="Clipboard(item)"
-              >
+                " v-on:click="Clipboard(item)">
                 <div style="width: 24px; height: 24px; margin-left: 10px">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    xmlns:xlink="http://www.w3.org/1999/xlink"
-                    viewBox="0 0 24 24"
-                  >
+                  <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                    viewBox="0 0 24 24">
                     <path
                       d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
-                      fill="currentColor"
-                    ></path>
+                      fill="currentColor"></path>
                   </svg>
                 </div>
                 <div style="width: 90%; margin-left: 10px">
@@ -161,11 +115,15 @@ const pixels = ref<string[][]>([]);
 
 const isUse4bit = ref(false);
 const isUseAlpha = ref(true);
+const isUseSpace = ref(true);
 
 watch(isUse4bit, () => {
   refreshImg();
 });
 watch(isUseAlpha, () => {
+  refreshImg();
+});
+watch(isUseSpace, () => {
   refreshImg();
 });
 
@@ -245,6 +203,7 @@ function drawToPixelCanvas(img: HTMLImageElement) {
       data[i + 3],
     );
 
+
     const isSameColor = hexWithAlpha == lastColor;
 
     if (isSameColor) {
@@ -280,7 +239,27 @@ function drawToPixelCanvas(img: HTMLImageElement) {
 
       line += "</color>";
 
-      result.push(line);
+      function processColorTags(text: string): string {
+        return text.replace(
+          /<color=#([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})>(.*?)<\/color>/gs,
+          (full, rgb, alpha, content) => {
+            // 完全透明
+            if (Number(alpha.toUpperCase()) === 0) {
+              return "　".repeat(content.length);
+            }
+
+            // 保留原标签
+            return full;
+          }
+        );
+      }
+      if (isUseSpace.value) {
+        result.push(processColorTags(line));
+
+      }
+      else {
+        result.push(line)
+      }
       line = ""; //清空line
       lastColor = "";
       isStart = true;
@@ -307,13 +286,11 @@ function rgbaToHex(r: number, g: number, b: number, a = 255) {
       .toUpperCase(); // 255 / 15 ≈ 17
 
   if (!isUse4bit.value) {
-    return `#${toHex8(r)}${toHex8(g)}${toHex8(b)}${
-      isUseAlpha.value ? toHex8(a) : ""
-    }`;
+    return `#${toHex8(r)}${toHex8(g)}${toHex8(b)}${isUseAlpha.value ? toHex8(a) : ""
+      }`;
   } else {
-    return `#${toHex4(r)}${toHex4(g)}${toHex4(b)}${
-      isUseAlpha.value ? toHex4(a) : ""
-    }`;
+    return `#${toHex4(r)}${toHex4(g)}${toHex4(b)}${isUseAlpha.value ? toHex4(a) : ""
+      }`;
   }
 }
 
@@ -349,6 +326,7 @@ function downloadJson() {
   background-color: #337ecc;
   /* 更深一点的颜色 */
 }
+
 .preview {
   max-width: 200px;
   border: 1px solid #ccc;
