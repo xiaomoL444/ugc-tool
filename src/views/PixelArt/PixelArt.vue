@@ -110,7 +110,7 @@ const canvas = ref<HTMLCanvasElement>();
 const imgUrl = ref("");
 const pixelHeight = ref(20); //像素画高
 const pixelWidth = ref(20); //像素画宽
-const maxPixelWidth = ref(20); //每行最大像素画宽
+const maxPixelWidth = ref(40); //每行最大像素画宽
 const pixels = ref<string[][]>([]);
 
 const isUse4bit = ref(false);
