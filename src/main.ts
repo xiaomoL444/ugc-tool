@@ -12,6 +12,22 @@ async function bootstrap() {
   const app = createApp(App).use(router).use(PrimeVue);
   app.provide("storage", storage); // 注入全局
   app.mount("#app");
+
+  // 全局禁止数字输入框滚轮修改
+document.addEventListener(
+  'wheel',
+  (e) => {
+    const target = e.target
+
+    if (
+      target instanceof HTMLInputElement &&
+      target.type === 'number'
+    ) {
+      target.blur()
+    }
+  },
+  { passive: true }
+)
 }
 
 bootstrap();
