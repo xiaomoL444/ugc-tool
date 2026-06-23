@@ -432,13 +432,12 @@ function getCharList(frame: number) {
 
     if (isSetColor.value)
       //如果选择了颜色
-      word = `<color=${
-        isUse4bit.value
+      word = `<color=${isUse4bit.value
           ? applyColorChannels(
-              colorFrames.value[frame % colorFrames.value.length][index],
-            )
+            colorFrames.value[frame % colorFrames.value.length][index],
+          )
           : colorFrames.value[frame % colorFrames.value.length][index].hex()
-      }>${char}</color>`;
+        }>${char}</color>`;
     if (isUseSize.value) {
       //如果选择了使用大小
       word = `<size=${Math.round(
@@ -461,65 +460,66 @@ function getCharList(frame: number) {
     <SplitterPanel :size="15">
       <SectionLayout title="预设">
         <div style="display: flex; gap: 5px">
-          <ActionButton v-on:update:selected="ImportConfig"
-            ><div style="font-size: 1rem; color: white">
+          <ActionButton v-on:update:selected="ImportConfig">
+            <div style="font-size: 1rem; color: white">
               导入预设
-            </div></ActionButton
-          >
-          <ActionButton v-on:update:selected="AddConfig"
-            ><div style="font-size: 1rem; color: white">
+            </div>
+          </ActionButton>
+          <ActionButton v-on:update:selected="AddConfig">
+            <div style="font-size: 1rem; color: white">
               添加预设
-            </div></ActionButton
-          >
+            </div>
+          </ActionButton>
         </div>
-        <div
-          style="
+        <div style="
             display: flex;
             flex-direction: column;
             gap: 10px;
             margin-top: 10px;
-          "
-        >
+          ">
           <div v-for="(item, index) in config" :key="index" style="width: 100%">
             <PanelLayout>
               <button class="preset-card" @click="SelectPresetCard(item.title)">
                 <div class="delete-button">
-                  <ActionButton
-                    style="background-color: #ff7b7b"
-                    v-on:update:selected="DeleteConfig(item.title)"
-                  >
+                  <ActionButton style="background-color: #ff7b7b" v-on:update:selected="DeleteConfig(item.title)">
                     <!-- prettier-ignore -->
                     <NIcon :size="12">
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512"><path d="M289.94 256l95-95A24 24 0 0 0 351 127l-95 95l-95-95a24 24 0 0 0-34 34l95 95l-95 95a24 24 0 1 0 34 34l95-95l95 95a24 24 0 0 0 34-34z" fill="currentColor"></path></svg></NIcon>
+                      <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                        viewBox="0 0 512 512">
+                        <path
+                          d="M289.94 256l95-95A24 24 0 0 0 351 127l-95 95l-95-95a24 24 0 0 0-34 34l95 95l-95 95a24 24 0 1 0 34 34l95-95l95 95a24 24 0 0 0 34-34z"
+                          fill="currentColor"></path>
+                      </svg>
+                    </NIcon>
                   </ActionButton>
                 </div>
                 <div class="export-button">
-                  <ActionButton
-                    style="background-color: #4dacffff"
-                    v-on:update:selected="ExportConfig(item.title)"
-                  >
+                  <ActionButton style="background-color: #4dacffff" v-on:update:selected="ExportConfig(item.title)">
                     <!-- prettier-ignore -->
                     <NIcon :size="12">
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 32 32"><path d="M13 21h13.17l-2.58 2.59L25 25l5-5l-5-5l-1.41 1.41L26.17 19H13v2z" fill="currentColor"></path><path d="M22 14v-4a1 1 0 0 0-.29-.71l-7-7A1 1 0 0 0 14 2H4a2 2 0 0 0-2 2v24a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2h-2v2H4V4h8v6a2 2 0 0 0 2 2h6v2zm-8-4V4.41L19.59 10z" fill="currentColor"></path></svg></NIcon>
+                      <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                        viewBox="0 0 32 32">
+                        <path d="M13 21h13.17l-2.58 2.59L25 25l5-5l-5-5l-1.41 1.41L26.17 19H13v2z" fill="currentColor">
+                        </path>
+                        <path
+                          d="M22 14v-4a1 1 0 0 0-.29-.71l-7-7A1 1 0 0 0 14 2H4a2 2 0 0 0-2 2v24a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2h-2v2H4V4h8v6a2 2 0 0 0 2 2h6v2zm-8-4V4.41L19.59 10z"
+                          fill="currentColor"></path>
+                      </svg>
+                    </NIcon>
                   </ActionButton>
                 </div>
-                <div
-                  ref="颜色"
-                  :style="{
-                    background: `linear-gradient(to right, ${item.colors?.join(
-                      ',',
-                    )})`,
-                  }"
-                  style="
+                <div ref="颜色" :style="{
+                  background: `linear-gradient(to right, ${item.colors?.join(
+                    ',',
+                  )})`,
+                }" style="
                     width: 120%;
                     height: 80%;
                     position: relative;
                     left: -10px;
                     top: -5px;
-                  "
-                ></div>
-                <div
-                  style="
+                  "></div>
+                <div style="
                     display: flex;
                     flex-direction: row;
                     justify-content: space-between;
@@ -529,15 +529,12 @@ function getCharList(frame: number) {
                     z-index: 20;
                     bottom: 0;
                     left: -5px;
-                  "
-                >
-                  <div
-                    style="
+                  ">
+                  <div style="
                       text-align: left;
                       padding-left: 10px;
                       font-size: 15px;
-                    "
-                  >
+                    ">
                     {{ item.title }}
                   </div>
                 </div>
@@ -547,28 +544,25 @@ function getCharList(frame: number) {
         </div>
       </SectionLayout>
     </SplitterPanel>
-    <SplitterPanel
-      :size="15"
-      style="display: flex; flex-direction: column; gap: 5px"
-    >
+    <SplitterPanel :size="15" style="display: flex; flex-direction: column; gap: 5px">
       <SplitterPanel style="flex: 3">
         <SectionLayout title="选项卡">
-          <FormItemRow title="颜色过渡"
-            ><NSwitch v-model:value="isSetColor"
-          /></FormItemRow>
-          <FormItemRow title="4bit输出"
-            ><NSwitch v-model:value="isUse4bit"
-          /></FormItemRow>
-          <FormItemRow title="缩放大小"
-            ><NSwitch v-model:value="isUseSize"
-          /></FormItemRow>
+          <FormItemRow title="颜色过渡">
+            <NSwitch v-model:value="isSetColor" />
+          </FormItemRow>
+          <FormItemRow title="4bit输出">
+            <NSwitch v-model:value="isUse4bit" />
+          </FormItemRow>
+          <FormItemRow title="缩放大小">
+            <NSwitch v-model:value="isUseSize" />
+          </FormItemRow>
           <div v-if="isUseSize">
             <FormItemRow title="最小size">
-              <input type="number" step="1" v-model="sizes[0]"
-            /></FormItemRow>
+              <input type="number" step="1" v-model="sizes[0]" />
+            </FormItemRow>
             <FormItemRow title="最大size">
-              <input type="number" step="1" v-model="sizes[1]"
-            /></FormItemRow>
+              <input type="number" step="1" v-model="sizes[1]" />
+            </FormItemRow>
           </div>
           <!-- <FormItemRow title="忽略空格">
             <NSwitch v-model:value="isSkipSpace"
@@ -577,53 +571,25 @@ function getCharList(frame: number) {
       </SplitterPanel>
       <SplitterPanel style="flex: 7">
         <SectionLayout title="动效">
-          <FormItemRow title="流速"
-            ><input type="number" v-model="interval"
-          /></FormItemRow>
+          <FormItemRow title="流速"><input type="number" v-model="interval" /></FormItemRow>
           <div>—— 颜色 ——</div>
-          <FormItemRow title="颜色跳帧"
-            ><input type="number" v-model="colorJumpFrames"
-          /></FormItemRow>
-          <NRadioGroup
-            v-model:value="selectedColorStyle"
-            name="radiogroup"
-            size="large"
-          >
+          <FormItemRow title="颜色跳帧"><input type="number" v-model="colorJumpFrames" /></FormItemRow>
+          <NRadioGroup v-model:value="selectedColorStyle" name="radiogroup" size="large">
             <NSpace vertical align="start">
-              <n-radio
-                v-for="style in colorStyles"
-                :key="style.id"
-                :value="style.id"
-              >
+              <n-radio v-for="style in colorStyles" :key="style.id" :value="style.id">
                 {{ style.label }}
               </n-radio>
             </NSpace>
           </NRadioGroup>
           <div>—— 大小 ——</div>
-          <FormItemRow title="大小跳帧"
-            ><input type="number" v-model="sizeJumpFrames"
-          /></FormItemRow>
-          <FormItemRow
-            title="最小值"
-            v-if="['Jump1'].includes(selectedSizeStyle)"
-            ><input type="number" v-model="sizeParams[0]"
-          /></FormItemRow>
-          <FormItemRow
-            title="最大值"
-            v-if="['Jump1'].includes(selectedSizeStyle)"
-            ><input type="number" v-model="sizeParams[1]"
-          /></FormItemRow>
-          <NRadioGroup
-            v-model:value="selectedSizeStyle"
-            name="sizegroup"
-            size="large"
-          >
+          <FormItemRow title="大小跳帧"><input type="number" v-model="sizeJumpFrames" /></FormItemRow>
+          <FormItemRow title="最小值" v-if="['Jump1'].includes(selectedSizeStyle)"><input type="number"
+              v-model="sizeParams[0]" /></FormItemRow>
+          <FormItemRow title="最大值" v-if="['Jump1'].includes(selectedSizeStyle)"><input type="number"
+              v-model="sizeParams[1]" /></FormItemRow>
+          <NRadioGroup v-model:value="selectedSizeStyle" name="sizegroup" size="large">
             <NSpace vertical align="start">
-              <n-radio
-                v-for="style in sizeStyle"
-                :key="style.id"
-                :value="style.id"
-              >
+              <n-radio v-for="style in sizeStyle" :key="style.id" :value="style.id">
                 {{ style.label }}
               </n-radio>
             </NSpace>
@@ -634,158 +600,94 @@ function getCharList(frame: number) {
     <SplitterPanel :size="70">
       <SectionLayout title="预览、输出区域">
         <div style="display: flex; flex-direction: column; gap: 0">
-          <div
-            style="
+          <div style="
               height: 250px;
               width: 100%;
               position: relative;
               border-radius: 10px;
-            "
-          >
+            ">
             <div :hidden="colors.length >= 5">
-              <button
-                ref="左边的加号"
-                class="addButton"
-                style="left: 0; border-radius: 0 100% 100% 0"
-                v-on:click="AddColor(0)"
-              >
+              <button ref="左边的加号" class="addButton" style="left: 0; border-radius: 0 100% 100% 0"
+                v-on:click="AddColor(0)">
                 <img src="@/assets/svg/Add12Filled.svg" alt="svg图标" />
               </button>
-              <button
-                ref="右边的加号"
-                class="addButton"
-                style="right: 0; border-radius: 100% 0 0 100%"
-                v-on:click="AddColor(colors.length)"
-              >
+              <button ref="右边的加号" class="addButton" style="right: 0; border-radius: 100% 0 0 100%"
+                v-on:click="AddColor(colors.length)">
                 <img src="@/assets/svg/Add12Filled.svg" alt="svg图标" />
               </button>
             </div>
-            <div
-              :style="{ background: gradientStyle }"
-              style="
+            <div :style="{ background: gradientStyle }" style="
                 width: 100%;
                 height: 100%;
                 align-items: center;
                 display: flex;
                 border-radius: 8px;
-              "
-            >
+              ">
               <div class="color-select-list">
-                <div
-                  v-for="(value, index) in colors"
-                  :key="index"
-                  style="
+                <div v-for="(value, index) in colors" :key="index" style="
                     flex: 1;
                     display: flex;
                     flex-direction: column;
                     justify-content: center;
                     align-items: center;
                     width: 100%;
-                  "
-                >
-                  <button
-                    class="close"
-                    :hidden="colors.length == 1"
-                    v-on:click="DeleteColor(index)"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      xmlns:xlink="http://www.w3.org/1999/xlink"
-                      viewBox="0 0 32 32"
-                    >
+                  ">
+                  <button class="close" :hidden="colors.length == 1" v-on:click="DeleteColor(index)">
+                    <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                      viewBox="0 0 32 32">
                       <path
                         d="M24 9.4L22.6 8L16 14.6L9.4 8L8 9.4l6.6 6.6L8 22.6L9.4 24l6.6-6.6l6.6 6.6l1.4-1.4l-6.6-6.6L24 9.4z"
-                        fill="#FFF"
-                      ></path>
+                        fill="#FFF"></path>
                     </svg>
                   </button>
                   <NColorPicker v-model:value="colors[index]">
                     <template #trigger="{ value, onClick, ref: triggerRef }">
-                      <div
-                        :ref="triggerRef"
-                        :style="{
-                          width: '44px',
-                          height: '44px',
-                          borderRadius: '50%',
-                          backgroundColor: value || '#000',
-                          cursor: 'pointer',
-                          border: '2px solid #fff',
-                          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                        }"
-                        @click="onClick"
-                      />
+                      <div :ref="triggerRef" :style="{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '50%',
+                        backgroundColor: value || '#000',
+                        cursor: 'pointer',
+                        border: '2px solid #fff',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                      }" @click="onClick" />
                     </template>
                   </NColorPicker>
-                  <input
-                    class="input"
-                    :value="colors[index]"
-                    @change="onColorChange($event, index)"
-                    style="width: 120px"
-                  />
+                  <input class="input" :value="colors[index]" @change="onColorChange($event, index)"
+                    style="width: 120px" />
+
+                  <div  v-on:click="Clipboard(`${parseInt(colors[index].replace('#', ''), 16)}`)">{{parseInt(colors[index].replace("#", ""), 16)}}</div>
                   <div ref="ChangeOrder">
-                    <button
-                      v-if="index != 0"
-                      class="ChangeOrderButton"
-                      v-on:click="MoveColorNumber(index, index - 1)"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        xmlns:xlink="http://www.w3.org/1999/xlink"
-                        viewBox="0 0 28 28"
-                      >
+                    <button v-if="index != 0" class="ChangeOrderButton" v-on:click="MoveColorNumber(index, index - 1)">
+                      <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                        viewBox="0 0 28 28">
                         <g fill="none">
                           <path
                             d="M12.735 4.21a.75.75 0 0 1 1.04 1.08L5.5 13.25h18.753a.75.75 0 0 1 0 1.5H5.501l8.274 7.959a.75.75 0 0 1-1.04 1.08L3.307 14.72a1 1 0 0 1 0-1.441l9.428-9.07z"
-                            fill="currentColor"
-                          ></path>
+                            fill="currentColor"></path>
                         </g>
                       </svg>
                     </button>
-                    <button
-                      v-if="index != colors.length - 1"
-                      class="ChangeOrderButton"
-                      v-on:click="MoveColorNumber(index, index + 1)"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        xmlns:xlink="http://www.w3.org/1999/xlink"
-                        viewBox="0 0 20 20"
-                      >
+                    <button v-if="index != colors.length - 1" class="ChangeOrderButton"
+                      v-on:click="MoveColorNumber(index, index + 1)">
+                      <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                        viewBox="0 0 20 20">
                         <g fill="none">
                           <path
                             d="M10.837 2.63a.5.5 0 0 0-.674.74L16.33 9H2.5a.5.5 0 0 0 0 1h13.828l-6.165 5.628a.5.5 0 0 0 .674.739l6.916-6.314a.747.747 0 0 0 0-1.108L10.837 2.63z"
-                            fill="currentColor"
-                          ></path>
+                            fill="currentColor"></path>
                         </g>
                       </svg>
                     </button>
                   </div>
-                  <button
-                    style="background-color: transparent; border: 0"
-                    v-on:click="SetRandomColor(index)"
-                  >
+                  <button style="background-color: transparent; border: 0" v-on:click="SetRandomColor(index)">
                     <n-icon size="36" color="white">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        xmlns:xlink="http://www.w3.org/1999/xlink"
-                        viewBox="0 0 512 512"
-                      >
-                        <path
-                          d="M320 146s24.36-12-64-12a160 160 0 1 0 160 160"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-linecap="round"
-                          stroke-miterlimit="10"
-                          stroke-width="32"
-                        ></path>
-                        <path
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="32"
-                          d="M256 58l80 80l-80 80"
-                        ></path>
+                      <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                        viewBox="0 0 512 512">
+                        <path d="M320 146s24.36-12-64-12a160 160 0 1 0 160 160" fill="none" stroke="currentColor"
+                          stroke-linecap="round" stroke-miterlimit="10" stroke-width="32"></path>
+                        <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                          stroke-width="32" d="M256 58l80 80l-80 80"></path>
                       </svg>
                     </n-icon>
                   </button>
@@ -793,93 +695,59 @@ function getCharList(frame: number) {
               </div>
             </div>
           </div>
-          <textarea
-            class="text-input"
-            v-model="text"
-            placeholder="请输入文本..."
-          />
-          <div
-            class="display"
-            :style="{
-              background: displayBGClolrList[displayBGColorIndex],
-            }"
-            v-on:click="
+          <textarea class="text-input" v-model="text" placeholder="请输入文本..." />
+          <div class="display" :style="{
+            background: displayBGClolrList[displayBGColorIndex],
+          }" v-on:click="
               displayBGColorIndex =
-                (displayBGColorIndex + 1) % displayBGClolrList.length
-            "
-          >
-            <span
-              v-for="(item, index) in chars"
-              :key="index"
-              :style="{
-                color: `${
-                  isSetColor
-                    ? colorFrames[currentFrame % colorFrames.length][
-                        index
-                      ].hex()
-                    : '#FFF'
+              (displayBGColorIndex + 1) % displayBGClolrList.length
+              ">
+            <span v-for="(item, index) in chars" :key="index" :style="{
+              color: `${isSetColor
+                  ? colorFrames[currentFrame % colorFrames.length][
+                    index
+                  ].hex()
+                  : '#FFF'
                 }`,
-                fontSize:
-                  `${
-                    isUseSize
-                      ? sizeFrams[currentFrame % sizeFrams.length][index]
-                      : 20
-                  }` + 'px',
-              }"
-            >
+              fontSize:
+                `${isUseSize
+                  ? sizeFrams[currentFrame % sizeFrams.length][index]
+                  : 20
+                }` + 'px',
+            }">
               {{ item }}
             </span>
           </div>
-          <div
-            style="
+          <div style="
               display: flex;
               flex-direction: column;
               gap: 10px;
               margin-top: 10px;
-            "
-          >
+            ">
             共计：{{ frameCount }}帧
-            <NCollapse
-              v-for="i in frameCount"
-              :key="i"
-              :defaultExpandedNames="
-                Array.from({ length: frameCount }, (_, i) => `${i}`)
-              "
-            >
+            <NCollapse v-for="i in frameCount" :key="i" :defaultExpandedNames="Array.from({ length: frameCount }, (_, i) => `${i}`)
+              ">
               <NCollapseItem :name="`${i - 1}`">
                 <template #header> 第{{ i }}帧 </template>
-                <div
-                  style="
+                <div style="
                     display: flex;
                     flex-direction: column;
                     gap: 10px;
                     margin-top: 10px;
-                  "
-                >
-                  <PanelLayout
-                    v-for="(item, index) in getCharList(i - 1)"
-                    :key="index"
-                    class="output"
-                  >
-                    <div
-                      style="
+                  ">
+                  <PanelLayout v-for="(item, index) in getCharList(i - 1)" :key="index" class="output">
+                    <div style="
                         display: flex;
                         flex-direction: row;
                         justify-items: center;
                         align-items: center;
-                      "
-                      v-on:click="Clipboard(item)"
-                    >
+                      " v-on:click="Clipboard(item)">
                       <div style="width: 24px; height: 24px; margin-left: 10px">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          xmlns:xlink="http://www.w3.org/1999/xlink"
-                          viewBox="0 0 24 24"
-                        >
+                        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                          viewBox="0 0 24 24">
                           <path
                             d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
-                            fill="currentColor"
-                          ></path>
+                            fill="currentColor"></path>
                         </svg>
                       </div>
                       <div style="width: 85%; margin-left: 10px">
@@ -918,6 +786,7 @@ function getCharList(frame: number) {
   height: 6px;
   border-radius: 100%;
 }
+
 .export-button {
   display: none;
   position: absolute;
@@ -932,21 +801,26 @@ function getCharList(frame: number) {
 .preset-card:hover .delete-button {
   display: block;
 }
+
 .preset-card:hover .export-button {
   display: block;
 }
+
 .color-picker {
   width: 60px;
   height: 60px;
   border-radius: 100%;
 
   padding: 10px 20px;
-  border: none; /* 去掉默认边框 */
+  border: none;
+  /* 去掉默认边框 */
   cursor: pointer;
-  outline: none; /* 取消默认焦点黑框 */
+  outline: none;
+  /* 取消默认焦点黑框 */
   transition: box-shadow 0.2s;
   box-shadow: 0 0 0 1px #fffa;
 }
+
 .color-select-list {
   display: flex;
   flex-direction: row;
@@ -954,15 +828,19 @@ function getCharList(frame: number) {
   position: relative;
   width: 100%;
 }
+
 .addButton {
   position: absolute;
   width: 50px;
   height: 50px;
   justify-items: center;
   align-items: center;
-  text-align: center; /* 核心：水平居中 */
-  position: absolute; /* 脱离文档流，基于父容器定位 */
-  top: 50%; /* 先让元素顶部对齐父容器垂直中点 */
+  text-align: center;
+  /* 核心：水平居中 */
+  position: absolute;
+  /* 脱离文档流，基于父容器定位 */
+  top: 50%;
+  /* 先让元素顶部对齐父容器垂直中点 */
   transform: translateY(-75%);
   background-color: #00000020;
   border: 0;
@@ -972,9 +850,12 @@ function getCharList(frame: number) {
 /* SVG：绝对定位 + 居中 */
 .addButton img {
   position: absolute;
-  top: 50%; /* 垂直中点对齐 */
-  left: 50%; /* 水平中点对齐 */
-  transform: translate(-50%, -50%); /* 自身位移实现真正居中 */
+  top: 50%;
+  /* 垂直中点对齐 */
+  left: 50%;
+  /* 水平中点对齐 */
+  transform: translate(-50%, -50%);
+  /* 自身位移实现真正居中 */
   max-width: 100%;
   max-height: 100%;
 }
@@ -996,7 +877,8 @@ function getCharList(frame: number) {
 
 .text-input {
   height: 50px;
-  text-align: center; /* 水平居中 */
+  text-align: center;
+  /* 水平居中 */
   overflow-y: hidden;
 }
 
