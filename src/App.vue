@@ -21,6 +21,7 @@
     <router-link to="/about">About</router-link>
     <router-link to="/debugpanel">debugpanle</router-link>
     <router-link to="/DSFGStudio">对话模版编辑器</router-link>
+    <router-link to="/OverSeaUpload">海外上传工具</router-link>
 </nav>
   <div>
         <router-link to="/">标题页</router-link>

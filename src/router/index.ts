@@ -8,6 +8,7 @@ import HomePage from "@/views/HomePage/HomePage.vue";
 import SoundEffectPlayer from "@/views/SoundEffectPlayer/SoundEffectPlayer.vue";
 import { appRoutes } from "@/configs/routes";
 import DSFGStudio from "@/views/DSFGStudio/DSFGStudio.vue";
+import OverSeaUpload from "@/views/OverSeaUpload/OverSeaUpload.vue";
 
 const routes = [
   ...appRoutes.map((r) => ({
@@ -61,6 +62,14 @@ const routes = [
     component: DSFGStudio,
     meta: {
       title: "DSFGStudio",
+    },
+  },
+    {
+    path: "/OverSeaUpload",
+    name: "海外上传工具",
+    component: OverSeaUpload,
+    meta: {
+      title: "海外上传工具",
     },
   },
   // 404 路由

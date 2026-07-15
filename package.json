@@ -5,6 +5,7 @@
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "pnpm run sync-data && vue-cli-service build",
+    "type-check": "vue-tsc --noEmit",
     "sync-data": "node scripts/sync-data.js",
     "push-data": "node scripts/push-data.js"
   },
@@ -22,6 +23,7 @@
     "core-js": "^3.8.3",
     "interactjs": "^1.10.27",
     "jsonpath-plus": "^10.3.0",
+    "jszip": "^3.10.1",
     "lodash": "^4.17.23",
     "lodash.set": "^4.3.2",
     "mitt": "^3.0.1",
@@ -29,6 +31,7 @@
     "path": "^0.12.7",
     "path-browserify": "^1.0.1",
     "primevue": "^4.5.4",
+    "spark-md5": "^3.0.2",
     "undo-manager": "^1.1.1",
     "vue": "^3.2.13",
     "vue-router": "^4.0.3",
@@ -41,11 +44,14 @@
   "devDependencies": {
     "@babel/plugin-transform-class-static-block": "^7.28.6",
     "@types/lodash": "^4.17.23",
+    "@types/spark-md5": "^3.0.5",
+    "@types/webpack-env": "^1.18.8",
     "@vue/cli-plugin-babel": "~5.0.0",
     "@vue/cli-plugin-router": "~5.0.0",
     "@vue/cli-plugin-typescript": "~5.0.0",
     "@vue/cli-service": "~5.0.0",
     "@vue/compiler-sfc": "^3.5.30",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "vue-tsc": "^3.3.7"
   }
 }
