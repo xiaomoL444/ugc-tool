@@ -323,6 +323,7 @@ interface UploadParamsResponse {
 interface ProxyOptions {
     method?: "GET" | "POST";
     data?: Record<string, unknown>;
+    responseType?: "json" | "blob";
 }
 
 interface ResourceUploadResult {
@@ -556,25 +557,27 @@ async function fetchToken() {
     removeVideo();
 
     try {
-        const response = await axios.get<TokenResponse>(
-            `https://${selectedServer.value}-ugc-api.hoyoverse.com/ugc_login/v1/client/ugc_token`,
-            {
-                params: {
-                    sign_type: 2,
-                    auth_appid: "ugc_login",
-                    authkey_ver: 1,
-                    authkey: storedAuthKey.value,
-                    lang: "zh-cn",
-                },
-            },
+        const clientParams = new URLSearchParams({
+            sign_type: "2",
+            auth_appid: "ugc_login",
+            authkey_ver: "1",
+            authkey: storedAuthKey.value,
+            lang: "zh-cn",
+        });
+        const clientUrl =
+            `https://${selectedServer.value}-ugc-api.hoyoverse.com` +
+            `/ugc_login/v1/client/ugc_token?${clientParams.toString()}`;
+        const response = await proxyRequest<TokenResponse>(
+            clientUrl,
+            buildCookie(""),
         );
 
-        if (response.data.retcode !== 0) {
-            errorMessage.value = `获取 Token 失败（${response.data.retcode}）：${response.data.message}`;
+        if (response.retcode !== 0) {
+            errorMessage.value = `获取 Token 失败（${response.retcode}）：${response.message}`;
             return;
         }
 
-        const clientData = response.data.data;
+        const clientData = response.data;
 
         if (!clientData?.ugc_token) {
             errorMessage.value = "Client 登录成功，但没有返回 ugc_token。";
@@ -622,8 +625,8 @@ async function fetchToken() {
                 apiData?.error ||
                 apiData?.message ||
                 (error.response
-                    ? `请求失败，HTTP 状态码：${error.response.status}`
-                    : "无法连接服务器，请检查网络或浏览器跨域限制。");
+                    ? `Worker 请求失败，HTTP 状态码：${error.response.status}`
+                    : "无法连接 Cloudflare Worker。");
         } else {
             errorMessage.value = "发生未知错误，请稍后重试。";
         }
@@ -1628,24 +1631,10 @@ async function resolveExportMedia(
 }
 
 async function downloadBinaryViaWorker(url: string): Promise<Blob> {
-    try {
-        const response = await axios.post<Blob>(
-            WORKER_URL,
-            {
-                url,
-                cookie: buildCookie(sessionToken.value),
-                secret: workerSecret.value,
-                ua: GAME_USER_AGENT,
-                method: "GET",
-            },
-            { responseType: "blob" },
-        );
-        persistWorkerSecret();
-        return response.data;
-    } catch (error) {
-        if (isInvalidWorkerSecret(error)) clearWorkerSecretCache();
-        throw error;
-    }
+    return proxyRequest<Blob>(url, buildCookie(sessionToken.value), {
+        method: "GET",
+        responseType: "blob",
+    });
 }
 
 async function detectMediaType(blob: Blob) {
@@ -1844,14 +1833,18 @@ async function proxyRequest<T>(
     options: ProxyOptions = {},
 ): Promise<T> {
     try {
-        const response = await axios.post<T>(WORKER_URL, {
-            url,
-            cookie,
-            secret: workerSecret.value,
-            ua: GAME_USER_AGENT,
-            method: options.method || "GET",
-            data: options.data,
-        });
+        const response = await axios.post<T>(
+            WORKER_URL,
+            {
+                url,
+                cookie,
+                secret: workerSecret.value,
+                ua: GAME_USER_AGENT,
+                method: options.method || "GET",
+                data: options.data,
+            },
+            { responseType: options.responseType || "json" },
+        );
         persistWorkerSecret();
         return response.data;
     } catch (error) {
