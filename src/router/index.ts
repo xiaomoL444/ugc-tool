@@ -64,7 +64,7 @@ const routes = [
       title: "DSFGStudio",
     },
   },
-    {
+  {
     path: "/OverSeaUpload",
     name: "海外上传工具",
     component: OverSeaUpload,
