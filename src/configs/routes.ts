@@ -14,7 +14,7 @@ export const appRoutes: AppRoute[] = [
     name: "StructViewer",
     title: "结构体编辑器",
     description:
-      "可在线编辑千星奇域「月之五」（6.4）版本之前的结构体变量与字典变量",
+      "可在线编辑千星奇域「月之八」（6.7）版本之前的结构体变量与字典变量",
   },
   {
     path: "/SoundEffectPlayer",
@@ -41,7 +41,7 @@ export const appRoutes: AppRoute[] = [
     name: "BgmPlayer",
     title: "BGM播放器",
     description:
-      "可在线播放千星奇域「月之六」（6.5）版本之前的BGM",
+      "可在线播放千星奇域「月之八」（6.7）版本之前的BGM",
   },   
    {
     path: "/MiniMapMapper",
