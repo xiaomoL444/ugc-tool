@@ -146,16 +146,8 @@ async function addMedia(
     fileName: sanitizeFileName(media.fileName),
     mimeType: media.mimeType,
     size: media.blob.size,
-    source: {
-      kind: media.source.kind,
-      ...(media.source.kind === "remote" && media.source.url
-        ? {
-            url: media.source.url,
-            ...(media.source.sourceId ? { sourceId: media.source.sourceId } : {}),
-            objectKey: stableObjectKey(media.source.url),
-          }
-        : {}),
-    },
+    // ZIP 只存二进制，不写入任何远端 URL / objectKey，导入时一律重新上传。
+    source: { kind: "local" },
     md5,
   };
 }

@@ -901,18 +901,55 @@ function requireRemoteMediaUrl(
     media: EditorMediaSource | null,
     label: string,
 ) {
-    const url = media?.remoteUrl?.trim() || "";
-    if (!url) {
+    const raw = media?.remoteUrl?.trim() || "";
+    if (!raw) {
         throw new Error(`${label}缺少 OSS 上传回调地址，请等待上传完成或重新上传。`);
     }
-    if (isObjectUrl(url)) throw new Error(`${label}仍是本地 blob 地址，禁止提交。`);
+    if (isObjectUrl(raw)) throw new Error(`${label}仍是本地 blob 地址，禁止提交。`);
+
+    const server = loggedInServer.value;
+    const url = server
+        ? resolveHoyoverseMediaUrl(raw, server, media?.objectKey)
+        : raw;
     try {
         const parsed = new URL(url);
         if (parsed.protocol !== "https:") throw new Error();
     } catch {
-        throw new Error(`${label}的远端地址无效。`);
+        throw new Error(
+            `${label}的远端地址无效：${raw}${url !== raw ? `（规范化后：${url}）` : ""}`,
+        );
     }
     return url;
+}
+
+/** OSS 回调常返回相对路径 `/ugcprod…`，提交时需补全为 ugc-upload CDN。 */
+function resolveHoyoverseMediaUrl(
+    raw: string,
+    server: ServerValue,
+    objectKey?: string,
+) {
+    const candidate = raw.trim();
+    if (!candidate) {
+        return objectKey
+            ? resolveHoyoverseMediaUrl(objectKey, server)
+            : "";
+    }
+    if (isObjectUrl(candidate)) return candidate;
+
+    try {
+        const parsed = new URL(candidate);
+        if (parsed.protocol === "http:") {
+            parsed.protocol = "https:";
+            return parsed.toString();
+        }
+        if (parsed.protocol === "https:") return parsed.toString();
+    } catch {
+        // Relative path — resolve against the regional upload CDN.
+    }
+
+    const path = candidate.replace(/^\/+/, "");
+    if (!path) return "";
+    return `https://${server}-ugc-upload.hoyoverse.com/${path}`;
 }
 
 function resolveVideoId(media: EditorMediaSource) {
@@ -1242,7 +1279,7 @@ async function handleZipImport(event: Event) {
         ].join("、");
         if (
             !window.confirm(
-                `ZIP 校验通过（${mediaSummary}，需上传 ${plan.uploadCount} 个媒体）。继续后将应用标签与十五语草稿，并仅上传变化的新媒体。是否继续？`,
+                `ZIP 校验通过（${mediaSummary}，需重新上传 ${plan.uploadCount} 个媒体）。继续后将应用标签与十五语草稿，并从 ZIP 内文件重新上传到 OSS（不使用任何链接）。是否继续？`,
             )
         ) {
             zipProgress.value = "已取消导入，未修改页面。";
@@ -1255,7 +1292,7 @@ async function handleZipImport(event: Event) {
             "标签和十五语草稿已应用。",
             ...skipped,
             plan.uploadCount
-                ? `已上传 ${plan.uploadCount} 个变化媒体。`
+                ? `已重新上传 ${plan.uploadCount} 个媒体到 OSS。`
                 : "没有需要上传的媒体。",
         ].join(" ");
     } catch (error) {
@@ -1397,20 +1434,16 @@ async function buildImportPlan(
             displayReusedCount += 1;
             displaySources.push(current.displayImages[matchedIndex]);
         } else {
-            displaySources.push(importTarget(media));
+            displaySources.push(media);
         }
     }
 
     const coverSource = coverUnchanged
         ? current.cover
-        : cover
-            ? importTarget(cover)
-            : null;
+        : cover;
     const videoSource = videoUnchanged
         ? current.video
-        : video
-            ? importTarget(video)
-            : null;
+        : video;
     const uploadCount = [
         ...(!coverUnchanged && coverSource && isImportMedia(coverSource)
             ? [coverSource]
@@ -1444,47 +1477,13 @@ async function optionalMediaMatches(
 
 async function mediaMatches(imported: ImportMedia, current?: EditorMediaSource) {
     if (!current) return false;
-    const importedSource = imported.entry.source;
-    const currentSourceId = current.sourceId?.trim();
-    if (
-        importedSource.sourceId &&
-        currentSourceId &&
-        importedSource.sourceId === currentSourceId
-    ) {
-        return true;
-    }
-    const importedKey =
-        importedSource.objectKey || stableObjectKey(importedSource.url);
-    const currentKey =
-        current.objectKey || stableObjectKey(current.remoteUrl);
-    if (importedKey && currentKey && importedKey === currentKey) return true;
-
-    const importedUrl = stableRemoteUrl(importedSource.url);
-    const currentUrl = stableRemoteUrl(current.remoteUrl);
-    if (importedUrl && currentUrl && importedUrl === currentUrl) return true;
-
+    // 只按文件内容 MD5 判断是否与当前页一致；ZIP 不再保存 URL，禁止用链接匹配。
     const importedMd5 =
         imported.entry.md5?.toLowerCase() || (await md5Blob(imported.file));
     const currentMd5 =
         current.md5?.toLowerCase() ||
         (current.file ? await md5Blob(current.file) : "");
     return Boolean(importedMd5 && currentMd5 && importedMd5 === currentMd5);
-}
-
-function importTarget(media: ImportMedia): EditorMediaSource | ImportMedia {
-    const source = media.entry.source;
-    if (source.kind === "remote" && source.url && !isObjectUrl(source.url)) {
-        return {
-            label: media.entry.fileName,
-            fileName: media.entry.fileName,
-            mimeType: media.entry.mimeType,
-            remoteUrl: source.url,
-            sourceId: source.sourceId,
-            objectKey: source.objectKey || stableObjectKey(source.url),
-            md5: media.entry.md5,
-        };
-    }
-    return media;
 }
 
 function isImportMedia(
@@ -1514,59 +1513,66 @@ function stableObjectKey(url?: string) {
     }
 }
 
-function stableRemoteUrl(url?: string) {
-    if (!url || isObjectUrl(url)) return "";
-    try {
-        const parsed = new URL(url);
-        return `${parsed.protocol}//${parsed.host}${decodeURIComponent(parsed.pathname)}`;
-    } catch {
-        return "";
-    }
-}
-
 function applyReusedCover(source: EditorMediaSource) {
+    coverUploadError.value = "";
     const file = source.file ? asFile(source.file, source.fileName, source.mimeType) : null;
+    const remoteUrl = normalizeImportedRemoteUrl(source.remoteUrl, source.objectKey);
     currentCoverFile.value = file;
-    uploadedCoverRemoteUrl.value = source.remoteUrl || "";
+    uploadedCoverRemoteUrl.value = remoteUrl;
     uploadedCoverUrl.value = file
         ? URL.createObjectURL(file)
-        : source.remoteUrl || "";
+        : remoteUrl;
     uploadedCoverResult.value = source.md5 ? { md5: source.md5 } : null;
 }
 
 function appendReusedDisplay(source: EditorMediaSource) {
     const file = source.file ? asFile(source.file, source.fileName, source.mimeType) : undefined;
+    const remoteUrl = normalizeImportedRemoteUrl(source.remoteUrl, source.objectKey);
     uploadedDisplayImages.value.push({
         img_id: source.sourceId || `reused-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        previewUrl: file ? URL.createObjectURL(file) : source.remoteUrl || "",
-        uploadedUrl: source.remoteUrl || "",
+        previewUrl: file ? URL.createObjectURL(file) : remoteUrl,
+        uploadedUrl: remoteUrl,
         status: "success",
         error: "",
         result: null,
         file,
         sourceId: source.sourceId,
-        objectKey: source.objectKey || stableObjectKey(source.remoteUrl),
+        objectKey: source.objectKey || stableObjectKey(remoteUrl),
         md5: source.md5,
     });
 }
 
 function applyReusedVideo(source: EditorMediaSource) {
     const file = source.file ? asFile(source.file, source.fileName, source.mimeType) : undefined;
+    const remoteUrl = normalizeImportedRemoteUrl(source.remoteUrl, source.objectKey);
     uploadedVideo.value = {
         id: source.sourceId || `reused-${Date.now()}`,
         fileName: source.fileName || "video.mp4",
-        previewUrl: file ? URL.createObjectURL(file) : source.remoteUrl || "",
+        previewUrl: file ? URL.createObjectURL(file) : remoteUrl,
         status: "success",
         error: "",
-        url: source.remoteUrl || "",
+        url: remoteUrl,
         secretUrl: "",
-        object: source.objectKey || stableObjectKey(source.remoteUrl),
+        object: source.objectKey || stableObjectKey(remoteUrl),
         result: null,
         file,
         sourceId: source.sourceId,
-        objectKey: source.objectKey || stableObjectKey(source.remoteUrl),
+        objectKey: source.objectKey || stableObjectKey(remoteUrl),
         md5: source.md5,
     };
+}
+
+function normalizeImportedRemoteUrl(url?: string, objectKey?: string) {
+    const raw = url?.trim() || "";
+    if (!raw || isObjectUrl(raw)) return "";
+    const server = loggedInServer.value;
+    if (!server) return raw;
+    try {
+        const resolved = resolveHoyoverseMediaUrl(raw, server, objectKey);
+        return new URL(resolved).protocol === "https:" ? resolved : "";
+    } catch {
+        return "";
+    }
 }
 
 function asFile(blob: Blob, name?: string, type?: string) {
@@ -1580,18 +1586,8 @@ async function resolveExportMedia(
     expectedKind: "image" | "video",
 ): Promise<ResolvedMedia> {
     let blob: Blob;
-    let sourceInfo: ResolvedMedia["source"];
     if (source.file) {
         blob = source.file;
-        sourceInfo =
-            source.remoteUrl && !isObjectUrl(source.remoteUrl)
-                ? {
-                    kind: "remote",
-                    url: source.remoteUrl,
-                    sourceId: source.sourceId,
-                    objectKey: source.objectKey,
-                }
-                : { kind: "local" };
     } else if (source.remoteUrl) {
         try {
             blob = await downloadBinaryViaWorker(source.remoteUrl);
@@ -1599,16 +1595,15 @@ async function resolveExportMedia(
             const reason = error instanceof Error ? error.message : "下载失败";
             throw new Error(`${source.label}下载失败：${reason}。远端签名可能已过期，ZIP 未生成。`);
         }
-        sourceInfo = { kind: "remote", url: source.remoteUrl };
     } else {
         throw new Error(`${source.label}缺少可导出的二进制来源。`);
     }
     const mimeType = await detectMediaType(blob);
     if (!mimeType) {
         throw new Error(
-            sourceInfo.kind === "remote"
-                ? `${source.label}下载内容不是受支持的媒体，远端签名可能已过期。`
-                : `${source.label}媒体类型无效。`,
+            source.file
+                ? `${source.label}媒体类型无效。`
+                : `${source.label}下载内容不是受支持的媒体，远端签名可能已过期。`,
         );
     }
     if (
@@ -1626,7 +1621,7 @@ async function resolveExportMedia(
         blob: blob.type === mimeType ? blob : blob.slice(0, blob.size, mimeType),
         fileName: source.fileName || fallbackMediaName(source.label, mimeType),
         mimeType,
-        source: sourceInfo,
+        source: { kind: "local" },
     };
 }
 
@@ -1791,14 +1786,36 @@ async function uploadResourceToOss(
 
     const ossResponse = await axios.post<unknown>(ossUrl.toString(), formData);
     const callbackData = extractOssCallbackData(ossResponse.data);
-    if (!callbackData.url || isObjectUrl(callbackData.url)) {
+    const rawUrl =
+        callbackData.url ||
+        callbackData.secret_url ||
+        callbackData.object ||
+        uploadData.file_name ||
+        "";
+    const absoluteUrl = resolveHoyoverseMediaUrl(
+        rawUrl,
+        server,
+        callbackData.object || uploadData.file_name,
+    );
+    if (!absoluteUrl || isObjectUrl(absoluteUrl)) {
         throw new Error("OSS 上传完成，但回调未返回可提交的远端 URL。");
+    }
+    try {
+        if (new URL(absoluteUrl).protocol !== "https:") {
+            throw new Error();
+        }
+    } catch {
+        throw new Error(
+            `OSS 回调地址无法规范化为 HTTPS URL：${rawUrl || "（空）"}`,
+        );
     }
 
     return {
-        url: callbackData.url,
-        secretUrl: callbackData.secret_url,
-        object: callbackData.object,
+        url: absoluteUrl,
+        secretUrl: callbackData.secret_url
+            ? resolveHoyoverseMediaUrl(callbackData.secret_url, server)
+            : "",
+        object: callbackData.object || uploadData.file_name,
         result: {
             md5,
             ext: options.ext,
@@ -1806,7 +1823,10 @@ async function uploadResourceToOss(
             fileName: uploadData.file_name,
             params: uploadData,
             callback: ossResponse.data,
-            callbackData,
+            callbackData: {
+                ...callbackData,
+                url: absoluteUrl,
+            },
         },
     };
 }

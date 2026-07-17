@@ -36,7 +36,7 @@
         <p v-if="localCoverError || coverUploadError" class="cover-error">
           {{ localCoverError || coverUploadError }}
         </p>
-        <p v-else-if="uploadedCoverUrl" class="cover-success">
+        <p v-else-if="uploadedCoverRemoteUrl" class="cover-success">
           封面上传成功
         </p>
 
