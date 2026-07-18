@@ -272,7 +272,7 @@ import type {
     ZipMediaEntry,
 } from "./zipTypes";
 
-type ServerValue = "cht" | "asia" | "en" | "us";
+type ServerValue = "cht" | "asia" | "eu" | "us";
 
 interface TokenData {
     ugc_token: string;
@@ -387,7 +387,7 @@ const GAME_USER_AGENT =
 const servers: Array<{ value: ServerValue; label: string }> = [
     { value: "cht", label: "港澳台服" },
     { value: "asia", label: "亚服" },
-    { value: "en", label: "欧服" },
+    { value: "eu", label: "欧服" },
     { value: "us", label: "美服" },
 ];
 
