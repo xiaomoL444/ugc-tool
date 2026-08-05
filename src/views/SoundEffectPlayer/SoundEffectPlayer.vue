@@ -4,9 +4,7 @@
       <SectionLayout title="选择音效 ">
         <Splitter style="height: 100%; width: 100%" layout="vertical">
           <SplitterPanel :size="4">
-            <div
-              style="display: flex; flex-direction: row; align-items: center"
-            >
+            <div style="display: flex; flex-direction: row; align-items: center">
               <div style="width: 200px">搜索（可搜索id）：</div>
               <input v-model="search" />
             </div>
@@ -14,52 +12,42 @@
 
           <SplitterPanel :size="94">
             <VVirtualList :items="rows" :item-size="110" style="height: 100%">
-              <template
-                #default="{
-                  item: row,
-                  index,
-                }: {
-                  item: rowType,
-                  index: number,
-                }"
-              >
-                <div
-                  :ref="(el) => {itemRefs[index] = el as HTMLDivElement}"
-                  style="
+              <template #default="{
+                item: row,
+                index,
+              }: {
+                item: rowType,
+                index: number,
+              }">
+                <div :ref="(el) => { itemRefs[index] = el as HTMLDivElement }" style="
                     display: flex;
                     flex-direction: row;
                     gap: 5px;
                     margin-bottom: 5px;
                     height: 100px;
-                  "
-                >
-                  <ListButton
-                    v-for="(id, index) in row.data"
-                    :key="index"
-                    :is-selected="id == selectedId"
-                    v-on:update:selected="SelectSound(id)"
-                  >
+                  ">
+                  <ListButton v-for="(id, index) in row.data" :key="index" :is-selected="id == selectedId"
+                    v-on:update:selected="SelectSound(id)">
                     <div class="item">
                       <div class="title">
-                        <NEllipsis> {{ dataJson[id].name }} </NEllipsis>
+                        <NEllipsis> {{ dataJson[id]?.name }} </NEllipsis>
                       </div>
                       <div class="subtitle">
-                        id:{{ id }} / {{ dataJson[id].duration }}s
+                        id:{{ id }} / {{ dataJson[id]?.duration }}s
                       </div>
                     </div>
                   </ListButton>
                 </div>
               </template>
             </VVirtualList>
-          </SplitterPanel></Splitter
-        >
-      </SectionLayout></SplitterPanel
-    >
+          </SplitterPanel>
+        </Splitter>
+      </SectionLayout>
+    </SplitterPanel>
     <SplitterPanel :size="30">
       <SectionLayout title="播放器">
         <div class="player">
-          <span>音效名称：{{ dataJson[selectedId]?.name }}</span
-          ><span> 音效id：{{ selectedId }}</span>
+          <span>音效名称：{{ dataJson[selectedId]?.name }}</span><span> 音效id：{{ selectedId }}</span>
           <ActionButton v-on:update:selected="togglePlay">{{
             playing ? "暂停" : "播放"
           }}</ActionButton>
@@ -68,30 +56,15 @@
 
           <!-- 时间进度 -->
           <div>
-            <span v-if="!loading"
-              >{{ formatTime(currentTime) }}/{{ formatTime(duration) }}</span
-            >
+            <span v-if="!loading">{{ formatTime(currentTime) }}/{{ formatTime(duration) }}</span>
             <span v-else>{{ formatTime(currentTime) }}/加载中...</span>
-            <input
-              type="range"
-              :max="duration"
-              step="0.1"
-              v-model.number="currentTime"
-              @input="seek"
-            />
+            <input type="range" :max="duration" step="0.1" v-model.number="currentTime" @input="seek" />
           </div>
 
           <!-- 播放速度 -->
           <div>
             <label>速度: {{ speed }}x</label>
-            <input
-              type="range"
-              min="0.5"
-              max="2"
-              step="0.1"
-              v-model.number="speed"
-              @input="changePlaybackRate"
-            />
+            <input type="range" min="0.5" max="2" step="0.1" v-model.number="speed" @input="changePlaybackRate" />
           </div>
 
           <!-- 音量 0~200% -->
@@ -100,63 +73,45 @@
             <div v-if="volume > 1.0">
               (实际编辑器内音量不可大于100%，此处只为放大预览用)
             </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              v-model.number="volume"
-              @input="changeVolume"
-            />
+            <input type="range" min="0" max="1" step="0.01" v-model.number="volume" @input="changeVolume" />
           </div>
 
-          <div
-            style="
+          <div style="
               text-align: center;
               align-items: center;
               display: flex;
               flex-direction: row;
-            "
-          >
+            ">
             <!-- iOS风格开关 -->
             <label class="switch">
-              <input
-                type="checkbox"
-                v-model="loopEnabled"
-                @change="toggleLoop"
-              />
+              <input type="checkbox" v-model="loopEnabled" @change="toggleLoop" />
               <span class="slider"></span>
             </label>
             <div>是否开启循环播放</div>
           </div>
-          <div
-            v-if="loopEnabled"
-            style="margin-top: 10px; display: flex; flex-direction: row"
-          >
+          <div v-if="loopEnabled" style="margin-top: 10px; display: flex; flex-direction: row">
             <div>循环间隔时间(s)</div>
             <input type="number" v-model="interval" />
           </div>
 
           <!-- 音频元素 -->
-          <audio
-            ref="audioRef"
-            @timeupdate="updateTime"
-            @loadedmetadata="loadMetadata"
-            :src="audioSource"
-            @ended="ended"
-          ></audio>
-        </div> </SectionLayout
-    ></SplitterPanel>
+          <audio ref="audioRef" @timeupdate="updateTime" @loadedmetadata="loadMetadata" :src="audioSource"
+            @ended="ended"></audio>
+        </div>
+      </SectionLayout>
+    </SplitterPanel>
   </Splitter>
 </template>
 
 <style scoped>
 @import "./styles/iosCheckBoc.css";
+
 .item {
   text-align: left;
   width: 100%;
   margin: 10px 6px;
 }
+
 .item .title {
   font-size: 1.2rem;
 }
@@ -227,8 +182,8 @@ const loopEnabled = ref(false);
 const interval = ref(0);
 
 const keys = computed(() =>
-  Object.keys(dataJson).filter((key) => {
-    const value = dataJson[key];
+  Object.keys(dataJson.value).filter((key) => {
+    const value = dataJson.value[key];
     return (
       value.name?.includes(search.value) || value.id?.includes(search.value)
     );
@@ -251,7 +206,7 @@ interface rowType {
   data: string[];
 }
 
-const dataJson: SoundEffectData = data;
+const dataJson = ref<SoundEffectData>({});
 
 onMounted(async () => {
   dataJson.value = (await axios.get(`/data/${ProjectName}/data.json`)).data;

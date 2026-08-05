@@ -179,7 +179,6 @@ const ProjectName = "BgmPlayer";
 const dataJson = ref<BgmInfo[]>();
 onMounted(async () => {
     dataJson.value = (await axios.get(`/data/${ProjectName}/data.json`)).data;
-    console.log(dataJson.value)
 });
 
 const selectedItem = ref<BgmInfo>();
