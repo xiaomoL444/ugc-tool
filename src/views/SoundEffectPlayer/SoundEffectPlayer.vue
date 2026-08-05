@@ -158,7 +158,6 @@ import { computed, onMounted, ref, watch } from "vue";
 
 const itemRefs = ref<HTMLDivElement[]>([]); // 存每个 div 的 DOM 元素
 
-import data from "@/assets/SoundEffectPlayer/SoundEffectData.json";
 import { SoundEffectData } from "./types/SoundEffectData";
 import { VVirtualList } from "vueuc";
 import ListButton from "@/components/button/ListButton.vue";
