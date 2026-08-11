@@ -20,7 +20,7 @@ export const appRoutes: AppRoute[] = [
     path: "/SoundEffectPlayer",
     name: "SoundEffectPlayer",
     title: "音效播放器",
-    description: "可在线播放千星奇域「月之五」（6.4）版本之前的音效",
+    description: "可在线播放千星奇域7.0版本之前的音效",
   },
   {
     path: "/TextGradient",
