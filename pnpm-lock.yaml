@@ -56,6 +56,9 @@ importers:
       lodash.set:
         specifier: ^4.3.2
         version: 4.3.2
+      miliastra-variable:
+        specifier: 0.1.2
+        version: 0.1.2
       mitt:
         specifier: ^3.0.1
         version: 3.0.1
@@ -2744,6 +2747,10 @@ packages:
   micromatch@4.0.8:
     resolution: {integrity: sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA==}
     engines: {node: '>=8.6'}
+
+  miliastra-variable@0.1.2:
+    resolution: {integrity: sha512-fqxoNTRMx4YOkPNFaweiISSdQQiHkUhBIDzaHwMxXzp4vc6W0mNVivACQdkLIYTJWAT6eF5RwimO+PX7/XvXGg==}
+    engines: {node: '>=18'}
 
   mime-db@1.52.0:
     resolution: {integrity: sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==}
@@ -7102,6 +7109,8 @@ snapshots:
     dependencies:
       braces: 3.0.3
       picomatch: 2.3.1
+
+  miliastra-variable@0.1.2: {}
 
   mime-db@1.52.0: {}
 

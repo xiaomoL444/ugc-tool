@@ -110,13 +110,12 @@
           >
         </div>
         <div class="editorArea">
-          <ParamNodeRender
-            v-if="paramNode"
-            :param="paramNode"
-            :json-path="'$'"
-            :struct-list-count="0"
+          <VariableNodeEditor
+            v-if="variableRoot"
+            :variable="variableRoot"
+            :revision="editorRevision"
             style="overflow-y: auto"
-          ></ParamNodeRender>
+          />
         </div>
       </SectionLayout>
     </div>
@@ -130,33 +129,24 @@
 </template>
 
 <script setup lang="ts">
-import {
-  ref,
-  computed,
-  inject,
-  onBeforeMount,
-  provide,
-  onBeforeUnmount,
-  onMounted,
-} from "vue";
+import { ref, shallowRef, inject, onBeforeMount, provide, onBeforeUnmount } from "vue";
 import { toast } from "vue-sonner";
-import { JSONPath } from "jsonpath-plus";
+import {
+  VariableWorkspace,
+  type QxqyExportedValue,
+  type VariableClipboardData,
+  type VariableValue,
+} from "miliastra-variable";
 
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import ListButton from "@/components/button/ListButton.vue";
 import StructItem from "./components/StructItem.vue";
-import {
-  VariableData,
-  type BaseStruct,
-  type WorkspaceConfig,
-  type WorkspaceManifest,
-} from "./types/WorkspaceManifest";
+import { VariableData, type BaseStruct } from "./types/WorkspaceManifest";
 import ActionButton from "@/components/button/ActionButton.vue";
 import { StorageClass } from "@/services/storage/storage";
-import { ParamNode } from "./types/ParamsType";
-import ParamNodeRender from "./components/ParamNodeRender.vue";
+import VariableNodeEditor from "./components/VariableNodeEditor.vue";
 
-import UndoManager, { UndoCommand } from "@/lib/undo-manager/undo-manager";
+import UndoManager from "@/lib/undo-manager/undo-manager";
 
 const udnoManager = new UndoManager();
 
@@ -200,21 +190,20 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
       groupId: undoGroupId,
       undo: async () => {
         selectedWorkspaceId.value = oldValue;
-        RefreshBaseStruct();
+        await RefreshBaseStruct();
         ChangeVariableData("", undoGroupId, true);
         await RefreshVariableData();
       },
       redo: async () => {
         selectedWorkspaceId.value = newValue;
-        RefreshBaseStruct();
+        await RefreshBaseStruct();
         await RefreshVariableData();
         ChangeVariableData(oldVariableName, undoGroupId, true);
       },
     });
   selectedWorkspaceId.value = id;
-  RefreshBaseStruct();
-  RefreshVariableData();
-  // ChangeVariableData();
+  await RefreshBaseStruct();
+  await RefreshVariableData();
 }
 
 async function ChangeWorkspaceName(
@@ -296,121 +285,109 @@ function ChangeVariableData(
   selectedVarialbeName.value = id;
 
   const variableData = variableDataList.value.find(
-    (q) => q.variableName == id,
+    (item) => item.variableName == id,
   )?.value;
-  if (variableData) {
-    paramNode.value = {
-      param_type: variableData.type,
-      value: variableData,
-    } as ParamNode;
-  } else {
-    paramNode.value = {} as ParamNode;
-  }
-}
-
-import { BindNodeId, ResolveNodeId } from "./utils/nodeIdResolveMap";
-import { ParamChange } from "./types/ParamChange";
-import _, { cloneDeep } from "lodash";
-import { consola } from "consola";
-import { bus } from "@/services/bus/bus";
-async function ApplyParamNodeChange(
-  paramChange: ParamChange,
-  enableUndoHistory = true,
-) {
-  if (paramNode?.value == undefined) {
-    consola.warn(`无法应用,因为根字段不存在值`);
+  if (!variableData) {
+    variableRoot.value = undefined;
+    editorRevision.value++;
     return;
   }
-  switch (paramChange.type) {
-    case "set":
-      const path = paramChange.path;
-      const oldValue = JSONPath({ path, json: paramNode.value })[0];
-      const newValue = paramChange.value;
-      
-      _.set(paramNode.value, path.replace("$.", ""), newValue);
 
-      //添加回撤部分
-      if (enableUndoHistory) {
-        udnoManager.add({
-          label: "设置变量",
-          undo: () =>
-            ApplyParamNodeChange(
-              { type: "set", path: path, value: oldValue } as ParamChange,
-              false,
-            ),
-          redo: () => ApplyParamNodeChange(paramChange, false),
-        } as UndoCommand);
-      }
-      break;
-    case "add":
-      const add_path = paramChange.path.replace("$.", "");
-      const add_oldValue = JSONPath({
-        path: add_path,
-        json: paramNode.value,
-      })[0] as any[];
-      const add_newValue = cloneDeep(add_oldValue);
-      add_newValue.splice(paramChange.index, 0, paramChange.value);
-      _.set(paramNode.value, add_path, add_newValue);
-
-      //添加回撤部分
-      if (enableUndoHistory) {
-        udnoManager.add({
-          label: "设置变量",
-          undo: () =>
-            ApplyParamNodeChange(
-              {
-                type: "set",
-                path: add_path,
-                value: add_oldValue,
-              } as ParamChange,
-              false,
-            ),
-          redo: () => ApplyParamNodeChange(paramChange, false),
-        } as UndoCommand);
-      }
-      break;
-    case "delete":
-      const delete_path = paramChange.path.replace("$.", "");
-      const delete_oldValue = JSONPath({
-        path: delete_path,
-        json: paramNode.value,
-      })[0] as any[];
-      const delete_newValue = cloneDeep(delete_oldValue);
-      delete_newValue.splice(paramChange.index, 1);
-      _.set(paramNode.value, delete_path, delete_newValue);
-
-      //添加回撤部分
-      if (enableUndoHistory) {
-        udnoManager.add({
-          label: "设置变量",
-          undo: () =>
-            ApplyParamNodeChange(
-              {
-                type: "set",
-                path: delete_path,
-                value: delete_oldValue,
-              } as ParamChange,
-              false,
-            ),
-          redo: () => ApplyParamNodeChange(paramChange, false),
-        } as UndoCommand);
-      }
-      break;
-    case "swap":
+  try {
+    variableRoot.value = variableWorkspace.value.parse(
+      variableData as QxqyExportedValue,
+    );
+    editorRevision.value++;
+  } catch (error) {
+    variableRoot.value = undefined;
+    toast.error(
+      "变量解析失败：" + (error instanceof Error ? error.message : String(error)),
+    );
   }
-
-  const filePath = `/${selectedWorkspaceId.value}/${variableDataGroupKey}/${selectedVarialbeName.value}.json`;
-
-  await storage.writeFile(filePath, JSON.stringify(paramNode.value.value));
 }
-provide("ApplyParamNodeChange", ApplyParamNodeChange);
+import { BindNodeId, ResolveNodeId } from "./utils/nodeIdResolveMap";
+import { consola } from "consola";
+import { bus } from "@/services/bus/bus";
 
-//初始化默认的工作清单
+// 继续复用原有 StorageClass 存档目录；Miliastra variable 只负责解析和编辑。
 const baseStructList = ref<BaseStruct[]>([]);
 const variableDataList = ref<VariableData[]>([]);
-const paramNode = ref<ParamNode>(); //渲染的节点部分
-let currentParamNodeId = ""; //记录了需要修改的节点的id
-provide("baseStructList", baseStructList); //让子param组件能读取到
+const variableWorkspace = shallowRef(new VariableWorkspace());
+const variableRoot = shallowRef<VariableValue>();
+const editorRevision = ref(0);
+const internalVariableClipboard = ref<VariableClipboardData>();
+provide("VariableClipboard", internalVariableClipboard);
+
+async function writeVariableSnapshot(
+  snapshot: QxqyExportedValue,
+  workspaceId: string,
+  variableName: string,
+) {
+  if (!workspaceId || !variableName) return;
+  const filePath =
+    "/" + workspaceId + "/" + variableDataGroupKey + "/" + variableName + ".json";
+  await storage.writeFile(filePath, JSON.stringify(snapshot));
+
+  if (
+    workspaceId === selectedWorkspaceId.value &&
+    variableName === selectedVarialbeName.value
+  ) {
+    const item = variableDataList.value.find(
+      (entry) => entry.variableName === variableName,
+    );
+    if (item) item.value = snapshot;
+  }
+}
+
+async function restoreVariableSnapshot(
+  snapshot: QxqyExportedValue,
+  workspaceId: string,
+  variableName: string,
+) {
+  await writeVariableSnapshot(snapshot, workspaceId, variableName);
+  if (
+    workspaceId === selectedWorkspaceId.value &&
+    variableName === selectedVarialbeName.value
+  ) {
+    variableRoot.value = variableWorkspace.value.parse(snapshot);
+    editorRevision.value++;
+  }
+}
+
+async function ApplyVariableMutation(
+  label: string,
+  mutate: () => unknown,
+): Promise<boolean> {
+  if (!variableRoot.value) return false;
+
+  const workspaceId = selectedWorkspaceId.value;
+  const variableName = selectedVarialbeName.value;
+  const before = variableRoot.value.toQxqyValue() as QxqyExportedValue;
+
+  try {
+    const result = mutate();
+    if (result === false) return false;
+
+    const after = variableRoot.value.toQxqyValue() as QxqyExportedValue;
+    await writeVariableSnapshot(after, workspaceId, variableName);
+    editorRevision.value++;
+
+    udnoManager.add({
+      label,
+      undo: () => restoreVariableSnapshot(before, workspaceId, variableName),
+      redo: () => restoreVariableSnapshot(after, workspaceId, variableName),
+    });
+    return true;
+  } catch (error) {
+    variableRoot.value = variableWorkspace.value.parse(before);
+    editorRevision.value++;
+    toast.error(
+      "修改失败：" + (error instanceof Error ? error.message : String(error)),
+    );
+    return false;
+  }
+}
+provide("ApplyVariableMutation", ApplyVariableMutation);
 
 /**
  * 添加工作区
@@ -821,6 +798,17 @@ async function RefreshBaseStruct() {
         } as BaseStruct; // 返回结构体
       }),
   );
+
+  variableWorkspace.value = new VariableWorkspace(baseStructList.value);
+  const current = variableDataList.value.find(
+    (item) => item.variableName === selectedVarialbeName.value,
+  );
+  if (current) {
+    variableRoot.value = variableWorkspace.value.parse(
+      current.value as QxqyExportedValue,
+    );
+    editorRevision.value++;
+  }
 }
 
 async function RefreshVariableData() {
