@@ -21,6 +21,12 @@ export const appRoutes: AppRoute[] = [
     name: "SoundEffectPlayer",
     title: "音效播放器",
     description: "可在线播放千星奇域7.0版本之前的音效",
+  },  
+  {
+    path: "/EffectPlayer",
+    name: "EffectPlayer",
+    title: "特效播放器",
+    description: "还不能在线播放千星奇域7.0版本之前的特效，只做了预览图片",
   },
   {
     path: "/TextGradient",

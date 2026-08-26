@@ -8,5 +8,15 @@ module.exports = defineConfig({
         path: "path-browserify",
       },
     },
-  }
+  },
+  devServer: {
+    client: {
+      overlay: {
+        runtimeErrors: (error) => {
+          const message = error?.message || String(error || "")
+          return !message.includes("ResizeObserver loop")
+        },
+      },
+    },
+  },
 })
