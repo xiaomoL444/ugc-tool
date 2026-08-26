@@ -10,6 +10,12 @@ module.exports = defineConfig({
     },
   },
   devServer: {
+    proxy: {
+      "/ugc-tool-data": {
+        target: "https://oss.xiaomol444.xyz",
+        changeOrigin: true,
+      },
+    },
     client: {
       overlay: {
         runtimeErrors: (error) => {

@@ -160,10 +160,10 @@ import SplitterPanel from "primevue/splitterpanel";
 
 import { computed, onMounted, ref } from "vue";
 import { BgmInfo } from "./types/bgmInfo";
-import axios from "axios";
 import ListButton from "@/components/button/ListButton.vue";
 import BgmInfoViewer from "./components/BgmInfoViewer.vue";
 import BgmMetadata from "./components/BgmMetadata.vue";
+import { createOss } from "@/utils/oss";
 
 function neteaseSongUrl(songId: number) {
     return `https://music.163.com/song?id=${songId}`;
@@ -174,11 +174,11 @@ function chineseSongTitle(name: string) {
     return name.split(" ")[0] ?? "";
 }
 
-const ProjectName = "BgmPlayer";
+const oss = createOss("BgmPlayer");
 
 const dataJson = ref<BgmInfo[]>();
 onMounted(async () => {
-    dataJson.value = (await axios.get(`/data/${ProjectName}/data.json`)).data;
+    dataJson.value = await oss.json("data.json");
 });
 
 const selectedItem = ref<BgmInfo>();

@@ -1,7 +1,8 @@
+import { createOss } from "@/utils/oss";
 import { reactive } from "vue";
 import { EffectItem } from "./types/EffectData";
 
-const ProjectName = "EffectPlayer";
+const oss = createOss("EffectPlayer");
 
 const iconNodes = new Map<string, HTMLImageElement>();
 const gifNodes = new Map<string, HTMLImageElement>();
@@ -27,12 +28,12 @@ function getPark() {
 }
 
 export function iconUrl(item: EffectItem) {
-  return `/data/${ProjectName}/icon/${item.icon || `${item.id}.png`}`;
+  return oss.path("icon", item.icon || `${item.id}.png`);
 }
 
 export function gifUrl(item: EffectItem) {
   const folder = item.isLoop ? "GIFS2" : "GIFS";
-  return `/data/${ProjectName}/${folder}/${item.id}.gif`;
+  return oss.path(folder, `${item.id}.gif`);
 }
 
 export function hasGif(id: string) {

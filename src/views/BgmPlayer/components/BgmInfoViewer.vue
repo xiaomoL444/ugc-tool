@@ -1,6 +1,6 @@
 <template>
     <div class="container">
-        <img :src="`/data/${ProjectName}/album_pic/${info.album_id}.jpg`" class="album">
+        <img :src="oss.path('album_pic', `${info.album_id}.jpg`)" class="album">
         <div class="main-row">
 
             <div class="col title-col">
@@ -85,8 +85,9 @@
 <script setup lang="ts">
 import { NEllipsis } from 'naive-ui';
 import { BgmInfo } from '../types/bgmInfo';
+import { createOss } from "@/utils/oss";
 
-const ProjectName = "BgmPlayer";
+const oss = createOss("BgmPlayer");
 
 defineProps<{
     info: BgmInfo

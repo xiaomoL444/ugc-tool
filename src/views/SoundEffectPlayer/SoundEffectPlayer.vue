@@ -163,11 +163,11 @@ import { VVirtualList } from "vueuc";
 import ListButton from "@/components/button/ListButton.vue";
 import { toast } from "vue-sonner";
 import ActionButton from "@/components/button/ActionButton.vue";
-import axios from "axios";
 import { consola } from "consola";
 import { NEllipsis } from "naive-ui";
+import { createOss } from "@/utils/oss";
 
-const ProjectName = "SoundEffectPlayer";
+const oss = createOss("SoundEffectPlayer");
 
 const selectedId = ref("未选择"); //选择的音效id
 
@@ -208,7 +208,7 @@ interface rowType {
 const dataJson = ref<SoundEffectData>({});
 
 onMounted(async () => {
-  dataJson.value = (await axios.get(`/data/${ProjectName}/data.json`)).data;
+  dataJson.value = await oss.json("data.json");
 });
 
 const musicList = computed(() =>
@@ -238,7 +238,7 @@ function SelectSound(id: string) {
   console.log(`选择了${id}`);
   selectedId.value = id;
   audioSource.value = "";
-  audioSource.value = `/data/${ProjectName}/audio/${id}.mp3`;
+  audioSource.value = oss.path("audio", `${id}.mp3`);
   loading.value = true;
   audioRef.value?.load();
 }

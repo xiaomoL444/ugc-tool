@@ -28,12 +28,14 @@ import {
 import { toast } from "vue-sonner";
 import ActionButton from "@/components/button/ActionButton.vue";
 import { StorageClass } from "@/services/storage/storage";
-import axios from "axios";
+import { createOss } from "@/utils/oss";
 import { lcm } from "./utils/math";
 import FormItemRow from "@/components/Layout/form-item-row.vue";
 import { Clipboard } from "@/utils/clipboard";
 import { downloadJsonFile } from "@/utils/download";
 import { FileUtil } from "@/utils/fileUtil";
+
+const oss = createOss("TextGradient");
 
 const isSetColor = ref(true);
 const isUse4bit = ref(false);
@@ -195,8 +197,8 @@ onBeforeMount(async () => {
           `/${fileName}`,
           JSON.stringify(
             (
-              await axios.get(`/data/TextGradient/${fileName}`)
-            ).data,
+              await oss.json(fileName)
+            ),
           ),
         );
       }),

@@ -10,7 +10,7 @@ import {
   provide,
   inject,
   onBeforeMount,
-  Component,
+  type Component,
 } from "vue";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import { consola } from "consola";

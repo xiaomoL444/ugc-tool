@@ -136,11 +136,11 @@
 <script setup lang="ts">
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import { Clipboard } from "@/utils/clipboard";
-import axios from "axios";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { toast } from "vue-sonner";
 import { VVirtualList } from "vueuc";
 import EffectMedia from "./EffectMedia.vue";
+import { createOss } from "@/utils/oss";
 import {
   EffectDataFile,
   EffectItem,
@@ -148,7 +148,7 @@ import {
   EffectRow,
 } from "./types/EffectData";
 
-const ProjectName = "EffectPlayer";
+const oss = createOss("EffectPlayer");
 const CARD_TAG_LIMIT = 4;
 const itemSize = 292;
 
@@ -220,7 +220,7 @@ onMounted(async () => {
   window.addEventListener("resize", updateColumns);
   window.addEventListener("keydown", onKeydown);
   try {
-    const { data } = await axios.get<EffectDataFile>(`/data/${ProjectName}/data.json`);
+    const data = await oss.json<EffectDataFile>("data.json");
     const rawEffects = data.effectData ?? {};
     effectData.value = Object.fromEntries(
       Object.entries(rawEffects).filter(([, item]) => Boolean(item.icon?.trim())),
