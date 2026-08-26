@@ -65,22 +65,7 @@
                 type="button"
                 @click="openModal(effect)"
               >
-                <div class="effect-image-wrap" :class="{ 'has-gif': Boolean(gifSrc(effect)) }">
-                  <img
-                    class="effect-image effect-icon"
-                    :src="iconUrl(effect)"
-                    :alt="effectName(effect)"
-                    loading="lazy"
-                    @load="tryLoadGif(effect)"
-                    @error="onImageError"
-                  />
-                  <img
-                    v-if="gifSrc(effect)"
-                    class="effect-image effect-gif"
-                    :src="gifSrc(effect)"
-                    :alt="effectName(effect)"
-                  />
-                </div>
+                <EffectMedia :item="effect" />
                 <div class="effect-info">
                   <div class="effect-name" :title="effectName(effect)">
                     {{ effectName(effect) }}
@@ -122,20 +107,7 @@
       <div class="modal-content">
         <button class="close-button" type="button" aria-label="关闭" @click="closeModal">&times;</button>
         <div class="modal-body">
-          <div class="modal-image-wrap" :class="{ 'has-gif': Boolean(gifSrc(selectedEffect)) }">
-            <img
-              class="modal-image modal-icon"
-              :src="iconUrl(selectedEffect)"
-              :alt="effectName(selectedEffect)"
-              @load="tryLoadGif(selectedEffect)"
-            />
-            <img
-              v-if="gifSrc(selectedEffect)"
-              class="modal-image modal-gif"
-              :src="gifSrc(selectedEffect)"
-              :alt="effectName(selectedEffect)"
-            />
-          </div>
+          <EffectMedia :item="selectedEffect" variant="modal" />
           <div class="modal-info">
             <h2 class="modal-title">{{ effectName(selectedEffect) }}</h2>
             <p class="modal-id" @click="Clipboard(selectedEffect.id)">配置ID: {{ selectedEffect.id }}</p>
@@ -168,6 +140,7 @@ import axios from "axios";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { toast } from "vue-sonner";
 import { VVirtualList } from "vueuc";
+import EffectMedia from "./EffectMedia.vue";
 import {
   EffectDataFile,
   EffectItem,
@@ -274,33 +247,6 @@ function tagName(tagId: number) {
   return tagData.value[String(tagId)] || `Tag ${tagId}`;
 }
 
-function iconUrl(item: EffectItem) {
-  return `/data/${ProjectName}/icon/${item.icon || `${item.id}.png`}`;
-}
-
-function gifUrl(item: EffectItem) {
-  const folder = item.isLoop ? "GIFS2" : "GIFS";
-  return `/data/${ProjectName}/${folder}/${item.id}.gif`;
-}
-
-const gifReady = ref<Record<string, string>>({});
-const gifTried = new Set<string>();
-
-function gifSrc(item: EffectItem) {
-  return gifReady.value[item.id] || "";
-}
-
-function tryLoadGif(item: EffectItem) {
-  if (gifTried.has(item.id) || gifReady.value[item.id]) return;
-  gifTried.add(item.id);
-  const url = gifUrl(item);
-  const image = new Image();
-  image.onload = () => {
-    gifReady.value[item.id] = url;
-  };
-  image.src = url;
-}
-
 function formatDuration(item: EffectItem) {
   if (item.duration < 0) return "循环";
   return `${item.duration}s`;
@@ -330,7 +276,6 @@ function toggleTag(tagId: number) {
 function openModal(item: EffectItem) {
   selectedEffect.value = item;
   document.body.style.overflow = "hidden";
-  tryLoadGif(item);
 }
 
 function closeModal() {
@@ -342,11 +287,6 @@ function onKeydown(event: KeyboardEvent) {
   if (event.key === "Escape" && selectedEffect.value) {
     closeModal();
   }
-}
-
-function onImageError(event: Event) {
-  const image = event.target as HTMLImageElement;
-  image.style.display = "none";
 }
 
 function updateColumns() {
@@ -535,42 +475,6 @@ function updateColumns() {
   box-shadow: none;
 }
 
-.effect-image-wrap {
-  height: 160px;
-  background: #111218;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-}
-
-.effect-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.effect-gif {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-
-.effect-image-wrap.has-gif .effect-icon {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  z-index: 2;
-  width: 48px;
-  height: 48px;
-  padding: 4px;
-  background: rgba(17, 18, 24, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
-}
-
 .effect-info {
   padding: 10px 12px 12px;
   display: flex;
@@ -658,40 +562,6 @@ function updateColumns() {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-}
-
-.modal-image-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-image {
-  max-width: 90vw;
-  max-height: 68vh;
-  object-fit: contain;
-}
-
-.modal-gif {
-  position: relative;
-  z-index: 1;
-}
-
-.modal-image-wrap.has-gif .modal-icon {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  z-index: 2;
-  width: 96px;
-  height: 96px;
-  max-width: none;
-  max-height: none;
-  padding: 6px;
-  background: rgba(17, 18, 24, 0.82);
-  border: 1px solid rgba(159, 231, 255, 0.35);
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
 }
 
 .modal-info {
