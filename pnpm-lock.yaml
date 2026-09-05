@@ -41,6 +41,9 @@ importers:
       core-js:
         specifier: ^3.8.3
         version: 3.48.0
+      genshin-impact-ugc-file-converter-web:
+        specifier: file:../Genshin-Impact-UGC-File-Converter
+        version: file:../Genshin-Impact-UGC-File-Converter
       interactjs:
         specifier: ^1.10.27
         version: 1.10.27
@@ -57,8 +60,8 @@ importers:
         specifier: ^4.3.2
         version: 4.3.2
       miliastra-variable:
-        specifier: file:../miliastra-variable
-        version: file:../miliastra-variable
+        specifier: 0.1.2
+        version: 0.1.2
       mitt:
         specifier: ^3.0.1
         version: 3.0.1
@@ -2263,6 +2266,9 @@ packages:
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
 
+  genshin-impact-ugc-file-converter-web@file:../Genshin-Impact-UGC-File-Converter:
+    resolution: {directory: ../Genshin-Impact-UGC-File-Converter, type: directory}
+
   gensync@1.0.0-beta.2:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
     engines: {node: '>=6.9.0'}
@@ -2748,8 +2754,8 @@ packages:
     resolution: {integrity: sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA==}
     engines: {node: '>=8.6'}
 
-  miliastra-variable@file:../miliastra-variable:
-    resolution: {directory: ../miliastra-variable, type: directory}
+  miliastra-variable@0.1.2:
+    resolution: {integrity: sha512-fqxoNTRMx4YOkPNFaweiISSdQQiHkUhBIDzaHwMxXzp4vc6W0mNVivACQdkLIYTJWAT6eF5RwimO+PX7/XvXGg==}
     engines: {node: '>=18'}
 
   mime-db@1.52.0:
@@ -6654,6 +6660,8 @@ snapshots:
 
   function-bind@1.1.2: {}
 
+  genshin-impact-ugc-file-converter-web@file:../Genshin-Impact-UGC-File-Converter: {}
+
   gensync@1.0.0-beta.2: {}
 
   get-caller-file@2.0.5: {}
@@ -7110,7 +7118,7 @@ snapshots:
       braces: 3.0.3
       picomatch: 2.3.1
 
-  miliastra-variable@file:../miliastra-variable: {}
+  miliastra-variable@0.1.2: {}
 
   mime-db@1.52.0: {}
 
