@@ -42,8 +42,8 @@ importers:
         specifier: ^3.8.3
         version: 3.48.0
       genshin-impact-ugc-file-converter-web:
-        specifier: file:../Genshin-Impact-UGC-File-Converter
-        version: file:../Genshin-Impact-UGC-File-Converter
+        specifier: file:./vendor/genshin-impact-ugc-file-converter-web
+        version: file:vendor/genshin-impact-ugc-file-converter-web
       interactjs:
         specifier: ^1.10.27
         version: 1.10.27
@@ -2266,8 +2266,8 @@ packages:
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
 
-  genshin-impact-ugc-file-converter-web@file:../Genshin-Impact-UGC-File-Converter:
-    resolution: {directory: ../Genshin-Impact-UGC-File-Converter, type: directory}
+  genshin-impact-ugc-file-converter-web@file:vendor/genshin-impact-ugc-file-converter-web:
+    resolution: {directory: vendor/genshin-impact-ugc-file-converter-web, type: directory}
 
   gensync@1.0.0-beta.2:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
@@ -6660,7 +6660,7 @@ snapshots:
 
   function-bind@1.1.2: {}
 
-  genshin-impact-ugc-file-converter-web@file:../Genshin-Impact-UGC-File-Converter: {}
+  genshin-impact-ugc-file-converter-web@file:vendor/genshin-impact-ugc-file-converter-web: {}
 
   gensync@1.0.0-beta.2: {}
 

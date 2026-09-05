@@ -1,0 +1,23 @@
+{
+  "name": "genshin-impact-ugc-file-converter-web",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist-types/lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist-types/lib/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "dist-types", "LICENSE", "README.md"],
+  "scripts": {
+    "build": "esbuild lib/index.ts --bundle --format=esm --platform=neutral --target=es2022 --loader:.csv=text --outfile=dist/index.js && tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.9",
+    "typescript": "^5.9.2"
+  }
+}

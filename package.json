@@ -21,7 +21,7 @@
     "chroma-js": "^3.2.0",
     "consola": "^3.4.2",
     "core-js": "^3.8.3",
-    "genshin-impact-ugc-file-converter-web": "file:../Genshin-Impact-UGC-File-Converter",
+    "genshin-impact-ugc-file-converter-web": "file:./vendor/genshin-impact-ugc-file-converter-web",
     "interactjs": "^1.10.27",
     "jsonpath-plus": "^10.3.0",
     "jszip": "^3.10.1",
