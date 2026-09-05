@@ -1,4 +1,9 @@
-export const OSS_BASE_URL = process.env.VUE_APP_OSS_BASE || "https://oss.xiaomol444.xyz/ugc-tool-data";
+// 本地通过 vue.config.js 的同源代理读取，避免开发地址/端口受 OSS 的 CORS 白名单限制。
+export const OSS_BASE_URL = process.env.VUE_APP_OSS_BASE || (
+  process.env.NODE_ENV === "development"
+    ? "/ugc-tool-data"
+    : "https://oss.xiaomol444.xyz/ugc-tool-data"
+);
 
 function normalizeSegment(part: string | number) {
   return String(part)

@@ -7,4 +7,11 @@ export interface BgmInfo {
   time: number;
   minute: number;
   second: number;
+  category: number;
+  order: number;
+}
+
+export interface BgmDataFile {
+  musicData: BgmInfo[];
+  categoryData: Record<string, string>;
 }
