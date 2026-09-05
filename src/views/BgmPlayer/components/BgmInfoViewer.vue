@@ -90,6 +90,6 @@ import { createOss } from "@/utils/oss";
 const oss = createOss("BgmPlayer");
 
 defineProps<{
-    info: BgmInfo
+    info: BgmInfo;
 }>()
 </script>
