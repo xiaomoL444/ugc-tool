@@ -134,6 +134,8 @@
 }
 
 .search-bar {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -190,6 +192,8 @@
 }
 
 .category-controls {
+    position: relative;
+    z-index: 1;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 4px;
@@ -322,6 +326,9 @@
 }
 
 .song-list-scroll {
+    /* 将歌曲的滤镜和分组标题限制在滚动层，避免覆盖上方控件的点击区域。 */
+    position: relative;
+    z-index: 0;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
