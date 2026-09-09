@@ -13,7 +13,81 @@
 .dnd-flow {
     flex-direction:column;
     display:flex;
-    height:100%
+    flex:1;
+    min-height:0
+}
+
+.dialogue-workspace {
+    display:flex;
+    flex-direction:column;
+    height:100%;
+    min-height:0
+}
+
+.dialogue-export-toolbar {
+    display:flex;
+    flex:0 0 auto;
+    align-items:center;
+    justify-content:flex-end;
+    gap:10px;
+    flex-wrap:wrap;
+    min-height:36px;
+    padding:0 10px;
+    color:#617087;
+    background:#eef3f9;
+    border-bottom:1px solid #c9d4e2
+}
+
+.dialogue-export-toolbar .dialogue-view-switch {
+    display:flex;
+    gap:2px;
+    padding:3px;
+    margin-right:auto;
+    border:1px solid #d3deec;
+    border-radius:7px;
+    background:#e3eaf4
+}
+
+.dialogue-export-toolbar .dialogue-view-switch button {
+    padding:5px 10px;
+    border:0;
+    color:#687a91;
+    background:transparent;
+    font-size:12px
+}
+
+.dialogue-export-toolbar .dialogue-view-switch button[aria-pressed="true"] {
+    color:#246bb2;
+    background:#fff;
+    box-shadow:0 1px 4px #3a53751a
+}
+
+.dialogue-export-toolbar span {
+    font-size:11px
+}
+
+.dialogue-export-toolbar button {
+    padding:6px 12px;
+    color:#fff;
+    background:#2877c7;
+    border:1px solid #1764b2;
+    border-radius:5px;
+    cursor:pointer
+}
+
+.dialogue-export-toolbar button:hover {
+    background:#1e69b5
+}
+
+.dialogue-export-toolbar .struct-id-settings-button {
+    color:#31506f;
+    background:#fff;
+    border-color:#adbdcf
+}
+
+.dialogue-export-toolbar .struct-id-settings-button:hover {
+    color:#1f4164;
+    background:#e4edf7
 }
 
 .dnd-flow aside {

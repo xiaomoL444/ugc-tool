@@ -20,11 +20,14 @@ import SelectableList from "@/components/UI/List/SelectableList.vue";
 import { ProjectID } from "./constant/constant";
 import CameraEditor from "./components/editormap/CameraEditor.vue";
 import DialogueEditor from "./components/DialogueEditor/DialogueEditor.vue";
+import QuestEditor from "./components/QuestEditor/QuestEditor.vue";
 
 const storage = inject<StorageClass>("storage")!.setProject(ProjectID); //储存区
 
 const workspaceIds = ref<string[]>([]); //工作区的所有id
 const selectedWorkspaceId = ref(""); //选择的工作区
+const editorRef = ref<{ prepareToLeave: () => Promise<void> }>();
+const switchingEditor = ref(false);
 provide("selectedWorkspaceId", selectedWorkspaceId);
 
 /**
@@ -59,22 +62,27 @@ async function AddWorkspace(undoGroupId = "", isForce = false) {
  * @param index 删除的工作区的序号
  */
 async function DelectWorkspace(undoGroupId = "", isForce = false) {
+  if (switchingEditor.value) return;
   undoGroupId = undoGroupId || crypto.randomUUID();
 
   if (selectedWorkspaceId.value == "") {
     toast.warning("未选择任何工作区");
+    return;
   }
 
   if (
     isForce ||
     confirm(`确认要删除 工作区:【${selectedWorkspaceId.value}】 嘛？`)
   ) {
-    const workspaceId = selectedWorkspaceId.value;
-    const trashPath = await storage.trash(`/${workspaceId}`);
-
-    ChangeWorkspace("", undoGroupId, isForce);
-
-    await RefreshWorkspace();
+    switchingEditor.value = true;
+    try {
+      await editorRef.value?.prepareToLeave();
+      const workspaceId = selectedWorkspaceId.value;
+      await storage.setProject(ProjectID).trash(`/${workspaceId}`);
+      selectedWorkspaceId.value = "";
+      await RefreshWorkspace();
+    } catch (error) { consola.error(error); toast.error("工作区删除失败，当前编辑内容已保留"); }
+    finally { switchingEditor.value = false; }
   }
 }
 
@@ -85,6 +93,7 @@ async function DelectWorkspace(undoGroupId = "", isForce = false) {
  * @param isForce 是否强制切换
  */
 async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
+  if (switchingEditor.value) return;
   undoGroupId = undoGroupId || crypto.randomUUID();
   consola.info(`切换工作区：${id}`);
 
@@ -95,7 +104,22 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
     return;
   }
 
-  selectedWorkspaceId.value = id;
+  switchingEditor.value = true;
+  try {
+    await editorRef.value?.prepareToLeave();
+    selectedWorkspaceId.value = id;
+  } catch (error) { consola.error(error); toast.error("保存失败，暂未切换工作区"); }
+  finally { switchingEditor.value = false; }
+}
+
+async function ChangeEditorKind(kind: "Dialogue" | "Quest") {
+  if (switchingEditor.value || selectedFunction.value === kind) return;
+  switchingEditor.value = true;
+  try {
+    await editorRef.value?.prepareToLeave();
+    selectedFunction.value = kind;
+  } catch (error) { consola.error(error); toast.error("保存失败，暂未切换编辑器"); }
+  finally { switchingEditor.value = false; }
 }
 
 onBeforeMount(async () => {
@@ -111,17 +135,17 @@ onBeforeMount(async () => {
   selectedFunction.value = "Dialogue";
 });
 
-const selectedFunction = ref("");
+const selectedFunction = ref<"Dialogue" | "Quest">("Dialogue");
 function onSelectFunction() {}
 
 const functionViewMap: Record<string, Component> = {
   Dialogue: DialogueEditor,
-  Camera: CameraEditor,
+  Quest: QuestEditor,
 };
 </script>
 
 <template>
-  <Splitter style="height: 100%; width: 100%">
+  <Splitter style="height: 100%; width: 100%" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor">
     <SplitterPanel :size="15">
       <SectionLayout title="工作区选择" class="top">
         <SelectableList
@@ -133,29 +157,18 @@ const functionViewMap: Record<string, Component> = {
         />
       </SectionLayout>
     </SplitterPanel>
-    <SplitterPanel :size="15"
-      ><SectionLayout title="功能选择">
-        <select
-          v-model="selectedFunction"
-          @change="onSelectFunction"
-          placeholder="选择功能"
-        >
-          <option value="Dialogue">对话</option>
-          <option value="Animation">动画</option>
-          <option value="Camera">运镜</option>
-        </select></SectionLayout
-      ></SplitterPanel
-    >
-
     <SplitterPanel :size="85">
-      <SectionLayout>
-        <component :is="functionViewMap[selectedFunction]"></component>
+      <SectionLayout title="DSFG Studio">
+        <component v-if="selectedWorkspaceId" ref="editorRef" :is="functionViewMap[selectedFunction]"
+          :key="`${selectedWorkspaceId}:${selectedFunction}`" :editor-kind="selectedFunction"
+          @update:editor-kind="ChangeEditorKind" />
       </SectionLayout>
     </SplitterPanel>
   </Splitter>
 </template>
 
 <style scoped>
+.editor-switching { pointer-events: none; opacity: .75; }
 .timeline-editor {
   height: 100%;
   width: 100%;

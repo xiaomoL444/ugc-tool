@@ -1,0 +1,62 @@
+[
+  {
+    "id": 100001,
+    "path": "UI_UGC_CustomShape_Square.png",
+    "name": "基础方形",
+    "description": "纯白实心正方形，四边贴满画布",
+    "imageType": "default",
+    "defaultWidth": 150,
+    "defaultHeight": 150,
+    "preserveAspect": false
+  },
+  {
+    "id": 100002,
+    "path": "UI_UGC_CustomShape_Circle.png",
+    "name": "基础圆形",
+    "description": "透明底纯白实心圆",
+    "imageType": "default",
+    "defaultWidth": 150,
+    "defaultHeight": 150,
+    "preserveAspect": true
+  },
+  {
+    "id": 100003,
+    "path": "UI_UGC_CustomShape_Triangle.png",
+    "name": "基础三角形",
+    "description": "朝上的实心等腰三角形",
+    "imageType": "default",
+    "defaultWidth": 150,
+    "defaultHeight": 150,
+    "preserveAspect": true
+  },
+  {
+    "id": 100004,
+    "path": "UI_UGC_CustomShape_FourPointedStar.png",
+    "name": "四芒闪光",
+    "description": "上下尖角较长的四芒星",
+    "imageType": "default",
+    "defaultWidth": 150,
+    "defaultHeight": 150,
+    "preserveAspect": true
+  },
+  {
+    "id": 100005,
+    "path": "UI_UGC_CustomShape_FivePointedStar.png",
+    "name": "五角星",
+    "description": "顶部单尖朝上的实心五角星",
+    "imageType": "default",
+    "defaultWidth": 150,
+    "defaultHeight": 150,
+    "preserveAspect": true
+  },
+  {
+    "id": 100006,
+    "path": "UI_UGC_CustomShape_Ring.png",
+    "name": "基础圆环",
+    "description": "中心透明、环宽约 24px 的圆环",
+    "imageType": "default",
+    "defaultWidth": 150,
+    "defaultHeight": 150,
+    "preserveAspect": true
+  }
+]

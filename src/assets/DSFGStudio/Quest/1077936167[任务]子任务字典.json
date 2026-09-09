@@ -1,0 +1,22 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[任务]子任务字典", 
+   "value" : [ 
+      { 
+         "key" : "子任务字典", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "Struct", 
+               "value" : [ 
+               ], 
+               "value_structId" : "1077936145"
+            }
+         }
+      }
+   ]
+}

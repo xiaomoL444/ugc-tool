@@ -48,8 +48,8 @@ export const appRoutes: AppRoute[] = [
     title: "BGM播放器",
     description:
       "可在线播放千星奇域「月之八」（6.7）版本之前的BGM",
-  },   
-   {
+  },
+  {
     path: "/MiniMapMapper",
     name: "MiniMapMapper",
     title: "小地图场景映射计算",
@@ -57,5 +57,20 @@ export const appRoutes: AppRoute[] = [
       `小地图场景映射计算
       
       ————无边天下第一制作提供`,
+  },
+    {
+    path: "/DSFGStudio",
+    name: "DSFGStudio",
+    title: "对话模版编辑器",
+    description:
+      `对话模版编辑器v2`,
+  },
+  {
+    path: "/ClientUIAnimationEditor",
+    name: "ClientUIAnimationEditor",
+    title: "客户端UI动画编辑器",
+    description:
+      `客户端UI动画编辑器
+      这会成为一个伟大的项目吗？`,
   },
 ];

@@ -1,0 +1,41 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[演出]ActionClip", 
+   "value" : [ 
+      { 
+         "key" : "actionType", 
+         "param_type" : "String", 
+         "value" : { 
+            "param_type" : "String", 
+            "value" : ""
+         }
+      }, 
+      { 
+         "key" : "duration", 
+         "param_type" : "Float", 
+         "value" : { 
+            "param_type" : "Float", 
+            "value" : "0.00"
+         }
+      }, 
+      { 
+         "key" : "stringParams", 
+         "param_type" : "StringList", 
+         "value" : { 
+            "param_type" : "StringList", 
+            "value" : [ 
+            ]
+         }
+      }, 
+      { 
+         "key" : "intParams", 
+         "param_type" : "Int32List", 
+         "value" : { 
+            "param_type" : "Int32List", 
+            "value" : [ 
+            ]
+         }
+      }
+   ]
+}

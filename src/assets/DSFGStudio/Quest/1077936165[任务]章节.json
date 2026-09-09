@@ -1,0 +1,15 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[任务]章节", 
+   "value" : [ 
+      { 
+         "key" : "标题", 
+         "param_type" : "String", 
+         "value" : { 
+            "param_type" : "String", 
+            "value" : ""
+         }
+      }
+   ]
+}

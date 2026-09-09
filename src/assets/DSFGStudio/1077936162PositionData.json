@@ -1,0 +1,92 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[运镜]PositionData", 
+   "value" : [ 
+      { 
+         "key" : "type", 
+         "param_type" : "String", 
+         "value" : { 
+            "param_type" : "String", 
+            "value" : ""
+         }
+      }, 
+      { 
+         "key" : "slot", 
+         "param_type" : "StructList", 
+         "value" : { 
+            "param_type" : "StructList", 
+            "value" : { 
+               "structId" : "1077936164", 
+               "value" : [ 
+                  { 
+                     "param_type" : "Struct", 
+                     "value" : { 
+                        "structId" : "1077936164", 
+                        "type" : "Struct", 
+                        "value" : [ 
+                           { 
+                              "param_type" : "Int32", 
+                              "value" : "0"
+                           }, 
+                           { 
+                              "param_type" : "String", 
+                              "value" : ""
+                           }, 
+                           { 
+                              "param_type" : "Vector3", 
+                              "value" : "0,0,0"
+                           }, 
+                           { 
+                              "param_type" : "Guid", 
+                              "value" : "0"
+                           }, 
+                           { 
+                              "param_type" : "String", 
+                              "value" : ""
+                           }, 
+                           { 
+                              "param_type" : "String", 
+                              "value" : ""
+                           }, 
+                           { 
+                              "param_type" : "Vector3", 
+                              "value" : "0,0,0"
+                           }, 
+                           { 
+                              "param_type" : "Bool", 
+                              "value" : "False"
+                           }
+                        ]
+                     }
+                  }
+               ]
+            }
+         }
+      }, 
+      { 
+         "key" : "snapToTarget", 
+         "param_type" : "Bool", 
+         "value" : { 
+            "param_type" : "Bool", 
+            "value" : "False"
+         }
+      }, 
+      { 
+         "key" : "orbitRot", 
+         "param_type" : "Vector3", 
+         "value" : { 
+            "param_type" : "Vector3", 
+            "value" : "0,0,0"
+         }
+      }, 
+      { 
+         "key" : "orbitRadius", 
+         "param_type" : "Float", 
+         "value" : { 
+            "param_type" : "Float", 
+            "value" : "2.00"
+         }
+      }
+   ]
+}

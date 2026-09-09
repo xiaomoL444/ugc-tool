@@ -1,0 +1,117 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[任务]子任务", 
+   "value" : [ 
+      { 
+         "key" : "归属主任务", 
+         "param_type" : "Int32", 
+         "value" : { 
+            "param_type" : "Int32", 
+            "value" : "0"
+         }
+      }, 
+      { 
+         "key" : "标题", 
+         "param_type" : "String", 
+         "value" : { 
+            "param_type" : "String", 
+            "value" : ""
+         }
+      }, 
+      { 
+         "key" : "描述", 
+         "param_type" : "String", 
+         "value" : { 
+            "param_type" : "String", 
+            "value" : ""
+         }
+      }, 
+      { 
+         "key" : "任务单位状态", 
+         "param_type" : "ConfigReference", 
+         "value" : { 
+            "param_type" : "ConfigReference", 
+            "value" : "0"
+         }
+      }, 
+      { 
+         "key" : "任务调查点预设点", 
+         "param_type" : "Struct", 
+         "value" : { 
+            "param_type" : "Struct", 
+            "value" : { 
+               "structId" : "1077936164", 
+               "type" : "Struct", 
+               "value" : [ 
+                  { 
+                     "param_type" : "Int32", 
+                     "value" : "0"
+                  }, 
+                  { 
+                     "param_type" : "String", 
+                     "value" : ""
+                  }, 
+                  { 
+                     "param_type" : "Vector3", 
+                     "value" : "0,0,0"
+                  }, 
+                  { 
+                     "param_type" : "Guid", 
+                     "value" : "0"
+                  }, 
+                  { 
+                     "param_type" : "String", 
+                     "value" : ""
+                  }, 
+                  { 
+                     "param_type" : "String", 
+                     "value" : ""
+                  }, 
+                  { 
+                     "param_type" : "Vector3", 
+                     "value" : "0,0,0"
+                  }, 
+                  { 
+                     "param_type" : "Bool", 
+                     "value" : "False"
+                  }, 
+                  { 
+                     "param_type" : "Int32", 
+                     "value" : "0"
+                  }, 
+                  { 
+                     "param_type" : "Int32", 
+                     "value" : "0"
+                  }
+               ]
+            }
+         }
+      }, 
+      { 
+         "key" : "调查点范围", 
+         "param_type" : "Float", 
+         "value" : { 
+            "param_type" : "Float", 
+            "value" : "-1.00"
+         }
+      }, 
+      { 
+         "key" : "隐藏任务", 
+         "param_type" : "Bool", 
+         "value" : { 
+            "param_type" : "Bool", 
+            "value" : "False"
+         }
+      }, 
+      { 
+         "key" : "后续任务", 
+         "param_type" : "Int32List", 
+         "value" : { 
+            "param_type" : "Int32List", 
+            "value" : [ 
+            ]
+         }
+      }
+   ]
+}

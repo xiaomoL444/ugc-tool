@@ -1,0 +1,3499 @@
+<template>
+  <div ref="editorElement" class="animation-editor" :class="{ 'is-timeline-resizing': timelineResizing, 'is-timeline-scrubbing': timelineScrubbing }" :inert="archive?.busy.value" :style="editorStyle" @pointerdown="closeMenus" @contextmenu.prevent>
+    <header class="editor-toolbar">
+      <button class="tool-button workspace-button" aria-label="管理工作区和编辑文件" @click.stop="workspacePanelOpen = true"><EditorIcon name="folder" :size="15" />工作区</button>
+      <div class="project-copy"><strong :title="archive?.selectedWorkspace.value">{{ archive?.selectedWorkspace.value || '客户端控件动画' }}</strong><span :title="projectName">{{ hasOpenDocument ? projectName : '未打开编辑文件' }}</span></div>
+      <div class="toolbar-divider"></div>
+      <button class="tool-button" @click.stop="resetProject"><EditorIcon name="plus" :size="15" />新建文件</button>
+      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="saveProject"><EditorIcon name="save" :size="15" />保存</button>
+      <button class="tool-button" @click.stop="openProject">导入 JSON</button>
+      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="downloadProject">导出 JSON</button>
+      <button class="tool-button gia-import-button" title="导入 GIA，在当前工作区创建新的编辑文件" @click.stop="openGiaFile">导入 GIA</button>
+      <button class="archive-status" :class="{ 'has-error': archive?.error.value }" :title="archive?.error.value || archive?.status.value" @click.stop="workspacePanelOpen = true">{{ archive?.status.value || 'JSON 文件模式' }}</button>
+      <div class="lua-export-wrap" @pointerdown.stop>
+        <button class="tool-button lua-export-button" aria-label="Lua 导入与导出" title="导入 Timeline Data，或导出运行库与动画数据" @click.stop="luaExportMenuOpen = !luaExportMenuOpen">Lua 工具 <span>⌄</span></button>
+        <span class="lua-lib-version" :title="`当前可导出的 TweenTimelineLib 版本：@${TWEEN_TIMELINE_LIB_VERSION}。不代表游戏项目中已安装的版本；更新时请重新导出运行库。`">Lib:v{{ TWEEN_TIMELINE_LIB_VERSION }}</span>
+        <div v-if="luaExportMenuOpen" class="lua-export-menu">
+          <button :disabled="!hasOpenDocument" @click.stop="openTimelineDataImport"><b>导入 Timeline Data</b><small>从 Data 还原控件的动画时间轴</small></button>
+          <button @click.stop="exportTweenTimelineLib"><b>导出运行库</b><small>TweenTimelineLib.lua · v{{ TWEEN_TIMELINE_LIB_VERSION }} · 放入 Lib</small></button>
+          <button :disabled="!selectedNode" @click.stop="exportSelectedNodeTweenData"><b>导出 Timeline Data</b><small>{{ selectedNode ? `以 ${selectedNode.name} 为根控件` : '请先选择根控件' }}</small></button>
+        </div>
+      </div>
+      <input ref="fileInput" class="file-input" type="file" accept="application/json,.json" @change="loadProject" />
+      <input ref="giaFileInput" class="file-input" type="file" accept=".gia,application/octet-stream" @change="loadGiaFile" />
+      <span v-if="giaImportStatus" class="gia-import-status" :title="giaImportStatus">{{ giaImportStatus }}</span>
+      <div class="toolbar-spacer"></div>
+      <PreviewPresetSelect :groups="previewPresetGroups" :device-id="deviceMode" :preset-id="previewPresetId" @select="selectPreviewPreset" />
+      <div class="zoom-control"><button aria-label="缩小画布" @click.stop="zoom = Math.max(0.2, zoom - 0.1)">−</button><span>{{ Math.round(zoom * 100) }}%</span><button aria-label="放大画布" @click.stop="zoom = Math.min(1.5, zoom + 0.1)">＋</button></div>
+      <button class="icon-button" title="适应画布" aria-label="适应画布" @click.stop="fitCanvas"><EditorIcon name="fit" /></button>
+    </header>
+
+    <div class="editor-body">
+      <aside class="hierarchy-panel panel">
+        <div class="panel-heading">
+          <div><h2>控件层级 <span class="heading-count">{{ nodes.length }}</span></h2></div>
+          <button class="square-button" title="添加控件" aria-label="添加控件" :aria-expanded="addMenuOpen" @click.stop="addMenuOpen = !addMenuOpen"><EditorIcon name="plus" /></button>
+          <div v-if="addMenuOpen" class="add-menu" @pointerdown.stop>
+            <button v-for="control in controlDefinitions" :key="control.type" @click="addNode(control.type)"><span>{{ control.icon }}</span><div><b>{{ control.label }}</b><small>{{ control.description }}</small></div></button>
+          </div>
+        </div>
+        <div class="search-box"><EditorIcon name="search" :size="17" /><input v-model="search" placeholder="搜索控件" aria-label="搜索控件" /><button v-if="search" class="search-clear" aria-label="清空搜索" @click="search = ''">×</button></div>
+        <div ref="hierarchyTree" class="tree" :class="{ 'is-hierarchy-dragging': hierarchyDrag.active }" @pointerdown.stop>
+          <div v-if="hierarchyDrag.active" class="root-drop-hint" :class="{ active: hierarchyDrag.dropMode === 'inside' && hierarchyDrag.dropTargetId === rootContainer?.id }">拖到空白处 · 放到根层级</div>
+          <button v-for="item in visibleTree" :key="item.node.id" class="tree-row" :class="{ selected: item.node.id === selectedId, muted: !item.node.visible, 'root-node': item.node.id === rootContainer?.id, dragging: hierarchyDrag.active && hierarchyDrag.nodeId === item.node.id, 'drop-inside': hierarchyDrag.active && hierarchyDrag.dropMode === 'inside' && hierarchyDrag.dropTargetId === item.node.id, 'drop-before': hierarchyDrag.active && hierarchyDrag.dropMode === 'before' && hierarchyDrag.dropTargetId === item.node.id, 'drop-after': hierarchyDrag.active && hierarchyDrag.dropMode === 'after' && hierarchyDrag.dropTargetId === item.node.id }" :data-node-id="item.node.id" :style="{ paddingLeft: `${12 + item.depth * 18}px` }" :title="item.node.id === rootContainer?.id ? '唯一根容器' : '长按并拖动；边缘调整顺序，中间设为子级'" @pointerdown="startHierarchyPress($event, item.node)" @click="selectHierarchyNode(item.node)">
+            <span class="chevron" @pointerdown.stop @click.stop="toggleCollapsed(item.node.id)">{{ hasChildren(item.node.id) ? (collapsed.has(item.node.id) ? '›' : '⌄') : '' }}</span>
+            <EditorIcon class="node-icon" :name="controlIconName(item.node.type)" :size="17" /><span class="node-name">{{ item.node.name }}</span><span class="visibility" :title="item.node.visible ? '隐藏控件' : '显示控件'" @pointerdown.stop @click.stop="item.node.visible = !item.node.visible"><EditorIcon :name="item.node.visible ? 'eye' : 'eye-off'" :size="15" /></span>
+          </button>
+          <div v-if="visibleTree.length === 0" class="empty-state">没有匹配的控件</div>
+        </div>
+        <div v-if="hierarchyDrag.active" class="hierarchy-drag-ghost" :style="hierarchyDragGhostStyle"><span>{{ nodeIcon(draggedHierarchyNode?.type ?? 'container') }}</span><b>{{ draggedHierarchyNode?.name }}</b><small>{{ hierarchyDrag.dropLabel }}</small></div>
+        <div class="hierarchy-actions"><button @click.stop="addMenuOpen = true"><EditorIcon name="plus" :size="16" />添加控件</button><button aria-label="删除选中控件" :disabled="!selectedNode || selectedNode.id === rootContainer?.id" :title="selectedNode?.id === rootContainer?.id ? '根容器不可删除' : '删除选中控件'" @click="removeSelected"><EditorIcon name="trash" :size="16" /></button></div>
+      </aside>
+
+      <main class="workspace-panel">
+        <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ currentPreset.ratio }}</span></div>
+        <div ref="viewportElement" class="viewport" :class="{ 'is-panning': isPanning }" @wheel.prevent="handleCanvasWheel" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
+          <div class="ruler ruler-x"><span v-for="tick in rulerXTicks" :key="tick">{{ tick }}</span></div>
+          <div class="ruler ruler-y"><span v-for="tick in rulerYTicks" :key="tick">{{ tick }}</span></div>
+          <div class="canvas-stage" :class="{ 'mobile-frame': isMobilePreview }" :style="stageStyle">
+            <div class="device-preview-label">{{ currentDevice.label }} · {{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</div>
+            <div class="safe-area"></div>
+            <div v-for="node in renderNodes" :key="node.id" class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked }]" :style="nodeStyle(node)" @pointerdown.stop="startMove($event, node)">
+              <span v-if="node.type === 'image' && getImageAsset(node.properties.imageId)" class="image-render" :style="imageRenderStyle(node)"></span>
+              <div v-else-if="node.type === 'image'" class="image-placeholder"><span>◇</span><small>未选择图片</small></div>
+              <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
+              <span v-else-if="node.type === 'container'" class="container-label">{{ node.name }}</span>
+              <span v-else class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
+              <div v-if="node.id === selectedId" class="selection-tag">{{ node.name }} · {{ Math.round(previewNode(node).width) }} × {{ Math.round(previewNode(node).height) }}</div>
+              <template v-if="node.id === selectedId"><i class="selection-corner corner-tl"></i><i class="selection-corner corner-tr"></i><i class="selection-corner corner-bl"></i><i class="selection-pivot" :style="{ left: `${node.pivotX * 100}%`, bottom: `${node.pivotY * 100}%` }"></i></template>
+              <i v-if="node.id === selectedId && !node.locked" class="resize-handle" @pointerdown.stop="startResize($event, node)"></i>
+            </div>
+          </div>
+          <div class="viewport-status"><span>{{ currentDevice.label }}</span><span>{{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</span><span>X {{ cursorPosition.x }} &nbsp; Y {{ cursorPosition.y }}</span></div>
+        </div>
+      </main>
+
+      <aside class="inspector-panel panel">
+        <div class="panel-heading inspector-heading">
+          <div v-if="selectedNode" class="inspector-identity"><input v-model="selectedNode.name" class="inspector-name" aria-label="控件名称" /><span>{{ controlLabels[selectedNode.type] }}<span class="identity-separator">·</span>控件详情</span></div>
+          <h2 v-else>控件详情</h2>
+          <EditorIcon name="sliders" :size="20" />
+        </div>
+        <div v-if="selectedNode" class="inspector-tabs" role="tablist" aria-label="控件属性页签"><button id="inspector-basic-tab" role="tab" :aria-selected="inspectorTab === 'basic'" aria-controls="inspector-basic" :class="{ active: inspectorTab === 'basic' }" @click="inspectorTab = 'basic'" @keydown.right.prevent="switchInspectorTab('runtime')">基础</button><button id="inspector-runtime-tab" role="tab" :aria-selected="inspectorTab === 'runtime'" aria-controls="inspector-runtime" :class="{ active: inspectorTab === 'runtime' }" @click="inspectorTab = 'runtime'" @keydown.left.prevent="switchInspectorTab('basic')">运行时</button></div>
+        <div v-if="selectedNode" class="inspector-scroll">
+          <div v-if="propertyActionFeedback?.nodeId === selectedId" class="property-action-feedback" role="status">{{ propertyActionFeedback.message }}</div>
+          <div v-show="inspectorTab === 'basic'" id="inspector-basic" role="tabpanel" aria-labelledby="inspector-basic-tab">
+          <PropertySection title="变换" icon="⌖" group="transform">
+            <div class="device-field"><span>设备</span><div class="device-mode-switch" role="group" aria-label="预览设备"><button v-for="device in deviceModes" :key="device.id" :class="{ active: deviceMode === device.id }" :title="device.label" :aria-label="device.label" :aria-pressed="deviceMode === device.id" @click.stop="switchDevice(device.id)"><DevicePreviewIcon :mode="device.id" :size="22" /></button></div></div>
+            <div class="coordinate-note"><span title="坐标以画布左下角为原点">世界坐标 · 左下原点</span></div>
+            <div class="property-grid">
+              <NumberField :model-value="selectedWorldPosition.x" axis="X" label="预览位置" @update:model-value="updateGeometry('x', $event)" />
+              <NumberField :model-value="selectedWorldPosition.y" axis="Y" @update:model-value="updateGeometry('y', $event)" />
+              <NumberField :model-value="selectedNode.width" axis="W" label="大小" :min="1" @update:model-value="updateGeometry('width', $event)" />
+              <NumberField :model-value="selectedNode.height" axis="H" :min="1" @update:model-value="updateGeometry('height', $event)" />
+              <NumberField v-model="selectedNode.scaleX" axis="X" label="缩放比例" :step="0.01" :scrub-speed="0.01" />
+              <NumberField v-model="selectedNode.scaleY" axis="Y" :step="0.01" :scrub-speed="0.01" />
+              <NumberField v-model="selectedNode.rotation" class="full-width-number" axis="Z" label="旋转" />
+            </div>
+            <details class="secondary-transform"><summary>更多变换（3D）</summary><div class="property-grid">
+              <NumberField v-model="selectedNode.scaleZ" axis="Z" label="缩放 Z" :step="0.01" :scrub-speed="0.01" /><span></span>
+              <NumberField v-model="selectedNode.rotationX" axis="X" label="旋转 XY" />
+              <NumberField v-model="selectedNode.rotationY" axis="Y" />
+            </div></details>
+            <div class="anchor-type-row">
+              <label><span>锚点类型</span><select :value="currentAnchorPresetId" @change="onAnchorPresetSelect"><option value="custom">自定义</option><option v-for="preset in anchorPresets" :key="preset.id" :value="preset.id">{{ preset.label }}</option></select></label>
+              <div class="anchor-picker-wrap">
+                <button class="anchor-preview-button" title="选择锚点预设" @pointerdown.stop @click.stop="anchorMenuOpen = !anchorMenuOpen"><AnchorVisual :values="selectedNode" /></button>
+                <div v-if="anchorMenuOpen" class="anchor-preset-popover" @pointerdown.stop>
+                  <button v-for="preset in anchorPresets" :key="preset.id" :title="preset.label" :class="{ active: preset.id === currentAnchorPresetId }" @click="applyAnchorPreset(preset.id)"><AnchorVisual :values="preset" /><span>{{ preset.label }}</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="anchor-values">
+              <div class="anchor-values-title"><span>锚点设置</span><small>左下 0,0 · 右上 1,1</small></div>
+              <div class="property-grid"><NumberField :model-value="selectedNode.anchorMinX" axis="X" label="Min" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'x', $event)" /><NumberField :model-value="selectedNode.anchorMinY" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'y', $event)" /><NumberField :model-value="selectedNode.anchorMaxX" axis="X" label="Max" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'x', $event)" /><NumberField :model-value="selectedNode.anchorMaxY" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'y', $event)" /><NumberField :model-value="selectedNode.pivotX" axis="X" label="中心" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('x', $event)" /><NumberField :model-value="selectedNode.pivotY" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('y', $event)" /></div>
+            </div>
+          </PropertySection>
+          <PropertySection v-if="selectedNode.type === 'image'" title="图片设置" icon="▧" group="image">
+            <div class="image-source-heading"><span>素材快捷选择</span><button class="reset-image-size" title="恢复素材默认大小 150 × 150" @click.prevent="resetSelectedImageSize">1:1</button></div>
+            <div class="image-asset-grid">
+              <button v-for="asset in imageAssets" :key="asset.id" :class="{ active: selectedNode.properties.imageId === asset.id }" :title="`${asset.name} · ${asset.description}`" @click="selectImageAsset(asset.id)"><img :src="asset.src" :alt="asset.name" /><span>{{ asset.id }}</span></button>
+            </div>
+            <div v-if="selectedImageAsset" class="selected-asset-card"><img :src="selectedImageAsset.src" :alt="selectedImageAsset.name" /><div><b>{{ selectedImageAsset.name }}</b><small>{{ selectedImageAsset.id }} · {{ selectedImageAsset.path }}</small></div></div>
+          </PropertySection>
+          <ControlPropertiesInspector v-model="selectedProperties" :definition="selectedControlDefinition">
+            <template #actions><PropertyActionsMenu :label="`${selectedControlDefinition.label}参数`" :context-key="`${selectedId}:${inspectorTab}`" :can-paste="canPasteSelectedPropertyGroup('control')" :paste-hint="propertyPasteHint('control')" @reset="resetSelectedPropertyGroup('control')" @copy="copySelectedPropertyGroup('control')" @paste="pasteSelectedPropertyGroup('control')" /></template>
+          </ControlPropertiesInspector>
+          <PropertySection title="创建设置" group="creation">
+            <label class="setting-switch"><span>初始激活</span><input v-model="selectedNode.active" type="checkbox" role="switch" /></label>
+            <label class="setting-switch"><span>初始可见性</span><input v-model="selectedNode.visible" type="checkbox" role="switch" /></label>
+          </PropertySection>
+          <PropertySection title="编辑设置" group="editor">
+            <label class="setting-switch"><span>锁定控件</span><input v-model="selectedNode.locked" type="checkbox" role="switch" /></label>
+            <label class="setting-switch"><span>允许手柄聚焦</span><input v-model="selectedNode.canControllerFocus" type="checkbox" role="switch" /></label>
+          </PropertySection>
+          </div>
+          <div v-show="inspectorTab === 'runtime'" id="inspector-runtime" role="tabpanel" aria-labelledby="inspector-runtime-tab">
+            <div class="runtime-heading"><b>{{ selectedControlDefinition.runtimeClass }}</b><span>查看和编辑用于 Lua / Tween 的布局原值</span></div>
+            <PropertySection title="布局与锚点" group="transform">
+              <p class="api-layout-note">anchoredPosition 是控件中心点相对锚点参考位置的偏移；拉伸锚点按中心值在 Min 与 Max 间计算参考位置。无父级时锚点以画布为参照。</p>
+              <div class="api-layout-grid">
+                <label><code>anchoredPositionX</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.anchoredPositionX" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('anchoredPositionX', $event)" /></label>
+                <label><code>anchoredPositionY</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.anchoredPositionY" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('anchoredPositionY', $event)" /></label>
+                <label><code>sizeDeltaX</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.sizeDeltaX" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('sizeDeltaX', $event)" /></label>
+                <label><code>sizeDeltaY</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.sizeDeltaY" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('sizeDeltaY', $event)" /></label>
+              </div>
+              <div class="api-tween-readout"><div v-for="item in selectedAdditionalRuntimeTweenValues" :key="item.key"><code>{{ item.key }}</code><b>{{ formatDimension(item.value) }}</b></div></div>
+            </PropertySection>
+          </div>
+        </div>
+        <div v-else class="inspector-empty"><div>⌖</div><p>选择画布或层级中的控件</p><span>随后可以在这里编辑它的参数</span></div>
+      </aside>
+    </div>
+
+    <section ref="timelinePanel" class="timeline-panel">
+      <div class="timeline-resize-handle" role="separator" aria-label="调整时间轴高度" aria-orientation="horizontal" :aria-valuemin="MIN_TIMELINE_HEIGHT" :aria-valuemax="timelineMaximumHeight" :aria-valuenow="Math.round(resolvedTimelineHeight)" tabindex="0" title="上下拖动调整时间轴高度 · 双击恢复自动高度" @pointerdown.stop="startTimelineResize" @dblclick.stop="resetTimelineHeight" @keydown.up.prevent="nudgeTimelineHeight(16)" @keydown.down.prevent="nudgeTimelineHeight(-16)"><span></span></div>
+      <div class="timeline-sidebar">
+        <div class="timeline-title"><h2><EditorIcon name="timeline" :size="17" />动画时间轴</h2><span class="tween-count">{{ tweenTracks.length }} Clip</span></div>
+        <div class="playback-controls"><button title="回到开始" aria-label="回到开始" @click="rewindPlayback"><EditorIcon name="skip-back" :size="15" /></button><button class="play-button" title="播放/暂停预览（空格）" :aria-label="playing ? '暂停预览' : '播放预览'" @click="togglePlayback"><EditorIcon :name="playing ? 'pause' : 'play'" :size="16" /></button><button title="下一帧" aria-label="下一帧" @click="stepPlayback"><EditorIcon name="skip-forward" :size="15" /></button><span>{{ formatTime(currentTime) }}</span></div>
+        <div ref="timelineTrackNames" class="track-names" @scroll="syncTimelineScroll('names')">
+          <div v-for="row in timelineRows" :key="row.key" class="timeline-name-row" :class="[`row-${row.kind}`, { selected: row.kind === 'node' ? row.node.id === selectedId : isTweenRowSelected(row) }]" @contextmenu="openTimelineContextMenu($event, row)" @keydown.shift.f10.stop.prevent="openTimelineContextMenu($event, row)">
+            <template v-if="row.kind === 'node'">
+              <button class="track-node-main" @click="selectTimelineNode(row.node)"><span>{{ nodeIcon(row.node.type) }}</span><b>{{ row.node.name }}</b><em>{{ row.trackCount }}</em></button>
+              <button v-if="row.node.id === selectedId" class="add-tween-button" title="在悬浮面板中选择 Tween 参数" @pointerdown.stop @click.stop="openTweenFieldPicker(row.node)">＋</button>
+            </template>
+            <template v-else>
+              <button class="track-property-main" title="右键打开轨道选项" aria-haspopup="menu" :aria-expanded="timelineContextMenu?.trackId === row.track.id" @click="selectTweenTrack(row)"><span>◆</span><b>{{ row.field.label }}</b><small>{{ row.field.fieldKey }}</small></button>
+              <button class="remove-tween-button" title="移除整条 Tween 属性轨道及全部 Clip" @click.stop="removeTweenLane(row.track.id)">×</button>
+            </template>
+          </div>
+        </div>
+      </div>
+      <div class="timeline-content">
+        <div class="timeline-content-heading">
+          <div class="timeline-track-heading"><span>属性轨道</span><small>选择控件后点击左侧 ＋ 添加 Tweenable 字段</small></div>
+          <div class="timeline-heading-controls"><span class="space-play-hint"><kbd>Space</kbd> 播放 / 暂停</span><button class="timeline-snap-toggle" :class="{ active: timelineSnapEnabled }" :aria-pressed="timelineSnapEnabled" aria-label="Clip 吸附" title="拖动 Clip 或两端时，吸附到其他 Clip 边界、播放头和序列首尾" @click="toggleTimelineSnapping"><EditorIcon name="magnet" :size="15" />吸附</button><label class="sequence-duration-control"><span>序列时长</span><ScrubbableNumberInput :model-value="duration" :min="0.5" :step="0.5" :scrub-speed="0.05" @update:model-value="updateSequenceDuration" /><i>秒</i></label></div>
+        </div>
+        <div class="time-ruler" title="点击或拖动时间标尺调整播放进度" @pointerdown="startTimelineScrub"><span v-for="tick in timeTicks" :key="tick" :style="{ left: `${(tick / duration) * 100}%` }">{{ tick.toFixed(1) }}s</span></div>
+        <div ref="timelineContent" class="timeline-lanes" :class="{ scrubbing: timelineScrubbing }" @pointerdown="startTimelineScrub" @scroll="syncTimelineScroll('content')">
+          <div v-if="timelineSnapTime !== null" class="timeline-snap-guide" :style="timelineGuideStyle(timelineSnapTime)" aria-hidden="true"><span>{{ timelineSnapTime.toFixed(3) }}s</span></div>
+          <div class="playhead" :class="{ scrubbing: timelineScrubbing }" :style="timelineGuideStyle(currentTime)" title="拖动播放头预览动画" role="slider" aria-label="时间轴播放进度" aria-valuemin="0" :aria-valuemax="duration" :aria-valuenow="currentTime" tabindex="0" @pointerdown.stop="startTimelineScrub" @keydown.left.prevent="nudgeTimelineProgress(-1)" @keydown.right.prevent="nudgeTimelineProgress(1)" @keydown.home.prevent="rewindPlayback" @keydown.end.prevent="currentTime = duration"><i></i></div>
+          <div class="playhead-line" :style="timelineGuideStyle(currentTime)" aria-hidden="true"></div>
+          <div v-for="row in timelineRows" :key="row.key" class="track-lane" :class="[`lane-${row.kind}`, { selected: row.kind === 'node' ? row.node.id === selectedId : isTweenRowSelected(row) }]" @contextmenu="openTimelineContextMenu($event, row)" @keydown.shift.f10.stop.prevent="openTimelineContextMenu($event, row)">
+            <template v-if="row.kind === 'node'"><span v-if="row.trackCount === 0 && row.node.id === selectedId" class="empty-track-hint">点击左侧 ＋ 添加 Tween</span></template>
+            <template v-else><div v-for="clip in row.tracks" :key="clip.id" class="tween-clip" :class="{ 'selected-clip': clip.id === selectedTweenTrackId, dragging: clip.id === draggingTweenTrackId, 'resizing-start': clip.id === draggingTweenTrackId && resizingTweenEdge === 'start', 'resizing-end': clip.id === draggingTweenTrackId && resizingTweenEdge === 'end' }" :style="tweenTrackStyle(clip)" :title="`${row.field.fieldKey} · ${clip.startTime}s – ${roundTweenTime(clip.startTime + clip.duration)}s · 右键添加或删除 Clip`" role="button" aria-haspopup="menu" :aria-expanded="timelineContextMenu?.clipId === clip.id" tabindex="0" @contextmenu.stop="openTimelineContextMenu($event, row, clip)" @keydown.shift.f10.stop.prevent="openTimelineContextMenu($event, row, clip)" @keydown.enter.stop.prevent="selectTweenTrack(row, clip)" @pointerdown.stop="startTweenClipDrag($event, { ...row, track: clip })"><i class="tween-edge-handle edge-start" title="拖动起点" @pointerdown.stop="startTweenEdgeDrag($event, { ...row, track: clip }, 'start')"></i><span>{{ row.field.fieldKey }}</span><i class="tween-edge-handle edge-end" title="拖动终点" @pointerdown.stop="startTweenEdgeDrag($event, { ...row, track: clip }, 'end')"></i></div></template>
+          </div>
+        </div>
+      </div>
+      <div class="timeline-settings">
+        <div class="timeline-settings-heading"><span>{{ selectedTweenTrack ? 'TWEEN' : 'TIMELINE' }}</span><b>{{ selectedTweenField?.fieldKey ?? '未选择属性' }}</b></div>
+        <p v-if="timelineEditNotice" class="tween-value-note" role="status">{{ timelineEditNotice }}</p>
+        <div v-if="selectedTweenTrack && selectedTweenField && selectedTweenNode" class="tween-settings-editor">
+          <div class="selected-tween-summary"><b>{{ selectedTweenField.label }}</b><span>{{ selectedTweenNode.name }}</span><small>{{ selectedTweenField.fieldKey }}</small></div>
+          <p class="tween-value-note">Ctrl+C 复制 Clip，Ctrl+V 在当前播放头位置粘贴到原属性轨道。</p>
+          <div class="tween-time-grid">
+            <label>开始时间<div><ScrubbableNumberInput :model-value="selectedTweenTrack.startTime" :min="getTweenClipBounds(selectedTweenTrack, tweenTracks, duration).minStart" :max="getTweenClipBounds(selectedTweenTrack, tweenTracks, duration).maxEnd - selectedTweenTrack.duration" :step="0.01" @update:model-value="updateTweenTiming('startTime', $event)" /><span>秒</span></div></label>
+            <label>持续时间<div><ScrubbableNumberInput :model-value="selectedTweenTrack.duration" :min="0.01" :max="getTweenClipBounds(selectedTweenTrack, tweenTracks, duration).maxEnd - selectedTweenTrack.startTime" :step="0.01" @update:model-value="updateTweenTiming('duration', $event)" /><span>秒</span></div></label>
+          </div>
+          <label class="tween-ease-field">缓动类型<select v-model="selectedTweenTrack.easeType"><option v-for="ease in tweenEaseOptions" :key="ease.value" :value="ease.value">{{ ease.label }} · {{ ease.value }}</option></select></label>
+          <button v-if="isRelativeTweenField(selectedTweenField.fieldKey)" class="tween-relative-toggle" :class="{ active: selectedTweenTrack.relative === true }" role="switch" :aria-checked="selectedTweenTrack.relative === true" :aria-label="getTweenRelativeLabel(selectedTweenField.fieldKey)" @click="updateTweenRelative(selectedTweenTrack.relative !== true)"><span>{{ getTweenRelativeLabel(selectedTweenField.fieldKey) }}</span><b>{{ selectedTweenTrack.relative ? '开启' : '关闭' }}</b></button>
+          <template v-if="selectedTweenField.valueKind === 'number'">
+            <label class="tween-value-field">{{ selectedTweenTrack.relative && isRelativeTweenField(selectedTweenField.fieldKey) ? '初始增量' : '初始值' }}<ScrubbableNumberInput :model-value="tweenNumberValue('initialValue')" :step="selectedTweenField.step ?? 0.01" :min="selectedTweenField.min" :max="selectedTweenField.max" :scrub-speed="selectedTweenField.scrubSpeed" allow-empty placeholder="未设置" @update:model-value="updateTweenNumberValue('initialValue', $event)" /></label>
+            <label class="tween-value-field">{{ selectedTweenTrack.relative && isRelativeTweenField(selectedTweenField.fieldKey) ? '结束增量' : '结束值' }}<ScrubbableNumberInput :model-value="tweenNumberValue('endValue')" :step="selectedTweenField.step ?? 0.01" :min="selectedTweenField.min" :max="selectedTweenField.max" :scrub-speed="selectedTweenField.scrubSpeed" allow-empty placeholder="未设置" @update:model-value="updateTweenNumberValue('endValue', $event)" /></label>
+          </template>
+          <template v-else>
+            <ColorRGBAField :model-value="tweenColorValue('initialValue')" label="初始值" @update:model-value="updateTweenColorValue('initialValue', $event)" />
+            <ColorRGBAField :model-value="tweenColorValue('endValue')" label="结束值" @update:model-value="updateTweenColorValue('endValue', $event)" />
+          </template>
+          <p v-if="tweenTrackConflicts.has(selectedTweenTrack.id)" class="tween-value-note tween-conflict-note" role="alert">此轨道在当前完整时间轴的预览中暂不生效：{{ tweenTrackConflicts.get(selectedTweenTrack.id) }}</p>
+          <p class="tween-value-note">{{ selectedTweenTrack.relative && isRelativeTweenField(selectedTweenField.fieldKey) ? '实际值 = 本段基准 + 增量（加法）。首段取控件基础值，后续段取同一属性前一 Clip 的结束值；空档保持结束状态。切换模式自动换算首尾值。' : selectedTweenField.description ?? '首尾值使用运行时 API 的真实字段值（绝对值），每段独立设置。空档保持上一 Clip 的结束值。' }}</p>
+        </div>
+      </div>
+    </section>
+
+    <TimelineContextMenu :target="timelineContextMenu" @create="createTimelineContextClip" @delete-clip="deleteTimelineContextClip" @delete="deleteTimelineContextTrack" @close="closeTimelineContextMenu" />
+    <TimelineDataImportDialog v-if="timelineDataImportOpen" v-model:source-text="timelineDataSource" v-model:root-id="timelineDataRootId" v-model:mode="timelineDataImportMode" :roots="timelineDataRootOptions" :preview="timelineDataImportSummary" @confirm="confirmTimelineDataImport" @close="timelineDataImportOpen = false" />
+
+    <div v-if="archive && !hasOpenDocument" class="document-empty-state">
+      <h2>{{ archive.ready.value ? '选择或创建编辑文件' : '正在加载工作区' }}</h2>
+      <p>{{ archive.error.value || '工作区保存控件层级、参数和 Timeline。导入 GIA 会新建文件，不覆盖原有内容。' }}</p>
+      <button @click="workspacePanelOpen = true">打开工作区</button>
+    </div>
+    <ClientUIWorkspacePanel v-if="archive" :open="workspacePanelOpen" :busy="archive.busy.value"
+      :workspaces="archive.workspaceIds.value" :documents="archive.documentNames.value"
+      :workspace="archive.selectedWorkspace.value" :document="archive.selectedDocument.value"
+      :status="archive.status.value" :error="archive.error.value"
+      @close="workspacePanelOpen = false"
+      @select-workspace="runArchiveAction(() => archive!.switchWorkspace($event))"
+      @select-document="openWorkspaceDocument"
+      @create-workspace="createWorkspace" @rename-workspace="renameWorkspace" @delete-workspace="deleteWorkspace"
+      @create-document="resetProject" @rename-document="renameWorkspaceDocument" @delete-document="deleteWorkspaceDocument"
+      @import-gia="openGiaFile" @import-json="openProject" @retry="retryArchive" />
+    <button v-if="archive?.canUndoDelete.value && !workspacePanelOpen" class="archive-undo" @click.stop="runArchiveAction(() => archive!.undoDelete())">已移至回收站 · 撤销删除</button>
+    <ClientUIArchiveActionDialog v-if="archiveAction" :title="archiveAction.title" :message="archiveAction.message"
+      :mode="archiveAction.mode" :initial-value="archiveAction.initialValue" :busy="archive?.busy.value ?? false"
+      :error="archive?.error.value ?? ''" @cancel="archiveAction = null" @submit="confirmArchiveAction" />
+
+    <div v-if="tweenFieldPickerNode" class="tween-field-picker-backdrop" tabindex="-1" @pointerdown.self.stop="closeTweenFieldPicker" @keydown.esc.stop="closeTweenFieldPicker">
+      <section class="tween-field-picker" role="dialog" aria-modal="true" aria-labelledby="tween-field-picker-title" @pointerdown.stop>
+        <header class="tween-field-picker-header">
+          <div class="tween-field-picker-icon"><EditorIcon :name="controlIconName(tweenFieldPickerNode.type)" :size="21" /></div>
+          <div class="tween-field-picker-heading"><h2 id="tween-field-picker-title">添加参数</h2><p :title="`${tweenFieldPickerNode.name} · ${selectedTweenPickerDefinition.runtimeClass}`">{{ tweenFieldPickerNode.name }}<span>·</span>{{ selectedTweenPickerDefinition.label }}</p></div>
+          <button title="关闭参数选择" aria-label="关闭参数选择" @click="closeTweenFieldPicker">×</button>
+        </header>
+        <div class="tween-field-picker-search"><EditorIcon name="search" :size="17" /><input v-model="tweenFieldSearch" autofocus aria-label="搜索动画参数" placeholder="搜索参数名称或字段名" /><button v-if="tweenFieldSearch" type="button" aria-label="清空参数搜索" @click="tweenFieldSearch = ''">×</button></div>
+        <div class="tween-field-picker-content">
+          <section v-for="group in tweenFieldPickerGroups" :key="group.key" class="tween-field-picker-group">
+            <header><div><b>{{ group.title }}</b><small>{{ group.description }}</small></div><em>{{ group.fields.length }} 项</em></header>
+            <div class="tween-field-picker-grid">
+              <button v-for="field in group.fields" :key="field.fieldKey" :disabled="Boolean(tweenFieldConflict(tweenFieldPickerNode, field.fieldKey))" :title="tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) ?? field.description" @click="addTweenTrack(tweenFieldPickerNode, field.fieldKey)">
+                <span class="parameter-kind" :class="`kind-${field.valueKind}`">{{ field.valueKind === 'color' ? '颜色' : '数值' }}</span>
+                <b>{{ field.label }}</b>
+                <code>{{ field.fieldKey }}</code>
+                <EditorIcon class="parameter-add" name="plus" :size="17" />
+                <small v-if="tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) || field.source === 'group'">{{ tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) ? '已有颜色轨道冲突（悬停查看）' : '组合动画 · 0–255 · 基础 Alpha 相乘' }}</small>
+              </button>
+            </div>
+          </section>
+          <div v-if="tweenFieldPickerGroups.length === 0" class="tween-field-picker-empty"><EditorIcon :name="tweenFieldSearch ? 'search' : 'timeline'" :size="28" /><b>{{ tweenFieldSearch ? '没有匹配的参数' : '所有可用参数都已添加' }}</b><span>{{ tweenFieldSearch ? '试试其他名称，或清空搜索。' : '关闭窗口后可直接编辑已有轨道。' }}</span></div>
+        </div>
+        <footer><span>选择参数以创建动画轨道</span><button @click="closeTweenFieldPicker">完成</button></footer>
+      </section>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, defineComponent, h, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeRouteLeave } from "vue-router";
+import type { StorageClass } from "@/services/storage/storage";
+import ClientUIWorkspacePanel from "./ClientUIWorkspacePanel.vue";
+import ClientUIArchiveActionDialog from "./ClientUIArchiveActionDialog.vue";
+import { ClientUIWorkspaceRepository } from "./workspaceStorage";
+import { useClientUIWorkspace } from "./useClientUIWorkspace";
+import type { CSSProperties, PropType } from "vue";
+import ColorRGBAField from "./ColorRGBAField.vue";
+import EditorIcon from "./EditorIcon.vue";
+import DevicePreviewIcon from "./DevicePreviewIcon.vue";
+import PreviewPresetSelect from "./PreviewPresetSelect.vue";
+import PropertyActionsMenu from "./PropertyActionsMenu.vue";
+import TimelineContextMenu from "./TimelineContextMenu.vue";
+import TimelineDataImportDialog from "./TimelineDataImportDialog.vue";
+import { prepareTweenTimelineImport } from "./luaTweenImporter";
+import type { TimelineDataImportMode } from "./luaTweenImporter";
+import { capturePropertyGroup, canPastePropertyGroup, pastePropertyGroup, resetPropertyGroup } from "./propertyGroupActions";
+import type { PropertyGroup, PropertyGroupSnapshot } from "./propertyGroupActions";
+import ControlPropertiesInspector from "./ControlPropertiesInspector.vue";
+import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
+import { controlDefinitions, controlRegistry, createControlProperties, getControlDefinition } from "./controlRegistry";
+import { importGiaControls } from "./giaImporter";
+import { imageAssets, imageAssetById } from "./imageAssets";
+import { buildTweenTimelineDataLua, buildTweenTimelineLibLua, TWEEN_TIMELINE_LIB_VERSION } from "./luaTweenExporter";
+import { applyTweenEase, getTweenableField, getTweenableFields, getGroupAlphaColorFields, getTweenGroupNodes, getTweenTrackConflict, getTweenRelativeLabel, GROUP_ALPHA_FIELD_KEY, GROUP_ALPHA_MAX, isRelativeTweenField, isTweenEaseType, tweenEaseOptions } from "./tweenRegistry";
+import { snapTweenClip } from "./timelineSnapping";
+import { getTweenClipGap, getTweenClipBounds, tweenClipsOverlap, orderTweenClips, TWEEN_CLIP_TIME_EPSILON } from "./timelineClipLayout";
+import type { TweenClipSnapMode } from "./timelineSnapping";
+import type { TweenableFieldDefinition } from "./tweenRegistry";
+import type { ClientUIBaseControlModel, ColorRGBA, ControlPropertiesMap, ControlType, TweenEaseType, UITweenTrack, UITweenValue, UINode, UINodeOf } from "./types";
+
+const PropertySection = defineComponent({
+  props: { title: { type: String, required: true }, icon: { type: String, default: "" }, group: { type: String as PropType<PropertyGroup | "">, default: "" } },
+  setup(props, { slots }) {
+    return () => h("details", { class: "property-section", open: true }, [
+      h("summary", [h("span", { class: "section-chevron", "aria-hidden": "true" }, "▸"), props.title, props.group ? h(PropertyActionsMenu, {
+        label: props.title,
+        contextKey: `${selectedId.value}:${inspectorTab.value}`,
+        canPaste: canPasteSelectedPropertyGroup(props.group),
+        pasteHint: propertyPasteHint(props.group),
+        onReset: () => { if (props.group) resetSelectedPropertyGroup(props.group); },
+        onCopy: () => { if (props.group) copySelectedPropertyGroup(props.group); },
+        onPaste: () => { if (props.group) pasteSelectedPropertyGroup(props.group); },
+      }) : null]),
+      h("div", { class: "property-section-body" }, slots.default?.()),
+    ]);
+  },
+});
+const inspectorTab = ref<"basic" | "runtime">("basic");
+const propertyClipboard = ref<PropertyGroupSnapshot | null>(null);
+const propertyActionFeedback = ref<{ nodeId: string; message: string } | null>(null);
+function switchInspectorTab(tab: "basic" | "runtime") { inspectorTab.value = tab; nextTick(() => editorElement.value?.querySelector<HTMLButtonElement>(`#inspector-${tab}-tab`)?.focus()); }
+function controlIconName(type: ControlType) { return type === "text" || type === "textWindow" ? "text" : type === "image" ? "image" : type === "gridScroller" ? "grid" : type === "uiAnimation" || type === "fullscreenAnimation" ? "timeline" : "container"; }
+const NumberField = defineComponent({ props: { modelValue: { type: Number, required: true }, axis: { type: String, required: true }, label: { type: String, default: "" }, step: { type: Number, default: 1 }, min: { type: Number as PropType<number | undefined>, default: undefined }, max: { type: Number as PropType<number | undefined>, default: undefined }, scrubSpeed: { type: Number as PropType<number | undefined>, default: undefined } }, emits: ["update:modelValue"], setup(props, { emit }) { return () => h("label", { class: "number-field" }, [h("span", { class: "field-label" }, props.label), h("div", [h("b", { class: `axis axis-${props.axis.toLowerCase()}` }, props.axis), h(ScrubbableNumberInput, { modelValue: props.modelValue, step: props.step, min: props.min, max: props.max, scrubSpeed: props.scrubSpeed, "onUpdate:modelValue": (value: number | null) => { if (value !== null) emit("update:modelValue", value); } })])]); } });
+type AnchorValues = Pick<UINode, "anchorMinX" | "anchorMinY" | "anchorMaxX" | "anchorMaxY" | "pivotX" | "pivotY">;
+const AnchorVisual = defineComponent({ props: { values: { type: Object as PropType<AnchorValues>, required: true } }, setup(props) { return () => h("span", { class: "anchor-visual", style: anchorVisualStyle(props.values) }, [h("span", { class: "anchor-bounds" }), h("i", { class: "anchor-dot anchor-dot-bl" }), h("i", { class: "anchor-dot anchor-dot-br" }), h("i", { class: "anchor-dot anchor-dot-tl" }), h("i", { class: "anchor-dot anchor-dot-tr" }), h("b", { class: "pivot-mark" }, "✦")]); } });
+
+const DEFAULT_CANVAS_WIDTH = 1600;
+const DEFAULT_CANVAS_HEIGHT = 900;
+const MIN_TIMELINE_HEIGHT = 150;
+const MIN_EDITOR_BODY_HEIGHT = 260;
+const EDITOR_TOOLBAR_HEIGHT = 48;
+const editorTypeColors: Record<ControlType, ColorRGBA> = {
+  container: colorFromHex("#39a6c8"), image: colorFromHex("#ffffff"), text: colorFromHex("#6d7cff"), textWindow: colorFromHex("#8b74e8"), presetButton: colorFromHex("#5f78ff"), cursorEventArea: colorFromHex("#e59b5a"), gridScroller: colorFromHex("#58b89c"), keyHint: colorFromHex("#d6b85f"), uiAnimation: colorFromHex("#d267e5"), fullscreenAnimation: colorFromHex("#e55f91"), reference: colorFromHex("#7893b8"),
+};
+const createId = () => `node_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+const createTweenId = () => `tween_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+const MIN_TWEEN_DURATION = 0.01;
+const DEFAULT_TWEEN_DURATION = 1;
+const TIMELINE_MODEL_VERSION = 9;
+function colorFromHex(hex: string, alpha = 1): ColorRGBA { const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : "ffffff"; return { r: Number.parseInt(normalized.slice(0, 2), 16), g: Number.parseInt(normalized.slice(2, 4), 16), b: Number.parseInt(normalized.slice(4, 6), 16), a: clamp01(alpha) }; }
+function colorToCss(color: ColorRGBA, alphaMultiplier = 1) { return `rgba(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)}, ${clamp01(color.a * alphaMultiplier)})`; }
+type NodeOverrides<T extends ControlType> = Partial<ClientUIBaseControlModel> & { properties?: Partial<ControlPropertiesMap[T]> };
+function makeNode(type: "container", name: string, overrides?: NodeOverrides<"container">): UINodeOf<"container">;
+function makeNode(type: "image", name: string, overrides?: NodeOverrides<"image">): UINodeOf<"image">;
+function makeNode(type: "text", name: string, overrides?: NodeOverrides<"text">): UINodeOf<"text">;
+function makeNode(type: ControlType, name: string, overrides?: NodeOverrides<ControlType>): UINode;
+function makeNode(type: ControlType, name: string, overrides: NodeOverrides<ControlType> = {}): UINode {
+  const definition = getControlDefinition(type);
+  const { properties: propertyOverrides, ...baseOverrides } = overrides;
+  const defaultWidth = definition.defaultWidth;
+  const defaultHeight = definition.defaultHeight;
+  const node = { id: createId(), parentId: null, name, type, active: true, x: DEFAULT_CANVAS_WIDTH / 2, y: DEFAULT_CANVAS_HEIGHT / 2, width: defaultWidth, height: defaultHeight, scaleX: 1, scaleY: 1, scaleZ: 1, rotationX: 0, rotationY: 0, rotation: 0, anchorMinX: 0.5, anchorMinY: 0.5, anchorMaxX: 0.5, anchorMaxY: 0.5, pivotX: 0.5, pivotY: 0.5, anchorOffsetX: 0, anchorOffsetY: 0, sizeDeltaX: defaultWidth, sizeDeltaY: defaultHeight, canControllerFocus: false, visible: true, locked: false, properties: { ...createControlProperties(type), ...propertyOverrides }, ...baseOverrides } as UINode;
+  const anchorRefX = ((1 - node.pivotX) * node.anchorMinX + node.pivotX * node.anchorMaxX) * DEFAULT_CANVAS_WIDTH;
+  const anchorRefY = ((1 - node.pivotY) * node.anchorMinY + node.pivotY * node.anchorMaxY) * DEFAULT_CANVAS_HEIGHT;
+  if (!Number.isFinite(overrides.anchorOffsetX)) node.anchorOffsetX = node.x - anchorRefX;
+  if (!Number.isFinite(overrides.anchorOffsetY)) node.anchorOffsetY = node.y - anchorRefY;
+  if (!Number.isFinite(overrides.sizeDeltaX)) node.sizeDeltaX = node.width - (node.anchorMaxX - node.anchorMinX) * DEFAULT_CANVAS_WIDTH;
+  if (!Number.isFinite(overrides.sizeDeltaY)) node.sizeDeltaY = node.height - (node.anchorMaxY - node.anchorMinY) * DEFAULT_CANVAS_HEIGHT;
+  return node;
+}
+interface AnchorPreset extends AnchorValues { id: string; label: string }
+const anchorXModes = [
+  { id: "left", label: "左", min: 0, max: 0 },
+  { id: "center", label: "中", min: 0.5, max: 0.5 },
+  { id: "right", label: "右", min: 1, max: 1 },
+  { id: "stretch", label: "横向拉伸", min: 0, max: 1 },
+] as const;
+const anchorYModes = [
+  { id: "top", label: "上", min: 1, max: 1 },
+  { id: "middle", label: "中", min: 0.5, max: 0.5 },
+  { id: "bottom", label: "下", min: 0, max: 0 },
+  { id: "stretch", label: "纵向拉伸", min: 0, max: 1 },
+] as const;
+const anchorPresetLabels: Record<string, string> = {
+  "left-top": "左上", "center-top": "顶部", "right-top": "右上", "stretch-top": "顶部横向拉伸",
+  "left-middle": "左侧", "center-middle": "中心", "right-middle": "右侧", "stretch-middle": "中部横向拉伸",
+  "left-bottom": "左下", "center-bottom": "底部", "right-bottom": "右下", "stretch-bottom": "底部横向拉伸",
+  "left-stretch": "左侧纵向拉伸", "center-stretch": "居中纵向拉伸", "right-stretch": "右侧纵向拉伸", "stretch-stretch": "双向拉伸",
+};
+const anchorPresets: AnchorPreset[] = anchorYModes.flatMap((vertical) => anchorXModes.map((horizontal) => ({ id: `${horizontal.id}-${vertical.id}`, label: anchorPresetLabels[`${horizontal.id}-${vertical.id}`], anchorMinX: horizontal.min, anchorMinY: vertical.min, anchorMaxX: horizontal.max, anchorMaxY: vertical.max, pivotX: 0.5, pivotY: 0.5 })));
+const rootId = createId();
+const nodes = ref<UINode[]>([
+  makeNode("container", "Default_UI", { id: rootId, width: 1120, height: 620 }),
+  makeNode("image", "Header_Background", { parentId: rootId, x: 560, y: 555, width: 1120, height: 130, properties: { imageId: 100001, imageColor: colorFromHex("#263d64") } }),
+  makeNode("text", "Quest_Title", { parentId: rootId, x: 300, y: 560, width: 480, height: 64, properties: { text: "任务标题", fontSize: 30, fontColor: colorFromHex("#f3f6ff") } }),
+  makeNode("image", "Action_Button", { parentId: rootId, x: 925, y: 105, width: 210, height: 72, properties: { imageId: 100001, imageColor: colorFromHex("#5f78ff") } }),
+]);
+type DeviceMode = "pc" | "mobile" | "controllerDesktop" | "controllerMobile";
+interface PreviewPreset { id: string; ratio: string; width: number; height: number }
+const deviceModes: Array<{ id: DeviceMode; label: string; shortLabel: string; icon: string }> = [
+  { id: "pc", label: "PC", shortLabel: "PC", icon: "▱" },
+  { id: "mobile", label: "移动端", shortLabel: "移动", icon: "▭" },
+  { id: "controllerDesktop", label: "手柄（PC / 主机）", shortLabel: "手柄", icon: "⌘" },
+  { id: "controllerMobile", label: "手柄（移动端）", shortLabel: "手柄·移动", icon: "⌘" },
+];
+const previewPresets: Record<DeviceMode, PreviewPreset[]> = {
+  pc: [
+    { id: "pc-16-9", ratio: "16:9", width: 1600, height: 900 },
+    { id: "pc-21-9", ratio: "21:9", width: 2100, height: 900 },
+  ],
+  mobile: [
+    { id: "mobile-16-9", ratio: "16:9", width: 1280, height: 720 },
+    { id: "mobile-19_5-9", ratio: "19.5:9", width: 1560.43, height: 720 },
+    { id: "mobile-4-3", ratio: "4:3", width: 1280, height: 959.53 },
+  ],
+  controllerDesktop: [
+    { id: "controller-desktop-16-9", ratio: "16:9", width: 1920, height: 1080 },
+    { id: "controller-desktop-21-9", ratio: "21:9", width: 2520, height: 1080 },
+  ],
+  controllerMobile: [
+    { id: "controller-mobile-16-9", ratio: "16:9", width: 1280, height: 720 },
+    { id: "controller-mobile-19_5-9", ratio: "19.5:9", width: 1560.43, height: 720 },
+    { id: "controller-mobile-4-3", ratio: "4:3", width: 1280, height: 959.53 },
+  ],
+};
+const previewPresetGroups = deviceModes.map((device) => ({ id: device.id, label: device.label, presets: previewPresets[device.id] }));
+const projectName = ref("Untitled UI Animation"); const deviceMode = ref<DeviceMode>("pc"); const previewPresetId = ref("pc-16-9"); const canvasWidth = ref(1600); const canvasHeight = ref(900); const zoom = ref(0.55); const panX = ref(0); const panY = ref(0); const isPanning = ref(false); const selectedId = ref<string | null>(nodes.value[0].id); const search = ref(""); const collapsed = ref(new Set<string>()); const addMenuOpen = ref(false); const anchorMenuOpen = ref(false); const luaExportMenuOpen = ref(false); const tweenFieldPickerNodeId = ref<string | null>(null); const tweenFieldSearch = ref(""); const fileInput = ref<HTMLInputElement | null>(null); const giaFileInput = ref<HTMLInputElement | null>(null); const giaImportStatus = ref(""); const currentTime = ref(0); const duration = ref(5); const frameRate = ref<30 | 60>(30); const playing = ref(false); const tweenTracks = ref<UITweenTrack[]>([]); const selectedTweenTrackId = ref<string | null>(null); const draggingTweenTrackId = ref<string | null>(null); const resizingTweenEdge = ref<"start" | "end" | null>(null); const timelineContent = ref<HTMLElement | null>(null); const timelineTrackNames = ref<HTMLElement | null>(null); const timelinePanel = ref<HTMLElement | null>(null); const editorElement = ref<HTMLElement | null>(null); const viewportElement = ref<HTMLElement | null>(null); const hierarchyTree = ref<HTMLElement | null>(null); const cursorPosition = ref({ x: 0, y: 0 }); const timelineHeight = ref<number | null>(null); const timelineResizing = ref(false); const timelineScrubbing = ref(false); const editorHeight = ref(0);
+const workspacePanelOpen = ref(false);
+const timelineSnapEnabled = ref(true);
+const timelineSnapTime = ref<number | null>(null);
+const timelineEditNotice = ref("");
+// Editor-local snapshot: never serialize it or carry node references into another document.
+const tweenClipClipboard = ref<UITweenTrack | null>(null);
+const timelineDataImportOpen = ref(false);
+const timelineDataSource = ref("");
+const timelineDataRootId = ref("");
+const timelineDataImportMode = ref<TimelineDataImportMode>("append");
+const timelineDataImportPreview = computed(() => !timelineDataImportOpen.value || !timelineDataSource.value.trim() ? null : prepareTweenTimelineImport({
+  source: timelineDataSource.value, rootNodeId: timelineDataRootId.value, nodes: nodes.value,
+  existingTracks: tweenTracks.value, mode: timelineDataImportMode.value, sequenceDuration: sequenceDurationValue(),
+}));
+const timelineDataImportSummary = computed(() => {
+  const result = timelineDataImportPreview.value;
+  return result ? { schema: result.schema, importedCount: result.importedTracks.length, replacedCount: result.replacedCount, duration: result.duration, errors: result.errors, warnings: result.warnings } : null;
+});
+const timelineDataRootOptions = computed(() => {
+  const byId = new Map(nodes.value.map((node) => [node.id, node]));
+  return getHierarchyOrder().map((node) => {
+    const names = [node.name];
+    const visited = new Set([node.id]);
+    let parentId = node.parentId;
+    while (parentId && !visited.has(parentId)) {
+      visited.add(parentId);
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      names.unshift(parent.name);
+      parentId = parent.parentId;
+    }
+    return { id: node.id, label: names.join(" / ") };
+  });
+});
+type ArchiveActionKind = "createWorkspace" | "renameWorkspace" | "deleteWorkspace" | "createDocument" | "renameDocument" | "deleteDocument";
+const archiveAction = ref<{ kind: ArchiveActionKind; title: string; message: string; mode: "name" | "confirm"; initialValue: string } | null>(null);
+const sharedStorage = inject<StorageClass | null>("storage", null);
+const archive = sharedStorage ? useClientUIWorkspace(new ClientUIWorkspaceRepository(sharedStorage), {
+  capture: serializeProject,
+  apply: applyProjectData,
+  createBlank: createBlankProject,
+  onBeforeSwitch: stopDocumentInteraction,
+}) : null;
+const hasOpenDocument = computed(() => !archive || Boolean(archive.selectedDocument.value));
+type HierarchyDropMode = "inside" | "before" | "after" | null;
+interface HierarchyDragState { nodeId: string | null; active: boolean; pointerX: number; pointerY: number; dropTargetId: string | null; dropParentId: string | null; dropMode: HierarchyDropMode; dropLabel: string }
+const emptyHierarchyDrag = (): HierarchyDragState => ({ nodeId: null, active: false, pointerX: 0, pointerY: 0, dropTargetId: null, dropParentId: null, dropMode: null, dropLabel: "长按以开始拖动" });
+const hierarchyDrag = ref<HierarchyDragState>(emptyHierarchyDrag());
+const controlLabels = Object.fromEntries(controlDefinitions.map((definition) => [definition.type, definition.label])) as Record<ControlType, string>;
+const currentDevice = computed(() => deviceModes.find((device) => device.id === deviceMode.value) ?? deviceModes[0]); const currentPreviewPresets = computed(() => previewPresets[deviceMode.value]); const currentPreset = computed(() => currentPreviewPresets.value.find((preset) => preset.id === previewPresetId.value) ?? currentPreviewPresets.value[0]); const isMobilePreview = computed(() => deviceMode.value === "mobile" || deviceMode.value === "controllerMobile");
+interface Matrix2D { a: number; b: number; c: number; d: number }
+interface WorldTransform { x: number; y: number; matrix: Matrix2D }
+interface TimelineNodeRow { kind: "node"; key: string; node: UINode; trackCount: number }
+interface TimelineTweenRow { kind: "tween"; key: string; node: UINode; track: UITweenTrack; tracks: UITweenTrack[]; field: TweenableFieldDefinition }
+type TimelineRow = TimelineNodeRow | TimelineTweenRow;
+const timelineContextMenu = ref<{ trackId: string; clipId: string | null; label: string; x: number; y: number; time: number; canCreate: boolean; createHint: string } | null>(null);
+let timelineContextReturnFocus: HTMLElement | null = null;
+const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedId.value) ?? null); const renderNodes = computed(() => getCanvasRenderOrder().filter(isVisibleInHierarchy)); const timelineNodes = computed(() => getHierarchyOrder());
+const timelineRows = computed<TimelineRow[]>(() => {
+  const rows: TimelineRow[] = [];
+  for (const node of timelineNodes.value) {
+    const fields = new Map<string, TimelineTweenRow>();
+    for (const track of tweenTracks.value.filter((item) => item.nodeId === node.id)) {
+      const field = getTweenableField(node.type, track.fieldKey);
+      if (!field) continue;
+      const row = fields.get(field.fieldKey);
+      if (row) row.tracks.push(track);
+      else fields.set(field.fieldKey, { kind: "tween", key: `tween:${node.id}:${field.fieldKey}`, node, track, tracks: [track], field });
+    }
+    rows.push({ kind: "node", key: `node:${node.id}`, node, trackCount: fields.size });
+    for (const row of fields.values()) {
+      row.tracks = orderTweenClips(row.tracks);
+      row.track = row.tracks[0];
+      rows.push(row);
+    }
+  }
+  return rows;
+});
+const selectedTweenTrack = computed(() => tweenTracks.value.find((track) => track.id === selectedTweenTrackId.value) ?? null);
+const selectedTweenNode = computed(() => nodes.value.find((node) => node.id === selectedTweenTrack.value?.nodeId) ?? null);
+const selectedTweenField = computed(() => { const node = selectedTweenNode.value; const track = selectedTweenTrack.value; return node && track ? getTweenableField(node.type, track.fieldKey) : null; });
+const tweenTrackConflicts = computed(() => {
+  const accepted: UITweenTrack[] = [];
+  const conflicts = new Map<string, string>();
+  for (const track of tweenTracks.value) {
+    const node = nodes.value.find((item) => item.id === track.nodeId);
+    const field = node ? getTweenableField(node.type, track.fieldKey) : null;
+    if (!field || !Number.isFinite(track.startTime) || !Number.isFinite(track.duration) || track.duration <= 0) continue;
+    const valid = field.valueKind === 'number'
+      ? [track.initialValue, track.endValue].every((value) => typeof value === 'number' && Number.isFinite(value))
+      : Boolean(normalizeColorRGBA(track.initialValue) && normalizeColorRGBA(track.endValue));
+    if (!valid) continue;
+    const conflict = accepted.some((other) => tweenClipsOverlap(track, other)) ? "同一属性轨道的 Clip 时间重叠。" : getTweenTrackConflict(track.nodeId, track.fieldKey, nodes.value, accepted);
+    if (conflict) conflicts.set(track.id, conflict);
+    else accepted.push(track);
+  }
+  return conflicts;
+});
+const previewNodes = computed(() => buildTweenPreviewNodes(currentTime.value));
+const previewNodeMap = computed(() => new Map(previewNodes.value.map((node) => [node.id, node])));
+const automaticTimelineHeight = computed(() => Math.min(320, Math.max(210, 80 + timelineRows.value.length * 33)));
+const timelineMaximumHeight = computed(() => editorHeight.value > 0 ? Math.max(MIN_TIMELINE_HEIGHT, editorHeight.value - EDITOR_TOOLBAR_HEIGHT - MIN_EDITOR_BODY_HEIGHT) : 520);
+const resolvedTimelineHeight = computed(() => Math.min(timelineMaximumHeight.value, Math.max(MIN_TIMELINE_HEIGHT, timelineHeight.value ?? automaticTimelineHeight.value)));
+const editorStyle = computed<CSSProperties>(() => ({ "--timeline-height": `${resolvedTimelineHeight.value}px` } as CSSProperties));
+const selectedControlDefinition = computed(() => getControlDefinition(selectedNode.value?.type ?? "container"));
+const tweenFieldPickerNode = computed(() => nodes.value.find((node) => node.id === tweenFieldPickerNodeId.value) ?? null);
+const selectedTweenPickerDefinition = computed(() => getControlDefinition(tweenFieldPickerNode.value?.type ?? "container"));
+const tweenFieldPickerGroups = computed(() => {
+  const node = tweenFieldPickerNode.value;
+  if (!node) return [];
+  const query = tweenFieldSearch.value.trim().toLowerCase();
+  const fields = availableTweenFields(node).filter((field) => !query || `${field.label} ${field.fieldKey}`.toLowerCase().includes(query));
+  return [
+    { key: "group", title: "组合动画", description: "自身与全部后代 · 由 TweenTimelineLib 展开", fields: fields.filter((field) => field.source === "group") },
+    { key: "base", title: "基础变换", description: "ClientUIBaseControl", fields: fields.filter((field) => field.source === "base") },
+    { key: "control", title: controlLabels[node.type], description: selectedTweenPickerDefinition.value.runtimeClass, fields: fields.filter((field) => field.source === "properties") },
+  ].filter((group) => group.fields.length > 0);
+});
+const selectedProperties = computed<Record<string, unknown>>({ get: () => selectedNode.value ? selectedNode.value.properties as unknown as Record<string, unknown> : {}, set: (value) => { const node = selectedNode.value; if (node) (node as unknown as { properties: Record<string, unknown> }).properties = value; } });
+const selectedImageAsset = computed(() => selectedNode.value?.type === "image" ? getImageAsset(selectedNode.value.properties.imageId) : null);
+const rootContainer = computed(() => nodes.value.find((node) => node.type === "container" && node.parentId === null) ?? nodes.value.find((node) => node.type === "container") ?? null);
+const draggedHierarchyNode = computed(() => nodes.value.find((node) => node.id === hierarchyDrag.value.nodeId) ?? null);
+const hierarchyDragGhostStyle = computed<CSSProperties>(() => ({ left: `${hierarchyDrag.value.pointerX + 14}px`, top: `${hierarchyDrag.value.pointerY + 14}px` }));
+function localMatrix(node: UINode): Matrix2D { const radians = node.rotation * Math.PI / 180; const cosine = Math.cos(radians); const sine = Math.sin(radians); return { a: cosine * node.scaleX, b: sine * node.scaleX, c: -sine * node.scaleY, d: cosine * node.scaleY }; }
+function multiplyMatrix(parent: Matrix2D, local: Matrix2D): Matrix2D { return { a: parent.a * local.a + parent.c * local.b, b: parent.b * local.a + parent.d * local.b, c: parent.a * local.c + parent.c * local.d, d: parent.b * local.c + parent.d * local.d }; }
+function transformVector(matrix: Matrix2D, x: number, y: number) { return { x: matrix.a * x + matrix.c * y, y: matrix.b * x + matrix.d * y }; }
+function calculateWorldTransforms(sourceNodes: UINode[]) { const result = new Map<string, WorldTransform>(); const resolving = new Set<string>(); const nodeMap = new Map(sourceNodes.map((node) => [node.id, node])); const resolve = (node: UINode): WorldTransform => { const cached = result.get(node.id); if (cached) return cached; const local = localMatrix(node); const parent = node.parentId ? nodeMap.get(node.parentId) : null; if (!parent || resolving.has(node.id)) { const root = { x: node.x, y: node.y, matrix: local }; result.set(node.id, root); return root; } resolving.add(node.id); const parentWorld = resolve(parent); resolving.delete(node.id); const offset = transformVector(parentWorld.matrix, node.x - parent.pivotX * parent.width, node.y - parent.pivotY * parent.height); const world = { x: parentWorld.x + offset.x, y: parentWorld.y + offset.y, matrix: multiplyMatrix(parentWorld.matrix, local) }; result.set(node.id, world); return world; }; sourceNodes.forEach(resolve); return result; }
+const worldTransforms = computed(() => calculateWorldTransforms(nodes.value));
+const previewWorldTransforms = computed(() => calculateWorldTransforms(previewNodes.value));
+const selectedWorldPosition = computed(() => { const node = selectedNode.value; if (!node) return { x: 0, y: 0 }; const world = worldTransforms.value.get(node.id); return { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; });
+const selectedRuntimeLayoutValues = computed(() => selectedNode.value ? getRuntimeLayoutValues(selectedNode.value) : { anchoredPositionX: 0, anchoredPositionY: 0, sizeDeltaX: 0, sizeDeltaY: 0 });
+const selectedAdditionalRuntimeTweenValues = computed(() => { const node = selectedNode.value; if (!node) return []; return [
+  { key: "anchorMinX", value: node.anchorMinX }, { key: "anchorMinY", value: node.anchorMinY },
+  { key: "anchorMaxX", value: node.anchorMaxX }, { key: "anchorMaxY", value: node.anchorMaxY },
+  { key: "pivotX", value: node.pivotX }, { key: "pivotY", value: node.pivotY },
+  { key: "localScaleX", value: node.scaleX }, { key: "localScaleY", value: node.scaleY }, { key: "localScaleZ", value: node.scaleZ },
+  { key: "localRotationX", value: node.rotationX }, { key: "localRotationY", value: node.rotationY }, { key: "localRotationZ", value: node.rotation },
+]; });
+const currentAnchorPresetId = computed(() => { const node = selectedNode.value; if (!node) return "custom"; return anchorPresets.find((preset) => preset.anchorMinX === node.anchorMinX && preset.anchorMinY === node.anchorMinY && preset.anchorMaxX === node.anchorMaxX && preset.anchorMaxY === node.anchorMaxY)?.id ?? "custom"; });
+const rulerXTicks = computed(() => Array.from({ length: 9 }, (_, index) => Number((index * canvasWidth.value / 8).toFixed(2)))); const rulerYTicks = computed(() => Array.from({ length: 7 }, (_, index) => Number((canvasHeight.value - index * canvasHeight.value / 6).toFixed(2)))); const timeTicks = computed(() => Array.from({ length: 11 }, (_, index) => duration.value * index / 10)); const stageStyle = computed<CSSProperties>(() => ({ width: `${canvasWidth.value}px`, height: `${canvasHeight.value}px`, left: `calc(50% + ${panX.value}px)`, top: `calc(50% + ${panY.value}px)`, transform: `translate(-50%, -50%) scale(${zoom.value})` }));
+const visibleTree = computed(() => { const result: Array<{ node: UINode; depth: number }> = []; const query = search.value.trim().toLowerCase(); const visit = (parentId: string | null, depth: number) => nodes.value.filter((node) => node.parentId === parentId).forEach((node) => { if (!query || node.name.toLowerCase().includes(query)) result.push({ node, depth }); if (!collapsed.value.has(node.id)) visit(node.id, depth + 1); }); visit(null, 0); return result; });
+function nodeIcon(type: ControlType) { return controlRegistry[type].icon; } function hasChildren(id: string) { return nodes.value.some((node) => node.parentId === id); }
+function isVisibleInHierarchy(node: UINode) { const visited = new Set<string>(); let current: UINode | undefined = node; while (current && !visited.has(current.id)) { if (!current.visible) return false; visited.add(current.id); current = current.parentId ? nodes.value.find((item) => item.id === current?.parentId) : undefined; } return true; }
+function isDescendant(id: string, possibleAncestor: string | null): boolean { let current = nodes.value.find((node) => node.id === id); while (current?.parentId) { if (current.parentId === possibleAncestor) return true; current = nodes.value.find((node) => node.id === current?.parentId); } return false; }
+function toggleCollapsed(id: string) { const next = new Set(collapsed.value); next.has(id) ? next.delete(id) : next.add(id); collapsed.value = next; } function closeMenus() { addMenuOpen.value = false; anchorMenuOpen.value = false; luaExportMenuOpen.value = false; closeTweenFieldPicker(); closeTimelineContextMenu(); }
+function clampTimelineHeight(value: number) { return Math.min(timelineMaximumHeight.value, Math.max(MIN_TIMELINE_HEIGHT, Math.round(value))); }
+function resetTimelineHeight() { timelineHeight.value = null; }
+function nudgeTimelineHeight(delta: number) { timelineHeight.value = clampTimelineHeight(resolvedTimelineHeight.value + delta); }
+let stopTimelineResize: (() => void) | null = null;
+function startTimelineResize(event: PointerEvent) {
+  if (event.button !== 0 || !timelinePanel.value) return;
+  event.preventDefault();
+  stopTimelineResize?.();
+  const pointerId = event.pointerId;
+  const startY = event.clientY;
+  const startHeight = timelinePanel.value.getBoundingClientRect().height || resolvedTimelineHeight.value;
+  const previousCursor = document.body.style.cursor;
+  const previousUserSelect = document.body.style.userSelect;
+  timelineHeight.value = clampTimelineHeight(startHeight);
+  timelineResizing.value = true;
+  document.body.style.cursor = "row-resize";
+  document.body.style.userSelect = "none";
+  const move = (nextEvent: PointerEvent) => {
+    if (nextEvent.pointerId !== pointerId) return;
+    nextEvent.preventDefault();
+    timelineHeight.value = clampTimelineHeight(startHeight + startY - nextEvent.clientY);
+  };
+  const cleanup = (nextEvent?: PointerEvent) => {
+    if (nextEvent && nextEvent.pointerId !== pointerId) return;
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", cleanup);
+    window.removeEventListener("pointercancel", cleanup);
+    document.body.style.cursor = previousCursor;
+    document.body.style.userSelect = previousUserSelect;
+    timelineResizing.value = false;
+    if (stopTimelineResize === cleanup) stopTimelineResize = null;
+  };
+  stopTimelineResize = cleanup;
+  window.addEventListener("pointermove", move, { passive: false });
+  window.addEventListener("pointerup", cleanup);
+  window.addEventListener("pointercancel", cleanup);
+}
+function availableTweenFields(node: UINode) { const used = new Set(tweenTracks.value.filter((track) => track.nodeId === node.id).map((track) => track.fieldKey)); return getTweenableFields(node.type).filter((field) => !used.has(field.fieldKey)); }
+function tweenFieldConflict(node: UINode, fieldKey: string) { return getTweenTrackConflict(node.id, fieldKey, nodes.value, tweenTracks.value); }
+function selectHierarchyNode(node: UINode) { selectedId.value = node.id; selectedTweenTrackId.value = null; closeTweenFieldPicker(); }
+function selectTimelineNode(node: UINode) { selectHierarchyNode(node); }
+function openTweenFieldPicker(node: UINode) { selectedId.value = node.id; selectedTweenTrackId.value = null; tweenFieldSearch.value = ""; tweenFieldPickerNodeId.value = node.id; }
+function closeTweenFieldPicker() { tweenFieldPickerNodeId.value = null; tweenFieldSearch.value = ""; }
+type TweenValueSlot = "initialValue" | "endValue";
+function normalizeColorRGBA(value: unknown): ColorRGBA | null { if (!value || typeof value !== "object") return null; const color = value as Partial<ColorRGBA>; if (![color.r, color.g, color.b, color.a].every((part) => typeof part === "number" && Number.isFinite(part))) return null; return { r: Math.min(255, Math.max(0, Math.round(color.r as number))), g: Math.min(255, Math.max(0, Math.round(color.g as number))), b: Math.min(255, Math.max(0, Math.round(color.b as number))), a: clamp01(color.a as number) }; }
+function cloneTweenValue(value: UITweenValue): UITweenValue { const color = normalizeColorRGBA(value); return color ?? value; }
+function readTweenFieldValue(node: UINode, field: TweenableFieldDefinition): UITweenValue { if (field.fieldKey === GROUP_ALPHA_FIELD_KEY) return GROUP_ALPHA_MAX; if (field.fieldKey === "anchoredPositionX" || field.fieldKey === "anchoredPositionY") return getRuntimeLayoutValues(node)[field.fieldKey]; const source = field.source === "base" ? node as unknown as Record<string, unknown> : node.properties as unknown as Record<string, unknown>; const rawValue = source[field.modelKey]; if (field.valueKind === "number") return typeof rawValue === "number" && Number.isFinite(rawValue) ? rawValue : null; return normalizeColorRGBA(rawValue); }
+function normalizeTweenValue(value: unknown, field: TweenableFieldDefinition, fallback: UITweenValue): UITweenValue { if (value === null) return null; if (field.valueKind === "number" && typeof value === "number" && Number.isFinite(value)) return value; if (field.valueKind === "color") { const color = normalizeColorRGBA(value); if (color) return color; } return cloneTweenValue(fallback); }
+/** v4 保存世界坐标和实际尺寸；转换为锚点偏移和 sizeDelta。 */
+function convertAbsoluteTweenEditorValueToRuntime(node: UINode, field: TweenableFieldDefinition, value: UITweenValue): UITweenValue {
+  if (typeof value !== "number") return value;
+  const parent = getLayoutParent(node);
+  const parentSize = getLayoutParentSize(node);
+  const reference = getAnchorReference(node);
+  const world = worldTransforms.value.get(node.id) ?? { x: node.x, y: node.y, matrix: localMatrix(node) };
+  const parentWorld = parent ? worldTransforms.value.get(parent.id) : null;
+  if (field.fieldKey === "anchoredPositionX") {
+    if (!parent || !parentWorld) return roundLayout(value - reference.x);
+    const localOffset = inverseTransformVector(parentWorld.matrix, value - parentWorld.x, world.y - parentWorld.y);
+    const localX = parent.pivotX * parent.width + localOffset.x;
+    return roundLayout(localX - reference.x);
+  }
+  if (field.fieldKey === "anchoredPositionY") {
+    if (!parent || !parentWorld) return roundLayout(value - reference.y);
+    const localOffset = inverseTransformVector(parentWorld.matrix, world.x - parentWorld.x, value - parentWorld.y);
+    const localY = parent.pivotY * parent.height + localOffset.y;
+    return roundLayout(localY - reference.y);
+  }
+  if (field.fieldKey === "sizeDeltaX") return roundLayout(value - parentSize.width * (node.anchorMaxX - node.anchorMinX));
+  if (field.fieldKey === "sizeDeltaY") return roundLayout(value - parentSize.height * (node.anchorMaxY - node.anchorMinY));
+  return value;
+}
+/** v6 保存父级中心偏移（无父级时为画布坐标），v7 统一保存锚点偏移。 */
+function convertParentCenteredTweenValueToRuntime(node: UINode, field: TweenableFieldDefinition, value: UITweenValue): UITweenValue {
+  if (typeof value !== "number") return value;
+  const parent = getLayoutParent(node);
+  const reference = getAnchorReference(node);
+  if (field.fieldKey === "anchoredPositionX") return roundLayout(value + (parent ? parent.width / 2 : 0) - reference.x);
+  if (field.fieldKey === "anchoredPositionY") return roundLayout(value + (parent ? parent.height / 2 : 0) - reference.y);
+  return value;
+}
+function interpolateTweenValue(initialValue: UITweenValue, endValue: UITweenValue, progress: number): UITweenValue { if (typeof initialValue === "number" && typeof endValue === "number") return initialValue + (endValue - initialValue) * progress; const initialColor = normalizeColorRGBA(initialValue); const endColor = normalizeColorRGBA(endValue); if (initialColor && endColor) return normalizeColorRGBA({ r: initialColor.r + (endColor.r - initialColor.r) * progress, g: initialColor.g + (endColor.g - initialColor.g) * progress, b: initialColor.b + (endColor.b - initialColor.b) * progress, a: initialColor.a + (endColor.a - initialColor.a) * progress }); if (initialValue === null) return progress >= 1 ? cloneTweenValue(endValue) : null; return cloneTweenValue(initialValue); }
+function evaluateTweenTrackValue(track: UITweenTrack, time: number) { const rawProgress = time <= track.startTime ? 0 : time >= track.startTime + track.duration ? 1 : (time - track.startTime) / Math.max(MIN_TWEEN_DURATION, track.duration); return interpolateTweenValue(track.initialValue, track.endValue, applyTweenEase(track.easeType, rawProgress)); }
+function applyPreviewNodeLayout(node: UINode, nodeMap: Map<string, UINode>) { const parent = node.parentId ? nodeMap.get(node.parentId) : null; const parentWidth = parent?.width ?? canvasWidth.value; const parentHeight = parent?.height ?? canvasHeight.value; const referenceX = ((1 - node.pivotX) * node.anchorMinX + node.pivotX * node.anchorMaxX) * parentWidth; const referenceY = ((1 - node.pivotY) * node.anchorMinY + node.pivotY * node.anchorMaxY) * parentHeight; node.x = roundLayout(referenceX + node.anchorOffsetX); node.y = roundLayout(referenceY + node.anchorOffsetY); node.width = roundLayout(Math.max(1, (node.anchorMaxX - node.anchorMinX) * parentWidth + node.sizeDeltaX)); node.height = roundLayout(Math.max(1, (node.anchorMaxY - node.anchorMinY) * parentHeight + node.sizeDeltaY)); }
+function resolveTweenClipEndpoints() {
+  const resolved = new Map<string, UITweenTrack>();
+  const ends = new Map<string, UITweenValue>();
+  for (const track of orderTweenClips(tweenTracks.value)) {
+    if (tweenTrackConflicts.value.has(track.id)) continue;
+    const node = nodes.value.find((item) => item.id === track.nodeId);
+    const field = node ? getTweenableField(node.type, track.fieldKey) : null;
+    if (!node || !field || !Number.isFinite(track.startTime) || track.startTime < 0 || !Number.isFinite(track.duration) || track.duration <= 0) continue;
+    const valid = field.valueKind === "number"
+      ? [track.initialValue, track.endValue].every((value) => typeof value === "number" && Number.isFinite(value))
+      : Boolean(normalizeColorRGBA(track.initialValue) && normalizeColorRGBA(track.endValue));
+    if (!valid) continue;
+    const key = `${node.id}\0${field.fieldKey}`;
+    let initialValue = cloneTweenValue(track.initialValue);
+    let endValue = cloneTweenValue(track.endValue);
+    if (track.relative === true && isRelativeTweenField(field.fieldKey)) {
+      const base = ends.has(key) ? ends.get(key) : readTweenFieldValue(node, field);
+      if (typeof base !== "number" || !Number.isFinite(base)) continue;
+      initialValue = base + (initialValue as number);
+      endValue = base + (endValue as number);
+    }
+    if (typeof initialValue === "number" && (!Number.isFinite(initialValue) || !Number.isFinite(endValue))) continue;
+    resolved.set(track.id, { ...track, initialValue, endValue, relative: false });
+    ends.set(key, endValue);
+  }
+  return resolved;
+}
+function getTweenRelativeBaseline(track: UITweenTrack): UITweenValue {
+  const node = nodes.value.find((item) => item.id === track.nodeId);
+  const field = node ? getTweenableField(node.type, track.fieldKey) : null;
+  if (!node || !field) return null;
+  let baseline = readTweenFieldValue(node, field);
+  for (const previous of resolveTweenClipEndpoints().values()) {
+    if (previous.id === track.id) break;
+    if (previous.nodeId === track.nodeId && previous.fieldKey === track.fieldKey && previous.startTime + previous.duration <= track.startTime + 0.000001) baseline = previous.endValue;
+  }
+  return cloneTweenValue(baseline);
+}
+function buildTweenPreviewNodes(time: number) {
+  const clonedNodes = nodes.value.map((node) => ({ ...node, properties: { ...node.properties } } as UINode));
+  const nodeMap = new Map(clonedNodes.map((node) => [node.id, node]));
+  const visitedLanes = new Set<string>();
+  resolveTweenClipEndpoints().forEach((track) => {
+    const laneKey = `${track.nodeId}\0${track.fieldKey}`;
+    // 只有第一段的初值提前显示；未来 Clip 不得提前覆盖上一段的结束值。
+    if (visitedLanes.has(laneKey) && time < track.startTime) return;
+    visitedLanes.add(laneKey);
+    const node = nodeMap.get(track.nodeId);
+    if (!node) return;
+    const field = getTweenableField(node.type, track.fieldKey);
+    const value = field ? evaluateTweenTrackValue(track, time) : null;
+    if (!field || value === null) return;
+    if (field.source === "group") {
+      // 使用基础颜色生成首尾 Color，再插值，与导出库创建的原生颜色 Tween 一致。
+      // 每次取未动画化的 nodes，避免播放、拖动时间或回放时累乘 Alpha。
+      if (typeof track.initialValue !== "number" || typeof track.endValue !== "number" ||
+          !Number.isFinite(track.initialValue) || !Number.isFinite(track.endValue)) return;
+      const from = Math.min(GROUP_ALPHA_MAX, Math.max(0, track.initialValue));
+      const to = Math.min(GROUP_ALPHA_MAX, Math.max(0, track.endValue));
+      for (const sourceNode of getTweenGroupNodes(node.id, nodes.value)) {
+        const preview = nodeMap.get(sourceNode.id);
+        if (!preview) continue;
+        const sourceProperties = sourceNode.properties as unknown as Record<string, unknown>;
+        const targetProperties = preview.properties as unknown as Record<string, unknown>;
+        for (const key of getGroupAlphaColorFields(sourceNode.type)) {
+          const base = normalizeColorRGBA(sourceProperties[key]);
+          if (!base) continue;
+          const baseAlpha = Math.round(base.a * GROUP_ALPHA_MAX);
+          const alpha = evaluateTweenTrackValue({
+            ...track,
+            initialValue: Math.round(baseAlpha * from / GROUP_ALPHA_MAX),
+            endValue: Math.round(baseAlpha * to / GROUP_ALPHA_MAX),
+          }, time) as number;
+          targetProperties[key] = { ...base, a: clamp01(alpha / GROUP_ALPHA_MAX) };
+        }
+      }
+      return;
+    }
+    // anchoredPosition 由 registry 映射到 anchorOffset，与 GIA 和参数面板使用同一原值。
+    const target = field.source === "base" ? node as unknown as Record<string, unknown> : node.properties as unknown as Record<string, unknown>;
+    target[field.modelKey] = cloneTweenValue(value);
+  });
+  // 所有属性 Tween 先求值，再按父子顺序计算布局，包含父级大小和子级锚点的变化。
+  getHierarchyOrder().forEach((sourceNode) => {
+    const preview = nodeMap.get(sourceNode.id);
+    if (preview) applyPreviewNodeLayout(preview, nodeMap);
+  });
+  return clonedNodes;
+}
+function previewNode<T extends UINode>(node: T) { return (previewNodeMap.value.get(node.id) ?? node) as T; }
+function addTweenTrack(node: UINode, fieldKey: string) {
+  if (tweenTracks.value.some((track) => track.nodeId === node.id && track.fieldKey === fieldKey)) return;
+  addTweenClip(node, fieldKey, 0);
+}
+function addTweenClip(node: UINode, fieldKey: string, startTime: number) {
+  const field = getTweenableField(node.type, fieldKey);
+  if (!field || tweenFieldConflict(node, fieldKey)) return null;
+  const gap = getTweenClipGap(tweenTracks.value, node.id, fieldKey, startTime, sequenceDurationValue(), MIN_TWEEN_DURATION);
+  if (!gap) { timelineEditNotice.value = "此处已被 Clip 占用，或剩余空隙不足 0.01 秒。"; return null; }
+  const track: UITweenTrack = { id: createTweenId(), nodeId: node.id, fieldKey, ...gap, initialValue: null, endValue: null, easeType: "Linear" };
+  const previous = orderTweenClips(tweenTracks.value.filter((item) => item.nodeId === node.id && item.fieldKey === fieldKey && item.startTime + item.duration <= gap.startTime + 0.000001)).at(-1);
+  const relative = previous?.relative === true && isRelativeTweenField(fieldKey);
+  const currentValue = relative ? 0 : getTweenRelativeBaseline(track);
+  track.initialValue = cloneTweenValue(currentValue);
+  track.endValue = cloneTweenValue(currentValue);
+  if (relative) track.relative = true;
+  tweenTracks.value.push(track);
+  selectedId.value = node.id;
+  selectedTweenTrackId.value = track.id;
+  timelineEditNotice.value = "";
+  closeTweenFieldPicker();
+  return track;
+}
+function isTweenRowSelected(row: TimelineTweenRow) { return (row.tracks ?? [row.track]).some((clip) => clip.id === selectedTweenTrackId.value); }
+function copySelectedTweenClip() {
+  const track = selectedTweenTrack.value;
+  if (!track || selectedId.value !== track.nodeId) return null;
+  tweenClipClipboard.value = { ...track, initialValue: cloneTweenValue(track.initialValue), endValue: cloneTweenValue(track.endValue) };
+  timelineEditNotice.value = "已复制 Clip；移动播放头后按 Ctrl+V，在原属性轨道粘贴。";
+  return tweenClipClipboard.value;
+}
+function pasteTweenClipAtPlayhead() {
+  const source = tweenClipClipboard.value;
+  if (!source) return null;
+  const node = nodes.value.find((item) => item.id === source.nodeId);
+  if (!node || !getTweenableField(node.type, source.fieldKey)) {
+    timelineEditNotice.value = "无法粘贴：原控件或属性已不存在，请重新复制 Clip。";
+    return null;
+  }
+  const conflict = tweenFieldConflict(node, source.fieldKey);
+  if (conflict) { timelineEditNotice.value = `无法粘贴：${conflict}`; return null; }
+  const startTime = Number(currentTime.value.toFixed(6));
+  const endTime = startTime + source.duration;
+  if (!Number.isFinite(startTime) || !Number.isFinite(source.duration) || source.duration < MIN_TWEEN_DURATION - TWEEN_CLIP_TIME_EPSILON
+    || startTime < 0 || !Number.isFinite(endTime) || endTime > sequenceDurationValue() + TWEEN_CLIP_TIME_EPSILON) {
+    timelineEditNotice.value = "无法粘贴：剩余序列时长不足以容纳完整 Clip，请移动播放头或延长序列。";
+    return null;
+  }
+  const track: UITweenTrack = { ...source, startTime, id: createTweenId(), initialValue: cloneTweenValue(source.initialValue), endValue: cloneTweenValue(source.endValue) };
+  if (tweenTracks.value.some((other) => tweenClipsOverlap(track, other))) {
+    timelineEditNotice.value = "无法粘贴：此处空隙不足，会与同一属性轨道上的 Clip 重叠。";
+    return null;
+  }
+  while (tweenTracks.value.some((other) => other.id === track.id)) track.id = createTweenId();
+  playing.value = false;
+  tweenTracks.value.push(track);
+  selectedId.value = node.id;
+  selectedTweenTrackId.value = track.id;
+  closeTweenFieldPicker();
+  timelineEditNotice.value = `已在 ${startTime} 秒粘贴 Clip。`;
+  return track;
+}
+function selectTweenTrack(row: TimelineTweenRow, clip = (row.tracks ?? []).find((item) => item.id === selectedTweenTrackId.value) ?? row.track) { selectedId.value = row.node.id; selectedTweenTrackId.value = clip.id; closeTweenFieldPicker(); }
+function openTimelineContextMenu(event: MouseEvent | KeyboardEvent, row: TimelineRow, clip?: UITweenTrack) {
+  closeMenus();
+  if (row.kind !== "tween" || !tweenTracks.value.some((track) => track.id === row.track.id)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  selectTweenTrack(row, clip);
+  resetTimelineKeyboardShortcut();
+  const rowElement = event.currentTarget as HTMLElement;
+  timelineContextReturnFocus = rowElement.querySelector<HTMLElement>(".track-property-main, .tween-clip");
+  const rect = (timelineContextReturnFocus ?? rowElement).getBoundingClientRect();
+  const hasPointerPosition = "clientX" in event && (event.clientX !== 0 || event.clientY !== 0);
+  const lanes = timelineContent.value;
+  const laneRect = lanes?.getBoundingClientRect();
+  const inLanes = lanes?.contains(rowElement) ?? false;
+  const time = hasPointerPosition && inLanes && laneRect
+    ? Math.max(0, Math.min(sequenceDurationValue(), (event.clientX - laneRect.left) / Math.max(1, lanes!.clientWidth) * sequenceDurationValue())) : currentTime.value;
+  const gap = getTweenClipGap(tweenTracks.value, row.node.id, row.field.fieldKey, time, sequenceDurationValue(), MIN_TWEEN_DURATION);
+  timelineContextMenu.value = {
+    trackId: clip?.id ?? row.track.id, clipId: clip?.id ?? null, time,
+    canCreate: Boolean(gap), createHint: gap ? "" : "此处已有 Clip，或可用时长不足 0.01 秒",
+    label: `${row.node.name} · ${row.field.label}`,
+    x: hasPointerPosition ? event.clientX : rect.left,
+    y: hasPointerPosition ? event.clientY : rect.bottom,
+  };
+}
+function closeTimelineContextMenu(restoreFocus = false) {
+  const returnFocus = timelineContextReturnFocus;
+  timelineContextMenu.value = null;
+  timelineContextReturnFocus = null;
+  if (restoreFocus) nextTick(() => {
+    const target = returnFocus?.isConnected ? returnFocus : timelineTrackNames.value?.querySelector<HTMLElement>(".row-node.selected .track-node-main");
+    target?.focus({ preventScroll: true });
+  });
+}
+function deleteTimelineContextTrack(trackId: string) {
+  // Keep the action tied to the right-clicked Line, even if selection changes.
+  if (timelineContextMenu.value?.trackId !== trackId) return;
+  closeTimelineContextMenu(true);
+  removeTweenLane(trackId);
+}
+function createTimelineContextClip(trackId: string) {
+  const menu = timelineContextMenu.value;
+  if (!menu || menu.trackId !== trackId) return;
+  const track = tweenTracks.value.find((item) => item.id === trackId);
+  const node = track ? nodes.value.find((item) => item.id === track.nodeId) : null;
+  if (!track || !node) { closeTimelineContextMenu(); return; }
+  const time = menu.time;
+  closeTimelineContextMenu(true);
+  addTweenClip(node, track.fieldKey, time);
+}
+function deleteTimelineContextClip(trackId: string) {
+  if (timelineContextMenu.value?.clipId !== trackId) return;
+  closeTimelineContextMenu(true);
+  removeTweenTrack(trackId);
+}
+watch([selectedTweenTrack, selectedId], () => closeTimelineContextMenu(), { flush: "sync" });
+function removeTweenTrack(trackId: string) { if (draggingTweenTrackId.value === trackId) stopTweenClipDrag?.(); tweenTracks.value = tweenTracks.value.filter((track) => track.id !== trackId); if (selectedTweenTrackId.value === trackId) selectedTweenTrackId.value = null; }
+function removeTweenLane(trackId: string) {
+  const target = tweenTracks.value.find((track) => track.id === trackId);
+  if (!target) return;
+  const clips = tweenTracks.value.filter((track) => track.nodeId === target.nodeId && track.fieldKey === target.fieldKey);
+  clips.forEach((clip) => removeTweenTrack(clip.id));
+}
+function sequenceDurationValue() { return Math.max(MIN_TWEEN_DURATION, Number(duration.value) || MIN_TWEEN_DURATION); }
+function timelineGuideStyle(time: number): CSSProperties {
+  const percent = Math.max(0, Math.min(100, (Number.isFinite(time) ? time : 0) / sequenceDurationValue() * 100));
+  return {
+    left: `clamp(0px, ${percent}%, calc(100% - 1px))`,
+    // Match the 33px lane rows, but let CSS fill a taller viewport after panel resizing.
+    height: `max(100%, ${timelineRows.value.length * 33}px)`,
+  };
+}
+function roundTweenTime(value: number) { return Number(value.toFixed(3)); }
+function tweenTrackStyle(track: UITweenTrack): CSSProperties { const sequenceDuration = sequenceDurationValue(); const clipDuration = Math.min(sequenceDuration, Math.max(MIN_TWEEN_DURATION, track.duration)); const start = Math.min(Math.max(0, sequenceDuration - clipDuration), Math.max(0, track.startTime)); return { left: `${(start / sequenceDuration) * 100}%`, width: `${(clipDuration / sequenceDuration) * 100}%` }; }
+function tweenNumberValue(slot: TweenValueSlot) { const value = selectedTweenTrack.value?.[slot]; return typeof value === "number" && Number.isFinite(value) ? value : ""; }
+function updateTweenNumberValue(slot: TweenValueSlot, value: number | null) { const track = selectedTweenTrack.value; if (!track) return; track[slot] = value !== null && Number.isFinite(value) ? value : null; }
+function updateTweenRelative(enabled: boolean) {
+  const track = selectedTweenTrack.value;
+  const field = selectedTweenField.value;
+  const node = selectedTweenNode.value;
+  if (!track || !field || !node || !isRelativeTweenField(field.fieldKey) || (track.relative === true) === enabled) return;
+  const base = getTweenRelativeBaseline(track);
+  if (typeof base !== "number" || !Number.isFinite(base)) return;
+  // 切换解释方式时换算首尾值，既保留动画效果，也保留用户尚未填写的空值。
+  for (const slot of ["initialValue", "endValue"] as const) {
+    const value = track[slot];
+    if (typeof value === "number" && Number.isFinite(value)) track[slot] = Number((value + (enabled ? -base : base)).toFixed(8));
+  }
+  track.relative = enabled;
+}
+function tweenColorValue(slot: TweenValueSlot) { return normalizeColorRGBA(selectedTweenTrack.value?.[slot]) ?? { r: 255, g: 255, b: 255, a: 1 }; }
+function updateTweenColorValue(slot: TweenValueSlot, value: ColorRGBA) { const track = selectedTweenTrack.value; const color = normalizeColorRGBA(value); if (track && color) track[slot] = color; }
+function updateTweenTiming(key: "startTime" | "duration", rawValue: number | null) {
+  const track = selectedTweenTrack.value;
+  if (!track || rawValue === null || !Number.isFinite(rawValue)) return;
+  const bounds = getTweenClipBounds(track, tweenTracks.value, sequenceDurationValue());
+  const limit = key === "startTime" ? bounds.maxEnd - track.duration : bounds.maxEnd - track.startTime;
+  const minimum = key === "startTime" ? bounds.minStart : MIN_TWEEN_DURATION;
+  track[key] = Number(Math.min(limit, Math.max(minimum, rawValue)).toFixed(6));
+  timelineEditNotice.value = Math.abs(track[key] - rawValue) > 0.000001 ? "已限制到相邻 Clip 或序列边界；同一属性的 Clip 不能重叠。" : "";
+}
+function updateSequenceDuration(rawValue: number | null) {
+  const requested = rawValue !== null && Number.isFinite(rawValue) ? Math.max(0.5, rawValue) : 0.5;
+  const lastEnd = tweenTracks.value.reduce((end, track) => Math.max(end, track.startTime + track.duration), 0.5);
+  duration.value = Math.max(requested, lastEnd);
+  timelineEditNotice.value = requested < lastEnd ? "序列时长不能短于已有 Clip 的结束时间；请先缩短或移除对应 Clip。" : "";
+  currentTime.value = Math.min(currentTime.value, duration.value);
+}
+let stopTweenClipDrag: (() => void) | null = null;
+function toggleTimelineSnapping() {
+  timelineSnapEnabled.value = !timelineSnapEnabled.value;
+  timelineSnapTime.value = null;
+}
+function startTweenClipDrag(event: PointerEvent, row: TimelineTweenRow, clip = row.track) { startTweenTimingDrag(event, { ...row, track: clip }, "move"); }
+function startTweenEdgeDrag(event: PointerEvent, row: TimelineTweenRow, edge: "start" | "end", clip = row.track) { startTweenTimingDrag(event, { ...row, track: clip }, edge); }
+function startTweenTimingDrag(event: PointerEvent, row: TimelineTweenRow, mode: TweenClipSnapMode) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  (event.currentTarget as HTMLElement | null)?.closest?.<HTMLElement>(".tween-clip")?.focus?.({ preventScroll: true });
+  selectTweenTrack(row, row.track);
+  stopTweenClipDrag?.();
+  stopTimelineScrub?.();
+  const lanes = timelineContent.value;
+  if (!lanes) return;
+  playing.value = false;
+  const width = Math.max(1, lanes.clientWidth);
+  const pointerId = event.pointerId;
+  const pointerStartX = event.clientX;
+  const sequenceDuration = sequenceDurationValue();
+  const clipDuration = Math.min(sequenceDuration, Math.max(MIN_TWEEN_DURATION, row.track.duration));
+  const originalStart = Math.min(Math.max(0, sequenceDuration - clipDuration), Math.max(0, row.track.startTime));
+  const bounds = getTweenClipBounds(row.track, tweenTracks.value, sequenceDuration);
+  const allowedDuration = bounds.maxEnd - bounds.minStart;
+  // 只记录其他 Clip，防止移动时吸住自身旧边界；播放头在拖动期间保持不变。
+  const targets = [currentTime.value, 0, sequenceDuration, ...tweenTracks.value
+    .filter((track) => track.id !== row.track.id)
+    .flatMap((track) => [track.startTime, track.startTime + track.duration])];
+  draggingTweenTrackId.value = row.track.id;
+  resizingTweenEdge.value = mode === "move" ? null : mode;
+  timelineSnapTime.value = null;
+  const move = (nextEvent: PointerEvent) => {
+    if (nextEvent.pointerId !== pointerId) return;
+    nextEvent.preventDefault();
+    const result = snapTweenClip({
+      mode, startTime: originalStart - bounds.minStart, duration: clipDuration,
+      deltaTime: (nextEvent.clientX - pointerStartX) / width * sequenceDuration,
+      sequenceDuration: allowedDuration, minDuration: MIN_TWEEN_DURATION, laneWidth: width * allowedDuration / sequenceDuration,
+      enabled: timelineSnapEnabled.value, targets: targets.filter((time) => time >= bounds.minStart && time <= bounds.maxEnd).map((time) => time - bounds.minStart),
+    });
+    row.track.startTime = Number((result.startTime + bounds.minStart).toFixed(6));
+    row.track.duration = result.duration;
+    timelineSnapTime.value = result.snapTime === null ? null : Number((result.snapTime + bounds.minStart).toFixed(6));
+  };
+  const cleanup = (nextEvent?: PointerEvent) => {
+    if (nextEvent && nextEvent.pointerId !== pointerId) return;
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", cleanup);
+    window.removeEventListener("pointercancel", cleanup);
+    window.removeEventListener("blur", cancel);
+    if (draggingTweenTrackId.value === row.track.id) draggingTweenTrackId.value = null;
+    resizingTweenEdge.value = null;
+    timelineSnapTime.value = null;
+    if (stopTweenClipDrag === cleanup) stopTweenClipDrag = null;
+  };
+  const cancel = () => cleanup();
+  stopTweenClipDrag = cleanup;
+  window.addEventListener("pointermove", move, { passive: false });
+  window.addEventListener("pointerup", cleanup);
+  window.addEventListener("pointercancel", cleanup);
+  window.addEventListener("blur", cancel);
+}
+let syncingTimelineScroll = false;
+function syncTimelineScroll(source: "names" | "content") { if (syncingTimelineScroll) return; const from = source === "names" ? timelineTrackNames.value : timelineContent.value; const to = source === "names" ? timelineContent.value : timelineTrackNames.value; if (!from || !to || Math.abs(to.scrollTop - from.scrollTop) < 1) return; syncingTimelineScroll = true; to.scrollTop = from.scrollTop; requestAnimationFrame(() => { syncingTimelineScroll = false; }); }
+function addNode(type: ControlType) { let root = rootContainer.value; if (!root) { root = makeNode("container", "Default_UI", { width: 1120, height: 620 }); nodes.value.unshift(root); rebaseNodeLayout(root); } const parent = selectedNode.value ?? root; const count = nodes.value.filter((node) => node.type === type).length + 1; const node = makeNode(type, `${controlLabels[type]}_${count}`, { parentId: parent.id, x: parent.width / 2 + (count - 2) * 40, y: parent.height / 2 - (count - 2) * 30 }); rebaseNodeLayout(node); nodes.value.push(node); selectedId.value = node.id; addMenuOpen.value = false; }
+function removeSelected() { if (!selectedId.value || selectedId.value === rootContainer.value?.id) return; const remove = new Set<string>([selectedId.value]); let changed = true; while (changed) { changed = false; nodes.value.forEach((node) => { if (node.parentId && remove.has(node.parentId) && !remove.has(node.id)) { remove.add(node.id); changed = true; } }); } nodes.value = nodes.value.filter((node) => !remove.has(node.id)); tweenTracks.value = tweenTracks.value.filter((track) => !remove.has(track.nodeId)); selectedTweenTrackId.value = null; selectedId.value = rootContainer.value?.id ?? null; }
+function anchorVisualStyle(values: AnchorValues): CSSProperties { return { "--anchor-min-x": `${values.anchorMinX * 100}%`, "--anchor-min-y": `${values.anchorMinY * 100}%`, "--anchor-max-x": `${values.anchorMaxX * 100}%`, "--anchor-max-y": `${values.anchorMaxY * 100}%`, "--pivot-x": `${values.pivotX * 100}%`, "--pivot-y": `${values.pivotY * 100}%` } as CSSProperties; }
+function clamp01(value: number) { return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)); }
+function roundLayout(value: number) { return Number(value.toFixed(2)); }
+type RuntimeLayoutField = "anchoredPositionX" | "anchoredPositionY" | "sizeDeltaX" | "sizeDeltaY";
+function getRuntimeLayoutValues(node: UINode) {
+  return {
+    anchoredPositionX: node.anchorOffsetX,
+    anchoredPositionY: node.anchorOffsetY,
+    sizeDeltaX: node.sizeDeltaX,
+    sizeDeltaY: node.sizeDeltaY,
+  };
+}
+function getLayoutParent(node: UINode) { return node.parentId ? nodes.value.find((item) => item.id === node.parentId) ?? null : null; }
+function getLayoutParentSize(node: UINode) { const parent = getLayoutParent(node); return parent ? { width: parent.width, height: parent.height } : { width: canvasWidth.value, height: canvasHeight.value }; }
+function getAnchorReference(node: UINode) { const parentSize = getLayoutParentSize(node); return { x: ((1 - node.pivotX) * node.anchorMinX + node.pivotX * node.anchorMaxX) * parentSize.width, y: ((1 - node.pivotY) * node.anchorMinY + node.pivotY * node.anchorMaxY) * parentSize.height }; }
+function rebaseNodeLayout(node: UINode) { const reference = getAnchorReference(node); const parentSize = getLayoutParentSize(node); node.anchorOffsetX = roundLayout(node.x - reference.x); node.anchorOffsetY = roundLayout(node.y - reference.y); node.sizeDeltaX = roundLayout(node.width - (node.anchorMaxX - node.anchorMinX) * parentSize.width); node.sizeDeltaY = roundLayout(node.height - (node.anchorMaxY - node.anchorMinY) * parentSize.height); }
+function applyNodeLayout(node: UINode) { const reference = getAnchorReference(node); const parentSize = getLayoutParentSize(node); node.x = roundLayout(reference.x + node.anchorOffsetX); node.y = roundLayout(reference.y + node.anchorOffsetY); node.width = roundLayout(Math.max(1, (node.anchorMaxX - node.anchorMinX) * parentSize.width + node.sizeDeltaX)); node.height = roundLayout(Math.max(1, (node.anchorMaxY - node.anchorMinY) * parentSize.height + node.sizeDeltaY)); }
+function getHierarchyOrder() { const ordered: UINode[] = []; const visited = new Set<string>(); const visit = (node: UINode) => { if (visited.has(node.id)) return; visited.add(node.id); ordered.push(node); nodes.value.filter((child) => child.parentId === node.id).forEach(visit); }; nodes.value.filter((node) => node.parentId === null).forEach(visit); nodes.value.forEach(visit); return ordered; }
+function getCanvasRenderOrder() { const ordered: UINode[] = []; const visited = new Set<string>(); const visit = (node: UINode) => { if (visited.has(node.id)) return; visited.add(node.id); ordered.push(node); nodes.value.filter((child) => child.parentId === node.id).slice().reverse().forEach(visit); }; nodes.value.filter((node) => node.parentId === null).slice().reverse().forEach(visit); nodes.value.slice().reverse().forEach(visit); return ordered; }
+function reparentNode(node: UINode, requestedParentId: string | null) { const root = rootContainer.value; if (!root || node.id === root.id) return false; const nextParent = nodes.value.find((item) => item.id === (requestedParentId ?? root.id)); if (!nextParent || nextParent.id === node.id || isDescendant(nextParent.id, node.id)) return false; if (node.parentId === nextParent.id) return true; const currentWorld = worldTransforms.value.get(node.id) ?? { x: node.x, y: node.y, matrix: localMatrix(node) }; const parentWorld = worldTransforms.value.get(nextParent.id) ?? { x: nextParent.x, y: nextParent.y, matrix: localMatrix(nextParent) }; node.parentId = nextParent.id; const localOffset = inverseTransformVector(parentWorld.matrix, currentWorld.x - parentWorld.x, currentWorld.y - parentWorld.y); node.x = roundLayout(nextParent.pivotX * nextParent.width + localOffset.x); node.y = roundLayout(nextParent.pivotY * nextParent.height + localOffset.y); rebaseNodeLayout(node); return true; }
+function placeNodeRelative(node: UINode, target: UINode, mode: "before" | "after") { const root = rootContainer.value; if (!root || node.id === root.id || node.id === target.id) return false; const parentId = target.id === root.id ? root.id : target.parentId ?? root.id; const nextParent = nodes.value.find((item) => item.id === parentId); if (!nextParent || nextParent.id === node.id || isDescendant(nextParent.id, node.id) || !reparentNode(node, nextParent.id)) return false; const movingIndex = nodes.value.findIndex((item) => item.id === node.id); if (movingIndex < 0) return false; const [movingNode] = nodes.value.splice(movingIndex, 1); const targetIndex = nodes.value.findIndex((item) => item.id === target.id); const insertIndex = target.id === root.id ? targetIndex + 1 : targetIndex + (mode === "after" ? 1 : 0); nodes.value.splice(Math.max(0, insertIndex), 0, movingNode); return true; }
+function ensureSingleRootContainer() { let root = nodes.value.find((node) => node.type === "container" && node.parentId === null) ?? nodes.value.find((node) => node.type === "container"); if (!root) { root = makeNode("container", "Default_UI", { width: 1120, height: 620 }); nodes.value.unshift(root); } if (root.parentId !== null) { const world = worldTransforms.value.get(root.id); root.parentId = null; root.x = roundLayout(world?.x ?? root.x); root.y = roundLayout(world?.y ?? root.y); rebaseNodeLayout(root); } nodes.value.filter((node) => node.id !== root.id && (!node.parentId || !nodes.value.some((parent) => parent.id === node.parentId))).forEach((node) => reparentNode(node, root.id)); }
+function updateHierarchyDropTarget(clientX: number, clientY: number, draggedNode: UINode) { hierarchyDrag.value.pointerX = clientX; hierarchyDrag.value.pointerY = clientY; const tree = hierarchyTree.value; const root = rootContainer.value; if (!tree || !root) return; const treeRect = tree.getBoundingClientRect(); if (clientX < treeRect.left || clientX > treeRect.right || clientY < treeRect.top || clientY > treeRect.bottom) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "移回层级区域后释放"; return; } const row = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>(".tree-row[data-node-id]"); const hoveredNode = row?.dataset.nodeId ? nodes.value.find((node) => node.id === row.dataset.nodeId) : null; if (!row || !hoveredNode) { hierarchyDrag.value.dropTargetId = root.id; hierarchyDrag.value.dropParentId = root.id; hierarchyDrag.value.dropMode = "inside"; hierarchyDrag.value.dropLabel = `放到根层级 ${root.name}`; return; } const rowRect = row.getBoundingClientRect(); const ratioY = (clientY - rowRect.top) / Math.max(1, rowRect.height); let mode: Exclude<HierarchyDropMode, null> = ratioY < 0.27 ? "before" : ratioY > 0.73 ? "after" : "inside"; if (hoveredNode.id === draggedNode.id) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能放到自身"; return; } if (mode === "inside") { if (isDescendant(hoveredNode.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能归属到自己的子级"; return; } hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = hoveredNode.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = `成为 ${hoveredNode.name} 的子级`; return; } const nextParent = hoveredNode.id === root.id ? root : nodes.value.find((node) => node.id === hoveredNode.parentId) ?? root; if (nextParent.id === draggedNode.id || isDescendant(nextParent.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能移动到自己的子级之间"; return; } if (hoveredNode.id === root.id) mode = "after"; hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = nextParent.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = hoveredNode.id === root.id ? "放到根层级顶部" : `移到 ${hoveredNode.name} ${mode === "before" ? "上方" : "下方"}`; }
+let cancelHierarchyPress: (() => void) | null = null;
+function startHierarchyPress(event: PointerEvent, node: UINode) { if (event.button !== 0) return; selectedId.value = node.id; if (node.id === rootContainer.value?.id) return; cancelHierarchyPress?.(); const startX = event.clientX; const startY = event.clientY; let activated = false; let timer = window.setTimeout(() => { activated = true; hierarchyDrag.value = { nodeId: node.id, active: true, pointerX: startX, pointerY: startY, dropTargetId: null, dropParentId: node.parentId ?? rootContainer.value?.id ?? null, dropMode: null, dropLabel: `当前归属：${getLayoutParent(node)?.name ?? rootContainer.value?.name ?? "根容器"}` }; updateHierarchyDropTarget(startX, startY, node); }, 50); const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", cancel); cancelHierarchyPress = null; }; const move = (next: PointerEvent) => { if (!activated && Math.hypot(next.clientX - startX, next.clientY - startY) > 7) { cleanup(); return; } if (activated) { next.preventDefault(); updateHierarchyDropTarget(next.clientX, next.clientY, node); } }; const finish = (next: PointerEvent) => { if (activated) { updateHierarchyDropTarget(next.clientX, next.clientY, node); const targetId = hierarchyDrag.value.dropTargetId; const mode = hierarchyDrag.value.dropMode; const target = targetId ? nodes.value.find((item) => item.id === targetId) : null; const changed = target && mode === "inside" ? reparentNode(node, target.id) : target && (mode === "before" || mode === "after") ? placeNodeRelative(node, target, mode) : false; if (changed) { const expandId = mode === "inside" ? target?.id : hierarchyDrag.value.dropParentId; if (expandId) { const nextCollapsed = new Set(collapsed.value); nextCollapsed.delete(expandId); collapsed.value = nextCollapsed; } } } cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; const cancel = () => { cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; cancelHierarchyPress = cleanup; window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", cancel); }
+function applyDescendantLayouts(parentId: string) { nodes.value.filter((node) => node.parentId === parentId).forEach((child) => { applyNodeLayout(child); applyDescendantLayouts(child.id); }); }
+function propertyGroupLabel(group: PropertyGroup) {
+  if (group === "control") return `${selectedControlDefinition.value.label}参数`;
+  return { transform: "变换", image: "图片设置", creation: "创建设置", editor: "编辑设置" }[group];
+}
+function canPasteSelectedPropertyGroup(group: PropertyGroup) {
+  const node = selectedNode.value;
+  return Boolean(node && canPastePropertyGroup(node, group, propertyClipboard.value));
+}
+function propertyPasteHint(group: PropertyGroup) {
+  const clipboard = propertyClipboard.value;
+  if (!clipboard) return "请先复制此分组的属性";
+  if (clipboard.group !== group) return "请先复制相同分组的属性";
+  if (!canPasteSelectedPropertyGroup(group)) return "此分组只支持同类型控件之间粘贴";
+  return `粘贴已复制的${propertyGroupLabel(group)}属性`;
+}
+function reportPropertyAction(group: PropertyGroup, action: string) {
+  if (!selectedNode.value) return;
+  propertyActionFeedback.value = { nodeId: selectedNode.value.id, message: `${action}${propertyGroupLabel(group)}属性` };
+}
+function copySelectedPropertyGroup(group: PropertyGroup) {
+  const node = selectedNode.value;
+  if (!node) return;
+  const snapshot = capturePropertyGroup(node, group);
+  if (!snapshot) return;
+  propertyClipboard.value = snapshot;
+  reportPropertyAction(group, "已复制");
+}
+function applySelectedPropertyLayout(group: PropertyGroup, node: UINode) {
+  if (group !== "transform") return;
+  applyNodeLayout(node);
+  applyDescendantLayouts(node.id);
+}
+function resetSelectedPropertyGroup(group: PropertyGroup) {
+  const node = selectedNode.value;
+  if (!node || !resetPropertyGroup(node, group)) return;
+  applySelectedPropertyLayout(group, node);
+  reportPropertyAction(group, "已重置");
+}
+function pasteSelectedPropertyGroup(group: PropertyGroup) {
+  const node = selectedNode.value;
+  if (!node || !pastePropertyGroup(node, group, propertyClipboard.value)) return;
+  applySelectedPropertyLayout(group, node);
+  reportPropertyAction(group, "已粘贴");
+}
+function selectImageAsset(assetId: number) { const node = selectedNode.value; const asset = getImageAsset(assetId); if (!node || node.type !== "image" || !asset) return; node.properties.imageId = asset.id; }
+function resetSelectedImageSize() { const node = selectedNode.value; const asset = node?.type === "image" ? getImageAsset(node.properties.imageId) : null; if (!node || !asset) return; updateGeometry("width", asset.defaultWidth); updateGeometry("height", asset.defaultHeight); }
+function updateGeometry(field: "x" | "y" | "width" | "height", value: number) { const node = selectedNode.value; if (!node || !Number.isFinite(value)) return; if (field === "x" || field === "y") { const currentWorld = worldTransforms.value.get(node.id) ?? { x: node.x, y: node.y, matrix: localMatrix(node) }; const targetWorldX = field === "x" ? value : currentWorld.x; const targetWorldY = field === "y" ? value : currentWorld.y; const parent = getLayoutParent(node); if (parent) { const parentWorld = worldTransforms.value.get(parent.id) ?? { x: parent.x, y: parent.y, matrix: localMatrix(parent) }; const localOffset = inverseTransformVector(parentWorld.matrix, targetWorldX - parentWorld.x, targetWorldY - parentWorld.y); node.x = roundLayout(parent.pivotX * parent.width + localOffset.x); node.y = roundLayout(parent.pivotY * parent.height + localOffset.y); } else { node.x = roundLayout(targetWorldX); node.y = roundLayout(targetWorldY); } rebaseNodeLayout(node); return; } node[field] = Math.max(1, value); rebaseNodeLayout(node); applyDescendantLayouts(node.id); }
+function applyAnchorPreset(id: string) { if (id === "custom" || !selectedNode.value) return; const preset = anchorPresets.find((item) => item.id === id); if (!preset) return; selectedNode.value.anchorMinX = preset.anchorMinX; selectedNode.value.anchorMinY = preset.anchorMinY; selectedNode.value.anchorMaxX = preset.anchorMaxX; selectedNode.value.anchorMaxY = preset.anchorMaxY; rebaseNodeLayout(selectedNode.value); anchorMenuOpen.value = false; }
+function onAnchorPresetSelect(event: Event) { applyAnchorPreset((event.target as HTMLSelectElement).value); }
+function updateAnchor(bound: "min" | "max", axis: "x" | "y", value: number) { const node = selectedNode.value; if (!node) return; const next = clamp01(value); if (axis === "x") { if (bound === "min") node.anchorMinX = Math.min(next, node.anchorMaxX); else node.anchorMaxX = Math.max(next, node.anchorMinX); } else { if (bound === "min") node.anchorMinY = Math.min(next, node.anchorMaxY); else node.anchorMaxY = Math.max(next, node.anchorMinY); } rebaseNodeLayout(node); }
+function updatePivot(axis: "x" | "y", value: number) { const node = selectedNode.value; if (!node) return; const next = clamp01(value); const deltaX = axis === "x" ? (next - node.pivotX) * node.width : 0; const deltaY = axis === "y" ? (next - node.pivotY) * node.height : 0; const shift = transformVector(localMatrix(node), deltaX, deltaY); node.x = roundLayout(node.x + shift.x); node.y = roundLayout(node.y + shift.y); if (axis === "x") node.pivotX = next; else node.pivotY = next; rebaseNodeLayout(node); }
+function updateRuntimeLayoutValue(field: RuntimeLayoutField, value: number | null) {
+  const node = selectedNode.value;
+  if (!node || value === null || !Number.isFinite(value)) return;
+  if (field === "anchoredPositionX") node.anchorOffsetX = value;
+  else if (field === "anchoredPositionY") node.anchorOffsetY = value;
+  else if (field === "sizeDeltaX") node.sizeDeltaX = value;
+  else node.sizeDeltaY = value;
+  applyNodeLayout(node);
+  applyDescendantLayouts(node.id);
+}
+function getImageAsset(imageId: number | null) { return imageId == null ? null : imageAssetById.get(imageId) ?? null; }
+function imageRenderStyle(node: UINodeOf<"image">): CSSProperties { const displayNode = previewNode(node); const asset = getImageAsset(displayNode.properties.imageId); if (!asset) return {}; const mask = `url("${asset.src}")`; return { backgroundColor: colorToCss(safeColor(displayNode.properties.imageColor, editorTypeColors.image)), maskImage: mask, WebkitMaskImage: mask, maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat", maskPosition: "center", WebkitMaskPosition: "center", maskSize: "100% 100%", WebkitMaskSize: "100% 100%" } as CSSProperties; }
+function safeColor(value: unknown, fallback: ColorRGBA) { const color = value as Partial<ColorRGBA> | null; return color && Number.isFinite(color.r) && Number.isFinite(color.g) && Number.isFinite(color.b) ? color as ColorRGBA : fallback; }
+function textRenderStyle(node: UINodeOf<"text"> | UINodeOf<"textWindow">): CSSProperties {
+  const displayNode = previewNode(node);
+  const properties = displayNode.properties;
+  const horizontal = properties.horizontalAlignment === "left" ? "flex-start" : properties.horizontalAlignment === "right" ? "flex-end" : "center";
+  const vertical = properties.verticalAlignment === "top" ? "flex-start" : properties.verticalAlignment === "bottom" ? "flex-end" : "center";
+  const textAlign = properties.horizontalAlignment === "left" ? "left" : properties.horizontalAlignment === "right" ? "right" : "center";
+  const configuredSize = properties.fontSize ?? 20;
+  const minimumSize = properties.minimumFontSize ?? 1;
+  const adaptiveSize = Math.max(minimumSize, Math.min(configuredSize, displayNode.height * 0.72, displayNode.width / Math.max(2, properties.text.length * 0.56)));
+  const fontSize = properties.adaptiveFontSize ? adaptiveSize : configuredSize;
+  return {
+    color: colorToCss(safeColor(properties.fontColor, editorTypeColors[displayNode.type])),
+    fontSize: `${fontSize}px`,
+    justifyContent: horizontal,
+    alignItems: vertical,
+    // Flex positions the text block; text-align also aligns each wrapped/explicit line.
+    textAlign,
+    WebkitTextStroke: properties.enableOutline ? `1px ${colorToCss(safeColor(properties.outlineColor, colorFromHex("#333333", 0.2)))}` : undefined,
+  };
+}
+function nodeStyle(node: UINode): CSSProperties { const displayNode = previewNode(node); const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) }; const isText = displayNode.type === "text" || displayNode.type === "textWindow"; const typeColor = editorTypeColors[displayNode.type]; const borderColor = displayNode.type === "image" ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor); const backgroundColor = isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, displayNode.type === "container" ? 0.07 : 0.12); return { width: `${displayNode.width}px`, height: `${displayNode.height}px`, left: `${world.x - displayNode.width * displayNode.pivotX}px`, top: `${canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY)}px`, transform: `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`, transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) }; }
+function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => void) { const startX = event.clientX; const startY = event.clientY; const move = (next: PointerEvent) => onMove((next.clientX - startX) / zoom.value, (next.clientY - startY) / zoom.value); const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); }
+function inverseTransformVector(matrix: Matrix2D, x: number, y: number) { const determinant = matrix.a * matrix.d - matrix.b * matrix.c; if (Math.abs(determinant) < 0.000001) return { x: 0, y: 0 }; return { x: (matrix.d * x - matrix.c * y) / determinant, y: (-matrix.b * x + matrix.a * y) / determinant }; }
+function handleCanvasWheel(event: WheelEvent) { const viewport = viewportElement.value; if (!viewport) return; const normalizedDelta = event.deltaY * (event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? viewport.clientHeight : 1); const previousZoom = zoom.value; const nextZoom = Math.max(0.2, Math.min(1.5, previousZoom * Math.exp(-normalizedDelta * 0.0015))); if (nextZoom === previousZoom) return; const rect = viewport.getBoundingClientRect(); const pointerX = event.clientX - (rect.left + rect.width / 2); const pointerY = event.clientY - (rect.top + rect.height / 2); const ratio = nextZoom / previousZoom; panX.value = roundLayout(panX.value + (pointerX - panX.value) * (1 - ratio)); panY.value = roundLayout(panY.value + (pointerY - panY.value) * (1 - ratio)); zoom.value = nextZoom; }
+function startCanvasPan(event: PointerEvent) { if (event.button !== 1) return; event.preventDefault(); event.stopPropagation(); const startX = event.clientX; const startY = event.clientY; const originX = panX.value; const originY = panY.value; isPanning.value = true; const move = (next: PointerEvent) => { panX.value = roundLayout(originX + next.clientX - startX); panY.value = roundLayout(originY + next.clientY - startY); }; const end = () => { isPanning.value = false; window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end); }
+function handleViewportPointerDown(event: PointerEvent) { if (event.button === 1) { startCanvasPan(event); return; } if (event.target === event.currentTarget) selectedId.value = null; }
+function startMove(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; selectedId.value = node.id; if (node.locked) return; const x = node.x; const y = node.y; const parent = getLayoutParent(node); const parentMatrix = parent ? worldTransforms.value.get(parent.id)?.matrix ?? localMatrix(parent) : { a: 1, b: 0, c: 0, d: 1 }; pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(parentMatrix, dx, -dy); node.x = roundLayout(x + localDelta.x); node.y = roundLayout(y + localDelta.y); rebaseNodeLayout(node); const world = worldTransforms.value.get(node.id); cursorPosition.value = { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; }); } function startResize(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; const width = node.width; const height = node.height; const x = node.x; const y = node.y; const worldMatrix = worldTransforms.value.get(node.id)?.matrix ?? localMatrix(node); const ownMatrix = localMatrix(node); pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(worldMatrix, dx, -dy); const nextWidth = Math.max(20, roundLayout(width + localDelta.x)); const nextHeight = Math.max(20, roundLayout(height - localDelta.y)); const pivotShift = transformVector(ownMatrix, (nextWidth - width) * node.pivotX, -(nextHeight - height) * (1 - node.pivotY)); node.x = roundLayout(x + pivotShift.x); node.y = roundLayout(y + pivotShift.y); node.width = nextWidth; node.height = nextHeight; rebaseNodeLayout(node); applyDescendantLayouts(node.id); }); }
+function formatDimension(value: number) { return Number.isInteger(value) ? String(value) : value.toFixed(2); }
+function selectPreviewPreset(presetId: string) {
+  const device = deviceModes.find((mode) => previewPresets[mode.id].some((preset) => preset.id === presetId));
+  if (!device) return;
+  deviceMode.value = device.id;
+  previewPresetId.value = presetId;
+  applyPreviewPreset();
+}
+function switchDevice(mode: DeviceMode) { deviceMode.value = mode; previewPresetId.value = previewPresets[mode][0].id; applyPreviewPreset(); }
+function applyPreviewPreset() { const preset = currentPreset.value; canvasWidth.value = preset.width; canvasHeight.value = preset.height; getHierarchyOrder().forEach(applyNodeLayout); nextTick(fitCanvas); }
+function fitCanvas() { const viewport = viewportElement.value; if (!viewport) return; const availableWidth = Math.max(200, viewport.clientWidth - 90); const availableHeight = Math.max(160, viewport.clientHeight - 80); zoom.value = Math.max(0.2, Math.min(1.5, availableWidth / canvasWidth.value, availableHeight / canvasHeight.value)); panX.value = 0; panY.value = 0; }
+function formatTime(seconds: number) { const frames = Math.round((seconds % 1) * frameRate.value); return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`; }
+function rewindPlayback() { playing.value = false; currentTime.value = 0; }
+function togglePlayback() { if (!playing.value && currentTime.value >= sequenceDurationValue()) currentTime.value = 0; playing.value = !playing.value; }
+let timelineSpacePressed = false;
+function isTimelineTextEditing(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const input = target.closest("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null;
+  if (!input || input.readOnly || input.disabled) return false;
+  return input.tagName === "TEXTAREA" || !["button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image", "hidden"].includes(input.type);
+}
+function handleTimelineKeyboardShortcut(event: KeyboardEvent) {
+  if (timelineContextMenu.value || timelineDataImportOpen.value) return;
+  const editor = editorElement.value;
+  if (event.code !== "Space" || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || !editor?.isConnected || editor.inert || !editor.getClientRects().length || isTimelineTextEditing(event.target)) return;
+  // Capture Space before focused tree items/buttons can treat it as activation.
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (event.repeat || timelineSpacePressed) return;
+  timelineSpacePressed = true;
+  togglePlayback();
+}
+function handleTimelineClipClipboardShortcut(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing || event.defaultPrevented) return;
+  const key = event.key?.toLowerCase();
+  const copy = key === "c" || event.code === "KeyC";
+  const paste = key === "v" || event.code === "KeyV";
+  if (!copy && !paste) return;
+  const editor = editorElement.value;
+  if (!editor?.isConnected || editor.inert || !editor.getClientRects().length || !hasOpenDocument.value
+    || workspacePanelOpen.value || archiveAction.value || timelineContextMenu.value || tweenFieldPickerNodeId.value || timelineDataImportOpen.value) return;
+  const target = event.target;
+  // Read-only scrub fields still support selecting/copying text; leave their native shortcuts intact.
+  if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [role='textbox'], [role='dialog']"))) return;
+  if (window.getSelection()?.toString()) return;
+  if (copy ? !selectedTweenTrack.value || selectedId.value !== selectedTweenTrack.value.nodeId : !tweenClipClipboard.value) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (event.repeat || draggingTweenTrackId.value || timelineScrubbing.value) return;
+  if (copy) copySelectedTweenClip();
+  else pasteTweenClipAtPlayhead();
+}
+function handleTimelineKeyboardRelease(event: KeyboardEvent) {
+  if (event.code !== "Space" || !timelineSpacePressed) return;
+  timelineSpacePressed = false;
+  // Native buttons activate on keyup, so consume the matching release as well.
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+function resetTimelineKeyboardShortcut() { timelineSpacePressed = false; }
+function stepPlayback() { playing.value = false; currentTime.value = Math.min(sequenceDurationValue(), currentTime.value + 1 / frameRate.value); }
+function setTimelineTimeFromClientX(clientX: number) {
+  if (!timelineContent.value) return;
+  const rect = timelineContent.value.getBoundingClientRect();
+  if (rect.width <= 0) return;
+  const rawTime = Math.max(0, Math.min(duration.value, (clientX - rect.left) / rect.width * duration.value));
+  currentTime.value = Math.max(0, Math.min(duration.value, Math.round(rawTime * frameRate.value) / frameRate.value));
+}
+function nudgeTimelineProgress(frameDelta: number) { playing.value = false; currentTime.value = Math.max(0, Math.min(duration.value, currentTime.value + frameDelta / frameRate.value)); }
+let stopTimelineScrub: (() => void) | null = null;
+function startTimelineScrub(event: PointerEvent) {
+  if (event.button !== 0 || !timelineContent.value) return;
+  event.preventDefault();
+  stopTimelineScrub?.();
+  const pointerId = event.pointerId;
+  const previousCursor = document.body.style.cursor;
+  const previousUserSelect = document.body.style.userSelect;
+  playing.value = false;
+  timelineScrubbing.value = true;
+  document.body.style.cursor = "ew-resize";
+  document.body.style.userSelect = "none";
+  setTimelineTimeFromClientX(event.clientX);
+  const move = (nextEvent: PointerEvent) => {
+    if (nextEvent.pointerId !== pointerId) return;
+    nextEvent.preventDefault();
+    setTimelineTimeFromClientX(nextEvent.clientX);
+  };
+  const cleanup = (nextEvent?: PointerEvent) => {
+    if (nextEvent && nextEvent.pointerId !== pointerId) return;
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", cleanup);
+    window.removeEventListener("pointercancel", cleanup);
+    document.body.style.cursor = previousCursor;
+    document.body.style.userSelect = previousUserSelect;
+    timelineScrubbing.value = false;
+    if (stopTimelineScrub === cleanup) stopTimelineScrub = null;
+  };
+  stopTimelineScrub = cleanup;
+  window.addEventListener("pointermove", move, { passive: false });
+  window.addEventListener("pointerup", cleanup);
+  window.addEventListener("pointercancel", cleanup);
+}
+function canCreateWorkspaceDocument() {
+  if (!archive || archive.selectedWorkspace.value) return true;
+  workspacePanelOpen.value = true;
+  return false;
+}
+function openGiaFile() { if (canCreateWorkspaceDocument()) giaFileInput.value?.click(); }
+async function createGiaProject(file: File) {
+  const mode = deviceMode.value;
+  const presetId = previewPresetId.value;
+  const width = canvasWidth.value;
+  const height = canvasHeight.value;
+  const deviceIndex: Record<DeviceMode, number> = { pc: 0, mobile: 1, controllerDesktop: 2, controllerMobile: 3 };
+  const imported = importGiaControls(await file.arrayBuffer(), deviceIndex[mode]);
+  const internalIdBySource = new Map(imported.controls.map((control) => [control.sourceNodeIndex, `gia_node_${control.sourceNodeIndex}`]));
+  const importedNodes = imported.controls.map((control) => {
+    const layout = control.layout;
+    return makeNode(control.type, control.name, {
+      id: internalIdBySource.get(control.sourceNodeIndex),
+      parentId: control.parentSourceNodeIndex === null ? null : internalIdBySource.get(control.parentSourceNodeIndex) ?? null,
+      active: layout.active, scaleX: layout.scaleX, scaleY: layout.scaleY, scaleZ: layout.scaleZ,
+      rotationX: layout.rotationX, rotationY: layout.rotationY, rotation: layout.rotationZ,
+      anchorMinX: layout.anchorMinX, anchorMinY: layout.anchorMinY, anchorMaxX: layout.anchorMaxX, anchorMaxY: layout.anchorMaxY,
+      pivotX: layout.pivotX, pivotY: layout.pivotY, anchorOffsetX: layout.anchoredPositionX, anchorOffsetY: layout.anchoredPositionY,
+      sizeDeltaX: layout.sizeDeltaX, sizeDeltaY: layout.sizeDeltaY, properties: control.properties as never,
+    });
+  });
+  // 在独立数据上解析布局。文件尚未成功写入存档前不触碰当前编辑文件。
+  const nodeMap = new Map(importedNodes.map((node) => [node.id, node]));
+  const resolved = new Set<string>();
+  const resolving = new Set<string>();
+  const resolve = (node: UINode) => {
+    if (resolved.has(node.id)) return;
+    if (resolving.has(node.id)) throw new Error("GIA 控件层级存在循环");
+    resolving.add(node.id);
+    const parent = node.parentId ? nodeMap.get(node.parentId) : null;
+    if (parent) resolve(parent);
+    const parentWidth = parent?.width ?? width;
+    const parentHeight = parent?.height ?? height;
+    node.x = roundLayout(((1 - node.pivotX) * node.anchorMinX + node.pivotX * node.anchorMaxX) * parentWidth + node.anchorOffsetX);
+    node.y = roundLayout(((1 - node.pivotY) * node.anchorMinY + node.pivotY * node.anchorMaxY) * parentHeight + node.anchorOffsetY);
+    node.width = roundLayout(Math.max(1, (node.anchorMaxX - node.anchorMinX) * parentWidth + node.sizeDeltaX));
+    node.height = roundLayout(Math.max(1, (node.anchorMaxY - node.anchorMinY) * parentHeight + node.sizeDeltaY));
+    resolving.delete(node.id);
+    resolved.add(node.id);
+  };
+  importedNodes.forEach(resolve);
+  const counts = imported.controls.reduce<Record<string, number>>((result, control) => { result[control.type] = (result[control.type] ?? 0) + 1; return result; }, {});
+  const typeSummary = Object.entries(counts).map(([type, count]) => `${controlLabels[type as ControlType]} ${count}`).join("、");
+  const deviceLabel = deviceModes.find((device) => device.id === mode)?.label ?? mode;
+  return JSON.stringify({
+    version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
+    name: imported.projectName || file.name.replace(/\.gia$/i, ""),
+    deviceMode: mode, previewPresetId: presetId, canvasWidth: width, canvasHeight: height,
+    duration: 5, frameRate: 30, nodes: importedNodes, tweenTracks: [],
+    giaImportStatus: `GIA · ${imported.controls.length} 个控件 · ${deviceLabel}布局 · ${typeSummary}${imported.warnings.length ? ` · ${imported.warnings.join("；")}` : ""}`,
+  });
+}
+async function loadGiaFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    if (archive) await archive.createDocument(file.name.replace(/\.gia$/i, ""), () => createGiaProject(file));
+    else applyProjectData(await createGiaProject(file));
+    workspacePanelOpen.value = false;
+  } catch (error) {
+    const message = `GIA 导入失败，当前文件已保留：${error instanceof Error ? error.message : "未知错误"}`;
+    if (archive) { archive.error.value = message; workspacePanelOpen.value = true; }
+    else window.alert(message);
+  } finally { input.value = ""; }
+}
+function createBlankProject(name: string) {
+  return JSON.stringify({
+    version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
+    name, deviceMode: "pc", previewPresetId: "pc-16-9", canvasWidth: DEFAULT_CANVAS_WIDTH, canvasHeight: DEFAULT_CANVAS_HEIGHT,
+    duration: 5, frameRate: 30, nodes: [makeNode("container", "Default_UI", { width: 1120, height: 620 })], tweenTracks: [],
+  });
+}
+async function resetProject() {
+  if (!archive) { applyProjectData(createBlankProject("Untitled UI Animation")); return; }
+  if (!canCreateWorkspaceDocument()) return;
+  requestArchiveAction("createDocument", "新建编辑文件", "在当前工作区创建独立的 UI 动画文件。", "新建动画");
+}
+function serializeProject() {
+  return JSON.stringify({ version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
+    name: projectName.value, deviceMode: deviceMode.value, previewPresetId: previewPresetId.value,
+    canvasWidth: canvasWidth.value, canvasHeight: canvasHeight.value, duration: duration.value, frameRate: frameRate.value,
+    nodes: nodes.value, tweenTracks: tweenTracks.value, timelineSnapEnabled: timelineSnapEnabled.value, giaImportStatus: giaImportStatus.value }, null, 2);
+}
+async function saveProject() { if (archive) await runArchiveAction(() => archive.save()); else downloadProject(); }
+function downloadProject() {
+  ensureSingleRootContainer();
+  const url = URL.createObjectURL(new Blob([serializeProject()], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${projectName.value.replace(/[^\w\u4e00-\u9fa5-]+/g, "_")}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+function downloadLuaFile(code: string, fileName: string) {
+  const url = URL.createObjectURL(new Blob([code], { type: "text/x-lua;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+function exportTweenTimelineLib() {
+  const result = buildTweenTimelineLibLua();
+  downloadLuaFile(result.code, result.fileName);
+  luaExportMenuOpen.value = false;
+}
+function openTimelineDataImport() {
+  if (!hasOpenDocument.value || archive?.busy.value) return;
+  stopDocumentInteraction();
+  closeMenus();
+  timelineDataRootId.value = selectedNode.value?.id ?? rootContainer.value?.id ?? "";
+  timelineDataSource.value = "";
+  timelineDataImportMode.value = "append";
+  timelineDataImportOpen.value = true;
+}
+function confirmTimelineDataImport() {
+  if (!timelineDataImportOpen.value || !hasOpenDocument.value || archive?.busy.value) return;
+  const result = timelineDataImportPreview.value;
+  if (!result || result.errors.length || !result.importedTracks.length) return;
+  const first = result.importedTracks[0];
+  const mode = timelineDataImportMode.value;
+  stopDocumentInteraction();
+  tweenTracks.value = result.tracks;
+  duration.value = result.duration;
+  currentTime.value = 0;
+  selectedId.value = first.nodeId;
+  selectedTweenTrackId.value = first.id;
+  timelineDataSource.value = "";
+  timelineEditNotice.value = "已还原 " + result.importedTracks.length + " 个 Clip" + (mode === "replace" ? "，替换了所选范围内的 " + result.replacedCount + " 个 Clip。" : "，已追加到当前时间轴。");
+}
+function exportSelectedNodeTweenData() {
+  const rootNode = selectedNode.value;
+  if (!rootNode) {
+    window.alert("请先在层级、画布或时间轴中选择导出根控件。");
+    return;
+  }
+  const result = buildTweenTimelineDataLua({
+    projectName: projectName.value,
+    rootNodeId: rootNode.id,
+    nodes: nodes.value,
+    tracks: tweenTracks.value,
+    sequenceDuration: duration.value,
+  });
+  if (!result.trackCount) {
+    const detail = result.warnings.length ? `\n\n${result.warnings.join("\n")}` : "";
+    window.alert(`控件「${rootNode.name}」及其子级目前没有可导出的 Tween。${detail}`);
+    return;
+  }
+  downloadLuaFile(result.code, result.fileName);
+  luaExportMenuOpen.value = false;
+  if (result.warnings.length) {
+    window.alert(`Timeline Data 已导出，并附带 ${result.warnings.length} 条提示。`);
+  }
+}
+type SavedNode = Partial<ClientUIBaseControlModel> & { type?: ControlType; properties?: Record<string, unknown>; colorRGBA?: ColorRGBA; color?: string; opacity?: number; text?: string; imageId?: number | null; imageType?: string; fontSize?: number; fontColor?: ColorRGBA; bgColor?: ColorRGBA; enableOutline?: boolean; outlineColor?: ColorRGBA; horizontalAlignment?: string; verticalAlignment?: string; adaptiveFontSize?: boolean; minimumFontSize?: number };
+const baseControlKeys: Array<keyof ClientUIBaseControlModel> = ["id", "parentId", "name", "active", "x", "y", "width", "height", "scaleX", "scaleY", "scaleZ", "rotationX", "rotationY", "rotation", "anchorMinX", "anchorMinY", "anchorMaxX", "anchorMaxY", "pivotX", "pivotY", "anchorOffsetX", "anchorOffsetY", "sizeDeltaX", "sizeDeltaY", "canControllerFocus", "visible", "locked"];
+function pickBaseControl(value: SavedNode) { const result: Partial<ClientUIBaseControlModel> = {}; const target = result as Record<string, unknown>; const source = value as Record<string, unknown>; baseControlKeys.forEach((key) => { if (source[key] !== undefined) target[key] = source[key]; }); return result; }
+function hasSavedLayoutState(value: Partial<ClientUIBaseControlModel>) { return Number.isFinite(value.anchorOffsetX) && Number.isFinite(value.anchorOffsetY) && Number.isFinite(value.sizeDeltaX) && Number.isFinite(value.sizeDeltaY); }
+function normalizeNode(value: SavedNode): UINode { const hasLayoutState = hasSavedLayoutState(value); const type = value.type && Object.prototype.hasOwnProperty.call(controlRegistry, value.type) ? value.type : "container"; const savedProperties = value.properties ?? {}; const properties = { ...createControlProperties(type), ...savedProperties } as Record<string, unknown>; const hasSavedProperty = (key: string) => Object.prototype.hasOwnProperty.call(savedProperties, key); const assignLegacy = (key: string, legacyValue: unknown) => { if (!hasSavedProperty(key) && legacyValue !== undefined) properties[key] = legacyValue; };
+  if (type === "image") { assignLegacy("imageId", value.imageId); assignLegacy("imageColor", value.colorRGBA ?? (value.color ? colorFromHex(value.color, Number.isFinite(value.opacity) ? Number(value.opacity) : 1) : undefined)); assignLegacy("imageType", value.imageType === "default" ? "basic" : value.imageType); if (properties.imageType === "default") properties.imageType = "basic"; }
+  if (type === "text" || type === "textWindow") { assignLegacy("text", value.text); assignLegacy("fontSize", value.fontSize); assignLegacy("fontColor", value.fontColor ?? value.colorRGBA); assignLegacy("bgColor", value.bgColor); assignLegacy("enableOutline", value.enableOutline); assignLegacy("outlineColor", value.outlineColor); assignLegacy("horizontalAlignment", value.horizontalAlignment); assignLegacy("verticalAlignment", value.verticalAlignment); assignLegacy("adaptiveFontSize", value.adaptiveFontSize); assignLegacy("minimumFontSize", value.minimumFontSize); }
+  const baseOverrides = { ...pickBaseControl(value), active: typeof value.active === "boolean" ? value.active : true, anchorMinX: Number.isFinite(value.anchorMinX) ? Number(value.anchorMinX) : 0.5, anchorMinY: Number.isFinite(value.anchorMinY) ? Number(value.anchorMinY) : 0.5, anchorMaxX: Number.isFinite(value.anchorMaxX) ? Number(value.anchorMaxX) : 0.5, anchorMaxY: Number.isFinite(value.anchorMaxY) ? Number(value.anchorMaxY) : 0.5, pivotX: Number.isFinite(value.pivotX) ? Number(value.pivotX) : 0.5, pivotY: Number.isFinite(value.pivotY) ? Number(value.pivotY) : 0.5 }; const name = value.name === undefined ? getControlDefinition(type).defaultName : String(value.name); const node = makeNode(type, name, { ...baseOverrides, properties: properties as never });
+  if (!hasLayoutState) { node.x = canvasWidth.value / 2 + (Number(value.x) || 0); node.y = canvasHeight.value / 2 - (Number(value.y) || 0); } return node; }
+function normalizeTweenTracks(value: unknown, timelineModelVersion = 0) {
+  if (!Array.isArray(value)) return [] as UITweenTrack[];
+  const nodeById = new Map(nodes.value.map((node) => [node.id, node]));
+  const seen = new Set<string>();
+  const result: UITweenTrack[] = [];
+  const sequenceDuration = sequenceDurationValue();
+  value.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const saved = item as Record<string, unknown>;
+    const nodeId = typeof saved.nodeId === "string" ? saved.nodeId : "";
+    const fieldKey = typeof saved.fieldKey === "string" ? saved.fieldKey : "";
+    const node = nodeById.get(nodeId);
+    const field = node ? getTweenableField(node.type, fieldKey) : null;
+    if (!node || !field) return;
+    const relative = saved.relative === true && isRelativeTweenField(fieldKey);
+    const fallbackValue = relative ? 0 : readTweenFieldValue(node, field);
+    const loadValue = (slot: "initialValue" | "endValue") => {
+      if (!Object.prototype.hasOwnProperty.call(saved, slot)) return cloneTweenValue(fallbackValue);
+      // 无效数值回退到当前原值时，该值已经是锚点偏移，不能再按旧版本转换。
+      if (field.valueKind === "number" && saved[slot] !== null &&
+          (typeof saved[slot] !== "number" || !Number.isFinite(saved[slot]))) {
+        return cloneTweenValue(fallbackValue);
+      }
+      const normalized = normalizeTweenValue(saved[slot], field, fallbackValue);
+      if (!relative && timelineModelVersion === 6) return convertParentCenteredTweenValueToRuntime(node, field, normalized);
+      if (!relative && timelineModelVersion === 4) return convertAbsoluteTweenEditorValueToRuntime(node, field, normalized);
+      // v7 及以后、v5 和更早的锚点偏移版本均保留原值；重新保存后不会重复迁移。
+      return normalized;
+    };
+    const clipDuration = Number(Math.min(sequenceDuration, Math.max(MIN_TWEEN_DURATION, typeof saved.duration === "number" && Number.isFinite(saved.duration) && saved.duration > 0 ? saved.duration : Math.min(DEFAULT_TWEEN_DURATION, sequenceDuration))).toFixed(6));
+    const startTime = Number(Math.min(sequenceDuration - clipDuration, typeof saved.startTime === "number" && Number.isFinite(saved.startTime) ? Math.max(0, saved.startTime) : 0).toFixed(6));
+    const easeType: TweenEaseType = isTweenEaseType(saved.easeType) ? saved.easeType : "Linear";
+    let id = typeof saved.id === "string" && saved.id ? saved.id : createTweenId();
+    while (seen.has(id)) id = createTweenId();
+    seen.add(id);
+    const track: UITweenTrack = {
+      id,
+      nodeId, fieldKey, startTime, duration: clipDuration,
+      initialValue: loadValue("initialValue"), endValue: loadValue("endValue"), easeType,
+      ...(relative ? { relative: true } : {}),
+    };
+    if (result.some((other) => tweenClipsOverlap(track, other))) throw new Error(`「${node.name}」的 ${fieldKey} 存在重叠 Clip，请先调整时间后再导入。`);
+    result.push(track);
+  });
+  return result;
+}
+function migrateLegacyHierarchyLayout() { const legacyWorldPositions = new Map(nodes.value.map((node) => [node.id, { x: node.x, y: node.y }])); const migratedWorldTransforms = new Map<string, WorldTransform>(); getHierarchyOrder().forEach((node) => { const legacyWorld = legacyWorldPositions.get(node.id) ?? { x: node.x, y: node.y }; const local = localMatrix(node); const parent = getLayoutParent(node); const parentWorld = parent ? migratedWorldTransforms.get(parent.id) : null; if (!parent || !parentWorld) { node.x = legacyWorld.x; node.y = legacyWorld.y; migratedWorldTransforms.set(node.id, { x: node.x, y: node.y, matrix: local }); return; } const localOffset = inverseTransformVector(parentWorld.matrix, legacyWorld.x - parentWorld.x, legacyWorld.y - parentWorld.y); node.x = roundLayout(parent.pivotX * parent.width + localOffset.x); node.y = roundLayout(parent.pivotY * parent.height + localOffset.y); migratedWorldTransforms.set(node.id, { x: legacyWorld.x, y: legacyWorld.y, matrix: multiplyMatrix(parentWorld.matrix, local) }); }); }
+function openProject() { if (canCreateWorkspaceDocument()) fileInput.value?.click(); }
+function applyProjectData(serialized: string) {
+  const data = JSON.parse(serialized);
+  if (!data || !Array.isArray(data.nodes) || data.nodes.some((node: unknown) => !node || typeof node !== "object" || Array.isArray(node))) {
+    throw new Error("这不是有效的 UI 动画工程文件");
+  }
+  projectName.value = String(data.name || "Untitled UI Animation");
+  canvasWidth.value = Math.max(1, Number(data.canvasWidth) || 1600);
+  canvasHeight.value = Math.max(1, Number(data.canvasHeight) || 900);
+  const savedMode = deviceModes.some((device) => device.id === data.deviceMode) ? data.deviceMode as DeviceMode
+    : deviceModes.find((device) => previewPresets[device.id].some((preset) => preset.width === canvasWidth.value && preset.height === canvasHeight.value))?.id ?? "pc";
+  deviceMode.value = savedMode;
+  const savedPreset = previewPresets[savedMode].find((preset) => preset.id === data.previewPresetId || (preset.width === canvasWidth.value && preset.height === canvasHeight.value));
+  previewPresetId.value = savedPreset?.id ?? previewPresets[savedMode][0].id;
+  duration.value = Math.max(0.5, Number(data.duration) || 5);
+  timelineSnapEnabled.value = data.timelineSnapEnabled !== false;
+  timelineSnapTime.value = null;
+  timelineEditNotice.value = "";
+  frameRate.value = Number(data.frameRate) === 60 ? 60 : 30;
+  nodes.value = data.nodes.map((node: SavedNode) => normalizeNode(node));
+  if (data.hierarchyLayoutVersion !== 2) migrateLegacyHierarchyLayout();
+  getHierarchyOrder().forEach(rebaseNodeLayout);
+  ensureSingleRootContainer();
+  tweenTracks.value = normalizeTweenTracks(data.tweenTracks, Number(data.timelineModelVersion) || 0);
+  tweenClipClipboard.value = null;
+  timelineDataImportOpen.value = false;
+  selectedTweenTrackId.value = null;
+  closeTweenFieldPicker();
+  giaImportStatus.value = typeof data.giaImportStatus === "string" ? data.giaImportStatus : "";
+  playing.value = false;
+  currentTime.value = 0;
+  selectedId.value = rootContainer.value?.id ?? null;
+  search.value = "";
+  collapsed.value = new Set();
+  nextTick(fitCanvas);
+}
+async function loadProject(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    if (archive) await archive.createDocument(file.name.replace(/\.json$/i, ""), () => file.text());
+    else {
+      const previous = serializeProject();
+      try { applyProjectData(await file.text()); }
+      catch (error) { applyProjectData(previous); throw error; }
+    }
+    workspacePanelOpen.value = false;
+  } catch (error) {
+    const message = `无法导入，当前文件已保留：${error instanceof Error ? error.message : "未知错误"}`;
+    if (archive) { archive.error.value = message; workspacePanelOpen.value = true; }
+    else window.alert(message);
+  } finally { input.value = ""; }
+}
+function stopDocumentInteraction() {
+  playing.value = false;
+  timelineDataImportOpen.value = false;
+  tweenClipClipboard.value = null;
+  lastTime = 0;
+  resetTimelineKeyboardShortcut();
+  cancelHierarchyPress?.();
+  stopTweenClipDrag?.();
+  stopTimelineResize?.();
+  stopTimelineScrub?.();
+  closeTweenFieldPicker();
+  luaExportMenuOpen.value = false;
+}
+async function runArchiveAction(action: () => Promise<unknown>) {
+  try { await action(); return true; }
+  catch (error) {
+    workspacePanelOpen.value = true;
+    if (archive) archive.error.value = error instanceof Error ? error.message : "存档操作失败";
+    return false;
+  }
+}
+async function openWorkspaceDocument(name: string) {
+  if (!archive) return;
+  await runArchiveAction(async () => { await archive.switchDocument(name); workspacePanelOpen.value = false; });
+}
+function requestArchiveAction(kind: ArchiveActionKind, title: string, message: string, initialValue = "") {
+  if (!archive || archive.busy.value) return;
+  archive.error.value = "";
+  archiveAction.value = { kind, title, message, initialValue, mode: kind.startsWith("delete") ? "confirm" : "name" };
+}
+function createWorkspace() {
+  requestArchiveAction("createWorkspace", "新建工作区", "工作区用于集中保存多个独立的编辑文件。", "新工作区");
+}
+function renameWorkspace() {
+  if (!archive?.selectedWorkspace.value) return;
+  requestArchiveAction("renameWorkspace", "重命名工作区", "编辑文件会保留在此工作区内。", archive.selectedWorkspace.value);
+}
+function deleteWorkspace() {
+  if (!archive?.selectedWorkspace.value) return;
+  requestArchiveAction("deleteWorkspace", "删除工作区", `将「${archive.selectedWorkspace.value}」及其编辑文件移至回收站？当前页面可撤销最近一次删除。`);
+}
+function renameWorkspaceDocument() {
+  if (!archive?.selectedDocument.value) return;
+  requestArchiveAction("renameDocument", "重命名编辑文件", "控件、参数和 Timeline 不会改变。", archive.selectedDocument.value);
+}
+function deleteWorkspaceDocument() {
+  if (!archive?.selectedDocument.value) return;
+  requestArchiveAction("deleteDocument", "删除编辑文件", `将「${archive.selectedDocument.value}」移至回收站？当前页面可撤销最近一次删除。`);
+}
+async function confirmArchiveAction(value: string) {
+  if (!archive || archive.busy.value || !archiveAction.value) return;
+  const { kind } = archiveAction.value;
+  const success = await runArchiveAction(async () => {
+    if (kind === "createWorkspace") await archive.createWorkspace(value);
+    else if (kind === "renameWorkspace") await archive.renameWorkspace(value);
+    else if (kind === "deleteWorkspace") await archive.deleteWorkspace();
+    else if (kind === "createDocument") await archive.createDocument(value);
+    else if (kind === "renameDocument") await archive.renameDocument(value);
+    else await archive.deleteDocument();
+  });
+  if (success) {
+    archiveAction.value = null;
+    if (kind === "createDocument" || kind.startsWith("delete")) workspacePanelOpen.value = false;
+  }
+}
+async function retryArchive() {
+  if (archive) await runArchiveAction(() => archive.ready.value ? archive.save() : archive.initialize());
+}
+function handleArchiveBeforeUnload(event: BeforeUnloadEvent) {
+  if (archive?.dirty.value || archive?.busy.value) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+}
+let editorResizeObserver: ResizeObserver | null = null;
+function syncEditorHeight() { editorHeight.value = editorElement.value?.clientHeight ?? 0; if (timelineHeight.value !== null) timelineHeight.value = clampTimelineHeight(timelineHeight.value); }
+let frame = 0; let lastTime = 0; function animate(now: number) { if (playing.value) { if (!lastTime) lastTime = now; currentTime.value += (now - lastTime) / 1000; if (currentTime.value >= duration.value) currentTime.value = 0; } lastTime = now; frame = requestAnimationFrame(animate); } frame = requestAnimationFrame(animate); onMounted(() => { getHierarchyOrder().forEach(rebaseNodeLayout); ensureSingleRootContainer(); syncEditorHeight(); fitCanvas(); editorResizeObserver = new ResizeObserver(syncEditorHeight); if (editorElement.value) editorResizeObserver.observe(editorElement.value); window.addEventListener("resize", fitCanvas); window.addEventListener("keydown", handleTimelineKeyboardShortcut, true); window.addEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.addEventListener("keyup", handleTimelineKeyboardRelease, true); window.addEventListener("blur", resetTimelineKeyboardShortcut); }); onBeforeUnmount(() => { cancelHierarchyPress?.(); stopTweenClipDrag?.(); stopTimelineResize?.(); stopTimelineScrub?.(); editorResizeObserver?.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", fitCanvas); window.removeEventListener("keydown", handleTimelineKeyboardShortcut, true); window.removeEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.removeEventListener("keyup", handleTimelineKeyboardRelease, true); window.removeEventListener("blur", resetTimelineKeyboardShortcut); resetTimelineKeyboardShortcut(); });
+// 持久化源数据，不监听播放进度或 previewNodes，避免把动画中间值写回基础参数。
+watch(serializeProject, (snapshot) => archive?.queueSave(snapshot), { flush: "sync" });
+onMounted(() => {
+  if (archive) void runArchiveAction(() => archive.initialize());
+  window.addEventListener("beforeunload", handleArchiveBeforeUnload);
+});
+onBeforeRouteLeave(async () => {
+  if (!archive) return true;
+  try { await archive.prepareToLeave(); return true; }
+  catch { workspacePanelOpen.value = true; return false; }
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("beforeunload", handleArchiveBeforeUnload);
+  // 路由守卫负责正常离开；卸载兜底仍提交已捕获的快照。
+  void archive?.dispose().catch((error) => console.error("UI 动画存档保存失败", error));
+});
+</script>
+
+<style scoped>
+.animation-editor {
+  position: relative;
+  --bg: #303540;
+  --input: #262b35;
+  --hierarchy-width: 252px;
+  --inspector-width: 306px;
+  --panel: #303540;
+  --line: #454b58;
+  --muted: #a9afbb;
+  --text: #e4e7ef;
+  --accent: #527cf3;
+  height: 100%;
+  min-width: 980px;
+  display: grid;
+  grid-template-rows: 48px minmax(260px, 1fr) var(--timeline-height, 250px);
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  text-align: left;
+  border-radius: 0;
+  font-family: "StarRailFont", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  color-scheme: dark;
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  background: #2c313c;
+  border-bottom: 1px solid var(--line);
+}
+
+.archive-status {
+  border: 0;
+  background: transparent;
+  color: #95c9b3;
+  font: inherit;
+  font-size: 10px;
+  max-width: 106px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.archive-status.has-error { color: #efad8c; }
+.document-empty-state {
+  position: absolute;
+  inset: 48px 0 0;
+  z-index: 12;
+  background: #282e39;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  text-align: center;
+}
+.document-empty-state h2 { color: #e0e8f5; font-size: 18px; margin: 0; }
+.document-empty-state p { color: #9eaec3; max-width: 560px; line-height: 1.8; }
+.document-empty-state button, .archive-undo {
+  border: 1px solid #527cf3;
+  border-radius: 7px;
+  background: #354e87;
+  color: #e2ebff;
+  padding: 9px 15px;
+  cursor: pointer;
+  font: inherit;
+}
+.archive-undo { position: absolute; z-index: 15; bottom: 16px; left: 50%; transform: translateX(-50%); box-shadow: 0 4px 20px #0007; }
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #758197;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #d6dbe5;
+}
+
+.project-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+}
+
+.project-copy strong { font-size: 13px; }
+.project-copy span,
+.eyebrow { color: #758196; font-size: 10px; letter-spacing: .13em; }
+.toolbar-divider { width: 1px; height: 24px; background: var(--line); }
+button, select, input, textarea { font: inherit; }
+/* Native form and code elements also inherit the app's custom font. */
+:deep(button), :deep(input), :deep(select), :deep(textarea),
+:deep(code), :deep(kbd), :deep(pre), :deep(samp) { font-family: inherit; }
+
+.tool-button,
+.icon-button,
+.square-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #aab4c6;
+  border-radius: 6px;
+  height: 32px;
+  cursor: pointer;
+}
+
+.tool-button:hover,
+.icon-button:hover,
+.square-button:hover { background: #424b5e; color: white; border-color: #4c5362; }
+.toolbar-spacer { flex: 1; }
+
+.device-mode-switch {
+  display: flex;
+  height: 32px;
+  padding: 2px;
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.device-mode-switch button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #77859a;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.device-mode-switch button span { font-size: 13px; }
+.device-mode-switch button:hover { color: #dbe4f2; }
+.device-mode-switch button.active { background: #344a9c; color: #fff; box-shadow: 0 2px 8px #0005; }
+
+.screen-select,
+.zoom-control {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: #8d99ac;
+  font-size: 10px;
+}
+
+.screen-select > span {
+  padding-left: 9px;
+  max-width: 95px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screen-select select,
+.zoom-control button { border: 0; background: transparent; color: #d6deeb; height: 100%; }
+.screen-select select { padding: 0 7px; max-width: 180px; }
+.zoom-control span { width: 44px; text-align: center; }
+.zoom-control button { width: 26px; cursor: pointer; }
+.icon-button { width: 34px; border-color: var(--line); }
+.file-input { display: none; }
+
+.editor-body {
+  display: grid;
+  grid-template-columns: var(--hierarchy-width) minmax(360px, 1fr) var(--inspector-width);
+  min-height: 0;
+}
+
+.panel { background: var(--panel); min-height: 0; }
+.hierarchy-panel { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.inspector-panel { border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+
+.panel-heading {
+  height: 65px;
+  box-sizing: border-box;
+  padding: 13px 13px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+
+.panel-heading h2,
+.timeline-title h2 { font-size: 14px; margin: 2px 0 0; }
+.square-button { width: 30px; border-color: #4c5362; font-size: 18px; }
+
+.add-menu {
+  position: absolute;
+  z-index: 20;
+  right: 10px;
+  top: 50px;
+  width: 205px;
+  background: #353c49;
+  border: 1px solid #525b6d;
+  border-radius: 9px;
+  padding: 6px;
+  box-shadow: 0 12px 30px #0009;
+}
+
+.add-menu button {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: #dce5f4;
+  padding: 9px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.add-menu button:hover { background: #2d3950; }
+.add-menu button > span { width: 25px; height: 25px; display: grid; place-items: center; background: #34425b; border-radius: 5px; color: #78d7e8; }
+.add-menu b,
+.add-menu small { display: block; }
+.add-menu small { color: #8290a7; margin-top: 2px; }
+
+.search-box {
+  margin: 10px;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  border: 1px solid var(--line);
+  background: var(--input);
+  border-radius: 7px;
+  color: #78869d;
+  padding: 0 8px;
+}
+
+.search-box input { border: 0 !important; background: transparent !important; color: #dce5f4 !important; font-size: 11px !important; padding: 4px !important; }
+.tree { position: relative; flex: 1; overflow: auto; padding: 2px 6px; }
+.tree.is-hierarchy-dragging { cursor: grabbing; user-select: none; }
+
+.root-drop-hint {
+  position: absolute;
+  z-index: 8;
+  left: 7px;
+  right: 7px;
+  top: 3px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #53617a;
+  border-radius: 5px;
+  background: #151d29e8;
+  color: #8e9bb0;
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.root-drop-hint.active { border-color: #61d5e3; background: #17333ae8; color: #83edf5; }
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 31px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #d6dbe5;
+  cursor: pointer;
+  text-align: left;
+  font-size: 11px;
+  padding-right: 8px;
+  transition: background .12s, box-shadow .12s, opacity .12s;
+}
+
+.tree-row:hover { background: #222c3c; }
+.tree-row.selected { color: #fff; background: linear-gradient(90deg, #4059b8, #314375); }
+.tree-row.root-node .node-icon { color: #f1c75b; }
+.tree-row.dragging { opacity: .35; }
+.tree-row.drop-target { background: #1e4850; box-shadow: inset 0 0 0 1px #61d5e3; }
+.tree-row.muted { opacity: .48; }
+.chevron { width: 14px; color: #7d899b; }
+.node-icon { width: 20px; color: #63cde1; font-weight: 700; }
+.node-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.root-badge { margin-right: 6px; padding: 1px 4px; border: 1px solid #7c6940; border-radius: 3px; color: #e3bd62; font-size: 10px; letter-spacing: .08em; }
+.visibility { opacity: .65; }
+
+.hierarchy-drag-ghost {
+  position: fixed;
+  z-index: 10000;
+  display: grid;
+  grid-template-columns: 18px auto;
+  gap: 1px 5px;
+  min-width: 145px;
+  padding: 7px 9px;
+  border: 1px solid #62dce8;
+  border-radius: 6px;
+  background: #172532ed;
+  color: #e8f4f7;
+  box-shadow: 0 10px 25px #0009;
+  pointer-events: none;
+}
+
+.hierarchy-drag-ghost > span { grid-row: 1 / 3; color: #61d5e3; }
+.hierarchy-drag-ghost > b { font-size: 10px; }
+.hierarchy-drag-ghost > small { color: #7fc8d0; font-size: 10px; }
+.hierarchy-actions { display: flex; gap: 6px; padding: 9px; border-top: 1px solid var(--line); }
+.hierarchy-actions button { height: 32px; border: 1px solid #4c5362; border-radius: 6px; background: #353c49; color: #b7c1d1; cursor: pointer; }
+.hierarchy-actions button:first-child { flex: 1; }
+.hierarchy-actions button:disabled { opacity: .35; }
+.empty-state,
+.inspector-empty { color: #a9afbb; text-align: center; font-size: 11px; padding: 25px; }
+
+.workspace-panel { min-width: 0; display: flex; flex-direction: column; background: #414650; }
+.workspace-tabs { height: 40px; display: flex; align-items: center; border-bottom: 1px solid var(--line); background: #353a45; padding: 0 9px; }
+.workspace-tabs button { height: 100%; padding: 0 15px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #7f8ca0; font-size: 11px; }
+.workspace-tabs button.active { color: #e6edf8; border-color: var(--accent); }
+.status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #52d59d; margin-right: 7px; }
+.workspace-hint { margin-left: auto; color: #a0a7b5; font-size: 10px; }
+
+.viewport {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background-color: #494d57;
+  background-image: radial-gradient(#5a5e67 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.viewport.is-panning,
+.viewport.is-panning * { cursor: grabbing !important; user-select: none; }
+
+.canvas-stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center;
+  background: #3b414c;
+  box-shadow: 0 0 0 2px #3a8e9b, 0 20px 80px #0009;
+  overflow: visible;
+  transition: border-radius .22s ease;
+}
+
+.canvas-stage.mobile-frame { border-radius: 28px; box-shadow: 0 0 0 8px #283342, 0 0 0 10px #51a9b5, 0 20px 80px #0009; }
+.device-preview-label { position: absolute; left: 0; top: -31px; height: 22px; display: flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid #3b485d; border-radius: 5px; background: #17202c; color: #95a4b9; font-size: 10px; white-space: nowrap; pointer-events: none; }
+.device-preview-label span { color: #65d4e2; font-size: 13px; }
+.safe-area { position: absolute; inset: 4.5%; border: 1px dashed #52627777; pointer-events: none; }
+.mobile-frame .safe-area { border-color: #67dbe277; border-radius: 18px; }
+
+.canvas-node { position: absolute; box-sizing: border-box; border: 1.5px solid; display: flex; align-items: center; justify-content: center; cursor: move; user-select: none; }
+.canvas-node.type-container { border-style: dashed; }
+.canvas-node.selected { outline: 3px solid #62e1ee; outline-offset: 3px; z-index: 10; }
+.canvas-node.locked { cursor: not-allowed; }
+.container-label { position: absolute; left: 5px; top: 5px; padding: 3px 6px; background: #121b26cc; color: #7bd7e4; font-size: 16px; }
+.image-placeholder { display: flex; flex-direction: column; align-items: center; gap: 9px; color: inherit; }
+.image-placeholder span { font-size: 44px; }
+.image-placeholder small { letter-spacing: .2em; }
+.text-preview { font-size: 30px; font-weight: 700; text-shadow: 0 2px 8px #0008; }
+.selection-tag { position: absolute; left: -4px; top: -35px; background: #52cbd8; color: #09222a; padding: 5px 8px; font-size: 13px; font-weight: 700; white-space: nowrap; border-radius: 3px; }
+.resize-handle { position: absolute; right: -9px; bottom: -9px; width: 14px; height: 14px; border: 3px solid #16202d; background: #65e4ef; border-radius: 2px; cursor: nwse-resize; }
+
+.ruler { position: absolute; z-index: 3; color: #556277; font-size: 10px; pointer-events: none; }
+.ruler-x { left: 34px; right: 0; top: 0; height: 20px; display: flex; justify-content: space-between; border-bottom: 1px solid #2a3442aa; }
+.ruler-y { left: 0; top: 25px; bottom: 25px; width: 32px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; border-right: 1px solid #2a3442aa; padding-right: 4px; }
+.viewport-status { position: absolute; right: 9px; bottom: 8px; display: flex; gap: 12px; color: #bbc2cf; background: #121923d9; border: 1px solid #2a3545; border-radius: 5px; padding: 5px 8px; font-size: 10px; }
+.type-badge { padding: 4px 7px; border: 1px solid #364359; border-radius: 5px; color: #8d9bb1; font-size: 10px; }
+.inspector-scroll { overflow: auto; flex: 1; }
+
+.property-section { padding: 12px; border-bottom: 1px solid var(--line); }
+.property-section h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 12px; font-size: 11px; }
+.property-section h3 span { color: #62cede; }
+.property-section h3 i { margin-left: auto; color: #68758a; }
+.name-field { display: flex; align-items: center; gap: 7px; }
+.name-field > span { width: 28px; height: 28px; display: grid; place-items: center; background: #28364a; color: #6ed6e4; border-radius: 5px; }
+
+.name-field input,
+.property-row input,
+.property-row textarea,
+.property-row select,
+.number-field input,
+.timeline-settings input { background: var(--input) !important; color: #dbe4f2 !important; border: 1px solid var(--line) !important; border-radius: 5px !important; font-size: 11px !important; padding: 7px !important; }
+
+.inline-switches { display: flex; gap: 18px; margin-top: 10px; color: #8491a5; font-size: 10px; }
+.inline-switches input { accent-color: var(--accent); }
+.coordinate-note { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; padding: 6px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--input); color: #708097; font-size: 10px; }
+.coordinate-note span { color: #9ba8bb; }
+.coordinate-note b { color: #56c58c; font-weight: 500; }
+.coordinate-note i { margin-left: auto; color: #62bddd; font-style: normal; }
+.property-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.number-field { display: grid; grid-template-columns: 35px 1fr; align-items: center; min-width: 0; }
+.number-field:nth-child(even) .field-label { display: none; }
+.field-label { color: #b7bdc9; font-size: 10px; }
+.number-field > div { display: flex; align-items: center; background: var(--input); border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.number-field input { min-width: 0; border: 0 !important; padding: 6px 3px !important; }
+.axis { width: 20px; text-align: center; font-size: 10px; }
+.axis-x { color: #f26d76; }
+.axis-y { color: #6bd593; }
+.axis-z { color: #50c6e6; }
+.axis-w { color: #50c6e6; }
+.axis-h { color: #50c6e6; }
+
+.anchor-type-row { display: flex; align-items: flex-end; gap: 9px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line); }
+.anchor-type-row > label { flex: 1; color: #b0b7c5; font-size: 10px; }
+.anchor-type-row > label span { display: block; margin-bottom: 5px; }
+.anchor-type-row select { width: 100%; height: 30px; padding: 0 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--input); color: #dbe4f2; font-size: 10px; }
+.anchor-picker-wrap { position: relative; }
+.anchor-preview-button { width: 58px; height: 58px; padding: 6px; border: 1px solid #3c485a; border-radius: 6px; background: var(--input); cursor: pointer; }
+.anchor-preview-button:hover { border-color: #607bde; background: #182237; }
+.anchor-preset-popover { position: absolute; z-index: 50; right: 0; top: 66px; width: 236px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 8px; border: 1px solid #3b485e; border-radius: 8px; background: #2c313c; box-shadow: 0 14px 35px #000b; }
+.anchor-preset-popover > button { height: 61px; padding: 4px; border: 1px solid #343f51; border-radius: 5px; background: #202735; color: #7c8a9e; cursor: pointer; }
+.anchor-preset-popover > button:hover,
+.anchor-preset-popover > button.active { border-color: #607cff; background: #273451; color: #dce5f5; }
+.anchor-preset-popover > button > span:last-child { display: block; margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; }
+.anchor-values { margin-top: 12px; }
+.anchor-values-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; color: #d6dbe5; font-size: 10px; }
+.anchor-values-title small { color: #a0a7b5; font-size: 10px; }
+
+:deep(.anchor-visual) { --anchor-min-x: 50%; --anchor-min-y: 50%; --anchor-max-x: 50%; --anchor-max-y: 50%; --pivot-x: 50%; --pivot-y: 50%; position: relative; display: block; width: 100%; height: 100%; box-sizing: border-box; border: 1px solid #455166; background: #191f2a; }
+:deep(.anchor-bounds) { position: absolute; left: var(--anchor-min-x); right: calc(100% - var(--anchor-max-x)); bottom: var(--anchor-min-y); top: calc(100% - var(--anchor-max-y)); min-width: 1px; min-height: 1px; border: 1px solid #42a9d5; background: #42a9d516; box-sizing: border-box; }
+:deep(.anchor-dot) { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: #f3c625; box-shadow: 0 0 0 1px #5d4a04; }
+:deep(.anchor-dot-bl) { left: var(--anchor-min-x); bottom: var(--anchor-min-y); transform: translate(-50%, 50%); }
+:deep(.anchor-dot-br) { left: var(--anchor-max-x); bottom: var(--anchor-min-y); transform: translate(-50%, 50%); }
+:deep(.anchor-dot-tl) { left: var(--anchor-min-x); bottom: var(--anchor-max-y); transform: translate(-50%, 50%); }
+:deep(.anchor-dot-tr) { left: var(--anchor-max-x); bottom: var(--anchor-max-y); transform: translate(-50%, 50%); }
+:deep(.pivot-mark) { position: absolute; left: var(--pivot-x); bottom: var(--pivot-y); transform: translate(-50%, 50%); display: grid; place-items: center; width: 15px; height: 15px; border-radius: 2px; background: #4d256a; color: #cf6bff; font-size: 10px; line-height: 1; }
+
+.property-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; color: #b0b7c5; font-size: 10px; }
+.property-row > span { width: 58px; padding-top: 7px; }
+.property-row > input,
+.property-row > textarea,
+.property-row > select,
+.color-field { flex: 1; min-width: 0; }
+.property-row > select:disabled { opacity: .65; color: #d5b762 !important; cursor: not-allowed; }
+.color-field { display: flex; }
+.color-field input[type="color"] { width: 32px; padding: 2px !important; }
+.inspector-empty { margin: auto; }
+.inspector-empty div { font-size: 30px; color: #445169; }
+.inspector-empty p { color: #9aa6b9; margin: 12px 0 5px; }
+
+.timeline-panel { display: grid; grid-template-columns: var(--hierarchy-width) minmax(360px, 1fr) var(--inspector-width); min-height: 0; background: var(--panel); border-top: 1px solid var(--line); }
+.timeline-sidebar { border-right: 1px solid var(--line); min-width: 0; }
+.timeline-title { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-bottom: 1px solid var(--line); }
+.playback-controls { height: 39px; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.playback-controls button { width: 29px; height: 25px; border: 0; border-radius: 5px; background: #3e4656; color: #a9b5c8; font-size: 10px; cursor: pointer; }
+.playback-controls .play-button { background: var(--accent); color: white; }
+.playback-controls span { margin-left: auto; font-family: inherit; color: #99a7bb; font-size: 10px; }
+.track-names { overflow: auto; height: calc(100% - 92px); }
+.track-names button { display: flex; align-items: center; gap: 8px; width: 100%; height: 33px; border: 0; border-bottom: 1px solid #3c424e; background: transparent; color: #cbd1dc; text-align: left; font-size: 10px; padding: 0 12px; }
+.track-names button.selected { background: #3d4e74; color: white; }
+.track-names button span { color: #58c6d7; }
+.track-names button i { margin-left: auto; }
+.timeline-content { position: relative; overflow: hidden; background-color: var(--input); background-image: linear-gradient(90deg, #2c374750 1px, transparent 1px); background-size: 10% 100%; cursor: crosshair; }
+.time-ruler { height: 39px; position: relative; border-bottom: 1px solid var(--line); color: #a9afbb; font-size: 10px; }
+.time-ruler span { position: absolute; bottom: 8px; transform: translateX(-50%); }
+.track-lane { height: 32px; border-bottom: 1px solid #3c424e; position: relative; }
+.empty-clip { position: absolute; left: 8px; right: 8px; top: 5px; height: 21px; border: 1px dashed #3d4b61; border-radius: 4px; color: #637189; font-size: 10px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.playhead { position: absolute; z-index: 5; top: 0; bottom: 0; width: 1px; background: #ff6679; pointer-events: none; }
+.playhead i { position: absolute; top: 0; left: -4px; width: 9px; height: 10px; background: #ff6679; clip-path: polygon(0 0, 100% 0, 75% 100%, 25% 100%); }
+.timeline-settings { padding: 13px; border-left: 1px solid var(--line); color: #8290a4; font-size: 10px; }
+.timeline-settings label { display: block; margin-bottom: 15px; }
+.timeline-settings select,
+.timeline-settings label > div { width: 100%; margin-top: 6px; background: var(--input); border: 1px solid var(--line); border-radius: 5px; color: #c8d2e1; padding: 6px; box-sizing: border-box; }
+.timeline-settings label > div { display: flex; padding: 0; align-items: center; }
+.timeline-settings input { min-width: 0; border: 0 !important; }
+.timeline-settings label > div span { padding-right: 6px; }
+
+@media(max-width:1200px) {
+  .editor-body,
+  .timeline-panel { grid-template-columns: var(--hierarchy-width) minmax(360px, 1fr) var(--inspector-width); }
+  .timeline-panel { grid-template-columns: var(--hierarchy-width) minmax(360px, 1fr) var(--inspector-width); }
+  .project-copy { min-width: 140px; }
+  .workspace-hint { display: none; }
+}
+
+.gia-import-button {
+  color: #7edbe6;
+}
+
+.lua-export-button {
+  color: #8ee0ad;
+}
+
+.lua-export-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  height: 32px;
+}
+
+.lua-lib-version {
+  padding: 3px 6px;
+  border: 1px solid #515f79;
+  border-radius: 4px;
+  color: #b6c7ed;
+  background: #354057;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.lua-export-button span {
+  margin-left: 3px;
+  color: #6f997f;
+}
+
+.lua-export-menu {
+  position: absolute;
+  z-index: 80;
+  top: 38px;
+  left: 0;
+  width: 230px;
+  padding: 6px;
+  border: 1px solid #3a485d;
+  border-radius: 8px;
+  background: #303743;
+  box-shadow: 0 14px 34px #070b12b8;
+}
+
+.lua-export-menu button {
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #c5d0df;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lua-export-menu button:hover { background: #263449; }
+.lua-export-menu button:disabled { opacity: .4; cursor: not-allowed; }
+.lua-export-menu button:disabled:hover { background: transparent; }
+.lua-export-menu b,
+.lua-export-menu small { display: block; }
+.lua-export-menu b { font-size: 11px; }
+.lua-export-menu small { margin-top: 3px; color: #78869a; font-size: 10px; }
+
+.tool-button:disabled {
+  color: #566173;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.tool-button:disabled:hover {
+  border-color: transparent;
+  background: transparent;
+}
+
+.gia-import-status {
+  max-width: 190px;
+  overflow: hidden;
+  color: #78c6a3;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-render {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.image-source-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  color: #b0b7c5;
+  font-size: 10px;
+}
+
+.image-source-heading b {
+  color: #cfd8e6;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.image-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.image-asset-grid button {
+  position: relative;
+  height: 69px;
+  padding: 5px 5px 17px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background-color: var(--input);
+  background-image: linear-gradient(45deg, #202837 25%, transparent 25%), linear-gradient(-45deg, #202837 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #202837 75%), linear-gradient(-45deg, transparent 75%, #202837 75%);
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0;
+  background-size: 10px 10px;
+  color: #d6dbe5;
+  cursor: pointer;
+}
+
+.image-asset-grid button:hover,
+.image-asset-grid button.active {
+  border-color: #607cff;
+  box-shadow: inset 0 0 0 1px #607cff;
+}
+
+.image-asset-grid img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.image-asset-grid span {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  left: 3px;
+  padding: 1px 2px;
+  border-radius: 3px;
+  background: #101721dd;
+  font-size: 10px;
+  text-align: center;
+}
+
+.selected-asset-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 9px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
+}
+
+.selected-asset-card img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #3b414f;
+}
+
+.selected-asset-card div {
+  min-width: 0;
+}
+
+.selected-asset-card b,
+.selected-asset-card small {
+  display: block;
+}
+
+.selected-asset-card b {
+  color: #dce5f3;
+  font-size: 10px;
+}
+
+.selected-asset-card small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #a9afbb;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rgba-field {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 48px 12px;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.rgba-field input[type="color"] {
+  width: 32px;
+  height: 30px;
+  padding: 2px !important;
+}
+
+.rgba-field input[type="number"] {
+  min-width: 0;
+  text-align: right;
+}
+
+.rgba-field i {
+  color: #66758a;
+  font-style: normal;
+}
+
+.rgba-value {
+  margin: 5px 0 0 66px;
+  color: #a0a7b5;
+  font-family: inherit;
+  font-size: 10px;
+}
+
+.image-type-control select {
+  flex: 1;
+  min-width: 0;
+}
+
+.image-type-control button {
+  width: 34px;
+  height: 30px;
+  border: 1px solid #3a4658;
+  border-radius: 5px;
+  background: var(--input);
+  color: #b9c5d6;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.image-type-control button:hover {
+  border-color: #607cff;
+  color: #fff;
+}
+
+.tree-row {
+  position: relative;
+}
+
+.tree-row.drop-inside {
+  background: #1e4850;
+  box-shadow: inset 0 0 0 1px #61d5e3;
+}
+
+.tree-row.drop-before::before,
+.tree-row.drop-after::after {
+  content: "";
+  position: absolute;
+  z-index: 9;
+  left: 9px;
+  right: 5px;
+  height: 2px;
+  border-radius: 2px;
+  background: #69e4ef;
+  box-shadow: 0 0 6px #69e4ef88;
+}
+
+.tree-row.drop-before::before {
+  top: -1px;
+}
+
+.tree-row.drop-after::after {
+  bottom: -1px;
+}
+
+.canvas-node.selected {
+  z-index: auto;
+}
+
+.text-preview {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+  line-height: 1.2;
+  text-shadow: none;
+}
+
+.add-menu {
+  max-height: min(520px, calc(100vh - 120px));
+  overflow-y: auto;
+}
+
+.generic-control-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  color: inherit;
+  pointer-events: none;
+}
+
+.generic-control-preview b {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.generic-control-preview small {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: #262b35bb;
+  font-size: 10px;
+}
+
+.runtime-class-name {
+  margin: 8px 0 0 35px;
+  color: #a9afbb;
+  font-family: inherit;
+  font-size: 10px;
+}
+
+.base-api-note {
+  margin-bottom: 8px;
+  padding: 6px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--input);
+  color: #a9afbb;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.base-toggle-button {
+  display: grid;
+  grid-template-columns: 1fr 34px 18px auto;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
+  color: #9aa7bb;
+  text-align: left;
+  cursor: pointer;
+}
+
+.base-toggle-button i {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 10px;
+  background: #303947;
+}
+
+.base-toggle-button i::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #8792a3;
+  transition: left .15s, background .15s;
+}
+
+.base-toggle-button.active i {
+  background: #4f6bd1;
+}
+
+.base-toggle-button.active i::after {
+  left: 17px;
+  background: #fff;
+}
+
+.base-toggle-button b {
+  color: #dbe4f2;
+  font-size: 10px;
+}
+
+.base-toggle-button small {
+  padding: 2px 4px;
+  border: 1px solid #665b3b;
+  border-radius: 3px;
+  color: #d0ad58;
+  font-size: 10px;
+}
+
+.property-row .api-readonly {
+  align-self: center;
+  padding: 2px 4px;
+  border: 1px solid #665b3b;
+  border-radius: 3px;
+  color: #d0ad58;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.base-switches {
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.base-switches small {
+  color: #c9a952;
+  font-size: 10px;
+}
+
+.api-layout-values {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.reset-image-size {
+  height: 25px;
+  padding: 0 7px;
+  border: 1px solid #3b4658;
+  border-radius: 5px;
+  background: var(--input);
+  color: #d6dbe5;
+  cursor: pointer;
+}
+
+.timeline-panel,
+.timeline-sidebar,
+.timeline-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.timeline-panel {
+  grid-template-columns: var(--hierarchy-width) minmax(360px, 1fr) var(--inspector-width);
+  position: relative;
+  overflow: visible;
+}
+
+.timeline-resize-handle {
+  position: absolute;
+  z-index: 40;
+  top: -6px;
+  left: 0;
+  right: 0;
+  height: 12px;
+  border: 0;
+  outline: none;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.timeline-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--line);
+  transition: background .12s, box-shadow .12s;
+}
+
+.timeline-resize-handle span {
+  position: absolute;
+  z-index: 1;
+  top: 3px;
+  left: 50%;
+  width: 54px;
+  height: 6px;
+  border: 1px solid #48566c;
+  border-radius: 999px;
+  background: #1a2230;
+  transform: translateX(-50%);
+  transition: width .12s, border-color .12s, background .12s;
+}
+
+.timeline-resize-handle:hover::before,
+.timeline-resize-handle:focus-visible::before,
+.is-timeline-resizing .timeline-resize-handle::before {
+  background: #607cff;
+  box-shadow: 0 0 10px #607cff88;
+}
+
+.timeline-resize-handle:hover span,
+.timeline-resize-handle:focus-visible span,
+.is-timeline-resizing .timeline-resize-handle span {
+  width: 72px;
+  border-color: #7d92ff;
+  background: #334786;
+}
+
+.is-timeline-resizing,
+.is-timeline-resizing * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
+.timeline-sidebar,
+.timeline-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.tween-count {
+  padding: 3px 5px;
+  border: 1px solid #344154;
+  border-radius: 4px;
+  color: #a0a7b5;
+  font-size: 10px;
+}
+
+.track-names {
+  position: relative;
+  flex: 1;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.timeline-name-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  height: 32px;
+  border-bottom: 1px solid #3c424e;
+  background: var(--panel);
+}
+
+.timeline-name-row.row-tween {
+  background: #2b303a;
+}
+
+.track-names .track-node-main,
+.track-names .track-property-main {
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px 0 11px;
+  border: 0;
+  background: transparent;
+  color: #cbd1dc;
+}
+
+.track-node-main b,
+.track-property-main b {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-node-main em {
+  margin-left: auto;
+  color: #59677b;
+  font-size: 10px;
+  font-style: normal;
+}
+
+.timeline-name-row.selected {
+  background: #3d4e74;
+}
+
+.timeline-name-row.selected .track-node-main,
+.timeline-name-row.selected .track-property-main {
+  color: #f1f5fb;
+}
+
+.track-names .track-property-main {
+  padding-left: 28px;
+}
+
+.track-property-main > span {
+  color: #8e6de9 !important;
+  font-size: 10px;
+}
+
+.track-property-main small {
+  margin-left: auto;
+  overflow: hidden;
+  color: #a0a7b5;
+  font-family: inherit;
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
+.track-names .add-tween-button,
+.track-names .remove-tween-button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 4px 4px 4px 0;
+  padding: 0;
+  border: 1px solid #40516a;
+  border-radius: 5px;
+  background: #26334a;
+  color: #8fa9ff;
+  cursor: pointer;
+}
+
+.track-names .add-tween-button:hover {
+  border-color: #6984ec;
+  background: #334a83;
+  color: #fff;
+}
+
+.track-names .remove-tween-button {
+  border-color: transparent;
+  background: transparent;
+  color: #a0a7b5;
+}
+
+.track-names .remove-tween-button:hover {
+  color: #ff7584;
+}
+
+.tween-field-picker-backdrop {
+  position: fixed;
+  z-index: 300;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(20 24 32 / 58%);
+  backdrop-filter: blur(2px);
+}
+
+.tween-field-picker {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  box-sizing: border-box;
+  width: min(700px, calc(100vw - 48px));
+  max-height: min(680px, calc(100dvh - 48px));
+  overflow: hidden;
+  border: 1px solid #626b7c;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 16px 48px #10151d66;
+}
+
+.tween-field-picker-header {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 28px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #2d313b;
+}
+
+.tween-field-picker-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #525d72;
+  border-radius: 5px;
+  background: #384254;
+  color: #d8dfea;
+}
+
+.tween-field-picker-heading { min-width: 0; }
+.tween-field-picker-header h2 {
+  margin: 0 0 4px;
+  color: #eef1f6;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.tween-field-picker-header p {
+  overflow: hidden;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tween-field-picker-header p span { padding: 0 7px; color: #7e8797; }
+
+.tween-field-picker-header > button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #c8ceda;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tween-field-picker-header > button:hover { background: #43516a; color: #fff; }
+
+.tween-field-picker-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: 34px;
+  margin: 14px 16px 12px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--input);
+  color: #bdc5d3;
+}
+.tween-field-picker-search:focus-within { border-color: #7996de; box-shadow: 0 0 0 2px #527cf31a; }
+.tween-field-picker-search input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 32px;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 400;
+}
+.tween-field-picker-search input::placeholder { color: #939dac; }
+.tween-field-picker-search > button {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #bec7d5;
+  font-size: 17px;
+  cursor: pointer;
+}
+.tween-field-picker-search > button:hover { background: #43516a; color: white; }
+
+.tween-field-picker-content {
+  min-height: 0;
+  padding: 0 16px 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tween-field-picker-group { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.tween-field-picker-group + .tween-field-picker-group { margin-top: 12px; }
+.tween-field-picker-group > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  background: #353b47;
+}
+.tween-field-picker-group > header div { display: flex; flex-wrap: wrap; gap: 3px 9px; min-width: 0; align-items: baseline; padding: 7px 0; }
+.tween-field-picker-group > header b { color: #dce1eb; font-size: 12px; font-weight: 500; }
+.tween-field-picker-group > header small { overflow-wrap: anywhere; color: var(--muted); font-family: inherit; font-size: 10px; }
+.tween-field-picker-group > header em { flex: none; color: #b7bfcd; font-size: 10px; font-style: normal; }
+
+.tween-field-picker-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 5px; }
+.tween-field-picker-grid button {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 17px;
+  grid-template-rows: auto auto;
+  gap: 2px 9px;
+  align-items: center;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: #384254;
+  color: #e0e5ee;
+  text-align: left;
+  cursor: pointer;
+}
+.tween-field-picker-grid button:hover:not(:disabled),
+.tween-field-picker-grid button:focus-visible:not(:disabled) {
+  border-color: #7994d3;
+  background: #4c68b0;
+  color: #fff;
+}
+.tween-field-picker-grid .parameter-kind {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 28px;
+  border: 1px solid #61759870;
+  border-radius: 4px;
+  background: #465a7c;
+  color: #d2def4;
+  font-size: 10px;
+  font-weight: 500;
+}
+.tween-field-picker-grid .parameter-kind.kind-color { border-color: #937cab66; background: #665578; color: #ecdcf9; }
+.tween-field-picker-grid .parameter-add { grid-column: 3; grid-row: 1 / 3; color: #aebfda; }
+.tween-field-picker-grid button b { grid-column: 2; grid-row: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 500; line-height: 1.5; }
+.tween-field-picker-grid button code { grid-column: 2; grid-row: 2; min-width: 0; color: #b5c1d3; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.tween-field-picker-grid button small { grid-column: 2 / 4; color: #b5bece; font-size: 10px; line-height: 1.5; }
+.tween-field-picker-grid button:hover:not(:disabled) code,
+.tween-field-picker-grid button:hover:not(:disabled) small,
+.tween-field-picker-grid button:hover:not(:disabled) .parameter-add { color: #e3eafb; }
+.tween-field-picker-grid button:disabled { background: #303744; color: #a3aab7; cursor: not-allowed; }
+.tween-field-picker-grid button:disabled .parameter-kind { opacity: .6; }
+.tween-field-picker-grid button:disabled .parameter-add { opacity: .3; }
+.tween-field-picker-grid button:disabled small { color: #d1b38c; }
+.tween-value-note.tween-conflict-note { color: #efbd83; }
+
+.tween-field-picker-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 180px; padding: 16px; color: #9eaabd; text-align: center; }
+.tween-field-picker-empty b { color: #d0d8e5; font-size: 13px; font-weight: 500; }
+.tween-field-picker-empty span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+.tween-field-picker > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--line); background: #2d313b; color: var(--muted); font-size: 11px; }
+.tween-field-picker > footer button { flex: none; min-width: 86px; height: 30px; border: 1px solid #6c8cf2; border-radius: 18px; background: var(--accent); color: #fff; font-size: 12px; cursor: pointer; }
+.tween-field-picker > footer button:hover { border-color: #a1b8ff; background: #648cfa; }
+
+@media (max-width: 720px) {
+  .tween-field-picker-grid { grid-template-columns: 1fr; }
+}
+
+.timeline-content {
+  background: var(--input);
+  cursor: default;
+}
+
+.timeline-content-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  box-sizing: border-box;
+  padding: 0 11px;
+  border-bottom: 1px solid var(--line);
+  color: #8f9caf;
+  font-size: 10px;
+}
+
+.timeline-content-heading small {
+  color: #526075;
+  font-size: 10px;
+}
+
+.timeline-track-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.timeline-track-heading > span {
+  flex: 0 0 auto;
+  color: #aeb9c9;
+  font-weight: 600;
+}
+
+.timeline-track-heading small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-heading-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.timeline-snap-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #515c6f;
+  border-radius: 5px;
+  background: var(--input);
+  color: #aab5c7;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.timeline-snap-toggle.active { color: #cceeff; border-color: #4c9eb7; background: #294955; }
+.timeline-snap-toggle:focus-visible, .tween-relative-toggle:focus-visible { outline: 2px solid #7acbdf; outline-offset: 2px; }
+.timeline-snap-guide { position: absolute; top: 0; z-index: 8; width: 0; border-left: 1px dashed #79e1e6; pointer-events: none; }
+.timeline-snap-guide span { position: absolute; top: 2px; right: 4px; padding: 2px 4px; border-radius: 3px; color: #d9ffff; background: #244951; font-size: 10px; white-space: nowrap; }
+.tween-relative-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; margin: 0 0 10px; padding: 7px 8px; border: 1px solid #515c6f; border-radius: 5px; color: #bdc7d8; background: var(--input); font-size: 11px; cursor: pointer; }
+.tween-relative-toggle b { padding: 2px 8px; border-radius: 10px; background: #485364; font-size: 10px; }
+.tween-relative-toggle.active { border-color: #647fff; }
+.tween-relative-toggle.active b { background: #526fec; color: white; }
+
+.space-play-hint {
+  color: #a0a7b5;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.space-play-hint kbd {
+  display: inline-flex;
+  height: 18px;
+  padding: 0 6px;
+  align-items: center;
+  border: 1px solid #3b4658;
+  border-bottom-color: #566379;
+  border-radius: 4px;
+  background: var(--input);
+  color: #a7b2c3;
+  font-family: inherit;
+  font-size: 10px;
+  box-shadow: 0 1px 0 #0008;
+}
+
+.sequence-duration-control {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #4c5362;
+  border-radius: 5px;
+  background: var(--input);
+  color: #7e8ba0;
+  white-space: nowrap;
+}
+
+.sequence-duration-control > span { padding-left: 8px; font-size: 10px; }
+.sequence-duration-control input {
+  width: 50px;
+  height: 100%;
+  box-sizing: border-box;
+  margin-left: 7px;
+  padding: 0 3px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: #0e1520;
+  color: #dce5f2;
+  font-size: 10px;
+  text-align: right;
+  outline: none;
+}
+
+.sequence-duration-control input:focus { background: #182237; box-shadow: inset 0 0 0 1px #607cff; }
+.sequence-duration-control i { padding: 0 7px 0 3px; color: #637087; font-size: 10px; font-style: normal; }
+
+.time-ruler {
+  flex: 0 0 39px;
+  box-sizing: border-box;
+  background: var(--panel);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.timeline-lanes {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: var(--input);
+  background-image: linear-gradient(90deg, #2c374750 1px, transparent 1px);
+  background-size: 10% 100%;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.timeline-lanes.scrubbing { cursor: ew-resize; }
+
+.track-lane {
+  box-sizing: border-box;
+  height: 33px;
+}
+
+.track-lane.lane-node {
+  background: #18202c99;
+}
+
+.track-lane.selected {
+  background-color: #1c2a3c99;
+}
+
+.empty-track-hint {
+  position: absolute;
+  inset: 6px 9px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed #3b485b;
+  border-radius: 4px;
+  color: #5c6b80;
+  font-size: 10px;
+}
+
+.tween-clip {
+  position: absolute;
+  z-index: 2;
+  top: 5px;
+  display: flex;
+  align-items: center;
+  height: 23px;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid #586fc5;
+  border-radius: 4px;
+  background: linear-gradient(90deg,#334a91,#26396f);
+  color: #cfd9ff;
+  font-family: inherit;
+  font-size: 10px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.tween-clip:hover,
+.tween-clip.selected-clip {
+  border-color: #82a0ff;
+  background: linear-gradient(90deg,#405db2,#304887);
+}
+
+.tween-clip.dragging {
+  z-index: 6;
+  cursor: grabbing;
+  border-color: #9cb3ff;
+  box-shadow: 0 4px 14px #0008;
+}
+
+.tween-clip.resizing-start,
+.tween-clip.resizing-end {
+  cursor: ew-resize;
+}
+
+.tween-clip > span {
+  display: block;
+  flex: 1;
+  overflow: hidden;
+  padding: 0 13px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tween-edge-handle {
+  position: absolute;
+  z-index: 2;
+  top: -1px;
+  bottom: -1px;
+  width: 14px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.tween-edge-handle::after {
+  position: absolute;
+  top: 8px;
+  width: 7px;
+  height: 7px;
+  content: "";
+  transform: rotate(45deg);
+  border: 1px solid #26304a;
+  background: #f0c85b;
+}
+
+.edge-start { left: -1px; }
+.edge-start::after { left: 5px; }
+.edge-end { right: -1px; }
+.edge-end::after { right: 5px; }
+
+.playhead {
+  /* Clip owns pointer hits at crossings; the separate line stays visible above it. */
+  z-index: 1;
+  bottom: auto;
+  min-height: 100%;
+  background: transparent;
+  pointer-events: auto;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.playhead-line {
+  position: absolute;
+  z-index: 7;
+  top: 0;
+  bottom: auto;
+  width: 1px;
+  min-height: 100%;
+  background: #ff6679;
+  pointer-events: none;
+}
+
+.playhead::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -7px;
+  width: 15px;
+}
+
+.playhead i {
+  pointer-events: none;
+  transition: transform .1s, filter .1s;
+}
+
+.playhead:hover i,
+.playhead:focus-visible i,
+.playhead.scrubbing i {
+  transform: scale(1.3);
+  filter: drop-shadow(0 0 4px #ff6679);
+}
+
+.playhead:focus-visible { outline: none; }
+
+.is-timeline-scrubbing,
+.is-timeline-scrubbing * {
+  cursor: ew-resize !important;
+  user-select: none !important;
+}
+
+.timeline-settings {
+  padding: 0 12px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.timeline-settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  margin: 0 -12px 13px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  color: #a0a7b5;
+  font-size: 10px;
+}
+
+.timeline-settings-heading b {
+  color: #9aa7ba;
+  font-size: 10px;
+  max-width: 145px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-tween-summary {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid #32415a;
+  border-radius: 6px;
+  background: #182235;
+}
+
+.selected-tween-summary b {
+  color: #dbe4f5;
+  font-size: 10px;
+}
+
+.selected-tween-summary span,
+.selected-tween-summary small {
+  overflow: hidden;
+  color: #7f8da3;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-tween-summary small {
+  color: #718fe9;
+  font-family: inherit;
+}
+
+.tween-time-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.timeline-settings .tween-time-grid label,
+.tween-value-field {
+  min-width: 0;
+  margin-bottom: 10px;
+}
+
+.tween-ease-field {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.tween-ease-field select {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.tween-value-field input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.tween-value-note {
+  margin: 10px 0 0;
+  padding: 7px;
+  border-left: 2px solid #526bc5;
+  background: #2c323e;
+  color: #68768b;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.tween-settings-editor :deep(.rgba-control) {
+  margin-top: 8px;
+}
+
+.api-layout-note {
+  margin: 0 0 8px;
+  color: #a9afbb;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.api-layout-grid,
+.api-tween-readout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.api-layout-grid label,
+.api-tween-readout > div {
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--input);
+}
+
+.api-layout-grid code,
+.api-tween-readout code {
+  display: block;
+  overflow: hidden;
+  color: #69bddd;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-layout-grid input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 4px;
+  padding: 2px 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #e1e9f5 !important;
+  font-size: 10px !important;
+}
+
+.api-tween-readout {
+  margin-top: 7px;
+}
+
+.api-tween-readout > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  padding: 5px 6px;
+}
+
+.api-tween-readout b {
+  color: #cfd8e7;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+@media(max-width:1200px) {
+  .timeline-panel {
+    grid-template-columns: var(--hierarchy-width) minmax(360px, 1fr) var(--inspector-width);
+  }
+
+  .space-play-hint,
+  .timeline-track-heading small {
+    display: none;
+  }
+}
+
+/* Compact editor chrome, shared by the scene, inspector and timeline. */
+.animation-editor :deep(*) { scrollbar-width: thin; scrollbar-color: #626977 transparent; }
+.animation-editor :deep(button:focus-visible),
+.animation-editor :deep(summary:focus-visible),
+.animation-editor a:focus-visible { outline: 2px solid #89a6ff; outline-offset: -2px; }
+.animation-editor :deep(input:focus-visible),
+.animation-editor select:focus-visible { outline: 1px solid #89a6ff; outline-offset: -1px; }
+button { transition: background .12s, border-color .12s; }
+.editor-toolbar { gap: 6px; padding: 0 12px; background: #2d313b; }
+.tool-button, .icon-button, .square-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; color: #d9dde7; font-size: 12px; }
+.tool-button { padding: 0 9px; white-space: nowrap; }
+.back-button { border: 0; text-decoration: none; }
+.project-copy { min-width: 190px; max-width: 220px; gap: 2px; }
+.project-copy strong { font-size: 14px; white-space: nowrap; }
+.project-copy > span { overflow: hidden; color: #a3aab8; font-family: inherit; font-size: 10px; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
+.title-slash { color: #7b8292; }
+.gia-import-button { color: #d9dde7; }
+.lua-export-button { border-color: #536790; color: #c4d1f5; background: #3d4964; }
+.lua-export-button span { color: inherit; }
+.screen-select { gap: 6px; padding-left: 9px; color: #dbe0ea; }
+.screen-select select { font-size: 12px; }
+.zoom-control { font-size: 12px; }
+.zoom-control button { color: #c8cfdb; }
+.zoom-control button:hover { background: #3d4555; }
+.panel-heading { height: 44px; flex-shrink: 0; padding: 8px 12px; }
+.panel-heading h2 { font-size: 12px; font-weight: 500; margin: 0; color: #d5dae5; }
+.heading-count { margin-left: 7px; color: #989fad; font-family: inherit; font-size: 11px; }
+.square-button { height: 26px; width: 26px; border: 0; }
+.search-box { flex-shrink: 0; height: 32px; border-radius: 18px; margin: 10px 10px 14px; gap: 5px; color: #c1c7d2; }
+.search-box input { min-width: 0; font-size: 12px !important; font-weight: 400; }
+.search-box input::placeholder { color: #939ba9; }
+.search-clear { padding: 0; border: 0; background: none; color: #bdc4d1; cursor: pointer; }
+.tree { padding: 0 5px; }
+.tree-row { height: 33px; margin-bottom: 3px; border-radius: 4px; background: #384254; color: #e1e5ed; font-size: 12px; }
+.tree-row:hover { background: #45536c; }
+.tree-row.selected { background: #4c68b0; box-shadow: inset 0 0 0 1px #6a85ca66; }
+.tree-row.root-node .node-icon, .node-icon { flex-shrink: 0; color: #d8dfea; margin-right: 5px; }
+.chevron { flex-shrink: 0; font-size: 16px; color: #d5dbea; }
+.visibility { display: flex; align-items: center; padding-left: 4px; color: #d5def0; }
+.hierarchy-actions { border: 0; padding: 12px 10px; }
+.hierarchy-actions button { display: flex; align-items: center; justify-content: center; gap: 5px; background: transparent; border-color: #8b919e; border-radius: 18px; font-size: 12px; }
+.hierarchy-actions button:last-child { width: 32px; border-color: #515966; border-radius: 6px; }
+.hierarchy-actions button:hover:not(:disabled) { background: #414d65; border-color: #b4bfd7; }
+.workspace-tabs { height: 36px; flex-shrink: 0; gap: 12px; padding: 0 14px; }
+.workspace-label { display: flex; align-items: center; gap: 7px; color: #d4dbe8; font-size: 11px; white-space: nowrap; }
+.workspace-hint { color: #a2aab9; font-size: 10px; }
+.canvas-ratio { margin-left: auto; font-family: inherit; font-size: 10px; color: #a8b0be; }
+.viewport { background-image: radial-gradient(#777d8940 .85px, transparent .85px); background-size: 16px 16px; }
+.canvas-stage { background: #3b424d; box-shadow: 0 0 0 1px #8399a3, 0 8px 32px #1c212740; }
+.canvas-stage.mobile-frame { box-shadow: 0 0 0 6px #303642, 0 0 0 7px #8299a6, 0 8px 32px #1c212740; }
+.device-preview-label { height: auto; top: -29px; padding: 0; background: transparent; border: 0; border-radius: 0; color: #d5dbe5; font-size: 18px; }
+.safe-area { border-color: #c4cad226; }
+.ruler { color: #bdc4d080; font-family: inherit; font-size: 9px; }
+.ruler-x { padding-top: 3px; background: #42465080; border-color: #979ead20; }
+.ruler-y { background: #42465080; border-color: #979ead20; }
+.viewport-status { background: #363c47dd; color: #c0c8d5; border-color: #5d657570; font-size: 10px; }
+.canvas-node.selected { outline: 2px solid #5ce5ee; outline-offset: 0; }
+.selection-tag { top: -29px; left: 0; padding: 3px 6px; background: #353e4bea; color: #a8f4fa; border-radius: 2px; font-size: 15px; font-weight: 400; }
+.container-label { color: #b9c8d3; background: #30384480; font-size: 16px; }
+.selection-corner { position: absolute; width: 10px; height: 10px; border: 2px solid #434d58; border-radius: 50%; background: #eff6f7; pointer-events: none; }
+.corner-tl { top: -7px; left: -7px; }
+.corner-tr { top: -7px; right: -7px; }
+.corner-bl { bottom: -7px; left: -7px; }
+.resize-handle { bottom: -7px; right: -7px; width: 10px; height: 10px; border: 2px solid #434d58; border-radius: 50%; background: #eff6f7; }
+.selection-pivot { position: absolute; width: 10px; height: 10px; border: 3px solid #5ce5ee; border-radius: 50%; transform: translate(-50%, 50%); pointer-events: none; }
+.inspector-heading { height: 66px; border: 0; padding: 10px 14px 6px; color: #c7cedb; }
+.inspector-identity { min-width: 0; flex: 1; }
+.inspector-name { display: block; width: 100%; padding: 2px 0 !important; border: 1px solid transparent !important; background: transparent !important; color: #f0f2f6 !important; font-size: 16px !important; font-weight: 500 !important; }
+.inspector-name:hover { border-bottom-color: #69768f !important; }
+.inspector-identity > span { display: block; margin-top: 3px; color: #a9b0bd; font-size: 10px; }
+.identity-separator { padding: 0 7px; color: #788293; }
+.inspector-tabs { display: flex; flex-shrink: 0; height: 30px; margin: 4px 12px 8px; padding: 2px; border: 1px solid #444b58; border-radius: 20px; background: #2b303b; }
+.inspector-tabs button { flex: 1; border: 0; border-radius: 18px; background: transparent; color: #b8c0cd; font-size: 12px; cursor: pointer; }
+.inspector-tabs button.active { background: var(--accent); color: #fff; }
+.inspector-tabs button:hover:not(.active) { background: #3d4657; }
+.inspector-scroll { padding-bottom: 8px; }
+.property-action-feedback { margin: 2px 9px 6px; padding: 6px 9px; border: 1px solid #4b638a; border-radius: 5px; background: #354460; color: #cedcf8; font-size: 11px; line-height: 1.5; }
+.property-section { margin: 6px 8px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.property-section :deep(summary) { display: flex; align-items: center; min-height: 34px; box-sizing: border-box; padding: 8px 11px; color: #e2e6ee; font-size: 12px; font-weight: 500; list-style: none; cursor: pointer; user-select: none; }
+.property-section :deep(summary::-webkit-details-marker) { display: none; }
+.property-section :deep(.section-chevron) { margin-right: 8px; color: #c7ceda; transition: transform .12s; }
+.property-section[open] :deep(.section-chevron) { transform: rotate(90deg); }
+.property-section :deep(.section-grip) { margin-left: auto; color: #a8b0bf; font-size: 17px; line-height: 12px; }
+.property-section :deep(.property-section-body) { padding: 0 11px 11px; }
+.device-field > span { display: block; color: #b7bfcd; font-size: 11px; margin: 5px 0 7px; }
+.device-mode-switch { width: 100%; box-sizing: border-box; gap: 6px; padding: 0; border: 0; background: transparent; }
+.device-mode-switch button { position: relative; justify-content: center; flex: 1; padding: 0; color: #b7bfcd; }
+.device-mode-switch button.active { background: #5077d2; box-shadow: none; }
+.device-mobile-mark { position: absolute; right: 5px; bottom: 2px; font-family: inherit; font-size: 8px !important; }
+.coordinate-note { justify-content: flex-end; gap: 2px; margin: 8px 0 0; padding: 0; border: 0; background: transparent; font-size: 11px; }
+.coordinate-note span { color: #b7bfcd; }
+.coordinate-note span:last-child { font-size: 9px; color: #929cab; }
+.property-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 6px; }
+.number-field { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
+.full-width-number { grid-column: 1 / -1; }
+.secondary-transform { margin: 9px 0 0; }
+.secondary-transform > summary { display: list-item; min-height: 0; padding: 5px 0; color: #a5afbf; font-size: 10px; list-style: revert; }
+.secondary-transform[open] > summary { margin-bottom: 6px; }
+.number-field :deep(.field-label) { height: 14px; color: #bac1cd; font-size: 11px; }
+.number-field:nth-child(even) :deep(.field-label) { display: block; visibility: hidden; }
+.number-field :deep(div) { display: flex; align-items: center; height: 30px; box-sizing: border-box; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--input); }
+.number-field :deep(input) { flex: 1; min-width: 0; width: 100%; height: 28px; padding: 0 4px !important; border: 0 !important; background: transparent !important; color: #e4e7ef !important; font-family: inherit; font-size: 13px !important; font-weight: 600; }
+.number-field :deep(.axis) { flex-shrink: 0; width: 17px; margin-left: 5px; border-radius: 2px; text-align: center; font-family: inherit; font-size: 13px; line-height: 18px; }
+.number-field :deep(.axis-x) { color: #f4858d; background: #bc475433; }
+.number-field :deep(.axis-y) { color: #a1d275; background: #6e9c4233; }
+.number-field :deep(.axis-z), .number-field :deep(.axis-w), .number-field :deep(.axis-h) { color: #50c6e6; background: #2485ac33; }
+.anchor-type-row { align-items: center; border: 0; margin-top: 12px; padding-top: 0; }
+.anchor-type-row > label, .anchor-type-row select { font-size: 11px; }
+.anchor-values-title { color: #bac1cd; font-size: 11px; }
+.anchor-values-title small { font-size: 9px; color: #929cab; }
+.anchor-preview-button { width: 52px; height: 52px; }
+.setting-switch { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 31px; color: #c6cdda; font-size: 11px; cursor: pointer; }
+.setting-switch input { appearance: none; flex-shrink: 0; position: relative; width: 36px; height: 20px; margin: 0; padding: 0; border: 1px solid #697487; border-radius: 14px; background: #495362; cursor: pointer; }
+.setting-switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #d9e0e8; transition: transform .15s; }
+.setting-switch input:checked { border-color: var(--accent); background: var(--accent); }
+.setting-switch input:checked::after { transform: translateX(16px); background: #fff; }
+.runtime-heading { display: grid; gap: 6px; padding: 12px; }
+.runtime-heading b { overflow-wrap: anywhere; color: #d1ddf5; font-family: inherit; font-size: 12px; font-weight: 400; }
+.runtime-heading span { color: #adb6c4; font-size: 11px; }
+.api-layout-grid code, .api-tween-readout code { font-size: 10px; }
+.api-layout-note { font-size: 11px; line-height: 1.65; }
+.timeline-title { height: 44px; flex-shrink: 0; box-sizing: border-box; }
+.timeline-title h2 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 12px; font-weight: 500; }
+.timeline-content-heading { height: 44px; min-height: 44px; }
+.timeline-settings-heading { height: 44px; box-sizing: border-box; font-size: 11px; }
+.timeline-settings-heading b { max-width: 200px; font-size: 11px; }
+.playback-controls { flex-shrink: 0; box-sizing: border-box; height: 36px; }
+.playback-controls button { display: flex; align-items: center; justify-content: center; background: #414b5f; }
+.playback-controls .play-button { background: var(--accent); }
+.time-ruler { height: 36px; flex-basis: 36px; font-size: 10px; }
+.timeline-name-row { background: #303743; }
+.timeline-name-row.selected { background: #3f5077; }
+.timeline-name-row.row-tween { background: #2b303b; }
+.track-node-main b, .track-property-main b { font-size: 11px; }
+.track-property-main small { display: none; }
+.track-lane.lane-node { background: #3e475550; }
+.track-lane.selected { background-color: #465f8940; }
+.timeline-lanes { background-color: #292f3a; background-image: linear-gradient(90deg, #59617040 1px, transparent 1px); }
+.empty-track-hint { border-color: #556078; color: #a4afc2; }
+.timeline-resize-handle::before { background: #505969; }
+.timeline-resize-handle span { border-color: #737e91; background: #394251; }
+.timeline-track-heading > span { color: #c7d0df; }
+.sequence-duration-control { color: #b0baca; }
+.sequence-duration-control input { background: var(--input); font-size: 12px; }
+.tween-value-note { color: #aab5c7; font-size: 11px; }
+.tween-clip { font-size: 10px; }
+.selected-tween-summary { background: #343f54; }
+.selected-tween-summary b { font-size: 12px; }
+.timeline-settings { font-size: 11px; }
+.timeline-settings input { font-size: 12px !important; }
+
+@media (max-width: 1200px) {
+  .animation-editor { --hierarchy-width: 220px; --inspector-width: 286px; }
+  .project-copy { min-width: 170px; }
+  .tool-button { padding: 0 6px; }
+  .screen-select select { max-width: 163px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animation-editor :deep(*) { transition: none !important; }
+}
+</style>
