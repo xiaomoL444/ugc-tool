@@ -165,9 +165,15 @@ export interface ControlPropertiesMap {
   reference: ClientUIReferenceControlProperties;
 }
 
+/** 画布辅助标识的存档数据，不属于游戏控件属性或 Tween 字段。 */
+export interface UINodeEditorSettings {
+  directionArrowLength?: number;
+}
+
 export type UINodeOf<T extends ControlType> = ClientUIBaseControlModel & {
   type: T;
   properties: ControlPropertiesMap[T];
+  editor?: UINodeEditorSettings;
 };
 
 export type UINode = {
@@ -204,4 +210,34 @@ export interface UITweenTrack {
   /** 位置/大小/缩放首尾值是加法增量；首段基于创建时属性，后续段基于上一段终值。省略表示绝对值。 */
   relative?: boolean;
   easeType: TweenEaseType;
+}
+
+/** A key's interpolation and easing describe the segment leading to the next key. */
+export interface UIKeyframe {
+  id: string;
+  time: number;
+  value: UITweenValue;
+  /** Add to the previous key's resolved right-side value; the first key uses the control's base value. */
+  relative?: boolean;
+  easeType: TweenEaseType;
+  interpolation: "tween" | "step";
+  /** Optional left limit preserves a legacy Clip end followed immediately by a different Clip start. */
+  incomingValue?: UITweenValue;
+  /** Uses the same previous-key baseline as value, not this key's right-side value. */
+  incomingRelative?: boolean;
+}
+
+export interface UIKeyframeTrack {
+  id: string;
+  nodeId: string;
+  fieldKey: string;
+  keyframes: UIKeyframe[];
+}
+
+/** One named animation of the shared control hierarchy. */
+export interface UIAnimation {
+  id: string;
+  name: string;
+  duration: number;
+  keyframeTracks: UIKeyframeTrack[];
 }

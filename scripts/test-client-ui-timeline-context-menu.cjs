@@ -48,7 +48,7 @@ function fixture() {
     draggingTweenTrackId: vue.ref(null),
     stopTweenClipDrag: () => { dragCleanup++; },
     timelineTrackNames: vue.shallowRef({ querySelector: () => nodeFocus }),
-    addMenuOpen: vue.ref(false), anchorMenuOpen: vue.ref(false), luaExportMenuOpen: vue.ref(false),
+    addMenuOpen: vue.ref(false), anchorMenuOpen: vue.ref(false), luaExportMenuOpen: vue.ref(false), historyPanelOpen: vue.ref(false),
     tweenFieldPickerNodeId: vue.ref(null), tweenFieldSearch: vue.ref(""),
   });
   vm.runInContext(script, context, { filename, timeout: 2000 });

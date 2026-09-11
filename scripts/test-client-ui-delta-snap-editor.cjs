@@ -24,6 +24,7 @@ async function main() {
   ).map((statement) => statement.getText(ast)).join("\n");
   const exposed = [
     "nodes", "duration", "currentTime", "playing", "selectedId", "tweenTracks", "selectedTweenTrackId",
+    "keyframeTracks", "buildKeyframePreviewNodes",
     "makeNode", "getHierarchyOrder", "applyNodeLayout", "buildTweenPreviewNodes", "calculateWorldTransforms",
     "addTweenTrack", "updateTweenRelative", "normalizeTweenTracks", "serializeProject", "loadProject",
     "timelineSnapEnabled", "timelineSnapTime", "toggleTimelineSnapping", "timelineContent",
@@ -32,7 +33,7 @@ async function main() {
   ];
   const script = ts.transpileModule(`${declarations}\nglobalThis.editorApi = { ${exposed.join(", ")} };`, {
     fileName: filename + ".ts",
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const converter = await import("genshin-impact-ugc-file-converter-web");
   const originalLoad = Module._load;
@@ -44,7 +45,7 @@ async function main() {
   Module._extensions[".ts"] = (module, sourcePath) => {
     const compiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
       fileName: sourcePath,
-      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
     });
     module._compile(compiled.outputText, sourcePath);
   };
@@ -53,7 +54,7 @@ async function main() {
   let passed = 0;
   async function test(name, check) { await check(); passed += 1; console.log(`PASS ${name}`); }
   try {
-    const imports = Object.assign({}, ...["controlRegistry", "tweenRegistry", "giaImporter", "luaTweenExporter", "propertyGroupActions", "timelineSnapping", "timelineClipLayout"]
+    const imports = Object.assign({}, ...["controlRegistry", "tweenRegistry", "giaImporter", "luaTweenExporter", "propertyGroupActions", "timelineSnapping", "timelineClipLayout", "containerDirectionGuide", "editorHistory", "historyChangeLabel", "keyframeTimeline", "keyframeLua", "animationCollection"]
       .map((name) => require(path.join(editor, `${name}.ts`))));
     function createEditor() {
       const listeners = new Map();
@@ -251,10 +252,12 @@ async function main() {
       assert.equal(saved.tweenTracks[0].relative, true);
       assert.equal(saved.tweenTracks[0].initialValue, 0);
       assert.equal(saved.tweenTracks[0].endValue, 0.5);
-      await api.loadProject({ target: { files: [{ text: async () => serialized }] } });
-      assert.equal(api.tweenTracks.value[0].relative, true);
-      assert.deepEqual(plain(api.buildTweenPreviewNodes(0.5)), before);
-      assert.equal(JSON.parse(api.serializeProject()).tweenTracks[0].endValue, 0.5);
+      delete saved.keyframeTracks; delete saved.animations; // This fixture models a pre-keyframe project.
+      await api.loadProject({ target: { files: [{ text: async () => JSON.stringify(saved) }] } });
+      assert.equal(api.keyframeTracks.value[0].keyframes[0].relative, true);
+      assert.equal(api.keyframeTracks.value[0].keyframes[1].relative, true);
+      assert.deepEqual(plain(api.buildKeyframePreviewNodes(0.5)), before);
+      assert.equal(JSON.parse(api.serializeProject()).keyframeTracks[0].keyframes[1].value, 0.5);
     });
     await test("Project JSON restores its snap preference and older projects default to enabled", async () => {
       const { api } = fixture();

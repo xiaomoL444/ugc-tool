@@ -24,6 +24,9 @@ const props = withDefaults(defineProps<{ name: string; size?: number }>(), { siz
 
 const icons: Record<string, string[]> = {
   back: ['M14 6l-6 6 6 6', 'M8 12h12'],
+  undo: ['M9 5 4 10l5 5', 'M4 10h10a6 6 0 0 1 0 12'],
+  redo: ['m15 5 5 5-5 5', 'M20 10H10a6 6 0 0 0 0 12'],
+  history: ['M3 12a9 9 0 1 0 3-6.7', 'M3 3v5h5', 'M12 7v5l3 2'],
   search: ['M16.5 10a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z', 'm15 15 5.5 5.5'],
   plus: ['M12 5v14M5 12h14'],
   eye: ['M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z', 'M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z'],

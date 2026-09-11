@@ -26,12 +26,13 @@ async function main() {
   const exposed = [
     "nodes", "duration", "currentTime", "playing", "selectedId", "tweenTracks", "selectedTweenTrackId",
     "makeNode", "getHierarchyOrder", "applyNodeLayout", "buildTweenPreviewNodes", "serializeProject", "applyProjectData",
+    "keyframeTracks", "buildKeyframePreviewNodes",
     "tweenClipClipboard", "copySelectedTweenClip", "pasteTweenClipAtPlayhead", "timelineEditNotice", "stopDocumentInteraction",
     "handleTimelineClipClipboardShortcut", "editorElement", "timelineContextMenu", "workspacePanelOpen", "archiveAction",
     "tweenFieldPickerNodeId", "luaExportMenuOpen", "addMenuOpen", "anchorMenuOpen", "draggingTweenTrackId", "timelineScrubbing", "timelineDataImportOpen",
   ];
   const script = ts.transpileModule(`${declarations}\nglobalThis.editorApi = { ${exposed.join(", ")} };`, {
-    fileName: filename + ".ts", compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    fileName: filename + ".ts", compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const converter = await import("genshin-impact-ugc-file-converter-web");
   const originalLoad = Module._load;
@@ -41,7 +42,7 @@ async function main() {
     return originalLoad.call(this, request, parent, isMain);
   };
   Module._extensions[".ts"] = (module, sourcePath) => module._compile(ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
-    fileName: sourcePath, compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    fileName: sourcePath, compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText, sourcePath);
   const plain = (value) => JSON.parse(JSON.stringify(value));
   let passed = 0;
@@ -236,17 +237,32 @@ async function main() {
       api.copySelectedTweenClip(); api.nodes.value = api.nodes.value.filter((node) => node.id !== "group");
       assertRefused(api, 2);
     });
-    await test("Copied relative Clips chain from the previous endpoint and survive project JSON", () => {
+    await test("Copied relative Clips preserve their chained values through legacy migration and project JSON", () => {
       const { api } = selectedFixture({ initialValue: 0, endValue: 40, relative: true, easeType: "Linear" });
       api.copySelectedTweenClip(); api.currentTime.value = 2; const pasted = api.pasteTweenClipAtPlayhead();
       assert.ok(pasted); assert.equal(pasted.initialValue, 0); assert.equal(pasted.endValue, 40); assert.equal(pasted.relative, true);
       assert.equal(api.buildTweenPreviewNodes(1)[1].anchorOffsetX, 140);
       assert.equal(api.buildTweenPreviewNodes(3)[1].anchorOffsetX, 180);
+      const sampleTimes = [0, 0.5, 1, 1.5, 2, 2.5, 3, 4];
+      const expectedValues = sampleTimes.map((time) => api.buildTweenPreviewNodes(time)[1].anchorOffsetX);
+      // These Clips were constructed with the legacy helpers. A real old file has
+      // no keyframeTracks; an explicit empty array is correctly authoritative in
+      // the new format and must not resurrect obsolete Clips.
+      const legacy = JSON.parse(api.serializeProject());
+      delete legacy.keyframeTracks; delete legacy.animations;
+      api.applyProjectData(JSON.stringify(legacy));
+      assert.equal(api.tweenTracks.value.length, 0);
+      assert.equal(api.keyframeTracks.value.length, 1);
+      const migrated = api.keyframeTracks.value[0];
+      assert.equal(migrated.nodeId, "group");
+      assert.equal(migrated.fieldKey, "anchoredPositionX");
+      assert.ok(migrated.keyframes.some((key) => key.relative || key.incomingRelative));
+      assert.deepEqual(sampleTimes.map((time) => api.buildKeyframePreviewNodes(time)[1].anchorOffsetX), expectedValues);
       const saved = api.serializeProject();
+      const savedTracks = plain(api.keyframeTracks.value);
       api.applyProjectData(saved);
-      assert.equal(api.tweenTracks.value.length, 2);
-      assert.equal(api.tweenTracks.value[1].relative, true);
-      assert.equal(api.buildTweenPreviewNodes(3)[1].anchorOffsetX, 180);
+      assert.deepEqual(plain(api.keyframeTracks.value), savedTracks);
+      assert.deepEqual(sampleTimes.map((time) => api.buildKeyframePreviewNodes(time)[1].anchorOffsetX), expectedValues);
       assert.equal(api.tweenClipClipboard.value, null);
       assert.equal(Object.hasOwn(JSON.parse(saved), "tweenClipClipboard"), false);
     });

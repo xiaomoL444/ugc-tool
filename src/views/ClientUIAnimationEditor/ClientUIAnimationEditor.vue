@@ -1,11 +1,17 @@
 <template>
-  <div ref="editorElement" class="animation-editor" :class="{ 'is-timeline-resizing': timelineResizing, 'is-timeline-scrubbing': timelineScrubbing }" :inert="archive?.busy.value" :style="editorStyle" @pointerdown="closeMenus" @contextmenu.prevent>
+  <div ref="editorElement" class="animation-editor" :class="{ 'is-timeline-resizing': timelineResizing, 'is-timeline-scrubbing': timelineScrubbing }" :inert="archive?.busy.value || editorHistory.busy.value" :style="editorStyle" @pointerdown.capture="beginEditorHistoryPointer" @focusin.capture="beginEditorHistoryInput" @input.capture="beginEditorHistoryInput" @focusout.capture="endEditorHistoryInput" @pointerdown="closeMenus" @contextmenu.prevent>
     <header class="editor-toolbar">
       <button class="tool-button workspace-button" aria-label="管理工作区和编辑文件" @click.stop="workspacePanelOpen = true"><EditorIcon name="folder" :size="15" />工作区</button>
       <div class="project-copy"><strong :title="archive?.selectedWorkspace.value">{{ archive?.selectedWorkspace.value || '客户端控件动画' }}</strong><span :title="projectName">{{ hasOpenDocument ? projectName : '未打开编辑文件' }}</span></div>
       <div class="toolbar-divider"></div>
       <button class="tool-button" @click.stop="resetProject"><EditorIcon name="plus" :size="15" />新建文件</button>
       <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="saveProject"><EditorIcon name="save" :size="15" />保存</button>
+      <div class="history-tools" @pointerdown.stop>
+        <button class="history-icon-button" aria-label="撤销" title="撤销 · Ctrl+Z" :disabled="!hasOpenDocument || !editorHistory.canUndo.value || editorHistory.busy.value" @click.stop="undoEditorOperation"><EditorIcon name="undo" :size="16" /></button>
+        <button class="history-icon-button" aria-label="重做" title="重做 · Ctrl+Shift+Z / Ctrl+Y" :disabled="!hasOpenDocument || !editorHistory.canRedo.value || editorHistory.busy.value" @click.stop="redoEditorOperation"><EditorIcon name="redo" :size="16" /></button>
+        <button class="history-icon-button" aria-label="操作记录" title="操作记录 · 最近 100 个行为" :aria-expanded="historyPanelOpen" @click.stop="historyPanelOpen = !historyPanelOpen"><EditorIcon name="history" :size="16" /></button>
+        <EditorHistoryPanel v-if="historyPanelOpen" :entries="editorHistory.entries.value" :index="editorHistory.index.value" :busy="editorHistory.busy.value" :can-undo="editorHistory.canUndo.value" :can-redo="editorHistory.canRedo.value" @undo="undoEditorOperation" @redo="redoEditorOperation" @close="historyPanelOpen = false" />
+      </div>
       <button class="tool-button" @click.stop="openProject">导入 JSON</button>
       <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="downloadProject">导出 JSON</button>
       <button class="tool-button gia-import-button" title="导入 GIA，在当前工作区创建新的编辑文件" @click.stop="openGiaFile">导入 GIA</button>
@@ -16,7 +22,7 @@
         <div v-if="luaExportMenuOpen" class="lua-export-menu">
           <button :disabled="!hasOpenDocument" @click.stop="openTimelineDataImport"><b>导入 Timeline Data</b><small>从 Data 还原控件的动画时间轴</small></button>
           <button @click.stop="exportTweenTimelineLib"><b>导出运行库</b><small>TweenTimelineLib.lua · v{{ TWEEN_TIMELINE_LIB_VERSION }} · 放入 Lib</small></button>
-          <button :disabled="!selectedNode" @click.stop="exportSelectedNodeTweenData"><b>导出 Timeline Data</b><small>{{ selectedNode ? `以 ${selectedNode.name} 为根控件` : '请先选择根控件' }}</small></button>
+          <button :disabled="!selectedNode" @click.stop="exportSelectedNodeTweenData"><b>导出 Timeline Data</b><small>{{ selectedNode ? `${activeAnimation.name} · 以 ${selectedNode.name} 为根控件` : '请先选择根控件' }}</small></button>
         </div>
       </div>
       <input ref="fileInput" class="file-input" type="file" accept="application/json,.json" @change="loadProject" />
@@ -28,7 +34,7 @@
       <button class="icon-button" title="适应画布" aria-label="适应画布" @click.stop="fitCanvas"><EditorIcon name="fit" /></button>
     </header>
 
-    <div class="editor-body">
+    <div class="editor-body" :class="{ 'is-animations-collapsed': animationsPanelCollapsed }">
       <aside class="hierarchy-panel panel">
         <div class="panel-heading">
           <div><h2>控件层级 <span class="heading-count">{{ nodes.length }}</span></h2></div>
@@ -51,7 +57,7 @@
       </aside>
 
       <main class="workspace-panel">
-        <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ currentPreset.ratio }}</span></div>
+        <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><button class="bone-visibility-toggle" :class="{ active: showContainerBones }" :aria-pressed="showContainerBones" :disabled="!hasOpenDocument" aria-label="显示骨骼" title="显示或隐藏所有容器的方向骨骼，不改变箭头长度" @click.stop="showContainerBones = !showContainerBones"><EditorIcon :name="showContainerBones ? 'eye' : 'eye-off'" :size="14" />显示骨骼</button><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ currentPreset.ratio }}</span></div>
         <div ref="viewportElement" class="viewport" :class="{ 'is-panning': isPanning }" @wheel.prevent="handleCanvasWheel" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
           <div class="ruler ruler-x"><span v-for="tick in rulerXTicks" :key="tick">{{ tick }}</span></div>
           <div class="ruler ruler-y"><span v-for="tick in rulerYTicks" :key="tick">{{ tick }}</span></div>
@@ -68,11 +74,14 @@
               <template v-if="node.id === selectedId"><i class="selection-corner corner-tl"></i><i class="selection-corner corner-tr"></i><i class="selection-corner corner-bl"></i><i class="selection-pivot" :style="{ left: `${node.pivotX * 100}%`, bottom: `${node.pivotY * 100}%` }"></i></template>
               <i v-if="node.id === selectedId && !node.locked" class="resize-handle" @pointerdown.stop="startResize($event, node)"></i>
             </div>
+            <ContainerDirectionGuide v-for="guide in renderContainerDirections" :key="guide.id" :data-node-id="guide.id" :length="guide.length" :selected="guide.id === selectedId" :style="guide.style" />
           </div>
           <div class="viewport-status"><span>{{ currentDevice.label }}</span><span>{{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</span><span>X {{ cursorPosition.x }} &nbsp; Y {{ cursorPosition.y }}</span></div>
         </div>
       </main>
 
+      <AnimationListPanel :animations="animations" :selected-id="activeAnimationId" :disabled="!hasOpenDocument" :notice="animationNotice" :collapsed="animationsPanelCollapsed" @toggle-collapse="animationsPanelCollapsed = !animationsPanelCollapsed"
+        @select="selectAnimation" @create="createAnimation" @duplicate="duplicateAnimation" @rename="renameAnimation" @remove="removeAnimation" />
       <aside class="inspector-panel panel">
         <div class="panel-heading inspector-heading">
           <div v-if="selectedNode" class="inspector-identity"><input v-model="selectedNode.name" class="inspector-name" aria-label="控件名称" /><span>{{ controlLabels[selectedNode.type] }}<span class="identity-separator">·</span>控件详情</span></div>
@@ -87,23 +96,23 @@
             <div class="device-field"><span>设备</span><div class="device-mode-switch" role="group" aria-label="预览设备"><button v-for="device in deviceModes" :key="device.id" :class="{ active: deviceMode === device.id }" :title="device.label" :aria-label="device.label" :aria-pressed="deviceMode === device.id" @click.stop="switchDevice(device.id)"><DevicePreviewIcon :mode="device.id" :size="22" /></button></div></div>
             <div class="coordinate-note"><span title="坐标以画布左下角为原点">世界坐标 · 左下原点</span></div>
             <div class="property-grid">
-              <NumberField :model-value="selectedWorldPosition.x" axis="X" label="预览位置" @update:model-value="updateGeometry('x', $event)" />
-              <NumberField :model-value="selectedWorldPosition.y" axis="Y" @update:model-value="updateGeometry('y', $event)" />
-              <NumberField :model-value="selectedNode.width" axis="W" label="大小" :min="1" @update:model-value="updateGeometry('width', $event)" />
-              <NumberField :model-value="selectedNode.height" axis="H" :min="1" @update:model-value="updateGeometry('height', $event)" />
-              <NumberField v-model="selectedNode.scaleX" axis="X" label="缩放比例" :step="0.01" :scrub-speed="0.01" />
-              <NumberField v-model="selectedNode.scaleY" axis="Y" :step="0.01" :scrub-speed="0.01" />
-              <NumberField v-model="selectedNode.rotation" class="full-width-number" axis="Z" label="旋转" />
+              <NumberField :model-value="selectedWorldPosition.x" :animated="hasAnimatedField('anchoredPositionX')" axis="X" label="预览位置" @update:model-value="updateGeometry('x', $event)" />
+              <NumberField :model-value="selectedWorldPosition.y" :animated="hasAnimatedField('anchoredPositionY')" axis="Y" @update:model-value="updateGeometry('y', $event)" />
+              <NumberField :model-value="inspectorNode!.width" :animated="hasAnimatedField('sizeDeltaX')" axis="W" label="大小" :min="1" @update:model-value="updateGeometry('width', $event)" />
+              <NumberField :model-value="inspectorNode!.height" :animated="hasAnimatedField('sizeDeltaY')" axis="H" :min="1" @update:model-value="updateGeometry('height', $event)" />
+              <NumberField :model-value="inspectorNode!.scaleX" :animated="hasAnimatedField('localScaleX')" @update:model-value="updateAnimatedBaseValue('localScaleX', $event)" axis="X" label="缩放比例" :step="0.01" :scrub-speed="0.01" />
+              <NumberField :model-value="inspectorNode!.scaleY" :animated="hasAnimatedField('localScaleY')" @update:model-value="updateAnimatedBaseValue('localScaleY', $event)" axis="Y" :step="0.01" :scrub-speed="0.01" />
+              <NumberField :model-value="inspectorNode!.rotation" :animated="hasAnimatedField('localRotationZ')" @update:model-value="updateAnimatedBaseValue('localRotationZ', $event)" class="full-width-number" axis="Z" label="旋转" />
             </div>
             <details class="secondary-transform"><summary>更多变换（3D）</summary><div class="property-grid">
-              <NumberField v-model="selectedNode.scaleZ" axis="Z" label="缩放 Z" :step="0.01" :scrub-speed="0.01" /><span></span>
-              <NumberField v-model="selectedNode.rotationX" axis="X" label="旋转 XY" />
-              <NumberField v-model="selectedNode.rotationY" axis="Y" />
+              <NumberField :model-value="inspectorNode!.scaleZ" :animated="hasAnimatedField('localScaleZ')" @update:model-value="updateAnimatedBaseValue('localScaleZ', $event)" axis="Z" label="缩放 Z" :step="0.01" :scrub-speed="0.01" /><span></span>
+              <NumberField :model-value="inspectorNode!.rotationX" :animated="hasAnimatedField('localRotationX')" @update:model-value="updateAnimatedBaseValue('localRotationX', $event)" axis="X" label="旋转 XY" />
+              <NumberField :model-value="inspectorNode!.rotationY" :animated="hasAnimatedField('localRotationY')" @update:model-value="updateAnimatedBaseValue('localRotationY', $event)" axis="Y" />
             </div></details>
             <div class="anchor-type-row">
               <label><span>锚点类型</span><select :value="currentAnchorPresetId" @change="onAnchorPresetSelect"><option value="custom">自定义</option><option v-for="preset in anchorPresets" :key="preset.id" :value="preset.id">{{ preset.label }}</option></select></label>
               <div class="anchor-picker-wrap">
-                <button class="anchor-preview-button" title="选择锚点预设" @pointerdown.stop @click.stop="anchorMenuOpen = !anchorMenuOpen"><AnchorVisual :values="selectedNode" /></button>
+                <button class="anchor-preview-button" title="选择锚点预设" @pointerdown.stop @click.stop="anchorMenuOpen = !anchorMenuOpen"><AnchorVisual :values="inspectorNode!" /></button>
                 <div v-if="anchorMenuOpen" class="anchor-preset-popover" @pointerdown.stop>
                   <button v-for="preset in anchorPresets" :key="preset.id" :title="preset.label" :class="{ active: preset.id === currentAnchorPresetId }" @click="applyAnchorPreset(preset.id)"><AnchorVisual :values="preset" /><span>{{ preset.label }}</span></button>
                 </div>
@@ -111,7 +120,7 @@
             </div>
             <div class="anchor-values">
               <div class="anchor-values-title"><span>锚点设置</span><small>左下 0,0 · 右上 1,1</small></div>
-              <div class="property-grid"><NumberField :model-value="selectedNode.anchorMinX" axis="X" label="Min" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'x', $event)" /><NumberField :model-value="selectedNode.anchorMinY" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'y', $event)" /><NumberField :model-value="selectedNode.anchorMaxX" axis="X" label="Max" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'x', $event)" /><NumberField :model-value="selectedNode.anchorMaxY" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'y', $event)" /><NumberField :model-value="selectedNode.pivotX" axis="X" label="中心" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('x', $event)" /><NumberField :model-value="selectedNode.pivotY" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('y', $event)" /></div>
+              <div class="property-grid"><NumberField :model-value="inspectorNode!.anchorMinX" :animated="hasAnimatedField('anchorMinX')" axis="X" label="Min" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'x', $event)" /><NumberField :model-value="inspectorNode!.anchorMinY" :animated="hasAnimatedField('anchorMinY')" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'y', $event)" /><NumberField :model-value="inspectorNode!.anchorMaxX" :animated="hasAnimatedField('anchorMaxX')" axis="X" label="Max" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'x', $event)" /><NumberField :model-value="inspectorNode!.anchorMaxY" :animated="hasAnimatedField('anchorMaxY')" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'y', $event)" /><NumberField :model-value="inspectorNode!.pivotX" :animated="hasAnimatedField('pivotX')" axis="X" label="中心" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('x', $event)" /><NumberField :model-value="inspectorNode!.pivotY" :animated="hasAnimatedField('pivotY')" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('y', $event)" /></div>
             </div>
           </PropertySection>
           <PropertySection v-if="selectedNode.type === 'image'" title="图片设置" icon="▧" group="image">
@@ -121,7 +130,7 @@
             </div>
             <div v-if="selectedImageAsset" class="selected-asset-card"><img :src="selectedImageAsset.src" :alt="selectedImageAsset.name" /><div><b>{{ selectedImageAsset.name }}</b><small>{{ selectedImageAsset.id }} · {{ selectedImageAsset.path }}</small></div></div>
           </PropertySection>
-          <ControlPropertiesInspector v-model="selectedProperties" :definition="selectedControlDefinition">
+          <ControlPropertiesInspector v-model="selectedProperties" :definition="selectedControlDefinition" :animated-fields="animatedPropertyFields">
             <template #actions><PropertyActionsMenu :label="`${selectedControlDefinition.label}参数`" :context-key="`${selectedId}:${inspectorTab}`" :can-paste="canPasteSelectedPropertyGroup('control')" :paste-hint="propertyPasteHint('control')" @reset="resetSelectedPropertyGroup('control')" @copy="copySelectedPropertyGroup('control')" @paste="pasteSelectedPropertyGroup('control')" /></template>
           </ControlPropertiesInspector>
           <PropertySection title="创建设置" group="creation">
@@ -132,16 +141,20 @@
             <label class="setting-switch"><span>锁定控件</span><input v-model="selectedNode.locked" type="checkbox" role="switch" /></label>
             <label class="setting-switch"><span>允许手柄聚焦</span><input v-model="selectedNode.canControllerFocus" type="checkbox" role="switch" /></label>
           </PropertySection>
+          <PropertySection v-if="selectedNode.type === 'container'" title="方向标识">
+            <label class="direction-length-field"><span>箭头长度</span><ScrubbableNumberInput :model-value="selectedDirectionArrowLength" :min="0" :max="MAX_DIRECTION_ARROW_LENGTH" :step="1" :scrub-speed="1" aria-label="方向箭头长度" @update:model-value="updateDirectionArrowLength" /><i>px</i></label>
+            <p class="direction-guide-note">从中心点指向局部 +X（朝右） · 0 隐藏<br />仅为编辑辅助，不影响控件大小或 Lua 导出。</p>
+          </PropertySection>
           </div>
           <div v-show="inspectorTab === 'runtime'" id="inspector-runtime" role="tabpanel" aria-labelledby="inspector-runtime-tab">
             <div class="runtime-heading"><b>{{ selectedControlDefinition.runtimeClass }}</b><span>查看和编辑用于 Lua / Tween 的布局原值</span></div>
             <PropertySection title="布局与锚点" group="transform">
               <p class="api-layout-note">anchoredPosition 是控件中心点相对锚点参考位置的偏移；拉伸锚点按中心值在 Min 与 Max 间计算参考位置。无父级时锚点以画布为参照。</p>
               <div class="api-layout-grid">
-                <label><code>anchoredPositionX</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.anchoredPositionX" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('anchoredPositionX', $event)" /></label>
-                <label><code>anchoredPositionY</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.anchoredPositionY" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('anchoredPositionY', $event)" /></label>
-                <label><code>sizeDeltaX</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.sizeDeltaX" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('sizeDeltaX', $event)" /></label>
-                <label><code>sizeDeltaY</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.sizeDeltaY" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('sizeDeltaY', $event)" /></label>
+                <label><code>anchoredPositionX</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.anchoredPositionX" :animated="hasAnimatedField('anchoredPositionX')" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('anchoredPositionX', $event)" /></label>
+                <label><code>anchoredPositionY</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.anchoredPositionY" :animated="hasAnimatedField('anchoredPositionY')" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('anchoredPositionY', $event)" /></label>
+                <label><code>sizeDeltaX</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.sizeDeltaX" :animated="hasAnimatedField('sizeDeltaX')" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('sizeDeltaX', $event)" /></label>
+                <label><code>sizeDeltaY</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.sizeDeltaY" :animated="hasAnimatedField('sizeDeltaY')" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('sizeDeltaY', $event)" /></label>
               </div>
               <div class="api-tween-readout"><div v-for="item in selectedAdditionalRuntimeTweenValues" :key="item.key"><code>{{ item.key }}</code><b>{{ formatDimension(item.value) }}</b></div></div>
             </PropertySection>
@@ -151,64 +164,15 @@
       </aside>
     </div>
 
-    <section ref="timelinePanel" class="timeline-panel">
+    <section ref="timelinePanel" class="timeline-panel keyframe-panel">
       <div class="timeline-resize-handle" role="separator" aria-label="调整时间轴高度" aria-orientation="horizontal" :aria-valuemin="MIN_TIMELINE_HEIGHT" :aria-valuemax="timelineMaximumHeight" :aria-valuenow="Math.round(resolvedTimelineHeight)" tabindex="0" title="上下拖动调整时间轴高度 · 双击恢复自动高度" @pointerdown.stop="startTimelineResize" @dblclick.stop="resetTimelineHeight" @keydown.up.prevent="nudgeTimelineHeight(16)" @keydown.down.prevent="nudgeTimelineHeight(-16)"><span></span></div>
-      <div class="timeline-sidebar">
-        <div class="timeline-title"><h2><EditorIcon name="timeline" :size="17" />动画时间轴</h2><span class="tween-count">{{ tweenTracks.length }} Clip</span></div>
-        <div class="playback-controls"><button title="回到开始" aria-label="回到开始" @click="rewindPlayback"><EditorIcon name="skip-back" :size="15" /></button><button class="play-button" title="播放/暂停预览（空格）" :aria-label="playing ? '暂停预览' : '播放预览'" @click="togglePlayback"><EditorIcon :name="playing ? 'pause' : 'play'" :size="16" /></button><button title="下一帧" aria-label="下一帧" @click="stepPlayback"><EditorIcon name="skip-forward" :size="15" /></button><span>{{ formatTime(currentTime) }}</span></div>
-        <div ref="timelineTrackNames" class="track-names" @scroll="syncTimelineScroll('names')">
-          <div v-for="row in timelineRows" :key="row.key" class="timeline-name-row" :class="[`row-${row.kind}`, { selected: row.kind === 'node' ? row.node.id === selectedId : isTweenRowSelected(row) }]" @contextmenu="openTimelineContextMenu($event, row)" @keydown.shift.f10.stop.prevent="openTimelineContextMenu($event, row)">
-            <template v-if="row.kind === 'node'">
-              <button class="track-node-main" @click="selectTimelineNode(row.node)"><span>{{ nodeIcon(row.node.type) }}</span><b>{{ row.node.name }}</b><em>{{ row.trackCount }}</em></button>
-              <button v-if="row.node.id === selectedId" class="add-tween-button" title="在悬浮面板中选择 Tween 参数" @pointerdown.stop @click.stop="openTweenFieldPicker(row.node)">＋</button>
-            </template>
-            <template v-else>
-              <button class="track-property-main" title="右键打开轨道选项" aria-haspopup="menu" :aria-expanded="timelineContextMenu?.trackId === row.track.id" @click="selectTweenTrack(row)"><span>◆</span><b>{{ row.field.label }}</b><small>{{ row.field.fieldKey }}</small></button>
-              <button class="remove-tween-button" title="移除整条 Tween 属性轨道及全部 Clip" @click.stop="removeTweenLane(row.track.id)">×</button>
-            </template>
-          </div>
-        </div>
-      </div>
-      <div class="timeline-content">
-        <div class="timeline-content-heading">
-          <div class="timeline-track-heading"><span>属性轨道</span><small>选择控件后点击左侧 ＋ 添加 Tweenable 字段</small></div>
-          <div class="timeline-heading-controls"><span class="space-play-hint"><kbd>Space</kbd> 播放 / 暂停</span><button class="timeline-snap-toggle" :class="{ active: timelineSnapEnabled }" :aria-pressed="timelineSnapEnabled" aria-label="Clip 吸附" title="拖动 Clip 或两端时，吸附到其他 Clip 边界、播放头和序列首尾" @click="toggleTimelineSnapping"><EditorIcon name="magnet" :size="15" />吸附</button><label class="sequence-duration-control"><span>序列时长</span><ScrubbableNumberInput :model-value="duration" :min="0.5" :step="0.5" :scrub-speed="0.05" @update:model-value="updateSequenceDuration" /><i>秒</i></label></div>
-        </div>
-        <div class="time-ruler" title="点击或拖动时间标尺调整播放进度" @pointerdown="startTimelineScrub"><span v-for="tick in timeTicks" :key="tick" :style="{ left: `${(tick / duration) * 100}%` }">{{ tick.toFixed(1) }}s</span></div>
-        <div ref="timelineContent" class="timeline-lanes" :class="{ scrubbing: timelineScrubbing }" @pointerdown="startTimelineScrub" @scroll="syncTimelineScroll('content')">
-          <div v-if="timelineSnapTime !== null" class="timeline-snap-guide" :style="timelineGuideStyle(timelineSnapTime)" aria-hidden="true"><span>{{ timelineSnapTime.toFixed(3) }}s</span></div>
-          <div class="playhead" :class="{ scrubbing: timelineScrubbing }" :style="timelineGuideStyle(currentTime)" title="拖动播放头预览动画" role="slider" aria-label="时间轴播放进度" aria-valuemin="0" :aria-valuemax="duration" :aria-valuenow="currentTime" tabindex="0" @pointerdown.stop="startTimelineScrub" @keydown.left.prevent="nudgeTimelineProgress(-1)" @keydown.right.prevent="nudgeTimelineProgress(1)" @keydown.home.prevent="rewindPlayback" @keydown.end.prevent="currentTime = duration"><i></i></div>
-          <div class="playhead-line" :style="timelineGuideStyle(currentTime)" aria-hidden="true"></div>
-          <div v-for="row in timelineRows" :key="row.key" class="track-lane" :class="[`lane-${row.kind}`, { selected: row.kind === 'node' ? row.node.id === selectedId : isTweenRowSelected(row) }]" @contextmenu="openTimelineContextMenu($event, row)" @keydown.shift.f10.stop.prevent="openTimelineContextMenu($event, row)">
-            <template v-if="row.kind === 'node'"><span v-if="row.trackCount === 0 && row.node.id === selectedId" class="empty-track-hint">点击左侧 ＋ 添加 Tween</span></template>
-            <template v-else><div v-for="clip in row.tracks" :key="clip.id" class="tween-clip" :class="{ 'selected-clip': clip.id === selectedTweenTrackId, dragging: clip.id === draggingTweenTrackId, 'resizing-start': clip.id === draggingTweenTrackId && resizingTweenEdge === 'start', 'resizing-end': clip.id === draggingTweenTrackId && resizingTweenEdge === 'end' }" :style="tweenTrackStyle(clip)" :title="`${row.field.fieldKey} · ${clip.startTime}s – ${roundTweenTime(clip.startTime + clip.duration)}s · 右键添加或删除 Clip`" role="button" aria-haspopup="menu" :aria-expanded="timelineContextMenu?.clipId === clip.id" tabindex="0" @contextmenu.stop="openTimelineContextMenu($event, row, clip)" @keydown.shift.f10.stop.prevent="openTimelineContextMenu($event, row, clip)" @keydown.enter.stop.prevent="selectTweenTrack(row, clip)" @pointerdown.stop="startTweenClipDrag($event, { ...row, track: clip })"><i class="tween-edge-handle edge-start" title="拖动起点" @pointerdown.stop="startTweenEdgeDrag($event, { ...row, track: clip }, 'start')"></i><span>{{ row.field.fieldKey }}</span><i class="tween-edge-handle edge-end" title="拖动终点" @pointerdown.stop="startTweenEdgeDrag($event, { ...row, track: clip }, 'end')"></i></div></template>
-          </div>
-        </div>
-      </div>
-      <div class="timeline-settings">
-        <div class="timeline-settings-heading"><span>{{ selectedTweenTrack ? 'TWEEN' : 'TIMELINE' }}</span><b>{{ selectedTweenField?.fieldKey ?? '未选择属性' }}</b></div>
-        <p v-if="timelineEditNotice" class="tween-value-note" role="status">{{ timelineEditNotice }}</p>
-        <div v-if="selectedTweenTrack && selectedTweenField && selectedTweenNode" class="tween-settings-editor">
-          <div class="selected-tween-summary"><b>{{ selectedTweenField.label }}</b><span>{{ selectedTweenNode.name }}</span><small>{{ selectedTweenField.fieldKey }}</small></div>
-          <p class="tween-value-note">Ctrl+C 复制 Clip，Ctrl+V 在当前播放头位置粘贴到原属性轨道。</p>
-          <div class="tween-time-grid">
-            <label>开始时间<div><ScrubbableNumberInput :model-value="selectedTweenTrack.startTime" :min="getTweenClipBounds(selectedTweenTrack, tweenTracks, duration).minStart" :max="getTweenClipBounds(selectedTweenTrack, tweenTracks, duration).maxEnd - selectedTweenTrack.duration" :step="0.01" @update:model-value="updateTweenTiming('startTime', $event)" /><span>秒</span></div></label>
-            <label>持续时间<div><ScrubbableNumberInput :model-value="selectedTweenTrack.duration" :min="0.01" :max="getTweenClipBounds(selectedTweenTrack, tweenTracks, duration).maxEnd - selectedTweenTrack.startTime" :step="0.01" @update:model-value="updateTweenTiming('duration', $event)" /><span>秒</span></div></label>
-          </div>
-          <label class="tween-ease-field">缓动类型<select v-model="selectedTweenTrack.easeType"><option v-for="ease in tweenEaseOptions" :key="ease.value" :value="ease.value">{{ ease.label }} · {{ ease.value }}</option></select></label>
-          <button v-if="isRelativeTweenField(selectedTweenField.fieldKey)" class="tween-relative-toggle" :class="{ active: selectedTweenTrack.relative === true }" role="switch" :aria-checked="selectedTweenTrack.relative === true" :aria-label="getTweenRelativeLabel(selectedTweenField.fieldKey)" @click="updateTweenRelative(selectedTweenTrack.relative !== true)"><span>{{ getTweenRelativeLabel(selectedTweenField.fieldKey) }}</span><b>{{ selectedTweenTrack.relative ? '开启' : '关闭' }}</b></button>
-          <template v-if="selectedTweenField.valueKind === 'number'">
-            <label class="tween-value-field">{{ selectedTweenTrack.relative && isRelativeTweenField(selectedTweenField.fieldKey) ? '初始增量' : '初始值' }}<ScrubbableNumberInput :model-value="tweenNumberValue('initialValue')" :step="selectedTweenField.step ?? 0.01" :min="selectedTweenField.min" :max="selectedTweenField.max" :scrub-speed="selectedTweenField.scrubSpeed" allow-empty placeholder="未设置" @update:model-value="updateTweenNumberValue('initialValue', $event)" /></label>
-            <label class="tween-value-field">{{ selectedTweenTrack.relative && isRelativeTweenField(selectedTweenField.fieldKey) ? '结束增量' : '结束值' }}<ScrubbableNumberInput :model-value="tweenNumberValue('endValue')" :step="selectedTweenField.step ?? 0.01" :min="selectedTweenField.min" :max="selectedTweenField.max" :scrub-speed="selectedTweenField.scrubSpeed" allow-empty placeholder="未设置" @update:model-value="updateTweenNumberValue('endValue', $event)" /></label>
-          </template>
-          <template v-else>
-            <ColorRGBAField :model-value="tweenColorValue('initialValue')" label="初始值" @update:model-value="updateTweenColorValue('initialValue', $event)" />
-            <ColorRGBAField :model-value="tweenColorValue('endValue')" label="结束值" @update:model-value="updateTweenColorValue('endValue', $event)" />
-          </template>
-          <p v-if="tweenTrackConflicts.has(selectedTweenTrack.id)" class="tween-value-note tween-conflict-note" role="alert">此轨道在当前完整时间轴的预览中暂不生效：{{ tweenTrackConflicts.get(selectedTweenTrack.id) }}</p>
-          <p class="tween-value-note">{{ selectedTweenTrack.relative && isRelativeTweenField(selectedTweenField.fieldKey) ? '实际值 = 本段基准 + 增量（加法）。首段取控件基础值，后续段取同一属性前一 Clip 的结束值；空档保持结束状态。切换模式自动换算首尾值。' : selectedTweenField.description ?? '首尾值使用运行时 API 的真实字段值（绝对值），每段独立设置。空档保持上一 Clip 的结束值。' }}</p>
-        </div>
-      </div>
+      <KeyframeTimeline :key="`${keyframeDocumentEpoch}:${activeAnimationId}`" :nodes="timelineNodes" :tracks="keyframeTracks" :selected-node-id="selectedId" :selected-keyframe-id="selectedKeyframeId" :current-time="currentTime" :duration="duration" :playing="playing" :snap-enabled="timelineSnapEnabled" :animation-name="activeAnimation.name"
+        @select-node="selectKeyframeNode" @add-track="openKeyframeFieldPicker" @select-keyframe="selectKeyframe"
+        @seek="seekKeyframeTime" @update-duration="updateKeyframeDuration" @toggle-play="togglePlayback" @toggle-snap="toggleTimelineSnapping" @rewind="rewindPlayback"
+        @upsert-keyframe="insertKeyframeAtTime" @move-keyframe="moveKeyframe" @update-keyframe="updateKeyframe"
+        @remove-keyframe="removeKeyframe" @remove-track="removeKeyframeTrack"
+        @begin-edit="editorHistory.begin('keyframe')" @end-edit="editorHistory.end('keyframe')" />
+      <p v-if="timelineEditNotice" class="keyframe-notice" role="status">{{ timelineEditNotice }}</p>
     </section>
 
     <TimelineContextMenu :target="timelineContextMenu" @create="createTimelineContextClip" @delete-clip="deleteTimelineContextClip" @delete="deleteTimelineContextTrack" @close="closeTimelineContextMenu" />
@@ -246,7 +210,7 @@
           <section v-for="group in tweenFieldPickerGroups" :key="group.key" class="tween-field-picker-group">
             <header><div><b>{{ group.title }}</b><small>{{ group.description }}</small></div><em>{{ group.fields.length }} 项</em></header>
             <div class="tween-field-picker-grid">
-              <button v-for="field in group.fields" :key="field.fieldKey" :disabled="Boolean(tweenFieldConflict(tweenFieldPickerNode, field.fieldKey))" :title="tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) ?? field.description" @click="addTweenTrack(tweenFieldPickerNode, field.fieldKey)">
+              <button v-for="field in group.fields" :key="field.fieldKey" :disabled="Boolean(tweenFieldConflict(tweenFieldPickerNode, field.fieldKey))" :title="tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) ?? field.description" @click="addKeyframeTrack(tweenFieldPickerNode, field.fieldKey)">
                 <span class="parameter-kind" :class="`kind-${field.valueKind}`">{{ field.valueKind === 'color' ? '颜色' : '数值' }}</span>
                 <b>{{ field.label }}</b>
                 <code>{{ field.fieldKey }}</code>
@@ -266,6 +230,7 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
+import { toast } from "vue-sonner";
 import type { StorageClass } from "@/services/storage/storage";
 import ClientUIWorkspacePanel from "./ClientUIWorkspacePanel.vue";
 import ClientUIArchiveActionDialog from "./ClientUIArchiveActionDialog.vue";
@@ -279,6 +244,17 @@ import PreviewPresetSelect from "./PreviewPresetSelect.vue";
 import PropertyActionsMenu from "./PropertyActionsMenu.vue";
 import TimelineContextMenu from "./TimelineContextMenu.vue";
 import TimelineDataImportDialog from "./TimelineDataImportDialog.vue";
+import ContainerDirectionGuide from "./ContainerDirectionGuide.vue";
+import EditorHistoryPanel from "./EditorHistoryPanel.vue";
+import KeyframeTimeline from "./KeyframeTimeline.vue";
+import type { UIAnimation, UIKeyframe, UIKeyframeTrack } from "./types";
+import AnimationListPanel from "./AnimationListPanel.vue";
+import { normalizeAnimationCollection, uniqueAnimationName } from "./animationCollection";
+import { evaluateKeyframeTrack, resolveKeyframeTrack, migrateTweenClipsToKeyframes, normalizeKeyframeTracks } from "./keyframeTimeline";
+import { buildKeyframeTimelineDataLua, prepareKeyframeTimelineImport } from "./keyframeLua";
+import { createEditorHistory } from "./editorHistory";
+import { describeHistoryChange } from "./historyChangeLabel";
+import { MAX_DIRECTION_ARROW_LENGTH, normalizeDirectionArrowLength, containerDirectionGuideStyle } from "./containerDirectionGuide";
 import { prepareTweenTimelineImport } from "./luaTweenImporter";
 import type { TimelineDataImportMode } from "./luaTweenImporter";
 import { capturePropertyGroup, canPastePropertyGroup, pastePropertyGroup, resetPropertyGroup } from "./propertyGroupActions";
@@ -294,7 +270,7 @@ import { snapTweenClip } from "./timelineSnapping";
 import { getTweenClipGap, getTweenClipBounds, tweenClipsOverlap, orderTweenClips, TWEEN_CLIP_TIME_EPSILON } from "./timelineClipLayout";
 import type { TweenClipSnapMode } from "./timelineSnapping";
 import type { TweenableFieldDefinition } from "./tweenRegistry";
-import type { ClientUIBaseControlModel, ColorRGBA, ControlPropertiesMap, ControlType, TweenEaseType, UITweenTrack, UITweenValue, UINode, UINodeOf } from "./types";
+import type { ClientUIBaseControlModel, ColorRGBA, ControlPropertiesMap, ControlType, TweenEaseType, UITweenTrack, UITweenValue, UINode, UINodeOf, UINodeEditorSettings } from "./types";
 
 const PropertySection = defineComponent({
   props: { title: { type: String, required: true }, icon: { type: String, default: "" }, group: { type: String as PropType<PropertyGroup | "">, default: "" } },
@@ -318,7 +294,7 @@ const propertyClipboard = ref<PropertyGroupSnapshot | null>(null);
 const propertyActionFeedback = ref<{ nodeId: string; message: string } | null>(null);
 function switchInspectorTab(tab: "basic" | "runtime") { inspectorTab.value = tab; nextTick(() => editorElement.value?.querySelector<HTMLButtonElement>(`#inspector-${tab}-tab`)?.focus()); }
 function controlIconName(type: ControlType) { return type === "text" || type === "textWindow" ? "text" : type === "image" ? "image" : type === "gridScroller" ? "grid" : type === "uiAnimation" || type === "fullscreenAnimation" ? "timeline" : "container"; }
-const NumberField = defineComponent({ props: { modelValue: { type: Number, required: true }, axis: { type: String, required: true }, label: { type: String, default: "" }, step: { type: Number, default: 1 }, min: { type: Number as PropType<number | undefined>, default: undefined }, max: { type: Number as PropType<number | undefined>, default: undefined }, scrubSpeed: { type: Number as PropType<number | undefined>, default: undefined } }, emits: ["update:modelValue"], setup(props, { emit }) { return () => h("label", { class: "number-field" }, [h("span", { class: "field-label" }, props.label), h("div", [h("b", { class: `axis axis-${props.axis.toLowerCase()}` }, props.axis), h(ScrubbableNumberInput, { modelValue: props.modelValue, step: props.step, min: props.min, max: props.max, scrubSpeed: props.scrubSpeed, "onUpdate:modelValue": (value: number | null) => { if (value !== null) emit("update:modelValue", value); } })])]); } });
+const NumberField = defineComponent({ props: { animated: { type: Boolean, default: false }, modelValue: { type: Number, required: true }, axis: { type: String, required: true }, label: { type: String, default: "" }, step: { type: Number, default: 1 }, min: { type: Number as PropType<number | undefined>, default: undefined }, max: { type: Number as PropType<number | undefined>, default: undefined }, scrubSpeed: { type: Number as PropType<number | undefined>, default: undefined } }, emits: ["update:modelValue"], setup(props, { emit }) { return () => h("label", { class: ["number-field", { "animated-number-field": props.animated }] }, [h("span", { class: "field-label" }, props.label), h("div", [h("b", { class: `axis axis-${props.axis.toLowerCase()}` }, props.axis), h(ScrubbableNumberInput, { modelValue: props.modelValue, animated: props.animated, step: props.step, min: props.min, max: props.max, scrubSpeed: props.scrubSpeed, "onUpdate:modelValue": (value: number | null) => { if (value !== null) emit("update:modelValue", value); } })])]); } });
 type AnchorValues = Pick<UINode, "anchorMinX" | "anchorMinY" | "anchorMaxX" | "anchorMaxY" | "pivotX" | "pivotY">;
 const AnchorVisual = defineComponent({ props: { values: { type: Object as PropType<AnchorValues>, required: true } }, setup(props) { return () => h("span", { class: "anchor-visual", style: anchorVisualStyle(props.values) }, [h("span", { class: "anchor-bounds" }), h("i", { class: "anchor-dot anchor-dot-bl" }), h("i", { class: "anchor-dot anchor-dot-br" }), h("i", { class: "anchor-dot anchor-dot-tl" }), h("i", { class: "anchor-dot anchor-dot-tr" }), h("b", { class: "pivot-mark" }, "✦")]); } });
 
@@ -334,20 +310,21 @@ const createId = () => `node_${Date.now().toString(36)}_${Math.random().toString
 const createTweenId = () => `tween_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 const MIN_TWEEN_DURATION = 0.01;
 const DEFAULT_TWEEN_DURATION = 1;
-const TIMELINE_MODEL_VERSION = 9;
+const TIMELINE_MODEL_VERSION = 10;
 function colorFromHex(hex: string, alpha = 1): ColorRGBA { const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : "ffffff"; return { r: Number.parseInt(normalized.slice(0, 2), 16), g: Number.parseInt(normalized.slice(2, 4), 16), b: Number.parseInt(normalized.slice(4, 6), 16), a: clamp01(alpha) }; }
 function colorToCss(color: ColorRGBA, alphaMultiplier = 1) { return `rgba(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)}, ${clamp01(color.a * alphaMultiplier)})`; }
-type NodeOverrides<T extends ControlType> = Partial<ClientUIBaseControlModel> & { properties?: Partial<ControlPropertiesMap[T]> };
+type NodeOverrides<T extends ControlType> = Partial<ClientUIBaseControlModel> & { properties?: Partial<ControlPropertiesMap[T]>; editor?: UINodeEditorSettings | null };
 function makeNode(type: "container", name: string, overrides?: NodeOverrides<"container">): UINodeOf<"container">;
 function makeNode(type: "image", name: string, overrides?: NodeOverrides<"image">): UINodeOf<"image">;
 function makeNode(type: "text", name: string, overrides?: NodeOverrides<"text">): UINodeOf<"text">;
 function makeNode(type: ControlType, name: string, overrides?: NodeOverrides<ControlType>): UINode;
 function makeNode(type: ControlType, name: string, overrides: NodeOverrides<ControlType> = {}): UINode {
   const definition = getControlDefinition(type);
-  const { properties: propertyOverrides, ...baseOverrides } = overrides;
+  const { properties: propertyOverrides, editor: editorOverrides, ...baseOverrides } = overrides;
   const defaultWidth = definition.defaultWidth;
   const defaultHeight = definition.defaultHeight;
   const node = { id: createId(), parentId: null, name, type, active: true, x: DEFAULT_CANVAS_WIDTH / 2, y: DEFAULT_CANVAS_HEIGHT / 2, width: defaultWidth, height: defaultHeight, scaleX: 1, scaleY: 1, scaleZ: 1, rotationX: 0, rotationY: 0, rotation: 0, anchorMinX: 0.5, anchorMinY: 0.5, anchorMaxX: 0.5, anchorMaxY: 0.5, pivotX: 0.5, pivotY: 0.5, anchorOffsetX: 0, anchorOffsetY: 0, sizeDeltaX: defaultWidth, sizeDeltaY: defaultHeight, canControllerFocus: false, visible: true, locked: false, properties: { ...createControlProperties(type), ...propertyOverrides }, ...baseOverrides } as UINode;
+  if (type === "container") node.editor = { directionArrowLength: normalizeDirectionArrowLength(editorOverrides?.directionArrowLength) };
   const anchorRefX = ((1 - node.pivotX) * node.anchorMinX + node.pivotX * node.anchorMaxX) * DEFAULT_CANVAS_WIDTH;
   const anchorRefY = ((1 - node.pivotY) * node.anchorMinY + node.pivotY * node.anchorMaxY) * DEFAULT_CANVAS_HEIGHT;
   if (!Number.isFinite(overrides.anchorOffsetX)) node.anchorOffsetX = node.x - anchorRefX;
@@ -412,9 +389,19 @@ const previewPresets: Record<DeviceMode, PreviewPreset[]> = {
   ],
 };
 const previewPresetGroups = deviceModes.map((device) => ({ id: device.id, label: device.label, presets: previewPresets[device.id] }));
-const projectName = ref("Untitled UI Animation"); const deviceMode = ref<DeviceMode>("pc"); const previewPresetId = ref("pc-16-9"); const canvasWidth = ref(1600); const canvasHeight = ref(900); const zoom = ref(0.55); const panX = ref(0); const panY = ref(0); const isPanning = ref(false); const selectedId = ref<string | null>(nodes.value[0].id); const search = ref(""); const collapsed = ref(new Set<string>()); const addMenuOpen = ref(false); const anchorMenuOpen = ref(false); const luaExportMenuOpen = ref(false); const tweenFieldPickerNodeId = ref<string | null>(null); const tweenFieldSearch = ref(""); const fileInput = ref<HTMLInputElement | null>(null); const giaFileInput = ref<HTMLInputElement | null>(null); const giaImportStatus = ref(""); const currentTime = ref(0); const duration = ref(5); const frameRate = ref<30 | 60>(30); const playing = ref(false); const tweenTracks = ref<UITweenTrack[]>([]); const selectedTweenTrackId = ref<string | null>(null); const draggingTweenTrackId = ref<string | null>(null); const resizingTweenEdge = ref<"start" | "end" | null>(null); const timelineContent = ref<HTMLElement | null>(null); const timelineTrackNames = ref<HTMLElement | null>(null); const timelinePanel = ref<HTMLElement | null>(null); const editorElement = ref<HTMLElement | null>(null); const viewportElement = ref<HTMLElement | null>(null); const hierarchyTree = ref<HTMLElement | null>(null); const cursorPosition = ref({ x: 0, y: 0 }); const timelineHeight = ref<number | null>(null); const timelineResizing = ref(false); const timelineScrubbing = ref(false); const editorHeight = ref(0);
+const projectName = ref("Untitled UI Animation"); const deviceMode = ref<DeviceMode>("pc"); const previewPresetId = ref("pc-16-9"); const canvasWidth = ref(1600); const canvasHeight = ref(900); const zoom = ref(0.55); const panX = ref(0); const panY = ref(0); const isPanning = ref(false); const selectedId = ref<string | null>(nodes.value[0].id); const search = ref(""); const collapsed = ref(new Set<string>()); const addMenuOpen = ref(false); const anchorMenuOpen = ref(false); const luaExportMenuOpen = ref(false); const tweenFieldPickerNodeId = ref<string | null>(null); const tweenFieldSearch = ref(""); const fileInput = ref<HTMLInputElement | null>(null); const giaFileInput = ref<HTMLInputElement | null>(null); const giaImportStatus = ref(""); const currentTime = ref(0); const duration = computed({ get: () => activeAnimation.value.duration, set: (value: number) => { activeAnimation.value.duration = value; } }); const frameRate = ref<30 | 60>(30); const playing = ref(false); const tweenTracks = ref<UITweenTrack[]>([]); const selectedTweenTrackId = ref<string | null>(null); const draggingTweenTrackId = ref<string | null>(null); const resizingTweenEdge = ref<"start" | "end" | null>(null); const timelineContent = ref<HTMLElement | null>(null); const timelineTrackNames = ref<HTMLElement | null>(null); const timelinePanel = ref<HTMLElement | null>(null); const editorElement = ref<HTMLElement | null>(null); const viewportElement = ref<HTMLElement | null>(null); const hierarchyTree = ref<HTMLElement | null>(null); const cursorPosition = ref({ x: 0, y: 0 }); const timelineHeight = ref<number | null>(null); const timelineResizing = ref(false); const timelineScrubbing = ref(false); const editorHeight = ref(0);
+const animations = ref<UIAnimation[]>([{ id: "animation-default", name: "默认动画", duration: 5, keyframeTracks: [] }]);
+const activeAnimationId = ref("animation-default");
+const activeAnimation = computed(() => animations.value.find(animation => animation.id === activeAnimationId.value) ?? animations.value[0]);
+const keyframeTracks = computed({ get: () => activeAnimation.value.keyframeTracks, set: (value: UIKeyframeTrack[]) => { activeAnimation.value.keyframeTracks = value; } });
+const animationNotice = ref("");
+const animationsPanelCollapsed = ref(false);
+const selectedKeyframeId = ref<string | null>(null);
+const keyframeDocumentEpoch = ref(0);
 const workspacePanelOpen = ref(false);
 const timelineSnapEnabled = ref(true);
+const showContainerBones = ref(true);
+const historyPanelOpen = ref(false);
 const timelineSnapTime = ref<number | null>(null);
 const timelineEditNotice = ref("");
 // Editor-local snapshot: never serialize it or carry node references into another document.
@@ -423,9 +410,9 @@ const timelineDataImportOpen = ref(false);
 const timelineDataSource = ref("");
 const timelineDataRootId = ref("");
 const timelineDataImportMode = ref<TimelineDataImportMode>("append");
-const timelineDataImportPreview = computed(() => !timelineDataImportOpen.value || !timelineDataSource.value.trim() ? null : prepareTweenTimelineImport({
+const timelineDataImportPreview = computed(() => !timelineDataImportOpen.value || !timelineDataSource.value.trim() ? null : prepareKeyframeTimelineImport({
   source: timelineDataSource.value, rootNodeId: timelineDataRootId.value, nodes: nodes.value,
-  existingTracks: tweenTracks.value, mode: timelineDataImportMode.value, sequenceDuration: sequenceDurationValue(),
+  existingTracks: keyframeTracks.value, mode: timelineDataImportMode.value, sequenceDuration: sequenceDurationValue(),
 }));
 const timelineDataImportSummary = computed(() => {
   const result = timelineDataImportPreview.value;
@@ -471,6 +458,20 @@ type TimelineRow = TimelineNodeRow | TimelineTweenRow;
 const timelineContextMenu = ref<{ trackId: string; clipId: string | null; label: string; x: number; y: number; time: number; canCreate: boolean; createHint: string } | null>(null);
 let timelineContextReturnFocus: HTMLElement | null = null;
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedId.value) ?? null); const renderNodes = computed(() => getCanvasRenderOrder().filter(isVisibleInHierarchy)); const timelineNodes = computed(() => getHierarchyOrder());
+const selectedDirectionArrowLength = computed(() => normalizeDirectionArrowLength(selectedNode.value?.editor?.directionArrowLength));
+const renderContainerDirections = computed(() => {
+  if (!showContainerBones.value) return [];
+  return renderNodes.value.filter((node) => node.type === "container").map((node) => {
+    const displayNode = previewNode(node);
+    const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) };
+    return { id: node.id, length: normalizeDirectionArrowLength(node.editor?.directionArrowLength), style: containerDirectionGuideStyle(world, canvasHeight.value) };
+  }).filter((guide) => guide.length > 0);
+});
+function updateDirectionArrowLength(value: number | null) {
+  const node = selectedNode.value;
+  if (!node || node.type !== "container" || typeof value !== "number" || !Number.isFinite(value)) return;
+  node.editor = { ...node.editor, directionArrowLength: normalizeDirectionArrowLength(value) };
+}
 const timelineRows = computed<TimelineRow[]>(() => {
   const rows: TimelineRow[] = [];
   for (const node of timelineNodes.value) {
@@ -511,9 +512,11 @@ const tweenTrackConflicts = computed(() => {
   }
   return conflicts;
 });
-const previewNodes = computed(() => buildTweenPreviewNodes(currentTime.value));
+const previewNodes = computed(() => keyframeTracks.value.length ? buildKeyframePreviewNodes(currentTime.value) : buildTweenPreviewNodes(currentTime.value));
+const inspectorNode = computed(() => selectedNode.value ? previewNode(selectedNode.value) : null);
+const animatedPropertyFields = computed(() => keyframeTracks.value.filter(track => track.nodeId === selectedId.value && track.keyframes.length).map(track => track.fieldKey));
 const previewNodeMap = computed(() => new Map(previewNodes.value.map((node) => [node.id, node])));
-const automaticTimelineHeight = computed(() => Math.min(320, Math.max(210, 80 + timelineRows.value.length * 33)));
+const automaticTimelineHeight = computed(() => Math.min(320, Math.max(210, 80 + (timelineNodes.value.length + keyframeTracks.value.length) * 33)));
 const timelineMaximumHeight = computed(() => editorHeight.value > 0 ? Math.max(MIN_TIMELINE_HEIGHT, editorHeight.value - EDITOR_TOOLBAR_HEIGHT - MIN_EDITOR_BODY_HEIGHT) : 520);
 const resolvedTimelineHeight = computed(() => Math.min(timelineMaximumHeight.value, Math.max(MIN_TIMELINE_HEIGHT, timelineHeight.value ?? automaticTimelineHeight.value)));
 const editorStyle = computed<CSSProperties>(() => ({ "--timeline-height": `${resolvedTimelineHeight.value}px` } as CSSProperties));
@@ -531,7 +534,20 @@ const tweenFieldPickerGroups = computed(() => {
     { key: "control", title: controlLabels[node.type], description: selectedTweenPickerDefinition.value.runtimeClass, fields: fields.filter((field) => field.source === "properties") },
   ].filter((group) => group.fields.length > 0);
 });
-const selectedProperties = computed<Record<string, unknown>>({ get: () => selectedNode.value ? selectedNode.value.properties as unknown as Record<string, unknown> : {}, set: (value) => { const node = selectedNode.value; if (node) (node as unknown as { properties: Record<string, unknown> }).properties = value; } });
+const selectedProperties = computed<Record<string, unknown>>({
+  get: () => inspectorNode.value ? inspectorNode.value.properties as unknown as Record<string, unknown> : {},
+  set: (value) => {
+    const node = selectedNode.value;
+    if (!node) return;
+    const displayed = selectedProperties.value;
+    for (const [key, next] of Object.entries(value)) {
+      if (JSON.stringify(displayed[key]) === JSON.stringify(next)) continue;
+      const field = getTweenableField(node.type, key);
+      if (field && hasAnimatedField(key)) writeAnimatedValue(node, key, next as UITweenValue);
+      else (node.properties as unknown as Record<string, unknown>)[key] = next;
+    }
+  },
+});
 const selectedImageAsset = computed(() => selectedNode.value?.type === "image" ? getImageAsset(selectedNode.value.properties.imageId) : null);
 const rootContainer = computed(() => nodes.value.find((node) => node.type === "container" && node.parentId === null) ?? nodes.value.find((node) => node.type === "container") ?? null);
 const draggedHierarchyNode = computed(() => nodes.value.find((node) => node.id === hierarchyDrag.value.nodeId) ?? null);
@@ -542,22 +558,22 @@ function transformVector(matrix: Matrix2D, x: number, y: number) { return { x: m
 function calculateWorldTransforms(sourceNodes: UINode[]) { const result = new Map<string, WorldTransform>(); const resolving = new Set<string>(); const nodeMap = new Map(sourceNodes.map((node) => [node.id, node])); const resolve = (node: UINode): WorldTransform => { const cached = result.get(node.id); if (cached) return cached; const local = localMatrix(node); const parent = node.parentId ? nodeMap.get(node.parentId) : null; if (!parent || resolving.has(node.id)) { const root = { x: node.x, y: node.y, matrix: local }; result.set(node.id, root); return root; } resolving.add(node.id); const parentWorld = resolve(parent); resolving.delete(node.id); const offset = transformVector(parentWorld.matrix, node.x - parent.pivotX * parent.width, node.y - parent.pivotY * parent.height); const world = { x: parentWorld.x + offset.x, y: parentWorld.y + offset.y, matrix: multiplyMatrix(parentWorld.matrix, local) }; result.set(node.id, world); return world; }; sourceNodes.forEach(resolve); return result; }
 const worldTransforms = computed(() => calculateWorldTransforms(nodes.value));
 const previewWorldTransforms = computed(() => calculateWorldTransforms(previewNodes.value));
-const selectedWorldPosition = computed(() => { const node = selectedNode.value; if (!node) return { x: 0, y: 0 }; const world = worldTransforms.value.get(node.id); return { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; });
-const selectedRuntimeLayoutValues = computed(() => selectedNode.value ? getRuntimeLayoutValues(selectedNode.value) : { anchoredPositionX: 0, anchoredPositionY: 0, sizeDeltaX: 0, sizeDeltaY: 0 });
-const selectedAdditionalRuntimeTweenValues = computed(() => { const node = selectedNode.value; if (!node) return []; return [
+const selectedWorldPosition = computed(() => { const node = selectedNode.value; if (!node) return { x: 0, y: 0 }; const world = previewWorldTransforms.value.get(node.id); return { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; });
+const selectedRuntimeLayoutValues = computed(() => inspectorNode.value ? getRuntimeLayoutValues(inspectorNode.value) : { anchoredPositionX: 0, anchoredPositionY: 0, sizeDeltaX: 0, sizeDeltaY: 0 });
+const selectedAdditionalRuntimeTweenValues = computed(() => { const node = inspectorNode.value; if (!node) return []; return [
   { key: "anchorMinX", value: node.anchorMinX }, { key: "anchorMinY", value: node.anchorMinY },
   { key: "anchorMaxX", value: node.anchorMaxX }, { key: "anchorMaxY", value: node.anchorMaxY },
   { key: "pivotX", value: node.pivotX }, { key: "pivotY", value: node.pivotY },
   { key: "localScaleX", value: node.scaleX }, { key: "localScaleY", value: node.scaleY }, { key: "localScaleZ", value: node.scaleZ },
   { key: "localRotationX", value: node.rotationX }, { key: "localRotationY", value: node.rotationY }, { key: "localRotationZ", value: node.rotation },
 ]; });
-const currentAnchorPresetId = computed(() => { const node = selectedNode.value; if (!node) return "custom"; return anchorPresets.find((preset) => preset.anchorMinX === node.anchorMinX && preset.anchorMinY === node.anchorMinY && preset.anchorMaxX === node.anchorMaxX && preset.anchorMaxY === node.anchorMaxY)?.id ?? "custom"; });
+const currentAnchorPresetId = computed(() => { const node = inspectorNode.value; if (!node) return "custom"; return anchorPresets.find((preset) => preset.anchorMinX === node.anchorMinX && preset.anchorMinY === node.anchorMinY && preset.anchorMaxX === node.anchorMaxX && preset.anchorMaxY === node.anchorMaxY)?.id ?? "custom"; });
 const rulerXTicks = computed(() => Array.from({ length: 9 }, (_, index) => Number((index * canvasWidth.value / 8).toFixed(2)))); const rulerYTicks = computed(() => Array.from({ length: 7 }, (_, index) => Number((canvasHeight.value - index * canvasHeight.value / 6).toFixed(2)))); const timeTicks = computed(() => Array.from({ length: 11 }, (_, index) => duration.value * index / 10)); const stageStyle = computed<CSSProperties>(() => ({ width: `${canvasWidth.value}px`, height: `${canvasHeight.value}px`, left: `calc(50% + ${panX.value}px)`, top: `calc(50% + ${panY.value}px)`, transform: `translate(-50%, -50%) scale(${zoom.value})` }));
 const visibleTree = computed(() => { const result: Array<{ node: UINode; depth: number }> = []; const query = search.value.trim().toLowerCase(); const visit = (parentId: string | null, depth: number) => nodes.value.filter((node) => node.parentId === parentId).forEach((node) => { if (!query || node.name.toLowerCase().includes(query)) result.push({ node, depth }); if (!collapsed.value.has(node.id)) visit(node.id, depth + 1); }); visit(null, 0); return result; });
 function nodeIcon(type: ControlType) { return controlRegistry[type].icon; } function hasChildren(id: string) { return nodes.value.some((node) => node.parentId === id); }
 function isVisibleInHierarchy(node: UINode) { const visited = new Set<string>(); let current: UINode | undefined = node; while (current && !visited.has(current.id)) { if (!current.visible) return false; visited.add(current.id); current = current.parentId ? nodes.value.find((item) => item.id === current?.parentId) : undefined; } return true; }
 function isDescendant(id: string, possibleAncestor: string | null): boolean { let current = nodes.value.find((node) => node.id === id); while (current?.parentId) { if (current.parentId === possibleAncestor) return true; current = nodes.value.find((node) => node.id === current?.parentId); } return false; }
-function toggleCollapsed(id: string) { const next = new Set(collapsed.value); next.has(id) ? next.delete(id) : next.add(id); collapsed.value = next; } function closeMenus() { addMenuOpen.value = false; anchorMenuOpen.value = false; luaExportMenuOpen.value = false; closeTweenFieldPicker(); closeTimelineContextMenu(); }
+function toggleCollapsed(id: string) { const next = new Set(collapsed.value); next.has(id) ? next.delete(id) : next.add(id); collapsed.value = next; } function closeMenus() { historyPanelOpen.value = false; addMenuOpen.value = false; anchorMenuOpen.value = false; luaExportMenuOpen.value = false; closeTweenFieldPicker(); closeTimelineContextMenu(); }
 function clampTimelineHeight(value: number) { return Math.min(timelineMaximumHeight.value, Math.max(MIN_TIMELINE_HEIGHT, Math.round(value))); }
 function resetTimelineHeight() { timelineHeight.value = null; }
 function nudgeTimelineHeight(delta: number) { timelineHeight.value = clampTimelineHeight(resolvedTimelineHeight.value + delta); }
@@ -595,9 +611,306 @@ function startTimelineResize(event: PointerEvent) {
   window.addEventListener("pointerup", cleanup);
   window.addEventListener("pointercancel", cleanup);
 }
-function availableTweenFields(node: UINode) { const used = new Set(tweenTracks.value.filter((track) => track.nodeId === node.id).map((track) => track.fieldKey)); return getTweenableFields(node.type).filter((field) => !used.has(field.fieldKey)); }
-function tweenFieldConflict(node: UINode, fieldKey: string) { return getTweenTrackConflict(node.id, fieldKey, nodes.value, tweenTracks.value); }
-function selectHierarchyNode(node: UINode) { selectedId.value = node.id; selectedTweenTrackId.value = null; closeTweenFieldPicker(); }
+
+/** Keyframes own animation values; the untouched node model remains the relative baseline. */
+function selectAnimation(id: string) {
+  if (!hasOpenDocument.value || !animations.value.some(animation => animation.id === id) || id === activeAnimationId.value) return;
+  finishEditorHistoryInteraction();
+  stopDocumentInteraction();
+  activeAnimationId.value = id;
+  currentTime.value = 0;
+  selectedKeyframeId.value = null;
+  selectedTweenTrackId.value = null;
+  tweenClipClipboard.value = null;
+  animationNotice.value = "";
+  timelineEditNotice.value = "";
+}
+function createAnimation() {
+  if (!hasOpenDocument.value) return;
+  const animation: UIAnimation = { id: createTweenId(), name: uniqueAnimationName(animations.value, "新动画"), duration: 5, keyframeTracks: [] };
+  animations.value.push(animation);
+  selectAnimation(animation.id);
+}
+function duplicateAnimation() {
+  if (!hasOpenDocument.value) return;
+  const source = activeAnimation.value;
+  const animation: UIAnimation = JSON.parse(JSON.stringify(source));
+  animation.id = createTweenId();
+  animation.name = uniqueAnimationName(animations.value, `${source.name.slice(0, 70)} 副本`);
+  animation.keyframeTracks.forEach(track => { track.id = createTweenId(); track.keyframes.forEach(key => { key.id = createTweenId(); }); });
+  animations.value.push(animation);
+  selectAnimation(animation.id);
+}
+function renameAnimation(value: string) {
+  if (!hasOpenDocument.value) return;
+  const name = value.trim();
+  if (!name || name.length > 80 || /[\x00-\x1f]/.test(name) || animations.value.some(animation => animation.id !== activeAnimationId.value && animation.name === name)) {
+    animationNotice.value = "请输入不重复的动画名称（1–80 个字符）。";
+    return;
+  }
+  activeAnimation.value.name = name;
+  animationNotice.value = "";
+}
+function removeAnimation(id: string) {
+  if (!hasOpenDocument.value || animations.value.length <= 1 || !animations.value.some(animation => animation.id === id)) return;
+  if (id === activeAnimationId.value) selectAnimation(animations.value.find(animation => animation.id !== id)!.id);
+  animations.value = animations.value.filter(animation => animation.id !== id);
+}
+function keyframeConflictClips(): UITweenTrack[] {
+  return keyframeTracks.value.map(track => ({ id: track.id, nodeId: track.nodeId, fieldKey: track.fieldKey, startTime: 0, duration: 1, initialValue: 0, endValue: 0, easeType: "Linear" }));
+}
+function hasAnimatedField(fieldKey: string, nodeId = selectedId.value) {
+  return keyframeTracks.value.some(track => track.nodeId === nodeId && track.fieldKey === fieldKey && track.keyframes.length > 0);
+}
+function keyframeBase(track: UIKeyframeTrack): UITweenValue {
+  const node = nodes.value.find(item => item.id === track.nodeId);
+  const field = node ? getTweenableField(node.type, track.fieldKey) : null;
+  return node && field ? readTweenFieldValue(node, field) : null;
+}
+function keyframePreviousValue(track: UIKeyframeTrack, time: number): UITweenValue {
+  const previous = resolveKeyframeTrack(track, keyframeBase(track)).filter(key => key.time < time - 0.000001 && key.value !== null).at(-1);
+  return previous ? cloneTweenValue(previous.value) : keyframeBase(track);
+}
+function selectKeyframeNode(id: string) {
+  const node = nodes.value.find(item => item.id === id);
+  if (node) selectHierarchyNode(node);
+}
+function openKeyframeFieldPicker(id: string) {
+  const node = nodes.value.find(item => item.id === id);
+  if (node) openTweenFieldPicker(node);
+}
+function selectKeyframe(trackId: string, keyId: string) {
+  const track = keyframeTracks.value.find(item => item.id === trackId);
+  const key = track?.keyframes.find(item => item.id === keyId);
+  if (!track || !key) return;
+  selectedId.value = track.nodeId;
+  selectedKeyframeId.value = key.id;
+  selectedTweenTrackId.value = null;
+  seekKeyframeTime(key.time);
+}
+function seekKeyframeTime(time: number) {
+  if (!Number.isFinite(time)) return;
+  playing.value = false;
+  currentTime.value = Math.max(0, Math.min(duration.value, time));
+}
+function addKeyframeTrack(node: UINode, fieldKey: string) {
+  if (hasAnimatedField(fieldKey, node.id) || tweenFieldConflict(node, fieldKey)) return;
+  const field = getTweenableField(node.type, fieldKey);
+  if (!field) return;
+  const value = readTweenFieldValue(previewNode(node), field);
+  const key: UIKeyframe = { id: createTweenId(), time: roundTweenTime(currentTime.value), value: cloneTweenValue(value), easeType: "Linear", interpolation: "tween" };
+  const track: UIKeyframeTrack = { id: createTweenId(), nodeId: node.id, fieldKey, keyframes: [key] };
+  keyframeTracks.value.push(track);
+  selectedId.value = node.id;
+  selectedKeyframeId.value = key.id;
+  playing.value = false;
+  closeTweenFieldPicker();
+  timelineEditNotice.value = "已创建关键帧轨道；修改淡红色参数会在当前播放头位置记录关键帧。";
+}
+function insertKeyframeAtTime(trackId: string, time: number) {
+  const track = keyframeTracks.value.find(item => item.id === trackId);
+  if (!track || !Number.isFinite(time) || time < 0 || time > duration.value) return;
+  const existing = track.keyframes.find(key => Math.abs(key.time - time) <= 0.000001);
+  if (existing) { selectKeyframe(track.id, existing.id); return; }
+  const value = evaluateKeyframeTrack(track, time, keyframeBase(track));
+  const following = resolveKeyframeTrack(track, keyframeBase(track)).find(key => key.time > time + 0.000001);
+  const previous = [...track.keyframes].sort((a, b) => a.time - b.time).filter(key => key.time < time).at(-1);
+  const relative = previous?.relative === true && isRelativeTweenField(track.fieldKey) && typeof value === "number";
+  const basis = keyframePreviousValue(track, time);
+  const key: UIKeyframe = { id: createTweenId(), time: roundTweenTime(time), value: relative && typeof basis === "number" ? value as number - basis : cloneTweenValue(value), relative, easeType: previous?.easeType ?? "Linear", interpolation: previous?.interpolation ?? "tween" };
+  track.keyframes.push(key);
+  track.keyframes.sort((a,b) => a.time - b.time);
+  // Inserting an interpolated key must not add its offset to all later keys twice.
+  if (following && typeof value === "number") {
+    const next = track.keyframes.find(item => item.id === following.id)!;
+    if (next.relative && typeof following.value === "number") next.value = following.value - value;
+    if (next.incomingRelative && typeof following.incomingValue === "number") next.incomingValue = following.incomingValue - value;
+  }
+  selectKeyframe(track.id, key.id);
+}
+function writeAnimatedValue(node: UINode, fieldKey: string, value: UITweenValue) {
+  const field = getTweenableField(node.type, fieldKey);
+  if (!field || value === null || (typeof value === "number" && !Number.isFinite(value))) return;
+  const track = keyframeTracks.value.find(item => item.nodeId === node.id && item.fieldKey === fieldKey);
+  if (!track) {
+    const target = field.source === "base" ? node as unknown as Record<string, unknown> : node.properties as unknown as Record<string, unknown>;
+    if (field.source !== "group") target[field.modelKey] = cloneTweenValue(value);
+    if (field.source === "base") { applyNodeLayout(node); applyDescendantLayouts(node.id); }
+    return;
+  }
+  playing.value = false;
+  const time = roundTweenTime(currentTime.value);
+  let key = track.keyframes.find(item => Math.abs(item.time - time) <= 0.000001);
+  if (!key) {
+    insertKeyframeAtTime(track.id, time);
+    key = track.keyframes.find(item => Math.abs(item.time - time) <= 0.000001);
+  }
+  if (!key) return;
+  const basis = keyframePreviousValue(track, key.time);
+  key.value = key.relative && typeof value === "number" && typeof basis === "number" ? value - basis : cloneTweenValue(value);
+  delete key.incomingValue;
+  delete key.incomingRelative;
+  selectedKeyframeId.value = key.id;
+}
+function updateAnimatedBaseValue(fieldKey: string, value: number | null) {
+  if (selectedNode.value && value !== null) writeAnimatedValue(selectedNode.value, fieldKey, value);
+}
+function tryKeyframeGeometry(field: "x" | "y" | "width" | "height", value: number) {
+  const runtimeField = { x: "anchoredPositionX", y: "anchoredPositionY", width: "sizeDeltaX", height: "sizeDeltaY" }[field];
+  const source = selectedNode.value;
+  // Even an unkeyed child is positioned in its animated parent's current layout.
+  if (!source || !keyframeTracks.value.length || !Number.isFinite(value)) return false;
+  const display = previewNode(source);
+  const parent = display.parentId ? previewNodeMap.value.get(display.parentId) : null;
+  const parentWidth = parent?.width ?? canvasWidth.value, parentHeight = parent?.height ?? canvasHeight.value;
+  if (field === "width" || field === "height") {
+    const span = field === "width" ? (display.anchorMaxX - display.anchorMinX) * parentWidth : (display.anchorMaxY - display.anchorMinY) * parentHeight;
+    writeAnimatedValue(source, runtimeField, Math.max(1, value) - span);
+  } else {
+    const world = previewWorldTransforms.value.get(display.id)!;
+    const x = field === "x" ? value : world.x, y = field === "y" ? value : world.y;
+    const parentWorld = parent ? previewWorldTransforms.value.get(parent.id) : null;
+    const offset = parentWorld ? inverseTransformVector(parentWorld.matrix, x - parentWorld.x, y - parentWorld.y) : { x, y };
+    const localX = offset.x + (parent ? parent.pivotX * parent.width : 0);
+    const localY = offset.y + (parent ? parent.pivotY * parent.height : 0);
+    const referenceX = ((1 - display.pivotX) * display.anchorMinX + display.pivotX * display.anchorMaxX) * parentWidth;
+    const referenceY = ((1 - display.pivotY) * display.anchorMinY + display.pivotY * display.anchorMaxY) * parentHeight;
+    const nextX = roundLayout(localX - referenceX), nextY = roundLayout(localY - referenceY);
+    // Rotated parents couple world X/Y to both local axes. Unkeyed axes retain setup editing.
+    if (Math.abs(nextX - display.anchorOffsetX) > 0.000001) writeAnimatedValue(source, "anchoredPositionX", nextX);
+    if (Math.abs(nextY - display.anchorOffsetY) > 0.000001) writeAnimatedValue(source, "anchoredPositionY", nextY);
+  }
+  return true;
+}
+function startAnimatedCanvasMove(event: PointerEvent, node: UINode) {
+  if (!keyframeTracks.value.length) return false;
+  playing.value = false;
+  const world = previewWorldTransforms.value.get(node.id)!;
+  let movedX = false, movedY = false;
+  pointerDrag(event, (dx, dy) => {
+    if (dx !== 0 || movedX) { movedX = true; updateGeometry("x", roundLayout(world.x + dx)); }
+    if (dy !== 0 || movedY) { movedY = true; updateGeometry("y", roundLayout(world.y - dy)); }
+  });
+  return true;
+}
+function startAnimatedCanvasResize(event: PointerEvent, node: UINode) {
+  if (!keyframeTracks.value.length) return false;
+  selectedId.value = node.id;
+  playing.value = false;
+  const pose = previewNode(node);
+  const world = previewWorldTransforms.value.get(node.id)!;
+  const matrix = world.matrix;
+  let resizedX = false, resizedY = false;
+  pointerDrag(event, (dx, dy) => {
+    const delta = inverseTransformVector(matrix, dx, -dy);
+    const width = delta.x !== 0 || resizedX ? Math.max(20, pose.width + delta.x) : pose.width;
+    const height = delta.y !== 0 || resizedY ? Math.max(20, pose.height - delta.y) : pose.height;
+    if (delta.x !== 0 || resizedX) { resizedX = true; updateGeometry("width", width); }
+    if (delta.y !== 0 || resizedY) { resizedY = true; updateGeometry("height", height); }
+    if (resizedX || resizedY) {
+      // The handle is at bottom-right: keep the opposite corner fixed in world space.
+      const shift = transformVector(matrix, (width - pose.width) * pose.pivotX, -(height - pose.height) * (1 - pose.pivotY));
+      updateGeometry("x", world.x + shift.x);
+      updateGeometry("y", world.y + shift.y);
+    }
+  });
+  return true;
+}
+function moveKeyframe(trackId: string, keyId: string, time: number) {
+  const track = keyframeTracks.value.find(item => item.id === trackId);
+  const key = track?.keyframes.find(item => item.id === keyId);
+  if (!track || !key || !Number.isFinite(time)) return;
+  const next = roundTweenTime(Math.max(0, Math.min(duration.value, time)));
+  if (track.keyframes.some(other => other.id !== key.id && Math.abs(other.time - next) <= 0.000001)) {
+    timelineEditNotice.value = "同一轨道同一时间只能有一个关键帧。";
+    return;
+  }
+  key.time = next;
+  track.keyframes.sort((a,b) => a.time - b.time);
+  selectKeyframe(track.id, key.id);
+}
+function updateKeyframe(trackId: string, keyId: string, patch: Partial<UIKeyframe>) {
+  const track = keyframeTracks.value.find(item => item.id === trackId);
+  const key = track?.keyframes.find(item => item.id === keyId);
+  if (!track || !key) return;
+  if (typeof patch.time === "number") moveKeyframe(trackId, keyId, patch.time);
+  if (typeof patch.relative === "boolean" && isRelativeTweenField(track.fieldKey) && patch.relative !== Boolean(key.relative)) {
+    const actual = evaluateKeyframeTrack(track, key.time, keyframeBase(track));
+    const basis = keyframePreviousValue(track, key.time);
+    if (typeof actual === "number" && typeof basis === "number") {
+      key.value = patch.relative ? actual - basis : actual;
+      key.relative = patch.relative;
+    }
+  }
+  if (patch.value !== undefined && patch.value !== null) {
+    const field = getTweenableField(nodes.value.find(node => node.id === track.nodeId)?.type ?? "container", track.fieldKey);
+    if (field?.valueKind === "number" ? typeof patch.value === "number" && Number.isFinite(patch.value) : Boolean(normalizeColorRGBA(patch.value))) {
+      key.value = cloneTweenValue(patch.value);
+      delete key.incomingValue;
+      delete key.incomingRelative;
+    }
+  }
+  if (patch.easeType && isTweenEaseType(patch.easeType)) key.easeType = patch.easeType;
+  if (patch.interpolation === "tween" || patch.interpolation === "step") key.interpolation = patch.interpolation;
+  playing.value = false;
+}
+function removeKeyframe(trackId: string, keyId: string) {
+  const track = keyframeTracks.value.find(item => item.id === trackId);
+  if (!track) return;
+  track.keyframes = track.keyframes.filter(key => key.id !== keyId);
+  if (!track.keyframes.length) removeKeyframeTrack(trackId);
+  if (selectedKeyframeId.value === keyId) selectedKeyframeId.value = null;
+}
+function removeKeyframeTrack(trackId: string) {
+  keyframeTracks.value = keyframeTracks.value.filter(track => track.id !== trackId);
+  selectedKeyframeId.value = null;
+}
+function updateKeyframeDuration(value: number) {
+  if (!Number.isFinite(value)) return;
+  const last = Math.max(0.5, ...keyframeTracks.value.flatMap(track => track.keyframes.map(key => key.time)));
+  duration.value = Math.max(value, last);
+  currentTime.value = Math.min(currentTime.value, duration.value);
+  timelineEditNotice.value = value < last ? "时长不能短于最后一个关键帧。" : "";
+}
+function buildKeyframePreviewNodes(time: number) {
+  const cloned = nodes.value.map(node => ({ ...node, properties: { ...node.properties } } as UINode));
+  const byId = new Map(cloned.map(node => [node.id, node]));
+  for (const track of keyframeTracks.value) {
+    const node = byId.get(track.nodeId);
+    const field = node ? getTweenableField(node.type, track.fieldKey) : null;
+    if (!node || !field) continue;
+    const value = evaluateKeyframeTrack(track, time, keyframeBase(track));
+    if (value === null) continue;
+    if (field.source === "group" && typeof value === "number") {
+      for (const source of getTweenGroupNodes(node.id, nodes.value)) {
+        const target = byId.get(source.id);
+        if (!target) continue;
+        for (const colorKey of getGroupAlphaColorFields(source.type)) {
+          const base = normalizeColorRGBA((source.properties as unknown as Record<string, unknown>)[colorKey]);
+          if (!base) continue;
+          const baseAlpha = Math.round(base.a * GROUP_ALPHA_MAX);
+          const colorValue = (alpha: UITweenValue): UITweenValue => typeof alpha === "number"
+            ? { ...base, a: Math.round(baseAlpha * Math.max(0, Math.min(GROUP_ALPHA_MAX, alpha)) / GROUP_ALPHA_MAX) / GROUP_ALPHA_MAX }
+            : null;
+          const colorTrack: UIKeyframeTrack = { ...track, fieldKey: colorKey, keyframes: resolveKeyframeTrack(track, keyframeBase(track)).map(key => ({
+            ...key, relative: false, incomingRelative: false, value: colorValue(key.value), incomingValue: colorValue(key.incomingValue),
+          })) };
+          const color = evaluateKeyframeTrack(colorTrack, time, base);
+          if (color !== null) (target.properties as unknown as Record<string, unknown>)[colorKey] = color;
+        }
+      }
+    } else {
+      const target = field.source === "base" ? node as unknown as Record<string, unknown> : node.properties as unknown as Record<string, unknown>;
+      target[field.modelKey] = cloneTweenValue(value);
+    }
+  }
+  getHierarchyOrder().forEach(source => { const node = byId.get(source.id); if (node) applyPreviewNodeLayout(node, byId); });
+  return cloned;
+}
+
+function availableTweenFields(node: UINode) { const used = new Set([...keyframeTracks.value, ...tweenTracks.value].filter(track => track.nodeId === node.id).map(track => track.fieldKey)); return getTweenableFields(node.type).filter((field) => !used.has(field.fieldKey)); }
+function tweenFieldConflict(node: UINode, fieldKey: string) { return getTweenTrackConflict(node.id, fieldKey, nodes.value, [...tweenTracks.value, ...keyframeConflictClips()]); }
+function selectHierarchyNode(node: UINode) { selectedKeyframeId.value = null; selectedId.value = node.id; selectedTweenTrackId.value = null; closeTweenFieldPicker(); }
 function selectTimelineNode(node: UINode) { selectHierarchyNode(node); }
 function openTweenFieldPicker(node: UINode) { selectedId.value = node.id; selectedTweenTrackId.value = null; tweenFieldSearch.value = ""; tweenFieldPickerNodeId.value = node.id; }
 function closeTweenFieldPicker() { tweenFieldPickerNodeId.value = null; tweenFieldSearch.value = ""; }
@@ -969,7 +1282,7 @@ function startTweenTimingDrag(event: PointerEvent, row: TimelineTweenRow, mode: 
 let syncingTimelineScroll = false;
 function syncTimelineScroll(source: "names" | "content") { if (syncingTimelineScroll) return; const from = source === "names" ? timelineTrackNames.value : timelineContent.value; const to = source === "names" ? timelineContent.value : timelineTrackNames.value; if (!from || !to || Math.abs(to.scrollTop - from.scrollTop) < 1) return; syncingTimelineScroll = true; to.scrollTop = from.scrollTop; requestAnimationFrame(() => { syncingTimelineScroll = false; }); }
 function addNode(type: ControlType) { let root = rootContainer.value; if (!root) { root = makeNode("container", "Default_UI", { width: 1120, height: 620 }); nodes.value.unshift(root); rebaseNodeLayout(root); } const parent = selectedNode.value ?? root; const count = nodes.value.filter((node) => node.type === type).length + 1; const node = makeNode(type, `${controlLabels[type]}_${count}`, { parentId: parent.id, x: parent.width / 2 + (count - 2) * 40, y: parent.height / 2 - (count - 2) * 30 }); rebaseNodeLayout(node); nodes.value.push(node); selectedId.value = node.id; addMenuOpen.value = false; }
-function removeSelected() { if (!selectedId.value || selectedId.value === rootContainer.value?.id) return; const remove = new Set<string>([selectedId.value]); let changed = true; while (changed) { changed = false; nodes.value.forEach((node) => { if (node.parentId && remove.has(node.parentId) && !remove.has(node.id)) { remove.add(node.id); changed = true; } }); } nodes.value = nodes.value.filter((node) => !remove.has(node.id)); tweenTracks.value = tweenTracks.value.filter((track) => !remove.has(track.nodeId)); selectedTweenTrackId.value = null; selectedId.value = rootContainer.value?.id ?? null; }
+function removeSelected() { if (!selectedId.value || selectedId.value === rootContainer.value?.id) return; const remove = new Set<string>([selectedId.value]); let changed = true; while (changed) { changed = false; nodes.value.forEach((node) => { if (node.parentId && remove.has(node.parentId) && !remove.has(node.id)) { remove.add(node.id); changed = true; } }); } nodes.value = nodes.value.filter((node) => !remove.has(node.id)); tweenTracks.value = tweenTracks.value.filter((track) => !remove.has(track.nodeId)); animations.value.forEach(animation => { animation.keyframeTracks = animation.keyframeTracks.filter(track => !remove.has(track.nodeId)); }); selectedKeyframeId.value = null; selectedTweenTrackId.value = null; selectedId.value = rootContainer.value?.id ?? null; }
 function anchorVisualStyle(values: AnchorValues): CSSProperties { return { "--anchor-min-x": `${values.anchorMinX * 100}%`, "--anchor-min-y": `${values.anchorMinY * 100}%`, "--anchor-max-x": `${values.anchorMaxX * 100}%`, "--anchor-max-y": `${values.anchorMaxY * 100}%`, "--pivot-x": `${values.pivotX * 100}%`, "--pivot-y": `${values.pivotY * 100}%` } as CSSProperties; }
 function clamp01(value: number) { return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)); }
 function roundLayout(value: number) { return Number(value.toFixed(2)); }
@@ -1016,7 +1329,7 @@ function reportPropertyAction(group: PropertyGroup, action: string) {
   propertyActionFeedback.value = { nodeId: selectedNode.value.id, message: `${action}${propertyGroupLabel(group)}属性` };
 }
 function copySelectedPropertyGroup(group: PropertyGroup) {
-  const node = selectedNode.value;
+  const node = inspectorNode.value;
   if (!node) return;
   const snapshot = capturePropertyGroup(node, group);
   if (!snapshot) return;
@@ -1028,28 +1341,83 @@ function applySelectedPropertyLayout(group: PropertyGroup, node: UINode) {
   applyNodeLayout(node);
   applyDescendantLayouts(node.id);
 }
-function resetSelectedPropertyGroup(group: PropertyGroup) {
-  const node = selectedNode.value;
-  if (!node || !resetPropertyGroup(node, group)) return;
+function commitSelectedPropertyGroup(group: PropertyGroup, node: UINode, before: PropertyGroupSnapshot, after: PropertyGroupSnapshot) {
+  const fields = getTweenableFields(node.type);
+  const changes = Object.entries(after.values)
+    .filter(([key, value]) => JSON.stringify(before.values[key]) !== JSON.stringify(value))
+    .map(([key, value]) => ({ key, value, field: fields.find(field =>
+      group === "transform" ? field.source === "base" && field.modelKey === key : group === "control" && field.source === "properties" && field.modelKey === key) }));
+  // Preflight before mutating anything: a missing setup default cannot become a native keyframe value.
+  for (const change of changes) {
+    if (!change.field || !hasAnimatedField(change.field.fieldKey, node.id)) continue;
+    const valid = change.field.valueKind === "number"
+      ? typeof change.value === "number" && Number.isFinite(change.value)
+      : Boolean(normalizeColorRGBA(change.value));
+    if (!valid) {
+      timelineEditNotice.value = `「${change.field.label}」已加入动画，不能设为未设置或无效值；请先填写有效数值或删除该属性轨道。`;
+      return false;
+    }
+  }
+  // Record first while all relative baselines still refer to the untouched setup model.
+  for (const change of changes) {
+    if (change.field && hasAnimatedField(change.field.fieldKey, node.id)) writeAnimatedValue(node, change.field.fieldKey, change.value as UITweenValue);
+  }
+  const target = group === "control" || group === "image" ? node.properties as unknown as Record<string, unknown> : node as unknown as Record<string, unknown>;
+  for (const change of changes) {
+    if (!change.field || !hasAnimatedField(change.field.fieldKey, node.id)) target[change.key] = change.value;
+  }
   applySelectedPropertyLayout(group, node);
+  return true;
+}
+function stageSelectedPropertyGroup(group: PropertyGroup, action: "reset" | "paste") {
+  const node = selectedNode.value;
+  const display = inspectorNode.value;
+  if (!node || !display) return false;
+  const draft = JSON.parse(JSON.stringify(display)) as UINode;
+  const before = capturePropertyGroup(draft, group);
+  if (!before || !(action === "reset" ? resetPropertyGroup(draft, group) : pastePropertyGroup(draft, group, propertyClipboard.value))) return false;
+  const after = capturePropertyGroup(draft, group);
+  return Boolean(after && commitSelectedPropertyGroup(group, node, before, after));
+}
+function resetSelectedPropertyGroup(group: PropertyGroup) {
+  if (!stageSelectedPropertyGroup(group, "reset")) return;
   reportPropertyAction(group, "已重置");
 }
 function pasteSelectedPropertyGroup(group: PropertyGroup) {
-  const node = selectedNode.value;
-  if (!node || !pastePropertyGroup(node, group, propertyClipboard.value)) return;
-  applySelectedPropertyLayout(group, node);
+  if (!stageSelectedPropertyGroup(group, "paste")) return;
   reportPropertyAction(group, "已粘贴");
 }
 function selectImageAsset(assetId: number) { const node = selectedNode.value; const asset = getImageAsset(assetId); if (!node || node.type !== "image" || !asset) return; node.properties.imageId = asset.id; }
 function resetSelectedImageSize() { const node = selectedNode.value; const asset = node?.type === "image" ? getImageAsset(node.properties.imageId) : null; if (!node || !asset) return; updateGeometry("width", asset.defaultWidth); updateGeometry("height", asset.defaultHeight); }
-function updateGeometry(field: "x" | "y" | "width" | "height", value: number) { const node = selectedNode.value; if (!node || !Number.isFinite(value)) return; if (field === "x" || field === "y") { const currentWorld = worldTransforms.value.get(node.id) ?? { x: node.x, y: node.y, matrix: localMatrix(node) }; const targetWorldX = field === "x" ? value : currentWorld.x; const targetWorldY = field === "y" ? value : currentWorld.y; const parent = getLayoutParent(node); if (parent) { const parentWorld = worldTransforms.value.get(parent.id) ?? { x: parent.x, y: parent.y, matrix: localMatrix(parent) }; const localOffset = inverseTransformVector(parentWorld.matrix, targetWorldX - parentWorld.x, targetWorldY - parentWorld.y); node.x = roundLayout(parent.pivotX * parent.width + localOffset.x); node.y = roundLayout(parent.pivotY * parent.height + localOffset.y); } else { node.x = roundLayout(targetWorldX); node.y = roundLayout(targetWorldY); } rebaseNodeLayout(node); return; } node[field] = Math.max(1, value); rebaseNodeLayout(node); applyDescendantLayouts(node.id); }
-function applyAnchorPreset(id: string) { if (id === "custom" || !selectedNode.value) return; const preset = anchorPresets.find((item) => item.id === id); if (!preset) return; selectedNode.value.anchorMinX = preset.anchorMinX; selectedNode.value.anchorMinY = preset.anchorMinY; selectedNode.value.anchorMaxX = preset.anchorMaxX; selectedNode.value.anchorMaxY = preset.anchorMaxY; rebaseNodeLayout(selectedNode.value); anchorMenuOpen.value = false; }
+function updateGeometry(field: "x" | "y" | "width" | "height", value: number) { if (tryKeyframeGeometry(field, value)) return; const node = selectedNode.value; if (!node || !Number.isFinite(value)) return; if (field === "x" || field === "y") { const currentWorld = worldTransforms.value.get(node.id) ?? { x: node.x, y: node.y, matrix: localMatrix(node) }; const targetWorldX = field === "x" ? value : currentWorld.x; const targetWorldY = field === "y" ? value : currentWorld.y; const parent = getLayoutParent(node); if (parent) { const parentWorld = worldTransforms.value.get(parent.id) ?? { x: parent.x, y: parent.y, matrix: localMatrix(parent) }; const localOffset = inverseTransformVector(parentWorld.matrix, targetWorldX - parentWorld.x, targetWorldY - parentWorld.y); node.x = roundLayout(parent.pivotX * parent.width + localOffset.x); node.y = roundLayout(parent.pivotY * parent.height + localOffset.y); } else { node.x = roundLayout(targetWorldX); node.y = roundLayout(targetWorldY); } rebaseNodeLayout(node); return; } node[field] = Math.max(1, value); rebaseNodeLayout(node); applyDescendantLayouts(node.id); }
+function applyAnchorPreset(id: string) {
+  const node = selectedNode.value;
+  const display = inspectorNode.value;
+  const preset = anchorPresets.find(item => item.id === id);
+  if (!node || !display || !preset) return;
+  const draft = JSON.parse(JSON.stringify(display)) as UINode;
+  const before = capturePropertyGroup(draft, "transform")!;
+  draft.anchorMinX = preset.anchorMinX;
+  draft.anchorMinY = preset.anchorMinY;
+  draft.anchorMaxX = preset.anchorMaxX;
+  draft.anchorMaxY = preset.anchorMaxY;
+  const parent = draft.parentId ? previewNodeMap.value.get(draft.parentId) : null;
+  const parentWidth = parent?.width ?? canvasWidth.value, parentHeight = parent?.height ?? canvasHeight.value;
+  // Preserve the displayed pose using the displayed parent's size, not the setup layout.
+  draft.anchorOffsetX = roundLayout(draft.x - ((1 - draft.pivotX) * draft.anchorMinX + draft.pivotX * draft.anchorMaxX) * parentWidth);
+  draft.anchorOffsetY = roundLayout(draft.y - ((1 - draft.pivotY) * draft.anchorMinY + draft.pivotY * draft.anchorMaxY) * parentHeight);
+  draft.sizeDeltaX = roundLayout(draft.width - (draft.anchorMaxX - draft.anchorMinX) * parentWidth);
+  draft.sizeDeltaY = roundLayout(draft.height - (draft.anchorMaxY - draft.anchorMinY) * parentHeight);
+  const after = capturePropertyGroup(draft, "transform")!;
+  if (commitSelectedPropertyGroup("transform", node, before, after)) anchorMenuOpen.value = false;
+}
 function onAnchorPresetSelect(event: Event) { applyAnchorPreset((event.target as HTMLSelectElement).value); }
-function updateAnchor(bound: "min" | "max", axis: "x" | "y", value: number) { const node = selectedNode.value; if (!node) return; const next = clamp01(value); if (axis === "x") { if (bound === "min") node.anchorMinX = Math.min(next, node.anchorMaxX); else node.anchorMaxX = Math.max(next, node.anchorMinX); } else { if (bound === "min") node.anchorMinY = Math.min(next, node.anchorMaxY); else node.anchorMaxY = Math.max(next, node.anchorMinY); } rebaseNodeLayout(node); }
-function updatePivot(axis: "x" | "y", value: number) { const node = selectedNode.value; if (!node) return; const next = clamp01(value); const deltaX = axis === "x" ? (next - node.pivotX) * node.width : 0; const deltaY = axis === "y" ? (next - node.pivotY) * node.height : 0; const shift = transformVector(localMatrix(node), deltaX, deltaY); node.x = roundLayout(node.x + shift.x); node.y = roundLayout(node.y + shift.y); if (axis === "x") node.pivotX = next; else node.pivotY = next; rebaseNodeLayout(node); }
+function updateAnchor(bound: "min" | "max", axis: "x" | "y", value: number) { const fieldKey = `anchor${bound === "min" ? "Min" : "Max"}${axis.toUpperCase()}`; if (selectedNode.value && hasAnimatedField(fieldKey)) { writeAnimatedValue(selectedNode.value, fieldKey, clamp01(value)); return; } const node = selectedNode.value; if (!node) return; const next = clamp01(value); if (axis === "x") { if (bound === "min") node.anchorMinX = Math.min(next, node.anchorMaxX); else node.anchorMaxX = Math.max(next, node.anchorMinX); } else { if (bound === "min") node.anchorMinY = Math.min(next, node.anchorMaxY); else node.anchorMaxY = Math.max(next, node.anchorMinY); } rebaseNodeLayout(node); }
+function updatePivot(axis: "x" | "y", value: number) { const fieldKey = axis === "x" ? "pivotX" : "pivotY"; if (selectedNode.value && hasAnimatedField(fieldKey)) { writeAnimatedValue(selectedNode.value, fieldKey, clamp01(value)); return; } const node = selectedNode.value; if (!node) return; const next = clamp01(value); const deltaX = axis === "x" ? (next - node.pivotX) * node.width : 0; const deltaY = axis === "y" ? (next - node.pivotY) * node.height : 0; const shift = transformVector(localMatrix(node), deltaX, deltaY); node.x = roundLayout(node.x + shift.x); node.y = roundLayout(node.y + shift.y); if (axis === "x") node.pivotX = next; else node.pivotY = next; rebaseNodeLayout(node); }
 function updateRuntimeLayoutValue(field: RuntimeLayoutField, value: number | null) {
   const node = selectedNode.value;
   if (!node || value === null || !Number.isFinite(value)) return;
+  if (hasAnimatedField(field)) { writeAnimatedValue(node, field, value); return; }
   if (field === "anchoredPositionX") node.anchorOffsetX = value;
   else if (field === "anchoredPositionY") node.anchorOffsetY = value;
   else if (field === "sizeDeltaX") node.sizeDeltaX = value;
@@ -1081,12 +1449,35 @@ function textRenderStyle(node: UINodeOf<"text"> | UINodeOf<"textWindow">): CSSPr
   };
 }
 function nodeStyle(node: UINode): CSSProperties { const displayNode = previewNode(node); const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) }; const isText = displayNode.type === "text" || displayNode.type === "textWindow"; const typeColor = editorTypeColors[displayNode.type]; const borderColor = displayNode.type === "image" ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor); const backgroundColor = isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, displayNode.type === "container" ? 0.07 : 0.12); return { width: `${displayNode.width}px`, height: `${displayNode.height}px`, left: `${world.x - displayNode.width * displayNode.pivotX}px`, top: `${canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY)}px`, transform: `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`, transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) }; }
-function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => void) { const startX = event.clientX; const startY = event.clientY; const move = (next: PointerEvent) => onMove((next.clientX - startX) / zoom.value, (next.clientY - startY) / zoom.value); const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); }
+let stopCanvasNodeDrag: (() => void) | null = null;
+function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => void) {
+  stopCanvasNodeDrag?.();
+  const pointerId = event.pointerId;
+  const startX = event.clientX;
+  const startY = event.clientY;
+  const move = (next: PointerEvent) => {
+    if (next.pointerId !== pointerId) return;
+    onMove((next.clientX - startX) / zoom.value, (next.clientY - startY) / zoom.value);
+  };
+  const cleanup = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", finish);
+    window.removeEventListener("pointercancel", finish);
+    window.removeEventListener("blur", cleanup);
+    if (stopCanvasNodeDrag === cleanup) stopCanvasNodeDrag = null;
+  };
+  const finish = (next: PointerEvent) => { if (next.pointerId === pointerId) cleanup(); };
+  stopCanvasNodeDrag = cleanup;
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", finish);
+  window.addEventListener("pointercancel", finish);
+  window.addEventListener("blur", cleanup);
+}
 function inverseTransformVector(matrix: Matrix2D, x: number, y: number) { const determinant = matrix.a * matrix.d - matrix.b * matrix.c; if (Math.abs(determinant) < 0.000001) return { x: 0, y: 0 }; return { x: (matrix.d * x - matrix.c * y) / determinant, y: (-matrix.b * x + matrix.a * y) / determinant }; }
 function handleCanvasWheel(event: WheelEvent) { const viewport = viewportElement.value; if (!viewport) return; const normalizedDelta = event.deltaY * (event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? viewport.clientHeight : 1); const previousZoom = zoom.value; const nextZoom = Math.max(0.2, Math.min(1.5, previousZoom * Math.exp(-normalizedDelta * 0.0015))); if (nextZoom === previousZoom) return; const rect = viewport.getBoundingClientRect(); const pointerX = event.clientX - (rect.left + rect.width / 2); const pointerY = event.clientY - (rect.top + rect.height / 2); const ratio = nextZoom / previousZoom; panX.value = roundLayout(panX.value + (pointerX - panX.value) * (1 - ratio)); panY.value = roundLayout(panY.value + (pointerY - panY.value) * (1 - ratio)); zoom.value = nextZoom; }
 function startCanvasPan(event: PointerEvent) { if (event.button !== 1) return; event.preventDefault(); event.stopPropagation(); const startX = event.clientX; const startY = event.clientY; const originX = panX.value; const originY = panY.value; isPanning.value = true; const move = (next: PointerEvent) => { panX.value = roundLayout(originX + next.clientX - startX); panY.value = roundLayout(originY + next.clientY - startY); }; const end = () => { isPanning.value = false; window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end); }
 function handleViewportPointerDown(event: PointerEvent) { if (event.button === 1) { startCanvasPan(event); return; } if (event.target === event.currentTarget) selectedId.value = null; }
-function startMove(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; selectedId.value = node.id; if (node.locked) return; const x = node.x; const y = node.y; const parent = getLayoutParent(node); const parentMatrix = parent ? worldTransforms.value.get(parent.id)?.matrix ?? localMatrix(parent) : { a: 1, b: 0, c: 0, d: 1 }; pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(parentMatrix, dx, -dy); node.x = roundLayout(x + localDelta.x); node.y = roundLayout(y + localDelta.y); rebaseNodeLayout(node); const world = worldTransforms.value.get(node.id); cursorPosition.value = { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; }); } function startResize(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; const width = node.width; const height = node.height; const x = node.x; const y = node.y; const worldMatrix = worldTransforms.value.get(node.id)?.matrix ?? localMatrix(node); const ownMatrix = localMatrix(node); pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(worldMatrix, dx, -dy); const nextWidth = Math.max(20, roundLayout(width + localDelta.x)); const nextHeight = Math.max(20, roundLayout(height - localDelta.y)); const pivotShift = transformVector(ownMatrix, (nextWidth - width) * node.pivotX, -(nextHeight - height) * (1 - node.pivotY)); node.x = roundLayout(x + pivotShift.x); node.y = roundLayout(y + pivotShift.y); node.width = nextWidth; node.height = nextHeight; rebaseNodeLayout(node); applyDescendantLayouts(node.id); }); }
+function startMove(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; selectedId.value = node.id; if (node.locked) return; if (startAnimatedCanvasMove(event, node)) return; const x = node.x; const y = node.y; const parent = getLayoutParent(node); const parentMatrix = parent ? worldTransforms.value.get(parent.id)?.matrix ?? localMatrix(parent) : { a: 1, b: 0, c: 0, d: 1 }; pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(parentMatrix, dx, -dy); node.x = roundLayout(x + localDelta.x); node.y = roundLayout(y + localDelta.y); rebaseNodeLayout(node); const world = worldTransforms.value.get(node.id); cursorPosition.value = { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; }); } function startResize(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; if (startAnimatedCanvasResize(event, node)) return; const width = node.width; const height = node.height; const x = node.x; const y = node.y; const worldMatrix = worldTransforms.value.get(node.id)?.matrix ?? localMatrix(node); const ownMatrix = localMatrix(node); pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(worldMatrix, dx, -dy); const nextWidth = Math.max(20, roundLayout(width + localDelta.x)); const nextHeight = Math.max(20, roundLayout(height - localDelta.y)); const pivotShift = transformVector(ownMatrix, (nextWidth - width) * node.pivotX, -(nextHeight - height) * (1 - node.pivotY)); node.x = roundLayout(x + pivotShift.x); node.y = roundLayout(y + pivotShift.y); node.width = nextWidth; node.height = nextHeight; rebaseNodeLayout(node); applyDescendantLayouts(node.id); }); }
 function formatDimension(value: number) { return Number.isInteger(value) ? String(value) : value.toFixed(2); }
 function selectPreviewPreset(presetId: string) {
   const device = deviceModes.find((mode) => previewPresets[mode.id].some((preset) => preset.id === presetId));
@@ -1277,7 +1668,9 @@ function serializeProject() {
   return JSON.stringify({ version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
     name: projectName.value, deviceMode: deviceMode.value, previewPresetId: previewPresetId.value,
     canvasWidth: canvasWidth.value, canvasHeight: canvasHeight.value, duration: duration.value, frameRate: frameRate.value,
-    nodes: nodes.value, tweenTracks: tweenTracks.value, timelineSnapEnabled: timelineSnapEnabled.value, giaImportStatus: giaImportStatus.value }, null, 2);
+    nodes: nodes.value, tweenTracks: tweenTracks.value, keyframeTracks: keyframeTracks.value,
+    animationModelVersion: 1, animations: animations.value, activeAnimationId: activeAnimationId.value,
+    timelineSnapEnabled: timelineSnapEnabled.value, showContainerBones: showContainerBones.value, giaImportStatus: giaImportStatus.value }, null, 2);
 }
 async function saveProject() { if (archive) await runArchiveAction(() => archive.save()); else downloadProject(); }
 function downloadProject() {
@@ -1320,25 +1713,31 @@ function confirmTimelineDataImport() {
   const first = result.importedTracks[0];
   const mode = timelineDataImportMode.value;
   stopDocumentInteraction();
-  tweenTracks.value = result.tracks;
+  keyframeTracks.value = result.tracks;
+  tweenTracks.value = [];
   duration.value = result.duration;
   currentTime.value = 0;
   selectedId.value = first.nodeId;
-  selectedTweenTrackId.value = first.id;
+  selectedTweenTrackId.value = null;
+  selectedKeyframeId.value = first.keyframes[0]?.id ?? null;
   timelineDataSource.value = "";
-  timelineEditNotice.value = "已还原 " + result.importedTracks.length + " 个 Clip" + (mode === "replace" ? "，替换了所选范围内的 " + result.replacedCount + " 个 Clip。" : "，已追加到当前时间轴。");
+  timelineEditNotice.value = "已还原 " + result.importedTracks.length + " 条关键帧轨道" + (mode === "replace" ? "，替换了所选范围内的 " + result.replacedCount + " 条轨道。" : "，已追加到当前时间轴。");
 }
 function exportSelectedNodeTweenData() {
+  try { exportSelectedNodeKeyframeData(); }
+  catch (error) { toast.error(`无法导出关键帧：${error instanceof Error ? error.message : String(error)}`); }
+}
+function exportSelectedNodeKeyframeData() {
   const rootNode = selectedNode.value;
   if (!rootNode) {
     window.alert("请先在层级、画布或时间轴中选择导出根控件。");
     return;
   }
-  const result = buildTweenTimelineDataLua({
-    projectName: projectName.value,
+  const result = buildKeyframeTimelineDataLua({
+    projectName: `${projectName.value}_${activeAnimation.value.name}`,
     rootNodeId: rootNode.id,
     nodes: nodes.value,
-    tracks: tweenTracks.value,
+    tracks: keyframeTracks.value,
     sequenceDuration: duration.value,
   });
   if (!result.trackCount) {
@@ -1352,14 +1751,14 @@ function exportSelectedNodeTweenData() {
     window.alert(`Timeline Data 已导出，并附带 ${result.warnings.length} 条提示。`);
   }
 }
-type SavedNode = Partial<ClientUIBaseControlModel> & { type?: ControlType; properties?: Record<string, unknown>; colorRGBA?: ColorRGBA; color?: string; opacity?: number; text?: string; imageId?: number | null; imageType?: string; fontSize?: number; fontColor?: ColorRGBA; bgColor?: ColorRGBA; enableOutline?: boolean; outlineColor?: ColorRGBA; horizontalAlignment?: string; verticalAlignment?: string; adaptiveFontSize?: boolean; minimumFontSize?: number };
+type SavedNode = Partial<ClientUIBaseControlModel> & { type?: ControlType; editor?: UINodeEditorSettings | null; properties?: Record<string, unknown>; colorRGBA?: ColorRGBA; color?: string; opacity?: number; text?: string; imageId?: number | null; imageType?: string; fontSize?: number; fontColor?: ColorRGBA; bgColor?: ColorRGBA; enableOutline?: boolean; outlineColor?: ColorRGBA; horizontalAlignment?: string; verticalAlignment?: string; adaptiveFontSize?: boolean; minimumFontSize?: number };
 const baseControlKeys: Array<keyof ClientUIBaseControlModel> = ["id", "parentId", "name", "active", "x", "y", "width", "height", "scaleX", "scaleY", "scaleZ", "rotationX", "rotationY", "rotation", "anchorMinX", "anchorMinY", "anchorMaxX", "anchorMaxY", "pivotX", "pivotY", "anchorOffsetX", "anchorOffsetY", "sizeDeltaX", "sizeDeltaY", "canControllerFocus", "visible", "locked"];
 function pickBaseControl(value: SavedNode) { const result: Partial<ClientUIBaseControlModel> = {}; const target = result as Record<string, unknown>; const source = value as Record<string, unknown>; baseControlKeys.forEach((key) => { if (source[key] !== undefined) target[key] = source[key]; }); return result; }
 function hasSavedLayoutState(value: Partial<ClientUIBaseControlModel>) { return Number.isFinite(value.anchorOffsetX) && Number.isFinite(value.anchorOffsetY) && Number.isFinite(value.sizeDeltaX) && Number.isFinite(value.sizeDeltaY); }
 function normalizeNode(value: SavedNode): UINode { const hasLayoutState = hasSavedLayoutState(value); const type = value.type && Object.prototype.hasOwnProperty.call(controlRegistry, value.type) ? value.type : "container"; const savedProperties = value.properties ?? {}; const properties = { ...createControlProperties(type), ...savedProperties } as Record<string, unknown>; const hasSavedProperty = (key: string) => Object.prototype.hasOwnProperty.call(savedProperties, key); const assignLegacy = (key: string, legacyValue: unknown) => { if (!hasSavedProperty(key) && legacyValue !== undefined) properties[key] = legacyValue; };
   if (type === "image") { assignLegacy("imageId", value.imageId); assignLegacy("imageColor", value.colorRGBA ?? (value.color ? colorFromHex(value.color, Number.isFinite(value.opacity) ? Number(value.opacity) : 1) : undefined)); assignLegacy("imageType", value.imageType === "default" ? "basic" : value.imageType); if (properties.imageType === "default") properties.imageType = "basic"; }
   if (type === "text" || type === "textWindow") { assignLegacy("text", value.text); assignLegacy("fontSize", value.fontSize); assignLegacy("fontColor", value.fontColor ?? value.colorRGBA); assignLegacy("bgColor", value.bgColor); assignLegacy("enableOutline", value.enableOutline); assignLegacy("outlineColor", value.outlineColor); assignLegacy("horizontalAlignment", value.horizontalAlignment); assignLegacy("verticalAlignment", value.verticalAlignment); assignLegacy("adaptiveFontSize", value.adaptiveFontSize); assignLegacy("minimumFontSize", value.minimumFontSize); }
-  const baseOverrides = { ...pickBaseControl(value), active: typeof value.active === "boolean" ? value.active : true, anchorMinX: Number.isFinite(value.anchorMinX) ? Number(value.anchorMinX) : 0.5, anchorMinY: Number.isFinite(value.anchorMinY) ? Number(value.anchorMinY) : 0.5, anchorMaxX: Number.isFinite(value.anchorMaxX) ? Number(value.anchorMaxX) : 0.5, anchorMaxY: Number.isFinite(value.anchorMaxY) ? Number(value.anchorMaxY) : 0.5, pivotX: Number.isFinite(value.pivotX) ? Number(value.pivotX) : 0.5, pivotY: Number.isFinite(value.pivotY) ? Number(value.pivotY) : 0.5 }; const name = value.name === undefined ? getControlDefinition(type).defaultName : String(value.name); const node = makeNode(type, name, { ...baseOverrides, properties: properties as never });
+  const baseOverrides = { ...pickBaseControl(value), active: typeof value.active === "boolean" ? value.active : true, anchorMinX: Number.isFinite(value.anchorMinX) ? Number(value.anchorMinX) : 0.5, anchorMinY: Number.isFinite(value.anchorMinY) ? Number(value.anchorMinY) : 0.5, anchorMaxX: Number.isFinite(value.anchorMaxX) ? Number(value.anchorMaxX) : 0.5, anchorMaxY: Number.isFinite(value.anchorMaxY) ? Number(value.anchorMaxY) : 0.5, pivotX: Number.isFinite(value.pivotX) ? Number(value.pivotX) : 0.5, pivotY: Number.isFinite(value.pivotY) ? Number(value.pivotY) : 0.5 }; const name = value.name === undefined ? getControlDefinition(type).defaultName : String(value.name); const node = makeNode(type, name, { ...baseOverrides, editor: value.editor, properties: properties as never });
   if (!hasLayoutState) { node.x = canvasWidth.value / 2 + (Number(value.x) || 0); node.y = canvasHeight.value / 2 - (Number(value.y) || 0); } return node; }
 function normalizeTweenTracks(value: unknown, timelineModelVersion = 0) {
   if (!Array.isArray(value)) return [] as UITweenTrack[];
@@ -1409,7 +1808,14 @@ function normalizeTweenTracks(value: unknown, timelineModelVersion = 0) {
 }
 function migrateLegacyHierarchyLayout() { const legacyWorldPositions = new Map(nodes.value.map((node) => [node.id, { x: node.x, y: node.y }])); const migratedWorldTransforms = new Map<string, WorldTransform>(); getHierarchyOrder().forEach((node) => { const legacyWorld = legacyWorldPositions.get(node.id) ?? { x: node.x, y: node.y }; const local = localMatrix(node); const parent = getLayoutParent(node); const parentWorld = parent ? migratedWorldTransforms.get(parent.id) : null; if (!parent || !parentWorld) { node.x = legacyWorld.x; node.y = legacyWorld.y; migratedWorldTransforms.set(node.id, { x: node.x, y: node.y, matrix: local }); return; } const localOffset = inverseTransformVector(parentWorld.matrix, legacyWorld.x - parentWorld.x, legacyWorld.y - parentWorld.y); node.x = roundLayout(parent.pivotX * parent.width + localOffset.x); node.y = roundLayout(parent.pivotY * parent.height + localOffset.y); migratedWorldTransforms.set(node.id, { x: legacyWorld.x, y: legacyWorld.y, matrix: multiplyMatrix(parentWorld.matrix, local) }); }); }
 function openProject() { if (canCreateWorkspaceDocument()) fileInput.value?.click(); }
-function applyProjectData(serialized: string) {
+function applyProjectData(serialized: string, resetHistory = true) {
+  historyApplyingProject = true;
+  try {
+    applyProjectDataContents(serialized);
+    if (!archive && resetHistory) editorHistory.reset(captureUndoState());
+  } finally { historyApplyingProject = false; }
+}
+function applyProjectDataContents(serialized: string) {
   const data = JSON.parse(serialized);
   if (!data || !Array.isArray(data.nodes) || data.nodes.some((node: unknown) => !node || typeof node !== "object" || Array.isArray(node))) {
     throw new Error("这不是有效的 UI 动画工程文件");
@@ -1424,6 +1830,7 @@ function applyProjectData(serialized: string) {
   previewPresetId.value = savedPreset?.id ?? previewPresets[savedMode][0].id;
   duration.value = Math.max(0.5, Number(data.duration) || 5);
   timelineSnapEnabled.value = data.timelineSnapEnabled !== false;
+  showContainerBones.value = data.showContainerBones !== false;
   timelineSnapTime.value = null;
   timelineEditNotice.value = "";
   frameRate.value = Number(data.frameRate) === 60 ? 60 : 30;
@@ -1431,7 +1838,18 @@ function applyProjectData(serialized: string) {
   if (data.hierarchyLayoutVersion !== 2) migrateLegacyHierarchyLayout();
   getHierarchyOrder().forEach(rebaseNodeLayout);
   ensureSingleRootContainer();
-  tweenTracks.value = normalizeTweenTracks(data.tweenTracks, Number(data.timelineModelVersion) || 0);
+  tweenTracks.value = data.animations !== undefined ? [] : normalizeTweenTracks(data.tweenTracks, Number(data.timelineModelVersion) || 0);
+  const loadedAnimations = data.animations !== undefined
+    ? normalizeAnimationCollection(data.animations, nodes.value)
+    : [{ id: "animation-default", name: "默认动画", duration: duration.value, keyframeTracks: data.keyframeTracks !== undefined
+      ? normalizeKeyframeTracks(data.keyframeTracks, nodes.value) : migrateTweenClipsToKeyframes(tweenTracks.value) }];
+  animations.value = loadedAnimations;
+  activeAnimationId.value = loadedAnimations.some(animation => animation.id === data.activeAnimationId) ? data.activeAnimationId : loadedAnimations[0].id;
+  animationNotice.value = "";
+  tweenTracks.value = [];
+  selectedKeyframeId.value = null;
+  keyframeDocumentEpoch.value += 1;
+  duration.value = Math.max(duration.value, ...keyframeTracks.value.flatMap(track => track.keyframes.map(key => key.time)));
   tweenClipClipboard.value = null;
   timelineDataImportOpen.value = false;
   selectedTweenTrackId.value = null;
@@ -1452,8 +1870,8 @@ async function loadProject(event: Event) {
     if (archive) await archive.createDocument(file.name.replace(/\.json$/i, ""), () => file.text());
     else {
       const previous = serializeProject();
-      try { applyProjectData(await file.text()); }
-      catch (error) { applyProjectData(previous); throw error; }
+      try { applyProjectData(await file.text(), false); editorHistory.reset(captureUndoState()); }
+      catch (error) { applyProjectData(previous, false); throw error; }
     }
     workspacePanelOpen.value = false;
   } catch (error) {
@@ -1463,6 +1881,9 @@ async function loadProject(event: Event) {
   } finally { input.value = ""; }
 }
 function stopDocumentInteraction() {
+  stopCanvasNodeDrag?.();
+  editorHistory.flush();
+  historyPanelOpen.value = false;
   playing.value = false;
   timelineDataImportOpen.value = false;
   tweenClipClipboard.value = null;
@@ -1537,11 +1958,170 @@ function handleArchiveBeforeUnload(event: BeforeUnloadEvent) {
   }
 }
 let editorResizeObserver: ResizeObserver | null = null;
+let historyApplyingProject = false;
+let historyPointerId: number | null = null;
+let historyInputTarget: HTMLElement | null = null;
+let historyDocumentKey: string | null = null;
+function captureUndoState() {
+  return JSON.stringify({ nodes: nodes.value, tweenTracks: tweenTracks.value, animations: animations.value,
+    frameRate: frameRate.value, deviceMode: deviceMode.value,
+    previewPresetId: previewPresetId.value, canvasWidth: canvasWidth.value, canvasHeight: canvasHeight.value,
+    timelineSnapEnabled: timelineSnapEnabled.value, showContainerBones: showContainerBones.value,
+    giaImportStatus: giaImportStatus.value });
+}
+function restoreUndoState(snapshot: string) {
+  const data = JSON.parse(snapshot);
+  // History owns exact editor snapshots: don't rebase anchors or run import migrations.
+  playing.value = false;
+  lastTime = 0;
+  stopCanvasNodeDrag?.();
+  cancelHierarchyPress?.();
+  stopTweenClipDrag?.();
+  stopTimelineScrub?.();
+  closeTweenFieldPicker();
+  closeTimelineContextMenu();
+  nodes.value = data.nodes;
+  tweenTracks.value = data.tweenTracks;
+  animations.value = data.animations ?? [{ id: "animation-default", name: "默认动画", duration: data.duration ?? 5, keyframeTracks: data.keyframeTracks ?? [] }];
+  if (!animations.value.some(animation => animation.id === activeAnimationId.value)) activeAnimationId.value = animations.value[0].id;
+  keyframeDocumentEpoch.value += 1;
+  if (!keyframeTracks.value.some(track => track.keyframes.some(key => key.id === selectedKeyframeId.value))) selectedKeyframeId.value = null;
+  frameRate.value = data.frameRate;
+  deviceMode.value = data.deviceMode;
+  previewPresetId.value = data.previewPresetId;
+  canvasWidth.value = data.canvasWidth;
+  canvasHeight.value = data.canvasHeight;
+  timelineSnapEnabled.value = data.timelineSnapEnabled;
+  showContainerBones.value = data.showContainerBones;
+  giaImportStatus.value = data.giaImportStatus;
+  currentTime.value = Math.min(currentTime.value, duration.value);
+  if (!nodes.value.some((node) => node.id === selectedId.value)) selectedId.value = rootContainer.value?.id ?? null;
+  if (!tweenTracks.value.some((track) => track.id === selectedTweenTrackId.value && track.nodeId === selectedId.value)) selectedTweenTrackId.value = null;
+  timelineSnapTime.value = null;
+  timelineEditNotice.value = "";
+  archive?.queueSave(serializeProject());
+}
+const editorHistory = createEditorHistory({ capture: captureUndoState, restore: restoreUndoState, describe: describeHistoryChange, limit: 100 });
+watch(selectedId, (nodeId) => {
+  if (!keyframeTracks.value.some(track => track.nodeId === nodeId && track.keyframes.some(key => key.id === selectedKeyframeId.value))) selectedKeyframeId.value = null;
+}, { flush: "sync" });
+function handleEditorHistoryChange(snapshot: string) {
+  if (historyApplyingProject || !hasOpenDocument.value || archive && (!archive.ready.value || archive.busy.value || archive.loading.value)) return;
+  editorHistory.observe(snapshot);
+}
+function syncEditorHistoryDocument() {
+  if (!archive || !archive.ready.value || archive.busy.value || archive.loading.value) return;
+  const key = JSON.stringify([archive.selectedWorkspace.value, archive.selectedDocument.value]);
+  if (key === historyDocumentKey) return;
+  historyDocumentKey = key;
+  historyPointerId = null;
+  historyInputTarget = null;
+  historyPanelOpen.value = false;
+  editorHistory.reset(captureUndoState());
+}
+function historyInteractionAllowed() {
+  return hasOpenDocument.value && !editorHistory.busy.value && !archive?.busy.value && !workspacePanelOpen.value && !archiveAction.value && !timelineDataImportOpen.value;
+}
+function beginEditorHistoryPointer(event: PointerEvent) {
+  if (event.button !== 0 || !historyInteractionAllowed()) return;
+  if ((event.target as Element | null)?.closest?.(".history-tools")) return;
+  if (historyInputTarget && event.target !== historyInputTarget) {
+    historyInputTarget = null;
+    editorHistory.end("input");
+  }
+  historyPointerId = event.pointerId;
+  editorHistory.begin("pointer");
+}
+function endEditorHistoryPointer(event?: PointerEvent) {
+  if (event && historyPointerId !== event.pointerId) return;
+  const pointerId = historyPointerId;
+  // Other pointerup handlers commit hierarchy drops and numeric drags first.
+  queueMicrotask(() => {
+    if (historyPointerId !== pointerId) return;
+    historyPointerId = null;
+    editorHistory.end("pointer");
+  });
+}
+function beginEditorHistoryInput(event: Event) {
+  if (!historyInteractionAllowed() || !(event.target instanceof HTMLElement)) return;
+  const target = event.target;
+  if (!target.matches("input, textarea") && !target.isContentEditable) return;
+  if (target.matches("input[readonly], textarea[readonly]")) return;
+  if (target.matches("input[type='checkbox'], input[type='radio'], input[type='file'], input[type='button']")) return;
+  if (historyInputTarget && historyInputTarget !== target) editorHistory.end("input");
+  historyInputTarget = target;
+  editorHistory.begin("input");
+}
+function endEditorHistoryInput(event: FocusEvent) {
+  if (event.target !== historyInputTarget) return;
+  const target = historyInputTarget;
+  queueMicrotask(() => {
+    if (historyInputTarget !== target) return;
+    historyInputTarget = null;
+    editorHistory.end("input");
+  });
+}
+function finishEditorHistoryInteraction() {
+  historyPointerId = null;
+  historyInputTarget = null;
+  editorHistory.end("pointer");
+  editorHistory.end("input");
+  editorHistory.end("keyframe");
+  editorHistory.flush();
+}
+async function undoEditorOperation() {
+  if (!historyInteractionAllowed() || historyPointerId !== null) return;
+  finishEditorHistoryInteraction();
+  const previousIndex = editorHistory.index.value;
+  const entry = editorHistory.entries.value[previousIndex];
+  if (!entry) return;
+  try {
+    await editorHistory.undo();
+    if (editorHistory.index.value === previousIndex - 1 && editorHistory.entries.value[previousIndex]?.id === entry.id) {
+      toast.info(`撤回:【${entry.label}】还可撤回${editorHistory.index.value + 1}步`);
+    }
+  }
+  catch (error) { timelineEditNotice.value = `撤销失败：${error instanceof Error ? error.message : String(error)}`; }
+}
+async function redoEditorOperation() {
+  if (!historyInteractionAllowed() || historyPointerId !== null) return;
+  finishEditorHistoryInteraction();
+  const nextIndex = editorHistory.index.value + 1;
+  const entry = editorHistory.entries.value[nextIndex];
+  if (!entry) return;
+  try {
+    await editorHistory.redo();
+    if (editorHistory.index.value === nextIndex && editorHistory.entries.value[nextIndex]?.id === entry.id) {
+      toast.info(`重做【${entry.label}】还可重做${editorHistory.entries.value.length - editorHistory.index.value - 1}步`);
+    }
+  }
+  catch (error) { timelineEditNotice.value = `重做失败：${error instanceof Error ? error.message : String(error)}`; }
+}
+function handleEditorHistoryKeyboard(event: KeyboardEvent) {
+  const key = event.key?.toLowerCase();
+  const undo = key === "z" && !event.shiftKey;
+  const redo = key === "y" || key === "z" && event.shiftKey;
+  const editor = editorElement.value;
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing || event.defaultPrevented || !undo && !redo
+    || !editor?.isConnected || editor.inert || !editor.getClientRects().length || !historyInteractionAllowed()
+    || timelineContextMenu.value || tweenFieldPickerNodeId.value || isTimelineTextEditing(event.target)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (event.repeat || historyPointerId !== null) return;
+  if (undo) void undoEditorOperation(); else void redoEditorOperation();
+}
 function syncEditorHeight() { editorHeight.value = editorElement.value?.clientHeight ?? 0; if (timelineHeight.value !== null) timelineHeight.value = clampTimelineHeight(timelineHeight.value); }
 let frame = 0; let lastTime = 0; function animate(now: number) { if (playing.value) { if (!lastTime) lastTime = now; currentTime.value += (now - lastTime) / 1000; if (currentTime.value >= duration.value) currentTime.value = 0; } lastTime = now; frame = requestAnimationFrame(animate); } frame = requestAnimationFrame(animate); onMounted(() => { getHierarchyOrder().forEach(rebaseNodeLayout); ensureSingleRootContainer(); syncEditorHeight(); fitCanvas(); editorResizeObserver = new ResizeObserver(syncEditorHeight); if (editorElement.value) editorResizeObserver.observe(editorElement.value); window.addEventListener("resize", fitCanvas); window.addEventListener("keydown", handleTimelineKeyboardShortcut, true); window.addEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.addEventListener("keyup", handleTimelineKeyboardRelease, true); window.addEventListener("blur", resetTimelineKeyboardShortcut); }); onBeforeUnmount(() => { cancelHierarchyPress?.(); stopTweenClipDrag?.(); stopTimelineResize?.(); stopTimelineScrub?.(); editorResizeObserver?.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", fitCanvas); window.removeEventListener("keydown", handleTimelineKeyboardShortcut, true); window.removeEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.removeEventListener("keyup", handleTimelineKeyboardRelease, true); window.removeEventListener("blur", resetTimelineKeyboardShortcut); resetTimelineKeyboardShortcut(); });
 // 持久化源数据，不监听播放进度或 previewNodes，避免把动画中间值写回基础参数。
-watch(serializeProject, (snapshot) => archive?.queueSave(snapshot), { flush: "sync" });
+watch(serializeProject, (snapshot) => { if (!editorHistory.busy.value) archive?.queueSave(snapshot); }, { flush: "sync" });
+watch(captureUndoState, handleEditorHistoryChange, { flush: "sync" });
+watch(() => [archive?.ready.value, archive?.busy.value, archive?.loading.value, archive?.selectedWorkspace.value, archive?.selectedDocument.value], syncEditorHistoryDocument, { flush: "sync" });
 onMounted(() => {
+  editorHistory.reset(captureUndoState());
+  window.addEventListener("keydown", handleEditorHistoryKeyboard, true);
+  window.addEventListener("pointerup", endEditorHistoryPointer);
+  window.addEventListener("pointercancel", endEditorHistoryPointer);
+  window.addEventListener("blur", finishEditorHistoryInteraction);
   if (archive) void runArchiveAction(() => archive.initialize());
   window.addEventListener("beforeunload", handleArchiveBeforeUnload);
 });
@@ -1551,6 +2131,13 @@ onBeforeRouteLeave(async () => {
   catch { workspacePanelOpen.value = true; return false; }
 });
 onBeforeUnmount(() => {
+  stopCanvasNodeDrag?.();
+  finishEditorHistoryInteraction();
+  editorHistory.dispose();
+  window.removeEventListener("keydown", handleEditorHistoryKeyboard, true);
+  window.removeEventListener("pointerup", endEditorHistoryPointer);
+  window.removeEventListener("pointercancel", endEditorHistoryPointer);
+  window.removeEventListener("blur", finishEditorHistoryInteraction);
   window.removeEventListener("beforeunload", handleArchiveBeforeUnload);
   // 路由守卫负责正常离开；卸载兜底仍提交已捕获的快照。
   void archive?.dispose().catch((error) => console.error("UI 动画存档保存失败", error));
@@ -1558,6 +2145,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.keyframe-panel { display: flex !important; flex-direction: column; min-height: 0; }
+.keyframe-notice { position: absolute; right: 260px; top: -29px; max-width: 560px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 8px; margin: 0; border-radius: 4px; color: #e4c1c6; background: #392b33; pointer-events: none; z-index: 10; }
 .animation-editor {
   position: relative;
   --bg: #303540;
@@ -1674,6 +2263,11 @@ button, select, input, textarea { font: inherit; }
 .icon-button:hover,
 .square-button:hover { background: #424b5e; color: white; border-color: #4c5362; }
 .toolbar-spacer { flex: 1; }
+.history-tools { position: relative; display: flex; align-items: center; flex-shrink: 0; gap: 2px; }
+.history-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 27px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 4px; color: #c4cede; background: transparent; cursor: pointer; }
+.history-icon-button:hover:not(:disabled) { background: #424b5e; border-color: #53617a; }
+.history-icon-button:disabled { opacity: .35; cursor: not-allowed; }
+.history-icon-button:focus-visible { outline: 2px solid #8da8ef; outline-offset: 1px; }
 
 .device-mode-switch {
   display: flex;
@@ -1732,9 +2326,10 @@ button, select, input, textarea { font: inherit; }
 
 .editor-body {
   display: grid;
-  grid-template-columns: var(--hierarchy-width) minmax(360px, 1fr) var(--inspector-width);
+  grid-template-columns: var(--hierarchy-width) minmax(160px, 1fr) var(--animation-list-width, clamp(150px, 15vw, 200px)) var(--inspector-width);
   min-height: 0;
 }
+.editor-body.is-animations-collapsed { --animation-list-width: 32px; }
 
 .panel { background: var(--panel); min-height: 0; }
 .hierarchy-panel { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
@@ -3348,8 +3943,8 @@ button { transition: background .12s, border-color .12s; }
 .tool-button, .icon-button, .square-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; color: #d9dde7; font-size: 12px; }
 .tool-button { padding: 0 9px; white-space: nowrap; }
 .back-button { border: 0; text-decoration: none; }
-.project-copy { min-width: 190px; max-width: 220px; gap: 2px; }
-.project-copy strong { font-size: 14px; white-space: nowrap; }
+.project-copy { min-width: 100px; max-width: 220px; flex: 0 1 190px; gap: 2px; }
+.project-copy strong { overflow: hidden; text-overflow: ellipsis; font-size: 14px; white-space: nowrap; }
 .project-copy > span { overflow: hidden; color: #a3aab8; font-family: inherit; font-size: 10px; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
 .title-slash { color: #7b8292; }
 .gia-import-button { color: #d9dde7; }
@@ -3383,6 +3978,10 @@ button { transition: background .12s, border-color .12s; }
 .workspace-label { display: flex; align-items: center; gap: 7px; color: #d4dbe8; font-size: 11px; white-space: nowrap; }
 .workspace-hint { color: #a2aab9; font-size: 10px; }
 .canvas-ratio { margin-left: auto; font-family: inherit; font-size: 10px; color: #a8b0be; }
+.workspace-tabs .bone-visibility-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: 25px; padding: 0 8px; border: 1px solid #515b6b; border-radius: 4px; color: #a7b1c2; }
+.workspace-tabs .bone-visibility-toggle.active { border-color: #4a8d9d; background: #2b444e; color: #9be4ee; }
+.workspace-tabs .bone-visibility-toggle:focus-visible { outline: 2px solid #5ce5ee; outline-offset: 2px; }
+.workspace-tabs .bone-visibility-toggle:disabled { opacity: .45; cursor: not-allowed; }
 .viewport { background-image: radial-gradient(#777d8940 .85px, transparent .85px); background-size: 16px 16px; }
 .canvas-stage { background: #3b424d; box-shadow: 0 0 0 1px #8399a3, 0 8px 32px #1c212740; }
 .canvas-stage.mobile-frame { box-shadow: 0 0 0 6px #303642, 0 0 0 7px #8299a6, 0 8px 32px #1c212740; }
@@ -3401,6 +4000,11 @@ button { transition: background .12s, border-color .12s; }
 .corner-bl { bottom: -7px; left: -7px; }
 .resize-handle { bottom: -7px; right: -7px; width: 10px; height: 10px; border: 2px solid #434d58; border-radius: 50%; background: #eff6f7; }
 .selection-pivot { position: absolute; width: 10px; height: 10px; border: 3px solid #5ce5ee; border-radius: 50%; transform: translate(-50%, 50%); pointer-events: none; }
+.direction-length-field { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #bfc8d7; }
+.direction-length-field > span { flex: 0 0 auto; }
+.direction-length-field > input { flex: 1; width: 0; min-width: 0; padding: 7px 9px; border: 1px solid #414c5d; border-radius: 5px; background: #242b36; color: #edf3ff; }
+.direction-length-field > i { flex: 0 0 auto; font-style: normal; color: #8996ac; }
+.direction-guide-note { margin: 9px 0 0; color: #8996ac; font-size: 11px; line-height: 1.7; }
 .inspector-heading { height: 66px; border: 0; padding: 10px 14px 6px; color: #c7cedb; }
 .inspector-identity { min-width: 0; flex: 1; }
 .inspector-name { display: block; width: 100%; padding: 2px 0 !important; border: 1px solid transparent !important; background: transparent !important; color: #f0f2f6 !important; font-size: 16px !important; font-weight: 500 !important; }
@@ -3489,7 +4093,7 @@ button { transition: background .12s, border-color .12s; }
 
 @media (max-width: 1200px) {
   .animation-editor { --hierarchy-width: 220px; --inspector-width: 286px; }
-  .project-copy { min-width: 170px; }
+  .project-copy { min-width: 100px; }
   .tool-button { padding: 0 6px; }
   .screen-select select { max-width: 163px; }
 }

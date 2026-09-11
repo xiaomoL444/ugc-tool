@@ -2,7 +2,9 @@
   <input
     ref="inputElement"
     class="scrubbable-number-input"
-    :class="{ 'is-editing': editing, 'is-scrubbing': scrubbing }"
+    :class="{ 'is-editing': editing, 'is-scrubbing': scrubbing, 'is-animated': animated }"
+    :data-animated="animated ? 'true' : undefined"
+    :aria-description="animated ? '此属性已加入动画；修改会在当前时间记帧' : undefined"
     :value="draft"
     type="number"
     :min="min"
@@ -10,7 +12,7 @@
     :step="step"
     :readonly="!editing"
     :disabled="disabled"
-    title="左右拖动调整数值 · Shift 精调 · Ctrl 加速 · 双击输入 · Esc 结束拖动"
+    :title="`${animated ? '此属性已加入动画；修改会在当前时间记帧\n' : ''}左右拖动调整数值 · Shift 精调 · Ctrl 加速 · 双击输入 · Esc 结束拖动`"
     @input="handleInput"
     @blur="finishEditing"
     @keydown.enter.prevent="finishEditing"
@@ -32,11 +34,14 @@ const props = withDefaults(defineProps<{
   scrubSpeed?: number;
   disabled?: boolean;
   allowEmpty?: boolean;
+  /** 仅影响显示；是否写入关键帧由父级编辑器决定。 */
+  animated?: boolean;
 }>(), {
   modelValue: "",
   step: 1,
   disabled: false,
   allowEmpty: false,
+  animated: false,
 });
 
 const emit = defineEmits<{
@@ -322,4 +327,7 @@ onBeforeUnmount(() => stopScrub?.());
 }
 
 .scrubbable-number-input:disabled { opacity: .45; cursor: not-allowed !important; }
+.scrubbable-number-input.is-animated { border-color: #a66571 !important; background: #533843 !important; }
+.scrubbable-number-input.is-animated:hover:not(:disabled) { border-color: #d58e9b !important; }
+.scrubbable-number-input.is-animated:is(:focus-visible, .is-editing, .is-scrubbing) { border-color: #f0a3b0 !important; box-shadow: inset 0 0 0 1px #f0a3b0, 0 0 0 2px #d36e8530; }
 </style>

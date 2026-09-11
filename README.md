@@ -1,5 +1,10 @@
 # ugc-tools
 
+## Download
+```
+git clone https://github.com/xiaomoL444/ugc-tool-beta
+```
+
 ## Project setup
 ```
 pnpm install

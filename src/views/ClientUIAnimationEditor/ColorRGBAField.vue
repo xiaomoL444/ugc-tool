@@ -1,10 +1,10 @@
 <template>
-  <label class="rgba-control">
-    <span class="rgba-label">{{ label }}</span>
+  <label class="rgba-control" :class="{ 'is-animated': animated }" :data-animated="animated ? 'true' : undefined" :title="animated ? '此属性已加入动画；修改会在当前时间记帧' : undefined">
+    <span class="rgba-label">{{ label }}<small v-if="animated" class="rgba-animation-badge">◆ 已加入动画</small></span>
     <div class="rgba-inputs">
       <input class="rgba-swatch" :value="hex" type="color" :aria-label="`${label}取色`" @input="updateHex" />
       <input class="rgba-hex" :value="hexText" :aria-label="`${label}十六进制`" maxlength="6" @input="updateHex" />
-      <ScrubbableNumberInput class="rgba-alpha" :model-value="opacity" :aria-label="`${label}透明度`" :min="0" :max="100" :step="1" @update:model-value="updateOpacity" />
+      <ScrubbableNumberInput class="rgba-alpha" :model-value="opacity" :aria-label="`${label}透明度`" :animated="animated" :min="0" :max="100" :step="1" @update:model-value="updateOpacity" />
       <i>%</i>
     </div>
   </label>
@@ -15,7 +15,7 @@ import { computed } from "vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import type { ColorRGBA } from "./types";
 
-const props = defineProps<{ label: string; modelValue: ColorRGBA }>();
+const props = withDefaults(defineProps<{ label: string; modelValue: ColorRGBA; animated?: boolean }>(), { animated: false });
 const emit = defineEmits<{ (event: "update:modelValue", value: ColorRGBA): void }>();
 
 const clampByte = (value: number) => Math.min(255, Math.max(0, Math.round(value)));
@@ -80,4 +80,8 @@ function updateOpacity(value: number | null) {
 .rgba-hex { padding: 4px 6px !important; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .03em; }
 .rgba-inputs .rgba-alpha { border-left: 1px solid #454b58 !important; padding: 4px 3px !important; text-align: right; }
 .rgba-inputs i { color: #a9afbb; font-size: 10px; font-style: normal; text-align: center; }
+.rgba-control.is-animated .rgba-inputs { border-color: #a66571; background: #533843; }
+.rgba-control.is-animated .rgba-inputs:hover { border-color: #d58e9b; }
+.rgba-control.is-animated .rgba-inputs:focus-within { border-color: #f0a3b0; box-shadow: 0 0 0 2px #d36e8530; }
+.rgba-animation-badge { margin-left: 6px; padding: 1px 4px; border: 1px solid #a65f69; border-radius: 3px; color: #ffc1c8; background: #663b4638; font-size: 8px; line-height: 1.4; }
 </style>

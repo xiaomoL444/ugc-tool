@@ -112,8 +112,9 @@ try {
     assert.match(library, /if track\[8\] == true then/);
     assert.match(library, /IsRelativeField\(track\[2\]\) and IsNumber\(track\[6\]\)/);
     assert.match(library, /pcall\(function\(\) return control\[track\[2\]\] end\)/);
-    assert.ok(library.indexOf("baseline = ok and baseline or nil") < library.indexOf("for _, lane in ipairs(lanes) do"));
-    assert.ok(library.indexOf("for _, lane in ipairs(lanes) do") < library.indexOf("target[1][target[2]] = from"));
+    const legacy = library.slice(library.indexOf("function TweenTimelineLib.Create(root, data)"));
+    assert.ok(legacy.indexOf("baseline = ok and baseline or nil") < legacy.indexOf("for _, lane in ipairs(lanes) do"));
+    assert.ok(legacy.indexOf("for _, lane in ipairs(lanes) do") < legacy.indexOf("target[1][target[2]] = from"));
     assert.match(library, /fromValue, toValue = previousEnd \+ fromValue, previousEnd \+ toValue/);
     assert.match(library, /:SetRelative\(false\)/);
     assert.doesNotMatch(library, /:SetRelative\(true\)|track\[[678]\]\s*=(?!=)/);

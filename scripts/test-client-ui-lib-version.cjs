@@ -55,8 +55,8 @@ try {
 
   test("The runtime version is derived from the current Timeline Data schema number", () => {
     assert.equal(typeof version, "string");
-    assert.equal(schema, "ClientUIAnimationEditor.TweenTimeline@7");
-    assert.equal(version, "7");
+    assert.equal(schema, "ClientUIAnimationEditor.TweenTimeline@8");
+    assert.equal(version, "8");
     assert.equal(version, schema.split("@").at(-1));
   });
   test("Generated Lua header uses the schema version without a separate public Version field", () => {
@@ -64,12 +64,12 @@ try {
     assert.ok(library.code.split("\n")[0].includes(`v${version}`));
     assert.doesNotMatch(library.code, /TweenTimelineLib\.Version\s*=/);
   });
-  test("Runtime filename and Create entry point remain unchanged while @7 retains legacy schemas", () => {
+  test("Runtime filename and Create entry point remain unchanged while @8 retains legacy schemas", () => {
     assert.equal(library.fileName, "TweenTimelineLib.lua");
     assert.match(library.code, /function TweenTimelineLib\.Create\(/);
     assert.match(library.code, /return TweenTimelineLib\s*$/);
-    assert.match(library.code, /TweenTimelineLib\.Schema = "ClientUIAnimationEditor\.TweenTimeline@7"/);
-    for (const schema of [3, 4, 5, 6, 7]) assert.ok(library.code.includes(`TweenTimeline@${schema}`));
+    assert.match(library.code, /TweenTimelineLib\.Schema = "ClientUIAnimationEditor\.TweenTimeline@8"/);
+    for (const schema of [3, 4, 5, 6, 7, 8]) assert.ok(library.code.includes(`TweenTimeline@${schema}`));
   });
   test("Changing only the schema changes the shared version and generated Lua header", () => {
     const source = ts.createSourceFile(exporterPath, exporterSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);

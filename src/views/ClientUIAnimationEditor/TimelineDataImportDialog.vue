@@ -61,8 +61,8 @@
       </fieldset>
       <div v-if="mode === 'replace'" class="notice replace-notice" role="status">
         <strong>替换动画</strong>
-        <p v-if="preview">将替换所选根控件及其子级的 {{ preview.replacedCount }} 个 Clip，不影响其他控件的动画。</p>
-        <p v-else>将替换所选根控件及其子级的动画，不影响其他控件。输入 Data 后可查看待替换的 Clip 数量。</p>
+        <p v-if="preview">将替换所选根控件及其子级的 {{ preview.replacedCount }} 条关键帧轨道，不影响其他控件的动画。</p>
+        <p v-else>将替换所选根控件及其子级的动画，不影响其他控件。输入 Data 后可查看待替换的轨道数量。</p>
       </div>
 
       <section class="preview-section" aria-label="导入预览" aria-live="polite">
@@ -76,11 +76,11 @@
           </div>
           <template v-else>
             <dl class="preview-summary">
-              <div><dt>待导入</dt><dd>{{ preview.importedCount }} Clip</dd></div>
+              <div><dt>待导入</dt><dd>{{ preview.importedCount }} 条关键帧轨道</dd></div>
               <div><dt>Schema</dt><dd>{{ preview.schema || '未识别' }}</dd></div>
               <div><dt>导入后总时长</dt><dd>{{ formatDuration(preview.duration) }} 秒</dd></div>
             </dl>
-            <p v-if="preview.importedCount === 0" class="notice error-notice">Data 中没有可导入的 Clip，不能使用空数据清空动画。</p>
+            <p v-if="preview.importedCount === 0" class="notice error-notice">Data 中没有可导入的关键帧轨道，不能使用空数据清空动画。</p>
           </template>
           <div v-if="preview.warnings.length" class="notice warning-notice">
             <strong>请留意</strong>

@@ -10,6 +10,7 @@ import {
   tweenEaseOptions,
 } from "./tweenRegistry";
 import { TWEEN_CLIP_TIME_EPSILON, tweenClipsOverlap } from "./timelineClipLayout";
+import { buildKeyframeRuntimeLuaLines } from "./keyframeLuaRuntime";
 import type {
   ColorRGBA,
   TweenEaseType,
@@ -54,7 +55,8 @@ const LEGACY_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@3";
 const GROUP_ALPHA_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@4";
 const SCALE_RELATIVE_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@5";
 const MULTI_CLIP_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@6";
-const TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@7";
+const LAYOUT_RELATIVE_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@7";
+const TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@8";
 export const TWEEN_TIMELINE_LIB_VERSION = TWEEN_TIMELINE_SCHEMA.slice(TWEEN_TIMELINE_SCHEMA.lastIndexOf("@") + 1);
 
 export interface TweenTimelineLibLuaExportResult {
@@ -215,13 +217,15 @@ export function buildTweenTimelineLibLua(): TweenTimelineLibLuaExportResult {
     "    return Color.FromRGBA(target[3], target[4], target[5], math.floor(target[6] * alpha / 255 + 0.5))",
     "end",
     "",
+    ...buildKeyframeRuntimeLuaLines(),
     "function TweenTimelineLib.Create(root, data)",
+    '    if type(data) == "table" and data.schema == "ClientUIAnimationEditor.TweenTimeline@8" then return CreateKeyframes(root, data) end',
     "    local sequence = game.TweenSequence()",
     "    if root == nil then",
     "        printerr(\"[TweenTimeline] 根控件不能为空\")",
     "        return sequence",
     "    end",
-    `    if type(data) ~= "table" or (data.schema ~= TweenTimelineLib.Schema and data.schema ~= ${luaString(MULTI_CLIP_TWEEN_TIMELINE_SCHEMA)} and data.schema ~= ${luaString(SCALE_RELATIVE_TWEEN_TIMELINE_SCHEMA)} and data.schema ~= ${luaString(GROUP_ALPHA_TWEEN_TIMELINE_SCHEMA)} and data.schema ~= ${luaString(LEGACY_TWEEN_TIMELINE_SCHEMA)}) or type(data.tracks) ~= "table" then`,
+    `    if type(data) ~= "table" or (data.schema ~= ${luaString(LAYOUT_RELATIVE_TWEEN_TIMELINE_SCHEMA)} and data.schema ~= ${luaString(MULTI_CLIP_TWEEN_TIMELINE_SCHEMA)} and data.schema ~= ${luaString(SCALE_RELATIVE_TWEEN_TIMELINE_SCHEMA)} and data.schema ~= ${luaString(GROUP_ALPHA_TWEEN_TIMELINE_SCHEMA)} and data.schema ~= ${luaString(LEGACY_TWEEN_TIMELINE_SCHEMA)}) or type(data.tracks) ~= "table" then`,
     "        printerr(\"[TweenTimeline] Data 格式不受支持\")",
     "        return sequence",
     "    end",
@@ -527,7 +531,7 @@ export function buildTweenTimelineDataLua(
   lines.push(
     "",
     "local TweenTimelineData = {",
-    `    schema = ${luaString(hasMultipleClips || hasRelativeLayout ? TWEEN_TIMELINE_SCHEMA : hasRelative ? SCALE_RELATIVE_TWEEN_TIMELINE_SCHEMA : hasGroupAlpha ? GROUP_ALPHA_TWEEN_TIMELINE_SCHEMA : LEGACY_TWEEN_TIMELINE_SCHEMA)},`,
+    `    schema = ${luaString(hasMultipleClips || hasRelativeLayout ? LAYOUT_RELATIVE_TWEEN_TIMELINE_SCHEMA : hasRelative ? SCALE_RELATIVE_TWEEN_TIMELINE_SCHEMA : hasGroupAlpha ? GROUP_ALPHA_TWEEN_TIMELINE_SCHEMA : LEGACY_TWEEN_TIMELINE_SCHEMA)},`,
     `    duration = ${formatNumber(sequenceDuration)},`,
     `    columns = { ${[
       "path",

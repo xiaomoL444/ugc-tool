@@ -24,7 +24,9 @@ async function main() {
   ).map((statement) => statement.getText(ast)).join("\n");
   const exposed = [
     "nodes", "duration", "currentTime", "playing", "selectedId", "tweenTracks", "selectedTweenTrackId",
-    "makeNode", "getHierarchyOrder", "applyNodeLayout", "buildTweenPreviewNodes", "readTweenFieldValue",
+    "keyframeTracks", "selectedKeyframeId", "buildKeyframePreviewNodes", "keyframeBase",
+    "makeNode", "normalizeNode", "getHierarchyOrder", "applyNodeLayout", "buildTweenPreviewNodes", "readTweenFieldValue",
+    "selectedDirectionArrowLength", "updateDirectionArrowLength", "renderContainerDirections", "previewWorldTransforms", "canvasHeight", "showContainerBones", "createBlankProject",
     "addTweenTrack", "addTweenClip", "updateTweenRelative", "getTweenRelativeBaseline", "resolveTweenClipEndpoints",
     "normalizeTweenTracks", "serializeProject", "loadProject", "timelineRows", "timelineContent",
     "openTimelineContextMenu", "closeTimelineContextMenu", "createTimelineContextClip", "timelineContextMenu",
@@ -37,7 +39,7 @@ async function main() {
   ];
   const script = ts.transpileModule(`${declarations}\nglobalThis.editorApi = { ${exposed.join(", ")} };`, {
     fileName: filename + ".ts",
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const converter = await import("genshin-impact-ugc-file-converter-web");
   const originalLoad = Module._load;
@@ -49,7 +51,7 @@ async function main() {
   Module._extensions[".ts"] = (module, sourcePath) => {
     const compiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
       fileName: sourcePath,
-      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
     });
     module._compile(compiled.outputText, sourcePath);
   };
@@ -162,6 +164,236 @@ async function main() {
       return { ...result, first: api.tweenTracks.value[0], second: api.tweenTracks.value[1] };
     }
 
+    await test("Direction guide helpers normalize lengths and point from the pivot along local positive X", () => {
+      assert.equal(imports.DEFAULT_DIRECTION_ARROW_LENGTH, 160);
+      assert.equal(imports.MAX_DIRECTION_ARROW_LENGTH, 2000);
+      assert.equal(imports.normalizeDirectionArrowLength(17.126), 17.13);
+      assert.equal(imports.normalizeDirectionArrowLength(-50), 0);
+      assert.equal(imports.normalizeDirectionArrowLength(5000), 2000);
+      for (const invalid of [null, undefined, false, "12", NaN, Infinity, -Infinity, {}, []]) {
+        assert.equal(imports.normalizeDirectionArrowLength(invalid), 160);
+      }
+      for (const length of [0.01, 3, 160, 800, 2000]) {
+        const path = imports.directionArrowPath(length);
+        assert.ok(path.startsWith(`M ${length} 0 `), "The tip must end at +X in both world space and SVG");
+        assert.match(path, /L 0 0 /, "The tail must stay exactly on the pivot");
+        assert.equal(path.includes("NaN"), false);
+        assert.equal(path.includes("Infinity"), false);
+      }
+      assert.equal(imports.directionArrowPath(5000), imports.directionArrowPath(2000));
+    });
+    await test("Direction guide placement flips canvas Y while preserving rotation, scale and mirrored forward direction", () => {
+      for (const matrix of [
+        { a: 1, b: 0, c: 0, d: 1 },
+        { a: 0, b: 2, c: -3, d: 0 },
+        { a: -2, b: 0, c: 0, d: -3 },
+        { a: 1.5, b: 0.75, c: -0.5, d: 2.25 },
+      ]) {
+        const world = { x: 423.5, y: 275.25, matrix };
+        const style = imports.containerDirectionGuideStyle(world, 959.53);
+        near(parseFloat(style.left), world.x);
+        near(parseFloat(style.top), 959.53 - world.y);
+        const css = style.transform.match(/matrix\(([^)]+)\)/)[1].split(",").map(Number);
+        assert.deepEqual(css, [matrix.a, -matrix.b || 0, -matrix.c || 0, matrix.d, 0, 0]);
+        const length = 160;
+        near(parseFloat(style.left) + css[0] * length, world.x + matrix.a * length, "Tip X follows local +X");
+        near(parseFloat(style.top) + css[1] * length, 959.53 - (world.y + matrix.b * length), "Tip Y follows local +X");
+      }
+    });
+    await test("Container direction lengths default and normalize without adding runtime control properties", () => {
+      const { api } = fixture();
+      for (const [raw, expected] of [[undefined, 160], [null, 160], [NaN, 160], [Infinity, 160], ["300", 160], [-20, 0], [0, 0], [47.5, 47.5], [2500, 2000]]) {
+        const node = api.makeNode("container", "Guide", { editor: { directionArrowLength: raw } });
+        assert.equal(node.editor.directionArrowLength, expected);
+        assert.equal(Object.hasOwn(node.properties, "directionArrowLength"), false);
+        const normalized = api.normalizeNode({ ...plain(node), editor: { directionArrowLength: raw } });
+        assert.equal(normalized.editor.directionArrowLength, expected);
+        assert.deepEqual(plain(normalized.properties), plain(node.properties));
+      }
+      for (const type of ["image", "text", "textWindow", "presetButton", "cursorEventArea", "gridScroller", "keyHint", "uiAnimation", "fullscreenAnimation", "reference"]) {
+        const node = api.makeNode(type, "No guide", { editor: { directionArrowLength: 300 } });
+        assert.equal(node.editor, undefined, `${type} must not retain container editor metadata`);
+        assert.equal(api.normalizeNode({ ...plain(node), editor: { directionArrowLength: 300 } }).editor, undefined);
+      }
+    });
+    await test("Changing a container direction length touches only editor metadata, not layout, properties or Lua", () => {
+      const { api, group } = fixture();
+      api.tweenTracks.value = [clip("anchoredPositionX", 0, 1, 100, 140)];
+      const exportData = () => imports.buildTweenTimelineDataLua({ projectName: "Guide", rootNodeId: "root", nodes: api.nodes.value, tracks: api.tweenTracks.value, sequenceDuration: api.duration.value }).code;
+      const withoutEditor = () => plain(api.nodes.value).map(({ editor, ...node }) => node);
+      const beforeNodes = withoutEditor();
+      const beforeTracks = plain(api.tweenTracks.value);
+      const beforeLua = exportData();
+      assert.equal(api.selectedDirectionArrowLength.value, 160);
+      api.updateDirectionArrowLength(275.5);
+      assert.equal(group.editor.directionArrowLength, 275.5);
+      assert.equal(api.selectedDirectionArrowLength.value, 275.5);
+      assert.deepEqual(withoutEditor(), beforeNodes);
+      assert.deepEqual(plain(api.tweenTracks.value), beforeTracks);
+      assert.equal(exportData(), beforeLua);
+      assert.doesNotMatch(exportData(), /directionArrowLength/);
+      api.selectedId.value = "image";
+      const beforeImageEdit = api.serializeProject();
+      api.updateDirectionArrowLength(700);
+      assert.equal(api.serializeProject(), beforeImageEdit, "An image selection cannot mutate container guide metadata");
+      api.selectedId.value = null;
+      api.updateDirectionArrowLength(700);
+      assert.equal(api.serializeProject(), beforeImageEdit);
+    });
+    await test("Container direction lengths survive project save and load, including hidden arrows and legacy projects", async () => {
+      const { api } = fixture();
+      api.updateDirectionArrowLength(317.25);
+      api.selectedId.value = "root";
+      api.updateDirectionArrowLength(0);
+      const saved = JSON.parse(api.serializeProject());
+      assert.equal(saved.nodes[0].editor.directionArrowLength, 0);
+      assert.equal(saved.nodes[1].editor.directionArrowLength, 317.25);
+      assert.equal(saved.nodes[2].editor, undefined);
+      await api.loadProject({ target: { files: [{ name: "direction-guides.json", text: async () => JSON.stringify(saved) }] } });
+      assert.equal(api.alerts.length, 0);
+      assert.equal(api.nodes.value[0].editor.directionArrowLength, 0);
+      assert.equal(api.nodes.value[1].editor.directionArrowLength, 317.25);
+      assert.equal(api.nodes.value[2].editor, undefined);
+      const legacy = plain(saved);
+      legacy.nodes.forEach((node) => { delete node.editor; });
+      api.applyProjectData(JSON.stringify(legacy));
+      assert.equal(api.nodes.value[0].editor.directionArrowLength, 160);
+      assert.equal(api.nodes.value[1].editor.directionArrowLength, 160);
+      assert.equal(api.nodes.value[2].editor, undefined);
+    });
+    await test("Direction guides render only visible containers and zero length hides only that node's guide", () => {
+      const { api, group } = fixture();
+      const guideIds = () => plain(api.renderContainerDirections.value.map((guide) => guide.id)).sort();
+      assert.deepEqual(guideIds(), ["group", "root"]);
+      group.locked = true;
+      assert.deepEqual(guideIds(), ["group", "root"], "Locking cannot erase an orientation reference");
+      api.updateDirectionArrowLength(0);
+      assert.deepEqual(guideIds(), ["root"]);
+      api.updateDirectionArrowLength(80);
+      assert.equal(api.renderContainerDirections.value.find((guide) => guide.id === "group").length, 80);
+      group.visible = false;
+      assert.deepEqual(guideIds(), ["root"]);
+      group.visible = true;
+      api.nodes.value[0].visible = false;
+      assert.deepEqual(guideIds(), [], "An invisible ancestor must also hide descendant guides");
+      api.nodes.value[0].visible = true;
+      assert.deepEqual(guideIds(), ["group", "root"]);
+    });
+    await test("The global bone switch hides and restores guides without changing nodes, lengths or animation", () => {
+      const { api } = multiFixture();
+      api.updateDirectionArrowLength(287.5);
+      api.currentTime.value = 2.5;
+      assert.equal(api.showContainerBones.value, true);
+      const originalNodes = plain(api.nodes.value);
+      const originalTracks = plain(api.tweenTracks.value);
+      const originalGuides = plain(api.renderContainerDirections.value);
+      const originalPreview = plain(api.buildTweenPreviewNodes(api.currentTime.value));
+      assert.equal(originalGuides.length, 2);
+      for (const visible of [false, true, false, true]) {
+        api.showContainerBones.value = visible;
+        assert.deepEqual(plain(api.renderContainerDirections.value), visible ? originalGuides : []);
+        assert.deepEqual(plain(api.nodes.value), originalNodes);
+        assert.deepEqual(plain(api.tweenTracks.value), originalTracks);
+        assert.deepEqual(plain(api.buildTweenPreviewNodes(api.currentTime.value)), originalPreview);
+        assert.equal(api.currentTime.value, 2.5);
+        assert.equal(api.selectedDirectionArrowLength.value, 287.5);
+      }
+    });
+    await test("A hidden-bone preference survives save and reload while older and new projects default to visible", async () => {
+      const { api } = fixture();
+      api.updateDirectionArrowLength(273);
+      api.showContainerBones.value = false;
+      const saved = JSON.parse(api.serializeProject());
+      assert.equal(saved.showContainerBones, false);
+      api.showContainerBones.value = true;
+      await api.loadProject({ target: { files: [{ name: "hidden-bones.json", text: async () => JSON.stringify(saved) }] } });
+      assert.equal(api.alerts.length, 0);
+      assert.equal(api.showContainerBones.value, false);
+      assert.deepEqual(plain(api.renderContainerDirections.value), []);
+      assert.equal(api.nodes.value.find((node) => node.id === "group").editor.directionArrowLength, 273);
+      for (const preference of [undefined, null, true, "false", 0]) {
+        const legacy = { ...plain(saved), showContainerBones: preference };
+        api.applyProjectData(JSON.stringify(legacy));
+        assert.equal(api.showContainerBones.value, true, "Only explicit false may hide guides in saved data");
+        assert.equal(api.renderContainerDirections.value.length, 2);
+      }
+      api.applyProjectData(JSON.stringify(saved));
+      assert.equal(api.showContainerBones.value, false, "Switching back restores this document's hidden preference");
+      api.applyProjectData(api.createBlankProject("New bones document"));
+      assert.equal(api.showContainerBones.value, true, "A new document cannot inherit the previous document's hidden preference");
+      assert.equal(api.renderContainerDirections.value.length, 1);
+      assert.equal(api.renderContainerDirections.value[0].length, 160);
+      assert.equal(JSON.parse(api.serializeProject()).showContainerBones, true);
+    });
+    await test("The bone visibility button exposes its pressed state and toggles the actual global preference", () => {
+      const template = parsed.descriptor.template.content;
+      const button = template.match(/<button\b[^>]*aria-label="显示骨骼"[^>]*>/)?.[0];
+      assert.ok(button, "The canvas toolbar must expose a Show Bones button");
+      assert.match(button, /:aria-pressed="showContainerBones"/);
+      assert.match(button, /@click\.stop="showContainerBones\s*=\s*!showContainerBones"/);
+    });
+    await test("Container direction origins use actual pivots with inherited parent rotation and nonuniform scale", () => {
+      const { api, group } = fixture();
+      const root = api.nodes.value[0];
+      Object.assign(root, { pivotX: 0.25, pivotY: 0.75, rotation: 90, scaleX: 2, scaleY: 3 });
+      Object.assign(group, { pivotX: 0.1, pivotY: 0.9 });
+      api.getHierarchyOrder().forEach(api.applyNodeLayout);
+      const guide = api.renderContainerDirections.value.find((entry) => entry.id === "group");
+      // Group pivot (900,500) is offset by (500,-175) from its parent's pivot.
+      // Parent rotation and scale turn that into (525,1000), then add (800,450).
+      near(parseFloat(guide.style.left), 1325);
+      near(parseFloat(guide.style.top), 900 - 1450);
+      const matrix = guide.style.transform.match(/matrix\(([^)]+)\)/)[1].split(",").map(Number);
+      for (const [index, value] of [0, -4, 9, 0, 0, 0].entries()) near(matrix[index], value);
+      assert.equal(guide.length, 160);
+      assert.deepEqual(plain(guide.style), plain(imports.containerDirectionGuideStyle(api.previewWorldTransforms.value.get("group"), api.canvasHeight.value)));
+    });
+    await test("Direction guides follow animated parent rotation, child position, rotation and scale while base nodes stay unchanged", () => {
+      const { api } = fixture();
+      api.tweenTracks.value = [
+        clip("localRotationZ", 0, 1, 0, 90, { nodeId: "root" }),
+        clip("localRotationZ", 0, 1, 0, 90),
+        clip("localScaleY", 0, 1, 3, 5),
+        clip("anchoredPositionX", 0, 1, 100, 140),
+      ];
+      const before = plain(api.nodes.value);
+      const positions = [[0, 900, 500], [0.5, 800 + 70 / Math.sqrt(2), 450 + 170 / Math.sqrt(2)], [1, 750, 590], [0, 900, 500]];
+      for (const [time, x, y] of positions) {
+        api.currentTime.value = time;
+        const guide = api.renderContainerDirections.value.find((entry) => entry.id === "group");
+        near(parseFloat(guide.style.left), x, `Guide pivot X at ${time}`);
+        near(parseFloat(guide.style.top), 900 - y, `Guide pivot Y at ${time}`);
+        assert.equal(guide.length, 160);
+        const matrix = guide.style.transform.match(/matrix\(([^)]+)\)/)[1].split(",").map(Number);
+        const expected = time === 0 ? [2, 0, 0, 3, 0, 0] : time === 1 ? [-2, 0, 0, -5, 0, 0] : [0, -2, 4, 0, 0, 0];
+        expected.forEach((value, index) => near(matrix[index], value, `Guide matrix ${index} at ${time}`));
+        near(parseFloat(guide.style.left) + matrix[0] * guide.length, x + (time === 0 ? 320 : time === 1 ? -320 : 0), `Animated +X tip X at ${time}`);
+        near(parseFloat(guide.style.top) + matrix[1] * guide.length, 900 - y - (time === 0.5 ? 320 : 0), `Animated +X tip Y at ${time}`);
+        assert.deepEqual(plain(guide.style), plain(imports.containerDirectionGuideStyle(api.previewWorldTransforms.value.get("group"), api.canvasHeight.value)));
+        assert.deepEqual(plain(api.nodes.value), before);
+      }
+    });
+    await test("Direction guide overlay is noninteractive and the editor-only length input supports scrubbing", () => {
+      const componentPath = path.join(editor, "ContainerDirectionGuide.vue");
+      const component = parse(fs.readFileSync(componentPath, "utf8"), { filename: componentPath });
+      assert.deepEqual(component.errors, []);
+      assert.match(component.descriptor.template.content, /aria-hidden="true"/);
+      assert.match(component.descriptor.template.content, /<svg\b[^>]*:width="length \+ 20"[^>]*:height="40"/);
+      assert.match(component.descriptor.template.content, /:viewBox="`-10 -20 \$\{length \+ 20\} 40`"/);
+      assert.doesNotMatch(component.descriptor.template.content, /@(?:pointer|mouse|click|key)/);
+      const css = component.descriptor.styles.map((style) => style.content).join("\n");
+      assert.match(css, /\.container-direction-guide\s*\{[^}]*pointer-events:\s*none/);
+      assert.match(css, /transform-origin:\s*0\s+0/);
+      assert.match(css, /svg\s*\{[^}]*pointer-events:\s*none/);
+      assert.match(css, /svg\s*\{[^}]*left:\s*-10px/);
+      assert.match(css, /svg\s*\{[^}]*top:\s*-20px/);
+      assert.match(css, /path,\s*circle\s*\{[^}]*pointer-events:\s*none/);
+      assert.match(css, /vector-effect:\s*non-scaling-stroke/);
+      const template = parsed.descriptor.template.content;
+      assert.match(template, /<ContainerDirectionGuide\b[^>]*v-for="guide in renderContainerDirections"[^>]*:style="guide.style"/);
+      assert.match(template, /<ScrubbableNumberInput\b[^>]*:model-value="selectedDirectionArrowLength"[^>]*@update:model-value="updateDirectionArrowLength"/);
+      assert.match(template, /v-if="selectedNode\.type === 'container'"/);
+    });
     await test("Two position Clips share one lane while different fields retain separate lanes", () => {
       const { api, first, second } = multiFixture();
       const other = clip("anchoredPositionY", 0, 1, 50, 70);
@@ -298,12 +530,16 @@ async function main() {
       const serialized = api.serializeProject();
       assert.deepEqual(JSON.parse(serialized).tweenTracks, originalTracks);
       const before = plain(api.buildTweenPreviewNodes(2.5));
-      await api.loadProject({ target: { files: [{ name: "size-increments.json", text: async () => serialized }] } });
+      const legacy = JSON.parse(serialized); delete legacy.keyframeTracks; delete legacy.animations;
+      await api.loadProject({ target: { files: [{ name: "size-increments.json", text: async () => JSON.stringify(legacy) }] } });
       assert.equal(api.alerts.length, 0);
-      assert.deepEqual(plain(api.tweenTracks.value), originalTracks);
-      assert.deepEqual(plain(api.buildTweenPreviewNodes(2.5)), before);
-      near(api.buildTweenPreviewNodes(3)[1].sizeDeltaX, 150);
-      near(api.buildTweenPreviewNodes(3)[1].sizeDeltaY, 50);
+      assert.deepEqual(plain(api.keyframeTracks.value), plain(imports.migrateTweenClipsToKeyframes(originalTracks)));
+      assert.deepEqual(plain(api.buildKeyframePreviewNodes(2.5)), before);
+      near(api.buildKeyframePreviewNodes(3)[1].sizeDeltaX, 150);
+      near(api.buildKeyframePreviewNodes(3)[1].sizeDeltaY, 50);
+      const migrated = api.serializeProject();
+      await api.loadProject({ target: { files: [{ name: "size-keys.json", text: async () => migrated }] } });
+      assert.deepEqual(JSON.parse(api.serializeProject()), JSON.parse(migrated));
     });
     await test("Parent size increments update child stretch layout without changing local scales", () => {
       const { api, image } = fixture();
@@ -506,25 +742,34 @@ async function main() {
       const saved = JSON.parse(serialized);
       assert.equal(saved.tweenTracks.length, 2);
       assert.equal(saved.tweenTracks[1].endValue, -90);
-      const originalIds = api.tweenTracks.value.map((track) => track.id);
+      const expectedKeys = plain(imports.migrateTweenClipsToKeyframes(api.tweenTracks.value));
       const before = plain(api.buildTweenPreviewNodes(2.5));
-      await api.loadProject({ target: { files: [{ name: "multi.json", text: async () => serialized }] } });
+      delete saved.keyframeTracks; delete saved.animations;
+      await api.loadProject({ target: { files: [{ name: "multi.json", text: async () => JSON.stringify(saved) }] } });
       assert.equal(api.alerts.length, 0);
-      assert.deepEqual(plain(api.tweenTracks.value.map((track) => track.id)), originalIds);
-      assert.equal(api.timelineRows.value.filter((row) => row.kind === "tween").length, 1);
-      assert.deepEqual(plain(api.buildTweenPreviewNodes(2.5)), before);
+      assert.deepEqual(plain(api.keyframeTracks.value), expectedKeys);
+      assert.equal(api.keyframeTracks.value.length, 1);
+      assert.deepEqual(plain(api.buildKeyframePreviewNodes(2.5)), before);
+      const migrated = api.serializeProject();
+      await api.loadProject({ target: { files: [{ name: "keys.json", text: async () => migrated }] } });
+      assert.deepEqual(plain(api.keyframeTracks.value), expectedKeys, "Migrated key IDs and values survive new-format reload");
     });
     await test("A rejected overlapping project import restores the previous active document", async () => {
       const { api } = multiFixture();
+      const invalidClips = plain(api.tweenTracks.value);
+      api.keyframeTracks.value = imports.migrateTweenClipsToKeyframes(api.tweenTracks.value);
+      api.tweenTracks.value = [];
       const before = JSON.parse(api.serializeProject());
       const invalid = plain(before);
       invalid.name = "Must not replace current document";
+      delete invalid.keyframeTracks; delete invalid.animations;
+      invalid.tweenTracks = invalidClips;
       invalid.tweenTracks[1].startTime = 0.5;
       await api.loadProject({ target: { files: [{ name: "bad.json", text: async () => JSON.stringify(invalid) }] } });
       assert.equal(api.alerts.length, 1);
       assert.match(api.alerts[0], /保留|重叠|交叉/);
       assert.deepEqual(JSON.parse(api.serializeProject()), before);
-      near(api.buildTweenPreviewNodes(3)[1].anchorOffsetX, 50);
+      near(api.buildKeyframePreviewNodes(3)[1].anchorOffsetX, 50);
     });
     await test("Right-clicking an empty lane creates a Clip at the pointer's timeline time", () => {
       const { api, first, lane } = multiFixture();
@@ -614,8 +859,8 @@ async function main() {
       const { api } = fixture();
       api.duration.value = 2;
       api.currentTime.value = 1.5;
-      api.tweenTracks.value = [clip("anchoredPositionX", 0, 1, 100, 120)];
-      const existing = api.tweenTracks.value[0];
+      api.keyframeTracks.value = imports.migrateTweenClipsToKeyframes([clip("anchoredPositionX", 0, 1, 100, 120)]);
+      const existing = api.keyframeTracks.value[0];
       const originalNodes = plain(api.nodes.value);
       const nodesReference = api.nodes.value;
       api.openTimelineDataImport();
@@ -624,31 +869,31 @@ async function main() {
         {"","sizeDeltaX",0,1,"Linear",0,40,true}
       }}`;
       assert.deepEqual(plain(api.timelineDataImportSummary.value), {
-        schema: "ClientUIAnimationEditor.TweenTimeline@7", importedCount: 2, replacedCount: 0,
-        duration: 5, errors: [], warnings: [],
+        schema: "ClientUIAnimationEditor.TweenTimeline@7", importedCount: 1, replacedCount: 0,
+        duration: 5, errors: [], warnings: ["旧版 Clip 已无损转换为关键帧；空档使用保持插值，相接处不同首尾值保留为边界跳变。"],
       });
-      assert.equal(api.tweenTracks.value.length, 1, "Preview must not commit imported Clips");
+      assert.equal(api.keyframeTracks.value.length, 1, "Preview must not commit imported keyframes");
       api.confirmTimelineDataImport();
       assert.equal(api.timelineDataImportOpen.value, false);
       assert.equal(api.timelineDataSource.value, "");
       assert.equal(api.timelineDataImportPreview.value, null);
-      assert.equal(api.tweenTracks.value[0], existing);
-      const restored = api.tweenTracks.value.filter((track) => track.fieldKey === "sizeDeltaX");
-      assert.deepEqual(plain(restored.map((track) => [track.startTime, track.initialValue, track.endValue, track.relative, track.easeType])),
-        [[0, 0, 40, true, "Linear"], [2, 0, -90, true, "OutQuad"]]);
+      assert.deepEqual(plain(api.keyframeTracks.value[0]), plain(existing));
+      const restored = api.keyframeTracks.value.find((track) => track.fieldKey === "sizeDeltaX");
+      assert.deepEqual(plain(restored.keyframes.map((key) => [key.time, key.value, key.relative, key.easeType, key.interpolation])),
+        [[0, 0, true, "Linear", "tween"], [1, 40, true, "Linear", "step"], [2, 0, true, "OutQuad", "tween"], [3, -90, true, "Linear", "step"]]);
       assert.equal(api.duration.value, 5);
       assert.equal(api.currentTime.value, 0);
       assert.equal(api.playing.value, false);
       assert.equal(api.selectedId.value, "group");
-      assert.equal(api.selectedTweenTrackId.value, restored[0].id);
+      assert.equal(api.selectedKeyframeId.value, restored.keyframes[0].id);
       assert.equal(api.nodes.value, nodesReference);
       assert.deepEqual(plain(api.nodes.value), originalNodes);
-      near(api.buildTweenPreviewNodes(3)[1].sizeDeltaX, 150);
+      near(api.buildKeyframePreviewNodes(3)[1].sizeDeltaX, 150);
       const saved = JSON.parse(api.serializeProject());
       assert.equal(saved.duration, 5);
-      assert.deepEqual(saved.tweenTracks, plain(api.tweenTracks.value));
+      assert.deepEqual(saved.keyframeTracks, plain(api.keyframeTracks.value));
       assert.deepEqual(saved.nodes, originalNodes);
-      noOverlap(api);
+      assert.doesNotThrow(() => imports.normalizeKeyframeTracks(saved.keyframeTracks, api.nodes.value));
     });
     await test("Invalid Timeline Data confirmation leaves the entire timeline unchanged and keeps the dialog open", () => {
       for (const mode of ["append", "replace"]) {
@@ -681,10 +926,10 @@ async function main() {
     });
     await test("Timeline Data replace removes selected subtree Clips while preserving external tracks and duration", () => {
       const { api } = fixture();
-      api.tweenTracks.value = [clip("anchoredPositionX", 0, 1, 100, 140),
+      api.keyframeTracks.value = imports.migrateTweenClipsToKeyframes([clip("anchoredPositionX", 0, 1, 100, 140),
         clip("sizeDeltaY", 1, 1, 30, 50, { nodeId: "image" }),
-        clip("localScaleX", 6, 2, 1, 2, { nodeId: "root" })];
-      const outside = api.tweenTracks.value[2];
+        clip("localScaleX", 6, 2, 1, 2, { nodeId: "root" })]);
+      const outside = api.keyframeTracks.value[2];
       const originalNodes = plain(api.nodes.value);
       api.openTimelineDataImport();
       api.timelineDataImportMode.value = "replace";
@@ -692,13 +937,13 @@ async function main() {
       assert.equal(api.timelineDataImportSummary.value.replacedCount, 2);
       assert.equal(api.timelineDataImportSummary.value.duration, 8);
       api.confirmTimelineDataImport();
-      assert.equal(api.tweenTracks.value.length, 2);
-      assert.equal(api.tweenTracks.value.find((track) => track.nodeId === "root"), outside);
-      const restored = api.tweenTracks.value.find((track) => track.nodeId === "group");
+      assert.equal(api.keyframeTracks.value.length, 2);
+      assert.deepEqual(plain(api.keyframeTracks.value.find((track) => track.nodeId === "root")), plain(outside));
+      const restored = api.keyframeTracks.value.find((track) => track.nodeId === "group");
       assert.equal(restored.fieldKey, "sizeDeltaX");
-      assert.equal(restored.relative, true);
-      assert.equal(api.selectedTweenTrackId.value, restored.id);
-      assert.equal(api.tweenTracks.value.some((track) => track.nodeId === "image"), false);
+      assert.equal(restored.keyframes[0].relative, true);
+      assert.equal(api.selectedKeyframeId.value, restored.keyframes[0].id);
+      assert.equal(api.keyframeTracks.value.some((track) => track.nodeId === "image"), false);
       assert.equal(api.duration.value, 8);
       assert.equal(api.currentTime.value, 0);
       assert.equal(api.timelineDataImportOpen.value, false);

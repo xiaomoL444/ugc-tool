@@ -27,7 +27,7 @@ async function main() {
   const exposed = ["nodes", "makeNode", "textRenderStyle", "createGiaProject", "loadGiaFile", "loadProject", "saveProject", "switchDevice"];
   const script = ts.transpileModule(`${declarations}\nglobalThis.editorApi = { ${exposed.join(", ")} };`, {
     fileName: filename + ".ts",
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const converter = await import("genshin-impact-ugc-file-converter-web");
   const originalLoad = Module._load;
@@ -39,7 +39,7 @@ async function main() {
   Module._extensions[".ts"] = (module, sourcePath) => {
     const compiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
       fileName: sourcePath,
-      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
     });
     module._compile(compiled.outputText, sourcePath);
   };
@@ -52,10 +52,15 @@ async function main() {
     const tweenRegistry = require(path.join(editor, "tweenRegistry.ts"));
     const clipLayout = require(path.join(editor, "timelineClipLayout.ts"));
     const importer = require(path.join(editor, "giaImporter.ts"));
+    const directionGuide = require(path.join(editor, "containerDirectionGuide.ts"));
+    const editorHistory = require(path.join(editor, "editorHistory.ts"));
+    const historyChangeLabel = require(path.join(editor, "historyChangeLabel.ts"));
+    const keyframeTimeline = { ...require(path.join(editor, "keyframeTimeline.ts")), ...require(path.join(editor, "animationCollection.ts")) };
+    const keyframeLua = require(path.join(editor, "keyframeLua.ts"));
     function createEditor() {
       let savedProject;
       const context = vm.createContext({
-        ...vue, ...registry, ...tweenRegistry, ...clipLayout, ...importer,
+        ...vue, ...registry, ...tweenRegistry, ...clipLayout, ...importer, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua,
         inject: () => null,
         nextTick: () => Promise.resolve(),
         window: { alert(message) { assert.fail(message); } },

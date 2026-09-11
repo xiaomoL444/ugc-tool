@@ -26,6 +26,7 @@ async function main() {
   const exposed = [
     "nodes", "canvasWidth", "canvasHeight", "duration", "deviceMode", "previewPresetId", "previewPresets",
     "selectedId", "tweenTracks", "giaImportStatus", "worldTransforms", "makeNode", "getHierarchyOrder",
+    "keyframeTracks", "buildKeyframePreviewNodes", "currentTime", "propertyClipboard", "previewWorldTransforms",
     "getRuntimeLayoutValues", "updateRuntimeLayoutValue", "applyNodeLayout", "applyDescendantLayouts",
     "getAnchorReference", "readTweenFieldValue", "addTweenTrack", "buildTweenPreviewNodes",
     "normalizeTweenTracks", "loadGiaFile", "loadProject", "saveProject", "switchDevice", "applyPreviewPreset",
@@ -33,7 +34,7 @@ async function main() {
   ];
   const script = ts.transpileModule(`${declarations}\nglobalThis.editorApi = { ${exposed.join(", ")} };`, {
     fileName: filename + ".ts",
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const converter = await import("genshin-impact-ugc-file-converter-web");
   const originalLoad = Module._load;
@@ -45,7 +46,7 @@ async function main() {
   Module._extensions[".ts"] = (module, sourcePath) => {
     const compiled = ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
       fileName: sourcePath,
-      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+      compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
     });
     module._compile(compiled.outputText, sourcePath);
   };
@@ -59,10 +60,15 @@ async function main() {
     const exporter = require(path.join(editor, "luaTweenExporter.ts"));
     const propertyActions = require(path.join(editor, "propertyGroupActions.ts"));
     const clipLayout = require(path.join(editor, "timelineClipLayout.ts"));
+    const directionGuide = require(path.join(editor, "containerDirectionGuide.ts"));
+    const editorHistory = require(path.join(editor, "editorHistory.ts"));
+    const historyChangeLabel = require(path.join(editor, "historyChangeLabel.ts"));
+    const keyframeTimeline = { ...require(path.join(editor, "keyframeTimeline.ts")), ...require(path.join(editor, "animationCollection.ts")) };
+    const keyframeLua = require(path.join(editor, "keyframeLua.ts"));
     function createEditor() {
       let savedProject;
       const context = vm.createContext({
-        ...vue, ...registry, ...tweenRegistry, ...importer, ...exporter, ...propertyActions, ...clipLayout,
+        ...vue, ...registry, ...tweenRegistry, ...importer, ...exporter, ...propertyActions, ...clipLayout, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua,
         inject: () => null,
         nextTick: () => Promise.resolve(),
         window: { alert(message) { assert.fail(message); } },
@@ -203,7 +209,7 @@ async function main() {
       }
       assert.equal(selectedCount, 10);
     });
-    await test("Transform copy, reset and paste restores parent and child layouts without changing identity or Tween tracks", () => {
+    await test("Transform copy samples the current pose and reset/paste restore layouts while preserving identity, setup animation bases and existing keys", () => {
       const { api, top, label } = fixture();
       Object.assign(top, {
         anchorOffsetX: 35, anchorOffsetY: -30, sizeDeltaX: -120, sizeDeltaY: 145,
@@ -211,25 +217,39 @@ async function main() {
       });
       api.applyNodeLayout(top);
       api.applyDescendantLayouts(top.id);
-      api.tweenTracks.value = [track("top", "anchoredPositionY", -30, -80), track("label", "sizeDeltaX", -20, -50)];
+      api.keyframeTracks.value = keyframeTimeline.migrateTweenClipsToKeyframes([
+        track("top", "anchoredPositionY", -30, -80), track("label", "sizeDeltaX", -20, -50),
+      ]);
+      api.currentTime.value = 0.5;
       const savedNodes = plain(api.nodes.value);
-      const savedTracks = plain(api.tweenTracks.value);
+      const savedTracks = plain(api.keyframeTracks.value);
       const savedWorld = plain(Object.fromEntries(api.worldTransforms.value));
+      const savedPreview = plain(api.buildKeyframePreviewNodes(0.5));
+      const savedPreviewWorld = plain(Object.fromEntries(api.previewWorldTransforms.value));
       const identity = () => plain(api.nodes.value.map(({ id, parentId, name }) => ({ id, parentId, name })));
+      const existingKeys = () => plain(api.keyframeTracks.value.map((lane) => ({ ...lane, keyframes: lane.keyframes.filter((key) => key.time !== 0.5) })));
+      const currentPositionKey = () => api.keyframeTracks.value.find((lane) => lane.nodeId === "top").keyframes.find((key) => key.time === 0.5);
       const savedIdentity = identity();
       api.copySelectedPropertyGroup("transform");
       assert.equal(api.canPasteSelectedPropertyGroup("transform"), true);
+      assert.equal(api.propertyClipboard.value.values.anchorOffsetY, -55, "Copy captures the visible interpolated position, not setup -30");
       assert.deepEqual(plain(api.nodes.value), savedNodes, "Copy does not mutate the source");
+      assert.deepEqual(plain(api.keyframeTracks.value), savedTracks, "Copy does not insert keys");
       api.resetSelectedPropertyGroup("transform");
       assert.notEqual(top.width, savedNodes[1].width, "Reset applies the default parent size");
       assert.notEqual(label.width, savedNodes[2].width, "Reset recalculates stretched descendants");
       assert.notDeepEqual(plain(Object.fromEntries(api.worldTransforms.value)), savedWorld);
       assert.deepEqual(identity(), savedIdentity, "Reset preserves IDs, hierarchy and names");
-      assert.deepEqual(plain(api.tweenTracks.value), savedTracks, "Reset preserves Tween tracks");
+      assert.equal(top.anchorOffsetY, -30, "Reset leaves the animated setup baseline untouched");
+      assert.equal(currentPositionKey().value, 0, "Reset writes the default position at the current playhead");
+      assert.deepEqual(existingKeys(), savedTracks, "Reset preserves both original endpoints and the descendant lane");
       api.pasteSelectedPropertyGroup("transform");
       assert.deepEqual(plain(api.nodes.value), savedNodes, "Paste restores all original parent and child layout values");
       assert.deepEqual(plain(Object.fromEntries(api.worldTransforms.value)), savedWorld, "Paste restores child world transforms");
-      assert.deepEqual(plain(api.tweenTracks.value), savedTracks, "Paste preserves Tween tracks");
+      assert.equal(currentPositionKey().value, -55, "Paste restores the copied preview into the current key instead of overwriting setup");
+      assert.deepEqual(existingKeys(), savedTracks, "Paste preserves the existing animation outside the current key");
+      assert.deepEqual(plain(api.buildKeyframePreviewNodes(0.5)), savedPreview, "Paste restores the copied parent pose and animated descendant layout");
+      assert.deepEqual(plain(Object.fromEntries(api.previewWorldTransforms.value)), savedPreviewWorld, "Paste restores the visible world transforms");
       assert.equal(api.nodes.value[1], top);
       assert.equal(api.nodes.value[2], label);
     });
@@ -256,13 +276,15 @@ async function main() {
         const { api } = fixture();
         const project = { hierarchyLayoutVersion: 2, timelineModelVersion: version, canvasWidth: 1600, canvasHeight: 900, duration: 5, nodes: plain(api.nodes.value), tweenTracks: [track("top", "anchoredPositionY", from, to)] };
         await api.loadProject({ target: { files: [{ text: async () => JSON.stringify(project) }] } });
-        assert.equal(api.tweenTracks.value[0].initialValue, 0, `v${version} initial`);
-        assert.equal(api.tweenTracks.value[0].endValue, -80, `v${version} end`);
+        assert.equal(api.keyframeTracks.value[0].keyframes[0].value, 0, `v${version} initial`);
+        assert.equal(api.keyframeTracks.value[0].keyframes[1].value, -80, `v${version} end`);
+        assert.equal(api.buildKeyframePreviewNodes(0)[1].anchorOffsetY, 0);
+        assert.equal(api.buildKeyframePreviewNodes(1)[1].anchorOffsetY, -80);
         api.saveProject();
         const saved = api.getSavedProject();
-        assert.equal(saved.timelineModelVersion, 9);
+        assert.equal(saved.timelineModelVersion, 10);
         await api.loadProject({ target: { files: [{ text: async () => JSON.stringify(saved) }] } });
-        assert.deepEqual(plain(api.tweenTracks.value), saved.tweenTracks, `v${version} save/reload must be idempotent`);
+        assert.deepEqual(plain(api.keyframeTracks.value), saved.keyframeTracks, `v${version} save/reload must be idempotent`);
       }
     });
     await test("Missing or invalid legacy endpoints use the current anchored value without a second conversion", () => {
@@ -452,14 +474,27 @@ async function main() {
       const before = plain(api.buildTweenPreviewNodes(1.5));
       api.saveProject();
       const saved = api.getSavedProject();
-      assert.equal(saved.timelineModelVersion, 9);
+      assert.equal(saved.timelineModelVersion, 10);
       assert.equal(saved.tweenTracks[0].fieldKey, "groupAlpha");
       assert.equal(saved.tweenTracks[0].initialValue, 255);
       assert.equal(saved.tweenTracks[0].endValue, 96);
       assert.equal(saved.nodes.some((node) => Object.hasOwn(node.properties, "groupAlpha")), false);
+      delete saved.keyframeTracks; delete saved.animations;
       await api.loadProject({ target: { files: [{ text: async () => JSON.stringify(saved) }] } });
-      assert.deepEqual(plain(api.tweenTracks.value), saved.tweenTracks);
-      assert.deepEqual(plain(api.buildTweenPreviewNodes(1.5)), before);
+      assert.deepEqual(plain(api.keyframeTracks.value), keyframeTimeline.migrateTweenClipsToKeyframes(saved.tweenTracks));
+      const after = plain(api.buildKeyframePreviewNodes(1.5));
+      // The two samplers perform equivalent byte-alpha interpolation in a
+      // different floating-point order. Compare only alpha within roundoff;
+      // keep every other node field and color channel strictly identical.
+      for (let index = 0; index < after.length; index += 1) {
+        for (const [field, value] of Object.entries(after[index].properties)) {
+          if (!value || typeof value !== "object" || !Object.hasOwn(value, "a")) continue;
+          const previous = before[index].properties[field];
+          assert.ok(Math.abs(value.a - previous.a) < 1e-12, `${after[index].id}.${field}.a must preserve the legacy preview`);
+          value.a = previous.a;
+        }
+      }
+      assert.deepEqual(after, before);
       for (const version of [4, 6, 7]) {
         const partial = track("group", "groupAlpha", 255, 64);
         delete partial.initialValue;
