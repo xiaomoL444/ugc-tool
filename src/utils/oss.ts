@@ -50,7 +50,9 @@ export class OssClient {
   }
 
   async json<T = unknown>(...segments: Array<string | number>) {
-    const res = await fetch(this.path(...segments));
+    // 数据索引会原址更新；独立请求地址避免命中 CDN 按 Origin 保存的旧副本。
+    const url = `${this.path(...segments)}?_t=${Date.now()}`;
+    const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error(`OSS GET ${res.status}: ${this.path(...segments)}`);
     return (await res.json()) as T;
   }
