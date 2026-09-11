@@ -72,11 +72,12 @@ async function main() {
   c.setActive(true);
   assert.equal(video.currentTime, 1.2, 'Offscreen suspension preserves progress');
   audio.time = 0.5; frame();
-  assert.equal(audio.currentTime, video.currentTime, 'A drifting track catches up to the shared clock');
+  assert.equal(audio.currentTime, video.currentTime, 'Video follows the actual audio clock');
+  assert.equal(audio.seeks, 0, 'Drift correction never seeks the audio');
   audio.readyState = 2; audio.dispatchEvent(new Event('waiting'));
   assert.equal(video.paused, false, 'Audio buffering must not freeze video');
   video.readyState = 1; video.dispatchEvent(new Event('waiting'));
-  assert.ok(video.paused && audio.paused, 'Video buffering pauses the shared clock');
+  assert.equal(audio.paused, false, 'Video buffering cannot interrupt audio');
   video.readyState = 4;
   audio.readyState = 4; audio.dispatchEvent(new Event('canplay'));
   await settle();
@@ -118,6 +119,8 @@ async function main() {
   assert.equal(autoAudio.currentTime, 2.5, 'Enabling audio joins the current timeline');
   await settle();
   now += 1500; frame();
+  assert.equal(autoAudio.currentTime, 2.5, 'Wall time cannot truncate an audio track');
+  autoAudio.end(); frame();
   assert.equal(autoVideo.currentTime, 0);
   assert.equal(autoAudio.currentTime, 0);
   autoplay.dispose();
@@ -133,7 +136,7 @@ async function main() {
   lateAudio.readyState = 4;
   lateAudio.dispatchEvent(new Event('canplay'));
   assert.equal(lateAudio.paused, false);
-  assert.equal(lateAudio.currentTime, 1, 'Late audio joins the current video time');
+  assert.equal(lateAudio.currentTime, 0, 'Delayed audio starts intact instead of skipping its beginning');
   await settle();
   late.setActive(false);
   const plays = lateVideo.plays;
@@ -146,6 +149,31 @@ async function main() {
   assert.equal(lateVideo.paused, false, 'Recovery handles a missed playback event');
   late.dispose();
   assert.equal(intervals.size, 0);
+
+  // Reproduce tablet startup/buffering: wall time passes but audio barely advances.
+  const tabletVideo = new Media(1.38), tabletAudio = new Media(1.393167);
+  const tablet = create([tabletVideo, tabletAudio], tabletAudio);
+  tablet.setAudible(true);
+  tablet.setActive(true);
+  await settle();
+  tabletAudio.time = 0.1;
+  tabletVideo.time = 0.6;
+  now += 2200;
+  frame();
+  assert.equal(tabletAudio.currentTime, 0.1);
+  assert.equal(tabletAudio.seeks, 0, 'Slow audio is never forced forward or reset');
+  assert.equal(tabletAudio.paused, false);
+  tabletVideo.end();
+  tabletAudio.readyState = 1;
+  tabletAudio.dispatchEvent(new Event('waiting'));
+  now += 3000; frame();
+  assert.equal(tabletVideo.currentTime, 1.38, 'Completed video waits for buffered audio');
+  assert.equal(tabletAudio.seeks, 0);
+  tabletAudio.readyState = 4;
+  tabletAudio.end(); frame();
+  assert.equal(tabletAudio.currentTime, 0, 'Only actual completion restarts the group');
+  assert.equal(tabletVideo.currentTime, 0);
+  tablet.dispose();
 
   const poolContext = { exports: {} };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/views/EffectPlayer/mediaPool.ts', 'utf8'), {

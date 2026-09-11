@@ -1,4 +1,4 @@
-/** One shared clock controls all tracks, including audio blocked by autoplay policy. */
+/** Follow actual media progress; a virtual clock is only used for blocked audio. */
 export function createSynchronizedMedia(
   media: HTMLMediaElement[],
   audio: HTMLMediaElement | null,
@@ -17,10 +17,15 @@ export function createSynchronizedMedia(
   const failed = new Set<HTMLMediaElement>();
   const cleanups: (() => void)[] = [];
   const tracks = () => media.filter((element) => !failed.has(element));
-  const position = () => elapsed + (running ? (performance.now() - startedAt) / 1000 : 0);
+  const virtualPosition = () => elapsed + (running ? (performance.now() - startedAt) / 1000 : 0);
+  const audioMaster = () => audio && !failed.has(audio) && !blockedAudio && !audio.ended ? audio : null;
+  const master = () => audioMaster() ?? tracks().filter((element) => element !== audio && !element.ended)
+    .sort((a, b) => b.duration - a.duration)[0];
+  const position = () => master()?.currentTime ?? virtualPosition();
+  const correctedAt = new Map<HTMLMediaElement, number>();
 
   function pause() {
-    elapsed = position();
+    elapsed = virtualPosition();
     running = false;
     generation += 1;
     cancelAnimationFrame(frame);
@@ -75,19 +80,22 @@ export function createSynchronizedMedia(
     const available = tracks();
     if (!available.length) { pause(); return; }
     const time = position();
-    const duration = Math.max(...available.map((element) => Number.isNaN(element.duration) ? 0 : element.duration));
-    if ((Number.isFinite(duration) && time >= duration) || available.every((element) => element.ended)) {
+    if (available.every((element) => element.ended ||
+      (element === audio && blockedAudio && Number.isFinite(element.duration) && virtualPosition() >= element.duration))) {
       pause();
       elapsed = 0;
+      correctedAt.clear();
       available.forEach((element) => { if (element.readyState >= 1) element.currentTime = 0; });
       start();
       return;
     }
     for (const element of available) {
       // Short tracks keep their final frame/silence until the longest track ends.
-      if (element.ended || element.seeking || element.readyState < 2 || (element === audio && blockedAudio)) continue;
+      if (element === audio || element === master() || element.ended || element.seeking || element.readyState < 2) continue;
       const target = Math.min(time, element.duration);
-      if (Number.isFinite(target) && Math.abs(element.currentTime - target) > 0.2) {
+      if (Number.isFinite(target) && Math.abs(element.currentTime - target) > 0.35 &&
+        performance.now() - (correctedAt.get(element) ?? -Infinity) >= 1000) {
+        correctedAt.set(element, performance.now());
         element.currentTime = target;
       }
     }
@@ -101,7 +109,7 @@ export function createSynchronizedMedia(
     for (const element of tracks()) {
       if (!element.paused || element.ended || element.seeking || element.readyState < 2 || (element === audio && blockedAudio)) continue;
       const target = Math.min(position(), element.duration);
-      if (Number.isFinite(target) && Math.abs(element.currentTime - target) > 0.1) element.currentTime = target;
+      if (element !== audio && element !== master() && Number.isFinite(target) && Math.abs(element.currentTime - target) > 0.35) element.currentTime = target;
       play(element);
     }
   }
@@ -117,7 +125,8 @@ export function createSynchronizedMedia(
     listen("loadeddata", recover);
     listen("seeked", recover);
     listen("waiting", () => {
-      if (running && element !== audio && !element.ended && element.readyState < 2) pause();
+      // Video decoding/seeking must not repeatedly interrupt the audio track.
+      if (running && !audioMaster() && element !== audio && !element.ended && element.readyState < 2) pause();
     });
     listen("error", () => { failed.add(element); element.pause(); start(); });
     // Some browsers pause autoplaying audio when it becomes audible.
@@ -133,6 +142,7 @@ export function createSynchronizedMedia(
       if (disposed) return;
       pause();
       elapsed = 0;
+      correctedAt.clear();
       tracks().forEach((element) => {
         if (element.readyState >= 1) element.currentTime = 0;
       });
@@ -156,13 +166,15 @@ export function createSynchronizedMedia(
     },
     setAudible(value: boolean) {
       if (!audio || failed.has(audio) || disposed) return;
+      const wasBlocked = blockedAudio;
+      const joinTime = position();
       audio.muted = !value;
       if (value) {
         blockedAudio = false;
         onAudioBlocked(false);
         if (active && running && !audio.ended && audio.readyState >= 2) {
           if (audio.paused) {
-            audio.currentTime = Math.min(position(), audio.duration);
+            if (wasBlocked) audio.currentTime = Math.min(joinTime, audio.duration);
             play(audio);
           }
         }
