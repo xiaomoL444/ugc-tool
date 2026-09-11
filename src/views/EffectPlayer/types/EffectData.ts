@@ -6,11 +6,16 @@ export interface EffectItem {
   isLoop: boolean;
   tagList: number[];
   icon: string;
+  standPath?: string;
+  tailPath?: string;
+  hasAudio?: boolean;
+  audioPath?: string;
 }
 
 export interface EffectDataFile {
   effectData: Record<string, EffectItem>;
   TagData: Record<string, string>;
+  category?: Record<string, number[]>;
 }
 
 export type EffectLoopFilter = "all" | "once" | "loop";

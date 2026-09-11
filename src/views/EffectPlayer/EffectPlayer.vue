@@ -3,8 +3,8 @@
     <div class="browser">
       <div class="toolbar">
         <div class="toolbar-row">
-          <div class="search-label">搜索（可搜索 id、名称、tag）：</div>
-          <input v-model="search" type="search" autocomplete="off" placeholder="例如 10001001 / 冰元素受击 / 受击" />
+          <label class="search-label" for="effect-search">搜索（可搜索 id、名称、tag）：</label>
+          <input id="effect-search" v-model="search" type="search" autocomplete="off" placeholder="例如 10001001 / 冰元素受击 / 受击" />
         </div>
 
         <div class="toolbar-row">
@@ -19,30 +19,23 @@
             >
               {{ tab.label }}
             </button>
+            <button
+              v-for="tab in audioTabs"
+              :key="tab.value"
+              class="tab"
+              :class="{ active: audioFilter === tab.value }"
+              :aria-pressed="audioFilter === tab.value"
+              title="再次点击取消音效筛选"
+              type="button"
+              @click="audioFilter = audioFilter === tab.value ? 'all' : tab.value"
+            >
+              {{ tab.label }}
+            </button>
           </div>
           <div class="stats">{{ statsText }}</div>
         </div>
 
-        <div class="tag-filter">
-          <div class="tag-filter-head">
-            <span>按 Tag 筛选{{ selectedTagIds.length ? `（已选 ${selectedTagIds.length}）` : "" }}</span>
-            <button v-if="selectedTagIds.length" class="clear-tags" type="button" @click="selectedTagIds = []">
-              清除 Tag
-            </button>
-          </div>
-          <div class="tag-chip-wrap">
-            <button
-              v-for="tag in tagOptions"
-              :key="tag.id"
-              class="tag-chip"
-              :class="{ active: selectedTagIds.includes(tag.id) }"
-              type="button"
-              @click="toggleTag(tag.id)"
-            >
-              {{ tag.name }}
-            </button>
-          </div>
-        </div>
+        <EffectTagFilter v-model="selectedTagIds" :groups="tagGroups" :items="searchedEffects" />
       </div>
 
       <div class="grid-wrap">
@@ -58,19 +51,21 @@
         >
           <template #default="{ item: row }: { item: EffectRow }">
             <div class="effect-row">
-              <button
+              <article
                 v-for="effect in row.data"
                 :key="effect.id"
                 class="effect-card"
-                type="button"
+                data-effect-card
                 @click="openModal(effect)"
               >
-                <EffectMedia :item="effect" />
+                <button class="open-preview" type="button" :aria-label="`预览 ${effectName(effect)}（${effect.id}）`" @click.stop="openModal(effect)">
+                  <EffectMedia :item="effect" :suspended="Boolean(selectedEffect)" />
+                </button>
                 <div class="effect-info">
-                  <div class="effect-name" :title="effectName(effect)">
+                  <button class="effect-name card-copy" type="button" :title="`点击复制名称：${effectName(effect)}`" @click.stop="Clipboard(effectName(effect))">
                     {{ effectName(effect) }}
-                  </div>
-                <div class="effect-id">配置ID: {{ effect.id }}</div>
+                  </button>
+                <button class="effect-id card-copy" type="button" title="点击复制配置 ID" @click.stop="Clipboard(String(effect.id))">配置ID: {{ effect.id }}</button>
                 <div class="effect-meta">
                   <span v-if="effect.duration >= 0">{{ effect.duration }}s</span>
                   <span>{{ effect.isLoop ? "循环" : "限时" }}</span>
@@ -89,7 +84,7 @@
                   </span>
                 </div>
               </div>
-            </button>
+            </article>
             <div
               v-for="n in rowPlaceholders(row)"
               :key="`pad-${row.id}-${n}`"
@@ -109,8 +104,10 @@
         <div class="modal-body">
           <EffectMedia :item="selectedEffect" variant="modal" />
           <div class="modal-info">
-            <h2 class="modal-title">{{ effectName(selectedEffect) }}</h2>
-            <p class="modal-id" @click="Clipboard(selectedEffect.id)">配置ID: {{ selectedEffect.id }}</p>
+            <h2 class="modal-title">
+              <button class="copy-name" type="button" title="点击复制名称" @click="Clipboard(effectName(selectedEffect))">{{ effectName(selectedEffect) }}</button>
+            </h2>
+            <button class="modal-id" type="button" title="点击复制配置 ID" @click="Clipboard(String(selectedEffect.id))">配置ID: {{ selectedEffect.id }}</button>
             <p class="modal-meta">
               时长：{{ formatDuration(selectedEffect) }}　{{ selectedEffect.isLoop ? "循环特效" : "限时特效" }}
             </p>
@@ -140,6 +137,8 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { toast } from "vue-sonner";
 import { VVirtualList } from "vueuc";
 import EffectMedia from "./EffectMedia.vue";
+import EffectTagFilter from "./EffectTagFilter.vue";
+import { buildEffectTagGroups, matchesEffectTagGroups } from "./tagFilters";
 import { createOss } from "@/utils/oss";
 import {
   EffectDataFile,
@@ -159,29 +158,31 @@ const loopTabs: { value: EffectLoopFilter; label: string }[] = [
 ];
 
 const loading = ref(true);
+const audioTabs = [
+  { value: "with", label: "有音效" },
+  { value: "without", label: "无音效" },
+] as const;
+const audioFilter = ref<"all" | "with" | "without">("all");
 const search = ref("");
 const loopFilter = ref<EffectLoopFilter>("all");
 const selectedTagIds = ref<number[]>([]);
 const selectedEffect = ref<EffectItem | null>(null);
 const effectData = ref<Record<string, EffectItem>>({});
 const tagData = ref<Record<string, string>>({});
+const tagCategories = ref<Record<string, number[]>>({});
 const columns = ref(4);
 
-const tagOptions = computed(() =>
-  Object.entries(tagData.value)
-    .map(([id, name]) => ({ id: Number(id), name }))
-    .sort((a, b) => a.id - b.id),
+const tagGroups = computed(() =>
+  buildEffectTagGroups(tagData.value, tagCategories.value),
 );
 
-const filteredEffects = computed(() => {
+const searchedEffects = computed(() => {
   const q = search.value.trim().toLowerCase();
-  const tags = selectedTagIds.value;
   return Object.values(effectData.value).filter((item) => {
     if (loopFilter.value === "loop" && !item.isLoop) return false;
     if (loopFilter.value === "once" && item.isLoop) return false;
-    if (tags.length && !tags.every((tagId) => item.tagList?.includes(tagId))) {
-      return false;
-    }
+    if (audioFilter.value === "with" && !item.hasAudio) return false;
+    if (audioFilter.value === "without" && item.hasAudio) return false;
     if (!q) return true;
     if (String(item.id).toLowerCase().includes(q)) return true;
     if (effectName(item).toLowerCase().includes(q)) return true;
@@ -190,6 +191,10 @@ const filteredEffects = computed(() => {
     );
   });
 });
+
+const filteredEffects = computed(() => searchedEffects.value.filter((item) =>
+  matchesEffectTagGroups(item, selectedTagIds.value, tagGroups.value),
+));
 
 const rows = computed<EffectRow[]>(() => {
   const list = filteredEffects.value;
@@ -208,7 +213,8 @@ const statsText = computed(() => {
   const total = Object.keys(effectData.value).length;
   const shown = filteredEffects.value.length;
   const label =
-    loopTabs.find((tab) => tab.value === loopFilter.value)?.label ?? "特效";
+    (loopTabs.find((tab) => tab.value === loopFilter.value)?.label ?? "特效") +
+    (audioFilter.value === "all" ? "" : ` · ${audioTabs.find((tab) => tab.value === audioFilter.value)?.label}`);
   if (shown === total && !search.value.trim() && selectedTagIds.value.length === 0) {
     return `${label} 共 ${total} 个`;
   }
@@ -226,6 +232,7 @@ onMounted(async () => {
       Object.entries(rawEffects).filter(([, item]) => Boolean(item.icon?.trim())),
     );
     tagData.value = data.TagData ?? {};
+    tagCategories.value = data.category ?? {};
   } catch (error) {
     toast.error("特效数据加载失败");
     console.error(error);
@@ -325,6 +332,11 @@ function updateColumns() {
   gap: 12px;
 }
 
+.toolbar-row input {
+  flex: 1;
+  min-width: 0;
+}
+
 .search-label {
   flex-shrink: 0;
   white-space: nowrap;
@@ -348,8 +360,7 @@ function updateColumns() {
 }
 
 .tab:hover,
-.tag-chip:hover,
-.clear-tags:hover {
+.tag-chip:hover {
   border-color: #6a5acd;
   box-shadow: 0 4px 12px rgba(106, 90, 205, 0.12);
 }
@@ -367,16 +378,6 @@ function updateColumns() {
   font-size: 0.9rem;
 }
 
-.tag-filter-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-  font-size: 0.9rem;
-  color: #556;
-}
-
-.clear-tags,
 .tag-chip {
   border: 1px solid rgba(106, 90, 205, 0.22);
   background: rgba(255, 255, 255, 0.75);
@@ -388,17 +389,11 @@ function updateColumns() {
   color: #445;
 }
 
-.tag-chip-wrap,
 .modal-tags,
 .card-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.tag-chip-wrap {
-  max-height: 76px;
-  overflow-y: auto;
 }
 
 .card-tags {
@@ -482,6 +477,11 @@ function updateColumns() {
   gap: 6px;
   min-height: 0;
 }
+
+.open-preview { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; flex-shrink: 0; }
+.card-copy { font-family: inherit; text-align: left; border: 0; padding: 0; background: none; cursor: copy; }
+.card-copy:hover { text-decoration: underline; }
+.card-copy:focus-visible, .open-preview:focus-visible { outline: 2px solid #0ea2e5; outline-offset: -2px; }
 
 .effect-name {
   font-size: 1rem;
@@ -577,6 +577,9 @@ function updateColumns() {
 }
 
 .modal-id {
+  font: inherit;
+  color: inherit;
+  border: 0;
   margin: 0;
   display: inline-block;
   cursor: pointer;
@@ -585,6 +588,10 @@ function updateColumns() {
   padding: 8px 14px;
   border-radius: 6px;
 }
+
+.copy-name { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.copy-name:hover { color: #73bfff; }
+.copy-name:focus-visible, .modal-id:focus-visible { outline: 2px solid #73bfff; outline-offset: 4px; }
 
 .modal-meta {
   margin: 12px 0;
@@ -604,5 +611,30 @@ function updateColumns() {
 .modal-tags .tag-chip.active {
   background: rgba(14, 162, 229, 0.35);
   color: #fff;
+}
+
+@media (max-width: 600px) {
+  .toolbar-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .search-label {
+    width: 100%;
+    text-align: left;
+    font-size: 0.85rem;
+  }
+
+  .stats {
+    margin-left: 0;
+    width: 100%;
+    text-align: left;
+    font-size: 0.8rem;
+  }
+
+  .tab {
+    padding: 6px 10px;
+    font-size: 0.85rem;
+  }
 }
 </style>
