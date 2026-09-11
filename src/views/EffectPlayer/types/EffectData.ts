@@ -10,6 +10,7 @@ export interface EffectItem {
   tailPath?: string;
   hasAudio?: boolean;
   audioPath?: string;
+  giVersion?: string;
 }
 
 export interface EffectDataFile {

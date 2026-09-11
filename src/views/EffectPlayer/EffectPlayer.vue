@@ -31,6 +31,13 @@
             >
               {{ tab.label }}
             </button>
+            <label class="version-filter">
+              游戏版本
+              <select v-model="versionFilter" aria-label="游戏版本">
+                <option value="all">全部版本</option>
+                <option v-for="version in gameVersions" :key="version" :value="version">{{ version || '未标注版本' }}</option>
+              </select>
+            </label>
           </div>
           <div class="stats">{{ statsText }}</div>
         </div>
@@ -163,6 +170,7 @@ const audioTabs = [
   { value: "without", label: "无音效" },
 ] as const;
 const audioFilter = ref<"all" | "with" | "without">("all");
+const versionFilter = ref("all");
 const search = ref("");
 const loopFilter = ref<EffectLoopFilter>("all");
 const selectedTagIds = ref<number[]>([]);
@@ -171,6 +179,8 @@ const effectData = ref<Record<string, EffectItem>>({});
 const tagData = ref<Record<string, string>>({});
 const tagCategories = ref<Record<string, number[]>>({});
 const columns = ref(4);
+const gameVersions = computed(() => [...new Set(Object.values(effectData.value).map((item) => item.giVersion?.trim() || ""))]
+  .sort((a, b) => b.localeCompare(a, undefined, { numeric: true })));
 
 const tagGroups = computed(() =>
   buildEffectTagGroups(tagData.value, tagCategories.value),
@@ -183,6 +193,7 @@ const searchedEffects = computed(() => {
     if (loopFilter.value === "once" && item.isLoop) return false;
     if (audioFilter.value === "with" && !item.hasAudio) return false;
     if (audioFilter.value === "without" && item.hasAudio) return false;
+    if (versionFilter.value !== "all" && (item.giVersion?.trim() || "") !== versionFilter.value) return false;
     if (!q) return true;
     if (String(item.id).toLowerCase().includes(q)) return true;
     if (effectName(item).toLowerCase().includes(q)) return true;
@@ -214,7 +225,8 @@ const statsText = computed(() => {
   const shown = filteredEffects.value.length;
   const label =
     (loopTabs.find((tab) => tab.value === loopFilter.value)?.label ?? "特效") +
-    (audioFilter.value === "all" ? "" : ` · ${audioTabs.find((tab) => tab.value === audioFilter.value)?.label}`);
+    (audioFilter.value === "all" ? "" : ` · ${audioTabs.find((tab) => tab.value === audioFilter.value)?.label}`) +
+    (versionFilter.value === "all" ? "" : ` · ${versionFilter.value || '未标注版本'}`);
   if (shown === total && !search.value.trim() && selectedTagIds.value.length === 0) {
     return `${label} 共 ${total} 个`;
   }
@@ -307,6 +319,9 @@ function updateColumns() {
 </script>
 
 <style scoped>
+.version-filter { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #445; }
+.version-filter select { font: inherit; color: inherit; padding: 8px 10px; border: 1px solid rgba(14, 162, 229, 0.3); border-radius: 8px; background: #fff; cursor: pointer; }
+.version-filter select:focus-visible { outline: 2px solid #0ea2e5; outline-offset: 2px; }
 .browser {
   height: 100%;
   min-height: 0;
