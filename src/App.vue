@@ -1,10 +1,20 @@
 <template>
   <Toaster position="top-center" />
   <div class="topbar">
-    <button style="width: 54px;height: 54px; background-color:  #6a5acdAA; border-radius: 15%;" id="menuBtn" v-on:click="OpenSidebar" >☰</button>
-    <PanelLayout>
+    <button style="width: 54px;height: 54px; background-color:  #6a5acdAA; border-radius: 15%;" id="menuBtn" :aria-label="t('app.openNavigation')" :aria-expanded="open" aria-controls="sidebar" v-on:click="OpenSidebar" >☰</button>
+    <PanelLayout class="title-panel">
       <div class="header" ><img src="@/assets/logo.png" style="height: 36px; width: 36px; margin:0px,20px;"></img>
     <h2 class="title" style="color: white;">{{ pageTitle }}</h2></div></PanelLayout>
+    <label class="language-switch">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <ellipse cx="12" cy="12" rx="4" ry="9" />
+        <path d="M3 12h18" />
+      </svg>
+      <select :value="locale" :aria-label="t('app.language')" @change="changeLanguage">
+        <option v-for="language in supportedLocales" :key="language.value" :value="language.value" :lang="language.value">{{ language.label }}</option>
+      </select>
+    </label>
   </div>
   <main class="background">
     <div class="content">
@@ -15,23 +25,23 @@
 <div id="overlay" class="overlay" v-on:click="CloseSidebar" :class="{ show: open }"></div>
 
 <div id="sidebar" class="sidebar"     :class="{ open }">
-  <h2>导航</h2>
+  <h2>{{ t('app.navigation') }}</h2>
 <nav v-if="isLocal">
-  <h4>测试工具</h4>
+  <h4>{{ t('app.testTools') }}</h4>
     <router-link to="/about">About</router-link>
     <router-link to="/debugpanel">debugpanle</router-link>
     <router-link to="/DSFGStudio">对话模版编辑器</router-link>
     <router-link to="/OverSeaUpload">海外上传工具</router-link>
 </nav>
   <div>
-        <router-link to="/">标题页</router-link>
-    <h3 style="color: #0005; width: 100%; position: relative;">——线上工具——</h3>
+        <router-link to="/">{{ t('app.home') }}</router-link>
+    <h3 style="color: #0005; width: 100%; position: relative;">——{{ t('app.onlineTools') }}——</h3>
 <router-link
   v-for="route in appRoutes"
   :key="route.path"
   :to="route.path"
 >
-  {{ route.title }}
+  {{ route.titleKey ? t(route.titleKey) : route.title }}
 </router-link>
   </div>
 </div>
@@ -90,7 +100,7 @@ nav a.router-link-exact-active {
   height: 64px;
 }
 
-.header {
+.topbar .header {
   display: flex;
   /* justify-content: center; */
   /* 水平居中 */
@@ -98,11 +108,41 @@ nav a.router-link-exact-active {
   height: 54px;
   /* padding-left: 2rem; */
   padding-left: 20px;
+  padding-right: 12px;
   background: linear-gradient(90deg, #6a5acd, #00bfff);
 
 }
-.title{
+.topbar .title{
   padding-left: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar .title-panel { flex: 1; min-width: 0; }
+.topbar .header img { flex-shrink: 0; }
+.language-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 0 10px;
+  height: 42px;
+  border: 1px solid rgba(106, 90, 205, 0.25);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #35476b;
+}
+.language-switch svg { width: 19px; height: 19px; stroke: currentColor; stroke-width: 1.5; }
+.language-switch select { max-width: 115px; padding: 6px 0; border: 0; background: transparent; color: inherit; font: inherit; font-size: 0.9rem; cursor: pointer; }
+.language-switch:focus-within { outline: 2px solid #0ea2e5; outline-offset: 2px; }
+@media (max-width: 480px) {
+  .topbar { gap: 6px; }
+  .topbar .header { padding-left: 8px; }
+  .topbar .header img { display: none; }
+  .topbar .title { font-size: 1.05rem; }
+  .language-switch { padding: 0 6px; gap: 4px; }
+  .language-switch select { font-size: 0.8rem; }
 }
 .background {
   position: relative;
@@ -128,6 +168,7 @@ nav a.router-link-exact-active {
 <style scoped>
 /* 按钮 */
 #menuBtn{
+  flex-shrink: 0;
   position:relative;
   /* top:20px;
   left:20px; */
@@ -209,14 +250,26 @@ background-color: #0001;
 
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
-import { computed, onBeforeMount, onMounted, provide, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { isAppLocale, setLocale, supportedLocales } from './i18n'
 import { Toaster } from 'vue-sonner'
 import 'vue-sonner/style.css'
 import PanelLayout from './components/Layout/PanelLayout.vue'
 import { appRoutes } from './configs/routes'
 
 const route = useRoute()
-const pageTitle = computed(() => route.meta.title ?? '默认标题')
+const { t, locale } = useI18n({ useScope: 'global' })
+const pageTitle = computed(() => typeof route.meta.titleKey === 'string'
+  ? t(route.meta.titleKey)
+  : String(route.meta.title || t('app.defaultTitle')))
+
+watch(pageTitle, (title) => { document.title = title }, { immediate: true })
+
+function changeLanguage(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  if (isAppLocale(value)) setLocale(value)
+}
 
 const isLocal = process.env.NODE_ENV === "development"
 

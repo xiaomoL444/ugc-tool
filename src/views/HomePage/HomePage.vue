@@ -3,6 +3,9 @@ import PanelLayout from "@/components/Layout/PanelLayout.vue";
 import { onMounted, ref } from "vue";
 import { AppRoute, appRoutes } from "@/configs/routes";
 import axios from "axios";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n({ useScope: "global" });
 
 function jumpAddress(item: AppRoute) {
   window.location.href = item.path;
@@ -88,9 +91,9 @@ function jumpAddress(item: AppRoute) {
               ✦───────
             </div>
             <div class="title" :style="{ color: item.titleColor ?? '#000' }">
-              {{ item.title }}
+              {{ item.titleKey ? t(item.titleKey) : item.title }}
             </div>
-            <div class="description">{{ item.description }}</div>
+            <div class="description">{{ item.descriptionKey ? t(item.descriptionKey) : item.description }}</div>
             <div
               style="
                 position: absolute;

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "namespace": "effectPlayer",
+  "locale": "zh-CN",
+  "format": "text",
+  "translations": {
+    "names.2": "白色烟尘",
+    "names.4": "黄色球形光晕",
+    "category.1": "属性",
+    "category.2": "使用",
+    "category.3": "类型",
+    "category.4": "图案",
+    "category.5": "形状",
+    "category.6": "方式",
+    "category.7": "颜色",
+    "category.8": "范围",
+    "category.9": "播放",
+    "category.10": "特性",
+    "tags.1": "风元素",
+    "tags.2": "火元素",
+    "tags.89": "白色"
+  }
+}

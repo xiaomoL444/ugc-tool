@@ -2,7 +2,9 @@ export interface AppRoute {
   path: string;
   name: string;
   title: string;
+  titleKey?: string;
   description?: string;
+  descriptionKey?: string;
   icon?: string;
   titleColor?: string;
   children?: AppRoute[];
@@ -26,6 +28,8 @@ export const appRoutes: AppRoute[] = [
     path: "/EffectPlayer",
     name: "EffectPlayer",
     title: "特效播放器",
+    titleKey: "app.effectPlayerTitle",
+    descriptionKey: "app.effectPlayerDescription",
     description: "还不能在线播放千星奇域7.0版本之前的特效，只做了预览图片",
   },
   {

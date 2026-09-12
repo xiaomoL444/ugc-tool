@@ -8,12 +8,12 @@
     <div class="video-panes" :class="{ 'is-loading': !mediaReady }" :aria-hidden="!mediaReady">
       <div v-if="item.standPath" class="video-pane">
         <div ref="standHost" class="media-host" />
-        <span v-if="standFailed" class="media-error">主特效视频加载失败</span>
+        <span v-if="standFailed" class="media-error">{{ t('effectPlayer.media.standFailed') }}</span>
       </div>
       <img v-else class="fallback-icon" :src="iconUrl" :alt="title" />
       <div v-if="item.tailPath" class="video-pane tail-pane">
         <div ref="tailHost" class="media-host" />
-        <span v-if="tailFailed" class="media-error">拖尾视频加载失败</span>
+        <span v-if="tailFailed" class="media-error">{{ t('effectPlayer.media.tailFailed') }}</span>
       </div>
     </div>
     <div v-if="!mediaReady" class="loading-state">
@@ -23,22 +23,25 @@
     <div ref="audioHost" hidden />
     <img v-if="mediaReady && (item.standPath || item.tailPath)" class="preview-icon" :src="iconUrl" :alt="title" />
     <span v-if="mediaReady && item.hasAudio && item.audioPath" class="audio-status">
-      {{ audioFailed ? '音频加载失败' : audioBlocked ? (variant === 'modal' ? '声音未开启' : '点击预览以开启声音') : audible ? '声音开启' : '悬停播放声音' }}
+      {{ audioStatus }}
     </span>
     <button v-if="mediaReady && variant === 'modal' && audioBlocked" class="enable-audio" type="button" @click.stop="enableAudio">
-      开启声音
+      {{ t('effectPlayer.media.enableAudio') }}
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch, watchEffect } from "vue";
+import { useI18n } from "vue-i18n";
 import { createOss } from "@/utils/oss";
 import { acquireEffectMedia } from "./cachedEffectMedia";
 import type { EffectItem } from "./types/EffectData";
 
+const { t } = useI18n({ useScope: "global" });
 const props = withDefaults(defineProps<{
   item: EffectItem;
+  title: string;
   variant?: "card" | "modal";
   suspended?: boolean;
 }>(), { variant: "card", suspended: false });
@@ -57,14 +60,26 @@ const tailFailed = computed(() => lease.value?.value.state.tailFailed ?? false);
 const audioFailed = computed(() => lease.value?.value.state.audioFailed ?? false);
 const mediaReady = computed(() => lease.value?.value.state.ready ?? false);
 const loadError = computed(() => [
-  standFailed.value && '主特效视频加载失败',
-  tailFailed.value && '拖尾视频加载失败',
-  audioFailed.value && '音频加载失败',
-].filter(Boolean).join('、'));
-const title = computed(() => props.item.title || props.item.name || props.item.id);
+  standFailed.value && t('effectPlayer.media.standFailed'),
+  tailFailed.value && t('effectPlayer.media.tailFailed'),
+  audioFailed.value && t('effectPlayer.media.audioFailed'),
+].filter(Boolean).join(t('effectPlayer.media.errorSeparator')));
+// Cached videos outlive component instances and language changes. Update their
+// accessible names in place without touching playback or reacquiring the lease.
+watchEffect(() => {
+  const media = lease.value?.value;
+  if (!media) return;
+  media.stand?.setAttribute('aria-label', t('effectPlayer.media.standLabel', { name: props.title }));
+  media.tail?.setAttribute('aria-label', t('effectPlayer.media.tailLabel', { name: props.title }));
+});
 const iconUrl = computed(() => oss.path("icon", props.item.icon || `${props.item.id}.png`));
 const active = computed(() => visible.value && pageVisible.value && !props.suspended);
 const audible = computed(() => active.value && (props.variant === "modal" || hovered.value));
+const audioStatus = computed(() => {
+  if (audioFailed.value) return t('effectPlayer.media.audioFailed');
+  if (audioBlocked.value) return t(props.variant === 'modal' ? 'effectPlayer.media.audioOff' : 'effectPlayer.media.clickForAudio');
+  return t(audible.value ? 'effectPlayer.media.audioOn' : 'effectPlayer.media.hoverForAudio');
+});
 let observer: IntersectionObserver | undefined;
 let hoverTarget: HTMLElement | null = null;
 let destroyed = false;
@@ -155,7 +170,7 @@ onBeforeUnmount(() => {
 .tail-pane { border-left: 1px solid rgba(210, 226, 255, 0.65); }
 .media-host, .media-host :deep(video), .fallback-icon { display: block; width: 100%; height: 100%; object-fit: contain; min-width: 0; }
 .has-tail .fallback-icon { width: 50%; }
-.audio-status { position: absolute; left: 6px; bottom: 6px; padding: 3px 6px; border-radius: 5px; background: #111b; color: #d7eef8; font-size: 0.65rem; pointer-events: none; }
+.audio-status { position: absolute; left: 6px; right: 64px; bottom: 6px; width: fit-content; padding: 3px 6px; border-radius: 5px; background: #111b; color: #d7eef8; font-size: 0.65rem; pointer-events: none; text-align: left; }
 .media-error { position: absolute; left: 0; right: 0; bottom: 30px; text-align: center; color: #c0c7d4; font-size: 0.75rem; }
 .enable-audio { position: absolute; bottom: 12px; right: 132px; border: 1px solid #73bfff; border-radius: 8px; padding: 8px 14px; color: white; background: #2366ab; font: inherit; cursor: pointer; }
 @media (max-width: 600px) { .effect-media.is-modal { height: min(44vh, 360px); } }
