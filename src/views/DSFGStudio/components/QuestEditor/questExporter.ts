@@ -88,9 +88,9 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
   const buckets = new Map<number, VariableValue>();
   for (const sub of [...project.subQuests].sort((a, b) => a.id - b.id)) {
     const value = workspace.createDefault(ids.subQuest);
-    value.value["归属主任务"].setValue(String(sub.mainQuestId));
-    value.value["标题"].setValue(sub.title);
-    value.value["描述"].setValue(sub.description);
+    value.value["mainId"].setValue(String(sub.mainQuestId));
+    value.value["title"].setValue(sub.title);
+    value.value["desc"].setValue(sub.description);
     value.value["任务单位状态"].setValue(sub.unitState);
     const point = value.value["任务调查点预设点"] as VariableValue;
     for (const [key, field] of Object.entries(point.value)) {
@@ -100,6 +100,14 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
     value.value["调查点范围"].setValue(String(sub.investigationRange));
     value.value["隐藏任务"].setValue(sub.hidden ? "True" : "False");
     value.value["后续任务"].setValue(sub.nextQuestIds.map((id) => String(id ?? -1)));
+    value.value["失败回溯任务"].setValue(String(sub.failureQuestId ?? -1));
+    value.value["finishMainQuest"].setValue(sub.finishMainQuest ? "True" : "False");
+    value.value["questProgress"].setValue(String(sub.questProgress));
+    if (sub.failureQuestId === null) {
+      warnings.push(`子任务 ${sub.id}「${sub.title}」的失败回溯任务为空，将按 -1 导出，请确认。`);
+    } else if (sub.failureQuestId !== -1 && !subIds.has(sub.failureQuestId)) {
+      warnings.push(`子任务 ${sub.id}「${sub.title}」的失败回溯任务（ID ${sub.failureQuestId}）在当前文件中不存在，仍保留原 ID，请确认。`);
+    }
     const clearedPositions: number[] = [];
     const missingPositions: string[] = [];
     sub.nextQuestIds.forEach((id, index) => {

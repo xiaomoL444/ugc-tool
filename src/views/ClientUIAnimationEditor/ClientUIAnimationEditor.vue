@@ -34,6 +34,7 @@
       <button class="icon-button" title="适应画布" aria-label="适应画布" @click.stop="fitCanvas"><EditorIcon name="fit" /></button>
     </header>
 
+    <ImageAssetLibrary v-if="imageLibraryOpen && selectedNode?.type === 'image'" :key="selectedId ?? ''" :selected-id="selectedNode.properties.imageId" @select="selectImageAsset" @close="imageLibraryOpen = false" />
     <div class="editor-body" :class="{ 'is-animations-collapsed': animationsPanelCollapsed }">
       <aside class="hierarchy-panel panel">
         <div class="panel-heading">
@@ -65,8 +66,7 @@
             <div class="device-preview-label">{{ currentDevice.label }} · {{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</div>
             <div class="safe-area"></div>
             <div v-for="node in renderNodes" :key="node.id" class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked }]" :style="nodeStyle(node)" @pointerdown.stop="startMove($event, node)">
-              <span v-if="node.type === 'image' && getImageAsset(node.properties.imageId)" class="image-render" :style="imageRenderStyle(node)"></span>
-              <div v-else-if="node.type === 'image'" class="image-placeholder"><span>◇</span><small>未选择图片</small></div>
+              <SpriteImage v-if="node.type === 'image'" :asset="getImageAsset(node.properties.imageId)" :width="previewNode(node).width" :height="previewNode(node).height" :image-type="node.properties.imageType" :color="safeColor((previewNode(node) as UINodeOf<'image'>).properties.imageColor, editorTypeColors.image)" />
               <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
               <span v-else-if="node.type === 'container'" class="container-label">{{ node.name }}</span>
               <span v-else class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
@@ -124,13 +124,9 @@
             </div>
           </PropertySection>
           <PropertySection v-if="selectedNode.type === 'image'" title="图片设置" icon="▧" group="image">
-            <div class="image-source-heading"><span>素材快捷选择</span><button class="reset-image-size" title="恢复素材默认大小 150 × 150" @click.prevent="resetSelectedImageSize">1:1</button></div>
-            <div class="image-asset-grid">
-              <button v-for="asset in imageAssets" :key="asset.id" :class="{ active: selectedNode.properties.imageId === asset.id }" :title="`${asset.name} · ${asset.description}`" @click="selectImageAsset(asset.id)"><img :src="asset.src" :alt="asset.name" /><span>{{ asset.id }}</span></button>
-            </div>
-            <div v-if="selectedImageAsset" class="selected-asset-card"><img :src="selectedImageAsset.src" :alt="selectedImageAsset.name" /><div><b>{{ selectedImageAsset.name }}</b><small>{{ selectedImageAsset.id }} · {{ selectedImageAsset.path }}</small></div></div>
+            <ImageControlSettings :model-value="(inspectorNode as UINodeOf<'image'>).properties" :asset="selectedImageAsset" :animated="hasAnimatedField('imageColor')" @update:model-value="selectedProperties = $event" @select="selectImageAsset" @open-library="imageLibraryOpen = true" @reset-size="resetSelectedImageSize" />
           </PropertySection>
-          <ControlPropertiesInspector v-model="selectedProperties" :definition="selectedControlDefinition" :animated-fields="animatedPropertyFields">
+          <ControlPropertiesInspector v-model="selectedProperties" :definition="selectedInspectorDefinition" :animated-fields="animatedPropertyFields">
             <template #actions><PropertyActionsMenu :label="`${selectedControlDefinition.label}参数`" :context-key="`${selectedId}:${inspectorTab}`" :can-paste="canPasteSelectedPropertyGroup('control')" :paste-hint="propertyPasteHint('control')" @reset="resetSelectedPropertyGroup('control')" @copy="copySelectedPropertyGroup('control')" @paste="pasteSelectedPropertyGroup('control')" /></template>
           </ControlPropertiesInspector>
           <PropertySection title="创建设置" group="creation">
@@ -263,7 +259,11 @@ import ControlPropertiesInspector from "./ControlPropertiesInspector.vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import { controlDefinitions, controlRegistry, createControlProperties, getControlDefinition } from "./controlRegistry";
 import { importGiaControls } from "./giaImporter";
-import { imageAssets, imageAssetById } from "./imageAssets";
+import { imageAssetById, loadImageCatalog, loadSpriteMetadata } from "./imageAssets";
+import { isStretchable } from "./spriteGeometry";
+import ImageControlSettings from "./ImageControlSettings.vue";
+import ImageAssetLibrary from "./ImageAssetLibrary.vue";
+import SpriteImage from "./SpriteImage.vue";
 import { buildTweenTimelineDataLua, buildTweenTimelineLibLua, TWEEN_TIMELINE_LIB_VERSION } from "./luaTweenExporter";
 import { applyTweenEase, getTweenableField, getTweenableFields, getGroupAlphaColorFields, getTweenGroupNodes, getTweenTrackConflict, getTweenRelativeLabel, GROUP_ALPHA_FIELD_KEY, GROUP_ALPHA_MAX, isRelativeTweenField, isTweenEaseType, tweenEaseOptions } from "./tweenRegistry";
 import { snapTweenClip } from "./timelineSnapping";
@@ -521,6 +521,8 @@ const timelineMaximumHeight = computed(() => editorHeight.value > 0 ? Math.max(M
 const resolvedTimelineHeight = computed(() => Math.min(timelineMaximumHeight.value, Math.max(MIN_TIMELINE_HEIGHT, timelineHeight.value ?? automaticTimelineHeight.value)));
 const editorStyle = computed<CSSProperties>(() => ({ "--timeline-height": `${resolvedTimelineHeight.value}px` } as CSSProperties));
 const selectedControlDefinition = computed(() => getControlDefinition(selectedNode.value?.type ?? "container"));
+const imageLibraryOpen = ref(false);
+const selectedInspectorDefinition = computed(() => selectedNode.value?.type === "image" ? { ...selectedControlDefinition.value, fields: selectedControlDefinition.value.fields.filter(field => !["imageSource", "imageId", "imageColor", "imageType"].includes(field.key)) } : selectedControlDefinition.value);
 const tweenFieldPickerNode = computed(() => nodes.value.find((node) => node.id === tweenFieldPickerNodeId.value) ?? null);
 const selectedTweenPickerDefinition = computed(() => getControlDefinition(tweenFieldPickerNode.value?.type ?? "container"));
 const tweenFieldPickerGroups = computed(() => {
@@ -1346,7 +1348,7 @@ function commitSelectedPropertyGroup(group: PropertyGroup, node: UINode, before:
   const changes = Object.entries(after.values)
     .filter(([key, value]) => JSON.stringify(before.values[key]) !== JSON.stringify(value))
     .map(([key, value]) => ({ key, value, field: fields.find(field =>
-      group === "transform" ? field.source === "base" && field.modelKey === key : group === "control" && field.source === "properties" && field.modelKey === key) }));
+      group === "transform" ? field.source === "base" && field.modelKey === key : (group === "control" || group === "image") && field.source === "properties" && field.modelKey === key) }));
   // Preflight before mutating anything: a missing setup default cannot become a native keyframe value.
   for (const change of changes) {
     if (!change.field || !hasAnimatedField(change.field.fieldKey, node.id)) continue;
@@ -1387,8 +1389,30 @@ function pasteSelectedPropertyGroup(group: PropertyGroup) {
   if (!stageSelectedPropertyGroup(group, "paste")) return;
   reportPropertyAction(group, "已粘贴");
 }
-function selectImageAsset(assetId: number) { const node = selectedNode.value; const asset = getImageAsset(assetId); if (!node || node.type !== "image" || !asset) return; node.properties.imageId = asset.id; }
-function resetSelectedImageSize() { const node = selectedNode.value; const asset = node?.type === "image" ? getImageAsset(node.properties.imageId) : null; if (!node || !asset) return; updateGeometry("width", asset.defaultWidth); updateGeometry("height", asset.defaultHeight); }
+let imageSelectionVersion = 0;
+async function selectImageAsset(assetId: number | null) {
+  const node = selectedNode.value;
+  if (!node || node.type !== "image") return;
+  const version = ++imageSelectionVersion;
+  const asset = getImageAsset(assetId);
+  const previousId = node.properties.imageId;
+  if (asset) await loadSpriteMetadata(asset);
+  if (version !== imageSelectionVersion || selectedNode.value !== node || node.properties.imageId !== previousId) return;
+  selectedProperties.value = { ...selectedProperties.value, imageSource: "staticReference", imageId: assetId, imageType: isStretchable(asset?.metadata) ? "stretch" : "basic" };
+}
+async function resetSelectedImageSize() {
+  const node = selectedNode.value;
+  const asset = node?.type === "image" ? getImageAsset(node.properties.imageId) : null;
+  if (!node || !asset?.src || asset.missing) return;
+  const metadata = await loadSpriteMetadata(asset);
+  if (selectedNode.value !== node || node.type !== "image" || node.properties.imageId !== asset.id) return;
+  if (metadata) { updateGeometry("width", metadata.width); updateGeometry("height", metadata.height); }
+  else {
+    const image = new Image();
+    image.onload = () => { if (selectedNode.value === node && node.properties.imageId === asset.id) { updateGeometry("width", image.naturalWidth); updateGeometry("height", image.naturalHeight); } };
+    image.src = asset.src;
+  }
+}
 function updateGeometry(field: "x" | "y" | "width" | "height", value: number) { if (tryKeyframeGeometry(field, value)) return; const node = selectedNode.value; if (!node || !Number.isFinite(value)) return; if (field === "x" || field === "y") { const currentWorld = worldTransforms.value.get(node.id) ?? { x: node.x, y: node.y, matrix: localMatrix(node) }; const targetWorldX = field === "x" ? value : currentWorld.x; const targetWorldY = field === "y" ? value : currentWorld.y; const parent = getLayoutParent(node); if (parent) { const parentWorld = worldTransforms.value.get(parent.id) ?? { x: parent.x, y: parent.y, matrix: localMatrix(parent) }; const localOffset = inverseTransformVector(parentWorld.matrix, targetWorldX - parentWorld.x, targetWorldY - parentWorld.y); node.x = roundLayout(parent.pivotX * parent.width + localOffset.x); node.y = roundLayout(parent.pivotY * parent.height + localOffset.y); } else { node.x = roundLayout(targetWorldX); node.y = roundLayout(targetWorldY); } rebaseNodeLayout(node); return; } node[field] = Math.max(1, value); rebaseNodeLayout(node); applyDescendantLayouts(node.id); }
 function applyAnchorPreset(id: string) {
   const node = selectedNode.value;
@@ -1426,7 +1450,6 @@ function updateRuntimeLayoutValue(field: RuntimeLayoutField, value: number | nul
   applyDescendantLayouts(node.id);
 }
 function getImageAsset(imageId: number | null) { return imageId == null ? null : imageAssetById.get(imageId) ?? null; }
-function imageRenderStyle(node: UINodeOf<"image">): CSSProperties { const displayNode = previewNode(node); const asset = getImageAsset(displayNode.properties.imageId); if (!asset) return {}; const mask = `url("${asset.src}")`; return { backgroundColor: colorToCss(safeColor(displayNode.properties.imageColor, editorTypeColors.image)), maskImage: mask, WebkitMaskImage: mask, maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat", maskPosition: "center", WebkitMaskPosition: "center", maskSize: "100% 100%", WebkitMaskSize: "100% 100%" } as CSSProperties; }
 function safeColor(value: unknown, fallback: ColorRGBA) { const color = value as Partial<ColorRGBA> | null; return color && Number.isFinite(color.r) && Number.isFinite(color.g) && Number.isFinite(color.b) ? color as ColorRGBA : fallback; }
 function textRenderStyle(node: UINodeOf<"text"> | UINodeOf<"textWindow">): CSSProperties {
   const displayNode = previewNode(node);
@@ -1448,7 +1471,7 @@ function textRenderStyle(node: UINodeOf<"text"> | UINodeOf<"textWindow">): CSSPr
     WebkitTextStroke: properties.enableOutline ? `1px ${colorToCss(safeColor(properties.outlineColor, colorFromHex("#333333", 0.2)))}` : undefined,
   };
 }
-function nodeStyle(node: UINode): CSSProperties { const displayNode = previewNode(node); const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) }; const isText = displayNode.type === "text" || displayNode.type === "textWindow"; const typeColor = editorTypeColors[displayNode.type]; const borderColor = displayNode.type === "image" ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor); const backgroundColor = isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, displayNode.type === "container" ? 0.07 : 0.12); return { width: `${displayNode.width}px`, height: `${displayNode.height}px`, left: `${world.x - displayNode.width * displayNode.pivotX}px`, top: `${canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY)}px`, transform: `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`, transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) }; }
+function nodeStyle(node: UINode): CSSProperties { const displayNode = previewNode(node); const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) }; const isText = displayNode.type === "text" || displayNode.type === "textWindow"; const typeColor = editorTypeColors[displayNode.type]; const borderColor = displayNode.type === "image" ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor); const backgroundColor = displayNode.type === "image" ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, displayNode.type === "container" ? 0.07 : 0.12); return { width: `${displayNode.width}px`, height: `${displayNode.height}px`, left: `${world.x - displayNode.width * displayNode.pivotX}px`, top: `${canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY)}px`, transform: `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`, transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) }; }
 let stopCanvasNodeDrag: (() => void) | null = null;
 function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => void) {
   stopCanvasNodeDrag?.();
@@ -1501,6 +1524,7 @@ function isTimelineTextEditing(target: EventTarget | null) {
   return input.tagName === "TEXTAREA" || !["button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image", "hidden"].includes(input.type);
 }
 function handleTimelineKeyboardShortcut(event: KeyboardEvent) {
+  if ((event.target as Element | null)?.closest?.('.image-library')) return;
   if (timelineContextMenu.value || timelineDataImportOpen.value) return;
   const editor = editorElement.value;
   if (event.code !== "Space" || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || !editor?.isConnected || editor.inert || !editor.getClientRects().length || isTimelineTextEditing(event.target)) return;
@@ -2003,6 +2027,7 @@ function restoreUndoState(snapshot: string) {
 }
 const editorHistory = createEditorHistory({ capture: captureUndoState, restore: restoreUndoState, describe: describeHistoryChange, limit: 100 });
 watch(selectedId, (nodeId) => {
+  imageLibraryOpen.value = false;
   if (!keyframeTracks.value.some(track => track.nodeId === nodeId && track.keyframes.some(key => key.id === selectedKeyframeId.value))) selectedKeyframeId.value = null;
 }, { flush: "sync" });
 function handleEditorHistoryChange(snapshot: string) {
@@ -2117,6 +2142,7 @@ watch(serializeProject, (snapshot) => { if (!editorHistory.busy.value) archive?.
 watch(captureUndoState, handleEditorHistoryChange, { flush: "sync" });
 watch(() => [archive?.ready.value, archive?.busy.value, archive?.loading.value, archive?.selectedWorkspace.value, archive?.selectedDocument.value], syncEditorHistoryDocument, { flush: "sync" });
 onMounted(() => {
+  void loadImageCatalog();
   editorHistory.reset(captureUndoState());
   window.addEventListener("keydown", handleEditorHistoryKeyboard, true);
   window.addEventListener("pointerup", endEditorHistoryPointer);
@@ -2715,115 +2741,6 @@ button, select, input, textarea { font: inherit; }
   max-width: 190px;
   overflow: hidden;
   color: #78c6a3;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.image-render {
-  display: block;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.image-source-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 7px;
-  color: #b0b7c5;
-  font-size: 10px;
-}
-
-.image-source-heading b {
-  color: #cfd8e6;
-  font-size: 10px;
-  font-weight: 500;
-}
-
-.image-asset-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.image-asset-grid button {
-  position: relative;
-  height: 69px;
-  padding: 5px 5px 17px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background-color: var(--input);
-  background-image: linear-gradient(45deg, #202837 25%, transparent 25%), linear-gradient(-45deg, #202837 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #202837 75%), linear-gradient(-45deg, transparent 75%, #202837 75%);
-  background-position: 0 0, 0 5px, 5px -5px, -5px 0;
-  background-size: 10px 10px;
-  color: #d6dbe5;
-  cursor: pointer;
-}
-
-.image-asset-grid button:hover,
-.image-asset-grid button.active {
-  border-color: #607cff;
-  box-shadow: inset 0 0 0 1px #607cff;
-}
-
-.image-asset-grid img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.image-asset-grid span {
-  position: absolute;
-  right: 3px;
-  bottom: 2px;
-  left: 3px;
-  padding: 1px 2px;
-  border-radius: 3px;
-  background: #101721dd;
-  font-size: 10px;
-  text-align: center;
-}
-
-.selected-asset-card {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 9px;
-  padding: 7px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--input);
-}
-
-.selected-asset-card img {
-  width: 38px;
-  height: 38px;
-  object-fit: contain;
-  border-radius: 4px;
-  background: #3b414f;
-}
-
-.selected-asset-card div {
-  min-width: 0;
-}
-
-.selected-asset-card b,
-.selected-asset-card small {
-  display: block;
-}
-
-.selected-asset-card b {
-  color: #dce5f3;
-  font-size: 10px;
-}
-
-.selected-asset-card small {
-  margin-top: 3px;
-  overflow: hidden;
-  color: #a9afbb;
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3983,7 +3900,11 @@ button { transition: background .12s, border-color .12s; }
 .workspace-tabs .bone-visibility-toggle:focus-visible { outline: 2px solid #5ce5ee; outline-offset: 2px; }
 .workspace-tabs .bone-visibility-toggle:disabled { opacity: .45; cursor: not-allowed; }
 .viewport { background-image: radial-gradient(#777d8940 .85px, transparent .85px); background-size: 16px 16px; }
-.canvas-stage { background: #3b424d; box-shadow: 0 0 0 1px #8399a3, 0 8px 32px #1c212740; }
+.canvas-stage {
+  /* Fit the current device canvas height; aspect changes reveal or crop the sides. */
+  background: #3b424d url("@/assets/ClientUIAnimationEditor/UIPage.png") center / auto 100% no-repeat;
+  box-shadow: 0 0 0 1px #8399a3, 0 8px 32px #1c212740;
+}
 .canvas-stage.mobile-frame { box-shadow: 0 0 0 6px #303642, 0 0 0 7px #8299a6, 0 8px 32px #1c212740; }
 .device-preview-label { height: auto; top: -29px; padding: 0; background: transparent; border: 0; border-radius: 0; color: #d5dbe5; font-size: 18px; }
 .safe-area { border-color: #c4cad226; }

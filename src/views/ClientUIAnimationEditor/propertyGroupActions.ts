@@ -16,6 +16,7 @@ const transformKeys = [
 ] as const;
 const creationKeys = ["active", "visible"] as const;
 const editorKeys = ["locked", "canControllerFocus"] as const;
+const imageKeys = ["imageSource", "imageId", "imageColor", "imageType"] as const;
 
 // The editor supplies reactive objects; recursively copying plain property data
 // also works for Vue proxies, which structuredClone cannot accept.
@@ -40,7 +41,7 @@ export function capturePropertyGroup(node: UINode, group: PropertyGroup): Proper
     case "editor": values = pickValues(node, editorKeys); break;
     case "image":
       if (node.type !== "image") return null;
-      values = { imageId: node.properties.imageId };
+      values = pickValues(node.properties, imageKeys);
       break;
     case "control": values = cloneValues(node.properties) as unknown as Record<string, unknown>; break;
   }
@@ -63,7 +64,7 @@ export function pastePropertyGroup(node: UINode, group: PropertyGroup, clipboard
     case "editor": Object.assign(node, pickValues(clipboard.values, editorKeys)); break;
     case "image":
       if (node.type !== "image") return false;
-      node.properties.imageId = clipboard.values.imageId as number | null;
+      Object.assign(node.properties, pickValues(clipboard.values, imageKeys));
       break;
     case "control": node.properties = cloneValues(clipboard.values) as unknown as UINode["properties"]; break;
   }
@@ -84,7 +85,7 @@ export function resetPropertyGroup(node: UINode, group: PropertyGroup): boolean 
     }
     case "image":
       if (node.type !== "image") return false;
-      node.properties.imageId = getControlDefinition("image").createProperties().imageId;
+      Object.assign(node.properties, pickValues(getControlDefinition("image").createProperties(), imageKeys));
       break;
     case "control": node.properties = getControlDefinition(node.type).createProperties(); break;
     case "creation": Object.assign(node, { active: true, visible: true }); break;

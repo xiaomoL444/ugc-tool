@@ -4,7 +4,7 @@
    "name" : "[任务]子任务", 
    "value" : [ 
       { 
-         "key" : "归属主任务", 
+         "key" : "mainId",
          "param_type" : "Int32", 
          "value" : { 
             "param_type" : "Int32", 
@@ -12,7 +12,7 @@
          }
       }, 
       { 
-         "key" : "标题", 
+         "key" : "title",
          "param_type" : "String", 
          "value" : { 
             "param_type" : "String", 
@@ -20,7 +20,7 @@
          }
       }, 
       { 
-         "key" : "描述", 
+         "key" : "desc",
          "param_type" : "String", 
          "value" : { 
             "param_type" : "String", 
@@ -111,6 +111,30 @@
             "param_type" : "Int32List", 
             "value" : [ 
             ]
+         }
+      },
+      {
+         "key" : "失败回溯任务",
+         "param_type" : "Int32",
+         "value" : {
+            "param_type" : "Int32",
+            "value" : "-1"
+         }
+      },
+      {
+         "key" : "finishMainQuest",
+         "param_type" : "Bool",
+         "value" : {
+            "param_type" : "Bool",
+            "value" : "False"
+         }
+      },
+      {
+         "key" : "questProgress",
+         "param_type" : "Int32",
+         "value" : {
+            "param_type" : "Int32",
+            "value" : "0"
          }
       }
    ]

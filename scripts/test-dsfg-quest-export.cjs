@@ -79,8 +79,9 @@ async function main() {
       assert.deepEqual(keys(result.chapters), [7]); assert.deepEqual(keys(result.mains), [21]);
       assert.equal(values(result.mains)[0].value.chapter.value, "7");
       const value = values(values(result.subs)[0].value["子任务字典"])[0];
-      assert.deepEqual(Object.keys(value.value), ["归属主任务", "标题", "描述", "任务单位状态", "任务调查点预设点", "调查点范围", "隐藏任务", "后续任务"]);
-      assert.equal(value.value["归属主任务"].type, "Int32"); assert.equal(value.value["归属主任务"].value, "21");
+      assert.deepEqual(Object.keys(value.value), ["mainId", "title", "desc", "任务单位状态", "任务调查点预设点", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress"]);
+      assert.equal(value.value["mainId"].type, "Int32"); assert.equal(value.value["mainId"].value, "21");
+      assert.equal(value.value["title"].value, sub.title); assert.equal(value.value["desc"].value, sub.description);
       assert.equal(value.value["任务单位状态"].value, sub.unitState);
       assert.equal(value.value["隐藏任务"].value, "True"); assert.equal(value.value["调查点范围"].value, "2.75");
       assert.equal(value.value["后续任务"].type, "Int32List");
@@ -89,6 +90,95 @@ async function main() {
       assert.equal(Object.keys(slot.value).length, 8);
       assert.equal(slot.value.guid.value, sub.investigationPoint.guid);
       assert.equal(slot.value.requiresClientPos.value, "True");
+    });
+    test("new sub fields use exact source types/defaults and preserve the eleven-field order", () => {
+      const project = source();
+      const definition = require(path.join(assetDirectory, "1077936145[任务]子任务.json"));
+      assert.deepEqual(definition.value.map((field) => [field.key, field.param_type]), [
+        ["mainId", "Int32"], ["title", "String"], ["desc", "String"], ["任务单位状态", "ConfigReference"],
+        ["任务调查点预设点", "Struct"], ["调查点范围", "Float"], ["隐藏任务", "Bool"], ["后续任务", "Int32List"],
+        ["失败回溯任务", "Int32"], ["finishMainQuest", "Bool"], ["questProgress", "Int32"],
+      ]);
+      assert.deepEqual(definition.value.slice(8).map((field) => field.value.value), ["-1", "False", "0"]);
+      const sub = project.subQuests[0];
+      assert.equal(sub.failureQuestId, -1); assert.equal(sub.finishMainQuest, false); assert.equal(sub.questProgress, 0);
+      const { subs, result } = exported(project);
+      const value = values(values(subs)[0].value["子任务字典"])[0];
+      assert.deepEqual(Object.keys(value.value), definition.value.map((field) => field.key));
+      assert.equal(value.value["失败回溯任务"].value, "-1"); assert.equal(value.value.finishMainQuest.value, "False"); assert.equal(value.value.questProgress.value, "0");
+      assert.deepEqual(result.warnings.filter((warning) => /失败回溯/.test(warning)), []);
+    });
+    test("old sub documents backfill only missing new fields without changing IDs, references or existing values", () => {
+      const project = source(3);
+      project.subQuests[0].id = 199; project.subQuests[0].nextQuestIds = [null, 1, 2];
+      delete project.subQuests[0].failureQuestId; delete project.subQuests[0].finishMainQuest; delete project.subQuests[0].questProgress;
+      Object.assign(project.subQuests[1], { failureQuestId: 199, finishMainQuest: true, questProgress: 100 });
+      Object.assign(project.subQuests[2], { failureQuestId: null, finishMainQuest: false, questProgress: -2147483648 });
+      const raw = JSON.stringify(project), expected = JSON.parse(raw);
+      Object.assign(expected.subQuests[0], { failureQuestId: -1, finishMainQuest: false, questProgress: 0 });
+      const decoded = decodeQuestProject(raw);
+      assert.deepEqual(decoded, expected); assert.equal(JSON.stringify(project), raw);
+      assert.deepEqual(decodeQuestProject(encodeQuestProject(decoded)), decoded);
+      assert.deepEqual(decoded.subQuests.map((sub) => sub.id), [199, 1, 2]);
+    });
+    test("custom IDs and cross-bucket rollback references export global IDs with literal title/desc", () => {
+      const project = source(2);
+      project.subQuests[0].id = 199; project.subQuests[1].id = 100;
+      Object.assign(project.subQuests[0], { title: "回溯任务", description: "原样保留\n第二行", failureQuestId: 100, finishMainQuest: true, questProgress: 2147483647 });
+      Object.assign(project.subQuests[1], { failureQuestId: 0, finishMainQuest: false, questProgress: -2147483648 });
+      project.structIds = Object.fromEntries(Object.keys(project.structIds).map((key, index) => [key, String(20000 + index)]));
+      const before = JSON.stringify(project), { subs, result } = exported(project);
+      assert.deepEqual(keys(subs), [1]);
+      const inner = values(subs)[0].value["子任务字典"];
+      assert.deepEqual(keys(inner), [100, 199]);
+      const value = values(inner)[1];
+      assert.equal(value.toQxqyValue().structId, project.structIds.subQuest);
+      assert.equal(value.value.title.value, "回溯任务"); assert.equal(value.value.desc.value, "原样保留\n第二行");
+      assert.equal(value.value["失败回溯任务"].value, "100"); assert.equal(value.value.finishMainQuest.value, "True"); assert.equal(value.value.questProgress.value, "2147483647");
+      assert.equal(values(inner)[0].value.questProgress.value, "-2147483648");
+      assert.ok(result.warnings.some((warning) => /子任务 100/.test(warning) && /失败回溯任务（ID 0）/.test(warning)));
+      assert.ok(!result.warnings.some((warning) => /子任务 199/.test(warning) && /失败回溯/.test(warning)));
+      assert.equal(JSON.stringify(project), before);
+    });
+    test("rollback deletion clears references across main quests, keeps defaults/external targets and never resurrects", () => {
+      const project = source(5); createQuestMain(project);
+      project.subQuests[2].mainQuestId = 1;
+      Object.assign(project.subQuests[0], { failureQuestId: 1, nextQuestIds: [1, null, 1] });
+      project.subQuests[2].failureQuestId = 1; project.subQuests[3].failureQuestId = 9999;
+      const removed = removeQuestSubQuests(project, new Set([1, 9999]));
+      assert.deepEqual(removed, { removedCount: 1, clearedReferenceCount: 4 });
+      assert.deepEqual(project.subQuests.map((sub) => sub.id), [0, 2, 3, 4]);
+      assert.deepEqual(project.subQuests.map((sub) => sub.failureQuestId), [null, null, 9999, -1]);
+      assert.deepEqual(project.subQuests[0].nextQuestIds, [null, null, null]);
+      assert.equal(createQuestSub(project, 0).id, 1);
+      assert.equal(project.subQuests[0].failureQuestId, null); assert.equal(project.subQuests[1].failureQuestId, null);
+      const restored = decodeQuestProject(encodeQuestProject(project));
+      const { result, subs } = exported(restored);
+      const value = values(values(subs)[0].value["子任务字典"])[0];
+      assert.equal(value.value["失败回溯任务"].value, "-1");
+      const warnings = result.warnings.filter((warning) => /失败回溯/.test(warning));
+      assert.equal(warnings.length, 3);
+      assert.ok(warnings.some((warning) => /子任务 0/.test(warning) && /为空/.test(warning)));
+      assert.ok(warnings.some((warning) => /子任务 2/.test(warning) && /为空/.test(warning)));
+      assert.ok(warnings.some((warning) => /9999/.test(warning) && /仍保留/.test(warning)));
+    });
+    test("new field validation rejects wrong booleans and non-Int32 values in draft and export", () => {
+      const cases = {
+        failureQuestId: ["1", true, {}, 1.5, 2147483648, -2147483649, NaN, Infinity],
+        finishMainQuest: ["False", "True", 0, 1, null, {}],
+        questProgress: ["1", true, null, {}, 1.5, 2147483648, -2147483649, NaN, Infinity],
+      };
+      for (const [field, invalid] of Object.entries(cases)) for (const value of invalid) {
+        const project = source(); project.subQuests[0][field] = value;
+        assert.ok(validateQuestProject(project).length, `${field}: ${String(value)}`);
+        assert.ok(validateQuestProject(project, { allowDraftValues: true }).length);
+        assert.throws(() => exportQuestVariables(project));
+        if (typeof value !== "number" || Number.isFinite(value)) assert.throws(() => decodeQuestProject(JSON.stringify(project)));
+      }
+      const project = source(2); project.subQuests[0].failureQuestId = 0; project.subQuests[1].failureQuestId = -2147483648;
+      const { subs } = exported(project);
+      const subValues = values(values(subs)[0].value["子任务字典"]);
+      assert.equal(subValues[0].value["失败回溯任务"].value, "0"); assert.equal(subValues[1].value["失败回溯任务"].value, "-2147483648");
     });
     test("follow-up lists start empty and are independent for each new sub quest", () => {
       const project = source();

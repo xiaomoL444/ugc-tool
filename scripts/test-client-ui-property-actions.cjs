@@ -127,19 +127,23 @@ try {
     assert.equal(controlRegistry.text.createProperties().fontColor.r, 255);
   });
 
-  test("Image actions only change imageId, preserve null, and reject other control types", () => {
+  test("Image actions copy source, ID, tint and type while preserving mask/fill settings", () => {
     const source = makeNode("image", "source");
     source.properties.imageId = null;
+    source.properties.imageColor.r = 67;
+    source.properties.imageType = "stretch";
     const clipboard = capturePropertyGroup(source, "image");
-    assert.deepEqual(clipboard.values, { imageId: null });
+    assert.deepEqual(clipboard.values, { imageSource: "staticReference", imageId: null, imageColor: source.properties.imageColor, imageType: "stretch" });
     const target = makeNode("image", "target");
     target.properties.imageColor.r = 12;
     target.properties.fillAmount = 0.6;
     const before = plain(target);
     assert.equal(pastePropertyGroup(target, "image", clipboard), true);
-    assert.deepEqual(target, { ...before, properties: { ...before.properties, imageId: null } });
+    assert.deepEqual(target, { ...before, properties: { ...before.properties, ...clipboard.values } });
+    target.properties.imageColor.r = 45;
+    assert.equal(clipboard.values.imageColor.r, 67);
     assert.equal(resetPropertyGroup(target, "image"), true);
-    assert.deepEqual(target, before);
+    assert.deepEqual(target, { ...before, properties: { ...before.properties, imageColor: { r: 255, g: 255, b: 255, a: 1 } } });
     const text = makeNode("text");
     const textBefore = plain(text);
     assert.equal(capturePropertyGroup(text, "image"), null);

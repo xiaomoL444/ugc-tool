@@ -1,9 +1,9 @@
 <script setup lang="ts">
-const props = defineProps<{ modelValue: "Dialogue" | "Quest" }>();
-const emit = defineEmits<{ "update:modelValue": [value: "Dialogue" | "Quest"] }>();
+const props = defineProps<{ modelValue: "Dialogue" | "Quest" | "WalkTalk" }>();
+const emit = defineEmits<{ "update:modelValue": [value: "Dialogue" | "Quest" | "WalkTalk"] }>();
 function change(event: Event) {
   const value = (event.target as HTMLSelectElement).value;
-  if (value === "Dialogue" || value === "Quest") emit("update:modelValue", value);
+  if (value === "Dialogue" || value === "Quest" || value === "WalkTalk") emit("update:modelValue", value);
   // 切换可能需要等待保存；以父组件确认后的状态为准。
   (event.target as HTMLSelectElement).value = props.modelValue;
 }
@@ -15,6 +15,7 @@ function change(event: Event) {
     <select aria-label="编辑内容" :value="modelValue" @change="change">
       <option value="Dialogue">对话</option>
       <option value="Quest">任务</option>
+      <option value="WalkTalk">边走边说</option>
     </select>
   </label>
 </template>

@@ -21,6 +21,7 @@ import { ProjectID } from "./constant/constant";
 import CameraEditor from "./components/editormap/CameraEditor.vue";
 import DialogueEditor from "./components/DialogueEditor/DialogueEditor.vue";
 import QuestEditor from "./components/QuestEditor/QuestEditor.vue";
+import WalkTalkEditor from "./components/WalkTalkEditor/WalkTalkEditor.vue";
 
 const storage = inject<StorageClass>("storage")!.setProject(ProjectID); //储存区
 
@@ -112,7 +113,7 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
   finally { switchingEditor.value = false; }
 }
 
-async function ChangeEditorKind(kind: "Dialogue" | "Quest") {
+async function ChangeEditorKind(kind: "Dialogue" | "Quest" | "WalkTalk") {
   if (switchingEditor.value || selectedFunction.value === kind) return;
   switchingEditor.value = true;
   try {
@@ -135,12 +136,13 @@ onBeforeMount(async () => {
   selectedFunction.value = "Dialogue";
 });
 
-const selectedFunction = ref<"Dialogue" | "Quest">("Dialogue");
+const selectedFunction = ref<"Dialogue" | "Quest" | "WalkTalk">("Dialogue");
 function onSelectFunction() {}
 
 const functionViewMap: Record<string, Component> = {
   Dialogue: DialogueEditor,
   Quest: QuestEditor,
+  WalkTalk: WalkTalkEditor,
 };
 </script>
 

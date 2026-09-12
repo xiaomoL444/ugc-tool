@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { inject, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
-import Splitter from "primevue/splitter";
-import SplitterPanel from "primevue/splitterpanel";
 import JSZip from "jszip";
 import { toast } from "vue-sonner";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
-import SelectableList from "@/components/UI/List/SelectableList.vue";
 import { StorageClass } from "@/services/storage/storage";
 import { downloadTextFile } from "@/utils/download";
 import { ProjectID } from "../../constant/constant";
@@ -16,20 +13,22 @@ import { createQuestProject, decodeQuestProject, encodeQuestProject, validateQue
 import { exportQuestVariables } from "./questExporter";
 import { createWorkspaceSaveQueue } from "./workspaceSaveQueue";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" }>(), { editorKind: "Quest" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest"] }>();
+withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" }>(), { editorKind: "Quest" });
+const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk"] }>();
 const storage = inject<StorageClass>("storage")!;
 const workspace = inject<Ref<string>>("selectedWorkspaceId")!;
 // 工作区切换会重建 Panel；所有异步保存固定使用原工作区路径。
-const directory = `/${workspace.value}/QuestEditor`;
-const files = ref<string[]>([]);
-const selectedFile = ref("");
+const workspaceId = workspace.value;
+const documentPath = `/${workspaceId}/QuestEditor.json`;
+const legacyDirectory = `/${workspaceId}/QuestEditor`;
+const downloadBaseName = workspaceId.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_") || "工作区";
 const project = ref<QuestProject>();
-const creating = ref(false);
-const newName = ref("");
+const legacyFiles = ref<string[]>([]);
+const legacySelection = ref("");
+const loadError = ref("");
 const busy = ref(false);
 const exporting = ref(false);
-const saveStatus = ref("未打开文件");
+const saveStatus = ref("准备读取任务");
 const settingsOpen = ref(false);
 const settingsDraft = ref<QuestStructIds>();
 const unassignedDraft = ref(-1);
@@ -37,7 +36,6 @@ const settingsError = ref("");
 let disposed = false;
 let loading = false;
 let requestId = 0;
-let listRequestId = 0;
 let revision = 0;
 
 function showError(error: unknown, fallback: string) {
@@ -50,89 +48,80 @@ const saveQueue = createWorkspaceSaveQueue(async (path, data) => {
   if (!disposed && version === revision) saveStatus.value = "已自动保存";
 }, (error) => { saveStatus.value = "保存失败"; showError(error, "任务保存失败"); });
 defineExpose({ prepareToLeave: () => {
-  if (busy.value) return Promise.reject(new Error("任务文件正在读写，请稍后切换"));
+  if (busy.value) return Promise.reject(new Error("任务数据正在读写，请稍后切换"));
   settingsOpen.value = false;
   return saveQueue.flush();
 } });
 
 watch(project, () => {
-  if (loading || disposed || !project.value || !selectedFile.value) return;
+  if (loading || disposed || !project.value) return;
   revision++;
   saveStatus.value = "待保存…";
-  saveQueue.schedule(`${directory}/${selectedFile.value}`, encodeQuestProject(project.value));
+  saveQueue.schedule(documentPath, encodeQuestProject(project.value));
 }, { deep: true, flush: "sync" });
 
-async function refreshFiles() {
-  const request = ++listRequestId;
-  const result = await storage.setProject(ProjectID).getFiles(directory);
-  if (!disposed && request === listRequestId) files.value = result.filter(name => name.endsWith(".json"));
-}
-async function selectFile(name: string, fromCreate = false) {
-  if (busy.value && !fromCreate) return;
+async function loadProject(legacyFile?: string) {
+  if (busy.value || disposed || project.value) return;
   const request = ++requestId;
+  const active = () => !disposed && request === requestId;
   busy.value = true;
+  loadError.value = "";
+  saveStatus.value = "正在读取任务…";
   try {
-    await saveQueue.flush();
-    const loaded = decodeQuestProject(await storage.setProject(ProjectID).readFile(`${directory}/${name}`));
-    if (disposed || request !== requestId) return;
+    let loaded: QuestProject;
+    let migratedFrom = "";
+    let status = "已加载";
+    const exists = await storage.setProject(ProjectID).exists(documentPath);
+    if (!active()) return;
+    if (exists) {
+      // 已有固定任务配置时只读这一份，不能因读取失败而用空配置或旧备份覆盖它。
+      loaded = decodeQuestProject(await storage.setProject(ProjectID).readFile(documentPath));
+    } else {
+      const hasLegacyDirectory = await storage.setProject(ProjectID).exists(legacyDirectory);
+      if (!active()) return;
+      const entries = hasLegacyDirectory ? await storage.setProject(ProjectID).getFiles(legacyDirectory) : [];
+      if (!active()) return;
+      const candidates = entries.filter(name => /^[^/\\]+\.json$/i.test(name)).sort();
+      legacyFiles.value = candidates;
+      if (legacyFile !== undefined && !candidates.includes(legacyFile)) {
+        throw new Error("选中的旧任务文件已不存在，请重新选择。");
+      }
+      if (legacyFile === undefined && candidates.length > 1) {
+        saveStatus.value = "请选择要沿用的旧任务";
+        return;
+      }
+      migratedFrom = legacyFile ?? candidates[0] ?? "";
+      loaded = migratedFrom
+        ? decodeQuestProject(await storage.setProject(ProjectID).readFile(`${legacyDirectory}/${migratedFrom}`))
+        : createQuestProject();
+      if (!active()) return;
+      // 先保存固定配置，再开放编辑；旧文件仅作备份保留，不删除、不重编号、不合并。
+      await storage.setProject(ProjectID).writeFile(documentPath, encodeQuestProject(loaded));
+      status = migratedFrom ? "已沿用旧任务" : "已创建工作区任务";
+    }
+    if (!active()) return;
     loading = true;
-    selectedFile.value = name;
     project.value = loaded;
     loading = false;
-    settingsOpen.value = false;
-    saveStatus.value = "已加载";
-  } catch (error) { showError(error, "无法读取任务文件，原内容已保留"); }
-  finally { if (request === requestId) busy.value = false; }
-}
-async function createFile() {
-  if (busy.value) return;
-  const base = newName.value.trim().replace(/\.json$/i, "");
-  if (!base || /[<>:"/\\|?*\u0000-\u001f]/.test(base) || base === "." || base === "..") {
-    toast.warning("请输入有效文件名，不能包含路径或特殊字符"); return;
-  }
-  const name = `${base}.json`;
-  busy.value = true;
-  try {
-    if (await storage.setProject(ProjectID).exists(`${directory}/${name}`)) { toast.warning("已有同名任务文件"); return; }
-    await saveQueue.flush();
-    await storage.setProject(ProjectID).writeFile(`${directory}/${name}`, encodeQuestProject(createQuestProject()));
-    await refreshFiles();
-    creating.value = false;
-    newName.value = "";
-    if (!disposed) await selectFile(name, true);
-  } catch (error) { showError(error, "创建任务文件失败"); }
-  finally { busy.value = false; }
-}
-async function deleteFile() {
-  if (busy.value) return;
-  const name = selectedFile.value;
-  if (!name) { toast.warning("请先选择任务文件"); return; }
-  if (!confirm(`将任务文件「${name}」移入回收站？文件内所有章节和任务都会一并移入。`)) return;
-  busy.value = true;
-  requestId++;
-  try {
-    await saveQueue.flush();
-    await storage.setProject(ProjectID).trash(`${directory}/${name}`);
-    saveQueue.discard(`${directory}/${name}`);
-    requestId++;
-    loading = true;
-    project.value = undefined;
-    selectedFile.value = "";
-    loading = false;
-    settingsOpen.value = false;
-    saveStatus.value = "未打开文件";
-    await refreshFiles();
-    toast.success("任务文件已移入回收站");
-  } catch (error) { showError(error, "删除失败，文件已保留"); }
-  finally { busy.value = false; }
+    legacyFiles.value = [];
+    legacySelection.value = "";
+    saveStatus.value = status;
+    if (migratedFrom) toast.success(`已沿用「${migratedFrom}」，原文件已保留为备份`);
+  } catch (error) {
+    if (active()) {
+      loadError.value = error instanceof Error ? error.message : "无法读取工作区任务，原数据已保留";
+      saveStatus.value = "读取失败";
+      showError(error, "无法读取工作区任务，原数据已保留");
+    }
+  } finally { if (active()) busy.value = false; }
 }
 function downloadProject() {
-  if (!project.value || !selectedFile.value) { toast.warning("请先打开任务文件"); return; }
-  downloadTextFile(encodeQuestProject(project.value), selectedFile.value, "application/json");
+  if (!project.value) { toast.warning("工作区任务尚未加载"); return; }
+  downloadTextFile(encodeQuestProject(project.value), `${downloadBaseName}-任务.json`, "application/json");
 }
 async function exportVariables() {
-  if (!project.value) return;
-  const exportName = selectedFile.value.replace(/\.json$/i, "");
+  if (!project.value || exporting.value) return;
+  const exportName = downloadBaseName;
   exporting.value = true;
   try {
     const result = exportQuestVariables(project.value);
@@ -172,12 +161,12 @@ function saveShortcut(event: KeyboardEvent) {
   event.preventDefault();
   downloadProject();
 }
-async function changeEditor(kind: "Dialogue" | "Quest") {
+async function changeEditor(kind: "Dialogue" | "Quest" | "WalkTalk") {
   try { await saveQueue.flush(); emit("update:editorKind", kind); }
   catch { /* 保存失败时留在任务编辑器，防止丢失未保存内容。 */ }
 }
 onMounted(() => {
-  void refreshFiles().catch(error => showError(error, "读取任务文件列表失败"));
+  void loadProject();
   window.addEventListener("keydown", saveShortcut);
 });
 onBeforeUnmount(() => {
@@ -188,35 +177,36 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Splitter class="quest-editor" :inert="busy">
-    <SplitterPanel :size="15">
-      <div class="quest-file-panel">
-        <EditorKindSelect :model-value="editorKind" @update:model-value="changeEditor" />
-        <SectionLayout title="任务文件">
-          <SelectableList :values="files" :selected-value="selectedFile" @select="selectFile" @add="creating = true" @delete="deleteFile" />
-          <form v-if="creating" class="new-file-form" @submit.prevent="createFile">
-            <input v-model="newName" aria-label="任务文件名" placeholder="任务文件名" autofocus :disabled="busy" />
-            <div><button :disabled="busy" type="submit">创建</button><button type="button" @click="creating = false">取消</button></div>
-          </form>
-          <p class="file-help">任务文件保存在当前工作区，与对话文件分开管理。</p>
-        </SectionLayout>
-      </div>
-    </SplitterPanel>
-    <SplitterPanel :size="85">
+  <div class="quest-editor" :inert="busy" :aria-busy="busy">
+      <EditorKindSelect :model-value="editorKind" @update:model-value="changeEditor" />
       <SectionLayout title="任务编辑区">
         <div class="quest-workspace" :class="{ 'is-busy': busy }" :aria-busy="busy">
           <header class="quest-file-toolbar">
-            <span>{{ selectedFile || '未选择任务文件' }}</span><small>{{ saveStatus }}</small>
+            <span>{{ workspaceId }} · 工作区任务</span><small>{{ saveStatus }}</small>
             <button type="button" :disabled="!project || busy" @click="openSettings">结构体 ID 设置</button>
             <button type="button" :disabled="!project || busy" @click="downloadProject">下载编辑器 JSON · Ctrl+S</button>
             <button type="button" class="primary" :disabled="!project || busy || exporting" @click="exportVariables">{{ exporting ? '导出中…' : '导出千星任务' }}</button>
           </header>
-          <QuestPanel v-if="project" :key="selectedFile" :project="project" :inert="busy" />
-          <div v-else class="quest-empty"><h3>从一个章节，或一个主任务开始</h3><p>先新建任务文件，再编排当前工作区的任务。</p><button type="button" @click="creating = true">＋ 新建任务文件</button></div>
+          <QuestPanel v-if="project" :project="project" :inert="busy" />
+          <div v-else class="quest-empty">
+            <template v-if="legacyFiles.length > 1">
+              <h3>选择要沿用的旧任务</h3>
+              <p>每个工作区现在只有一份任务配置。检测到多份旧文件，请选择一份沿用；其他原文件保留为备份，不会合并或删除。</p>
+              <form class="legacy-choice" @submit.prevent="loadProject(legacySelection)">
+                <select v-model="legacySelection" aria-label="沿用旧任务文件" :disabled="busy">
+                  <option disabled value="">请选择一份旧任务</option>
+                  <option v-for="file in legacyFiles" :key="file" :value="file">{{ file }}</option>
+                </select>
+                <button type="submit" :disabled="busy || !legacySelection">沿用这份任务</button>
+              </form>
+            </template>
+            <template v-else><h3>{{ busy ? '正在打开工作区任务…' : '工作区任务暂未加载' }}</h3><p>每个工作区只有一份任务配置，首次进入时自动创建。</p></template>
+            <p v-if="loadError" class="load-error" role="alert">{{ loadError }}<br />原数据不会被空配置覆盖。</p>
+            <button v-if="loadError && !busy" type="button" @click="loadProject()">重新读取</button>
+          </div>
         </div>
       </SectionLayout>
-    </SplitterPanel>
-  </Splitter>
+  </div>
   <Teleport to="body">
     <div v-if="settingsOpen && settingsDraft" :inert="busy" class="quest-settings-backdrop" @click.self="settingsOpen = false" @keydown.esc="settingsOpen = false">
       <form class="quest-settings" role="dialog" aria-modal="true" aria-label="任务结构体 ID 设置" @submit.prevent="applySettings">
@@ -232,9 +222,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.quest-editor { height: 100%; min-height: 0; }
-.quest-file-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.quest-file-panel > .Section { flex: 1; min-height: 0; }
+.quest-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
+.quest-editor > .Section { flex: 1; min-height: 0; }
+.quest-editor > .editor-kind-select { flex: 0 0 auto; }
 .quest-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; height: 100%; color: #34445b; }
 .quest-workspace.is-busy { pointer-events: none; opacity: .7; }
 .quest-file-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px; background: #eef3f9; border-bottom: 1px solid #d5deea; }
@@ -243,13 +233,12 @@ onBeforeUnmount(() => {
 button { padding: 6px 10px; border: 1px solid #b7c8de; border-radius: 5px; background: white; color: #325a89; cursor: pointer; font-size: 12px; }
 button:disabled { opacity: .45; cursor: default; }
 .primary { color: white; background: #2877c7; border-color: #2877c7; }
-.file-help { font-size: 11px; line-height: 1.7; color: #8290a1; padding: 8px; }
-.new-file-form { padding: 8px; }
-.new-file-form input { box-sizing: border-box; width: 100%; padding: 7px; margin-bottom: 8px; font-size: 12px; border: 1px solid #b7c8de; }
-.new-file-form > div { display: flex; gap: 5px; }
+.legacy-choice { display: flex; flex-wrap: wrap; gap: 8px; max-width: 100%; }
+.legacy-choice select { min-width: 0; max-width: 100%; padding: 7px; font-size: 13px; border: 1px solid #b7c8de; border-radius: 5px; color: #325a89; background: white; }
 .quest-empty { display: flex; flex: 1; align-items: center; justify-content: center; flex-direction: column; padding: 24px; color: #718198; text-align: center; }
 .quest-empty h3 { font-size: 16px; margin-bottom: 0; }
-.quest-empty p { font-size: 13px; }
+.quest-empty p { font-size: 13px; max-width: 560px; line-height: 1.8; }
+.quest-empty .load-error { color: #b45309; overflow-wrap: anywhere; }
 .quest-settings-backdrop { position: fixed; inset: 0; z-index: 11000; display: grid; place-items: center; padding: 20px; background: #13203388; }
 .quest-settings { width: min(440px, 90vw); max-height: 85vh; overflow-y: auto; padding: 22px; border-radius: 12px; background: #fff; color: #34445b; }
 .quest-settings header, .quest-settings footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }

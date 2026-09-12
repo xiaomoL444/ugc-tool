@@ -3,6 +3,9 @@ import { createClipPropertyValues } from "../DialogueEditor/utils/clipProperties
 import type { QuestChapter, QuestMain, QuestProject, QuestStructIds, QuestSub } from "./types";
 
 export const DEFAULT_QUEST_MAIN_STYLE = "Mainline";
+export const DEFAULT_QUEST_SUB_FIELDS = {
+  failureQuestId: -1, finishMainQuest: false, questProgress: 0,
+} as const;
 
 export const DEFAULT_QUEST_STRUCT_IDS: QuestStructIds = {
   chapter: "1077936165", mainQuest: "1077936166", subQuest: "1077936145",
@@ -65,6 +68,7 @@ export function createQuestSub(project: QuestProject, mainQuestId: number): Ques
     id: allocateId(project.subQuests, 10000, "子任务"), mainQuestId, title: "新子任务",
     description: "", unitState: "0", investigationPoint: createClipPropertyValues(CAMERA_SLOT_PROPERTIES),
     investigationRange: -1, hidden: false, nextQuestIds: [],
+    ...DEFAULT_QUEST_SUB_FIELDS,
   };
   project.subQuests.push(sub);
   return sub;
@@ -85,6 +89,10 @@ export function removeQuestSubQuests(project: QuestProject, ids: ReadonlySet<num
         clearedReferenceCount++;
       }
     });
+    if (sub.failureQuestId !== null && removedIds.has(sub.failureQuestId)) {
+      sub.failureQuestId = null;
+      clearedReferenceCount++;
+    }
   }
   const removedCount = project.subQuests.length - remaining.length;
   project.subQuests = remaining;
@@ -106,7 +114,11 @@ export function decodeQuestProject(raw: string): QuestProject {
       if (record(main) && !Object.prototype.hasOwnProperty.call(main, "style")) main.style = DEFAULT_QUEST_MAIN_STYLE;
     }
     if (Array.isArray(project.subQuests)) for (const sub of project.subQuests) {
-      if (record(sub) && !Object.prototype.hasOwnProperty.call(sub, "nextQuestIds")) sub.nextQuestIds = [];
+      if (!record(sub)) continue;
+      if (!Object.prototype.hasOwnProperty.call(sub, "nextQuestIds")) sub.nextQuestIds = [];
+      for (const key of Object.keys(DEFAULT_QUEST_SUB_FIELDS) as Array<keyof typeof DEFAULT_QUEST_SUB_FIELDS>) {
+        if (!Object.prototype.hasOwnProperty.call(sub, key)) Object.assign(sub, { [key]: DEFAULT_QUEST_SUB_FIELDS[key] });
+      }
     }
   }
   assertValidProject(project, { allowDraftValues: true });
@@ -184,6 +196,9 @@ export function validateQuestProject(project: QuestProject, options: QuestValida
     if (typeof sub.unitState !== "string" || (!options.allowDraftValues && !integerText(sub.unitState))) errors.push(`${label}任务单位状态必须是 ConfigReference 整数文本。`);
     if (typeof sub.investigationRange !== "number" || !Number.isFinite(sub.investigationRange)) errors.push(`${label}调查点范围必须是有限数值。`);
     if (typeof sub.hidden !== "boolean") errors.push(`${label}隐藏任务必须是布尔值。`);
+    if (sub.failureQuestId !== null && !int32(sub.failureQuestId)) errors.push(`${label}失败回溯任务必须是 Int32 整数或空值。`);
+    if (typeof sub.finishMainQuest !== "boolean") errors.push(`${label}完成主任务必须是布尔值。`);
+    if (!int32(sub.questProgress)) errors.push(`${label}任务进度必须是 Int32 整数。`);
     if (!Array.isArray(sub.nextQuestIds) || sub.nextQuestIds.length > 100 || sub.nextQuestIds.some((id) => id !== null && !int32(id))) {
       errors.push(`${label}后续任务必须是最多 100 项的 Int32 整数或空值列表。`);
     }

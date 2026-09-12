@@ -220,6 +220,25 @@ function updateRange(event: Event) {
   }
 }
 
+function updateSubInteger(key: "failureQuestId" | "questProgress", event: Event, commit = false) {
+  const sub = selectedSub.value;
+  if (!sub) return;
+  const input = event.target as HTMLInputElement;
+  if (key === "failureQuestId" && input.value.trim() === "" && !input.validity?.badInput) {
+    sub.failureQuestId = null;
+    return;
+  }
+  const value = input.valueAsNumber;
+  if (!Number.isInteger(value) || value < -2147483648 || value > 2147483647) {
+    if (commit) {
+      toast.warning(`${key === "failureQuestId" ? "失败回溯任务 ID" : "任务进度"}必须是 Int32 整数`);
+      input.value = String(sub[key] ?? "");
+    }
+    return;
+  }
+  sub[key] = value;
+}
+
 function addNextQuest() {
   const sub = selectedSub.value;
   const text = nextQuestIdInput.value.trim();
@@ -278,18 +297,18 @@ function removeSelected() {
     selection.value = null;
   } else if (target.kind === "main") {
     const count = subGroups.value.get(target.id)?.length ?? 0;
-    if (!confirm(`删除主任务「${item.title}」及其 ${count} 个子任务？\n此操作会同时移除这些任务的数据，其他子任务指向它们的后续任务引用将置空并保留位置。`)) return;
+    if (!confirm(`删除主任务「${item.title}」及其 ${count} 个子任务？\n此操作会同时移除这些任务的数据，其他子任务指向它们的后续任务和失败回溯引用将置空，后续任务列表保留位置。`)) return;
     const removedIds = new Set(props.project.subQuests.filter((sub) => sub.mainQuestId === target.id).map((sub) => sub.id));
     clearedReferenceCount = removeQuestSubQuests(props.project, removedIds).clearedReferenceCount;
     props.project.mainQuests = props.project.mainQuests.filter((main) => main.id !== target.id);
     selection.value = null;
   } else {
-    if (!confirm(`删除子任务「${item.title}」（ID ${target.id}）？\n其他子任务指向它的后续任务引用将置空并保留位置。`)) return;
+    if (!confirm(`删除子任务「${item.title}」（ID ${target.id}）？\n其他子任务指向它的后续任务和失败回溯引用将置空，后续任务列表保留位置。`)) return;
     const parentId = selectedSub.value?.mainQuestId;
     clearedReferenceCount = removeQuestSubQuests(props.project, new Set([target.id])).clearedReferenceCount;
     selection.value = parentId === undefined ? null : { kind: "main", id: parentId };
   }
-  toast.success(`已删除${({ chapter: "章节", main: "主任务", sub: "子任务" })[target.kind]}${clearedReferenceCount ? `，已将 ${clearedReferenceCount} 项后续任务引用置空` : ""}`);
+  toast.success(`已删除${({ chapter: "章节", main: "主任务", sub: "子任务" })[target.kind]}${clearedReferenceCount ? `，已将 ${clearedReferenceCount} 项任务引用置空` : ""}`);
 }
 
 function changeSubPage(row: TreeRow, offset: number) {
@@ -380,8 +399,8 @@ function parentLabel(main: QuestMain) {
             <section class="inspector-info"><h3>子任务</h3><p>包含 {{ subGroups.get(selectedMain.id)?.length ?? 0 }} 个子任务。可通过左侧层级选择子任务并设置调查点、范围及其他参数。</p><button type="button" :disabled="project.subQuests.length >= 10000" @click="addSub(selectedMain.id)">＋ 在此主任务创建子任务</button></section>
           </template>
           <template v-else-if="selectedSub">
-            <label class="quest-field"><span>归属主任务 <code>mainQuestId</code></span><select :value="selectedSub.mainQuestId" aria-label="归属主任务" @change="changeMain"><option v-for="main in project.mainQuests" :key="main.id" :value="main.id">{{ parentLabel(main) }}</option></select></label>
-            <label class="quest-field"><span>任务描述 <code>description</code></span><textarea v-model="selectedSub.description" aria-label="任务描述" rows="4" placeholder="填写任务描述" /></label>
+            <label class="quest-field"><span>归属主任务 <code>mainId</code></span><select :value="selectedSub.mainQuestId" aria-label="归属主任务" @change="changeMain"><option v-for="main in project.mainQuests" :key="main.id" :value="main.id">{{ parentLabel(main) }}</option></select></label>
+            <label class="quest-field"><span>任务描述 <code>desc</code></span><textarea v-model="selectedSub.description" aria-label="任务描述" rows="4" placeholder="填写任务描述" /></label>
             <label class="quest-field"><span>单位状态 <code>unitState · ConfigReference</code></span><input v-model="selectedSub.unitState" aria-label="单位状态" placeholder="填写配置引用" /><small>以字符串保存 ConfigReference。</small></label>
             <div class="position-editor"><ClipPropertyEditor :property="pointProperty" :model-value="selectedSub.investigationPoint" @update:model-value="updatePoint" /></div>
             <label class="quest-field"><span>调查范围 <code>investigationRange</code></span><input type="number" aria-label="调查范围" :value="selectedSub.investigationRange" step="any" @input="updateRange" /><small>保留结构体默认值 -1；可填写所需范围。</small></label>
@@ -406,13 +425,21 @@ function parentLabel(main: QuestMain) {
               </div>
               <small>删除任务时，指向它的引用会置空并保留位置；可以重新填写 ID 或移除此项。导出时会警告空引用及当前文件中不存在的 ID。</small>
             </section>
+            <label class="quest-field"><span>失败回溯任务 <code>失败回溯任务 · Int32</code></span>
+              <input type="number" aria-label="失败回溯任务 ID" :value="selectedSub.failureQuestId ?? ''" step="1" min="-2147483648" max="2147483647" placeholder="空引用" @input="updateSubInteger('failureQuestId', $event)" @change="updateSubInteger('failureQuestId', $event, true)" />
+              <small v-if="selectedSub.failureQuestId === null">空引用 · 导出为 -1 并警告；默认值为 -1。</small>
+              <small v-else-if="selectedSub.failureQuestId === -1">默认 -1；可填写完整子任务 ID，跨字典时不取余数。</small>
+              <small v-else>{{ subsById.has(selectedSub.failureQuestId) ? (subsById.get(selectedSub.failureQuestId)?.title || '未命名子任务') : '当前工作区未找到此子任务 ID，导出时将警告但保留原值。' }}</small>
+            </label>
+            <label class="hidden-field"><input v-model="selectedSub.finishMainQuest" type="checkbox" aria-label="完成主任务" /><span>完成主任务 <code>finishMainQuest</code></span></label>
+            <label class="quest-field"><span>任务进度 <code>questProgress · Int32</code></span><input type="number" aria-label="任务进度" :value="selectedSub.questProgress" step="1" min="-2147483648" max="2147483647" @input="updateSubInteger('questProgress', $event)" @change="updateSubInteger('questProgress', $event, true)" /><small>默认 0，按填写的整数导出。</small></label>
             <p class="inspector-note">导出时使用外层键 {{ Math.floor(selectedSub.id / 100) }}，内层键 {{ selectedSub.id }}；内层保留完整子任务 ID，不取余数。</p>
           </template>
         </template>
         <div v-else class="inspector-empty">
           <span class="empty-symbol">☷</span><h2>按层级组织任务</h2><p>章节 → 主任务 → 子任务<br />也可以跳过章节，直接创建主任务。</p>
           <div><button type="button" :disabled="project.chapters.length >= 100" @click="addChapter">＋ 创建章节</button><button type="button" class="primary" :disabled="project.mainQuests.length >= 100" @click="addMain(null)">＋ 创建主任务</button></div>
-          <small>选择左侧条目编辑属性。任务文件保存在当前工作区，下载文件保留可编辑数据，结构体导出用于千星变量。</small>
+          <small>选择左侧条目编辑属性。任务配置自动保存在当前工作区，下载文件保留可编辑数据，结构体导出用于千星变量。</small>
         </div>
       </main>
     </div>

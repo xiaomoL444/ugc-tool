@@ -65,8 +65,8 @@ import {
   resolveGroupOutlets,
 } from "./utils/groupOutlets";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" }>(), { editorKind: "Dialogue" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest"] }>();
+withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" }>(), { editorKind: "Dialogue" });
+const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk"] }>();
 
 const {
   onConnect, onNodesChange, getSelectedNodes, getSelectedEdges, nodesSelectionActive,

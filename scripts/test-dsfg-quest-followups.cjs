@@ -10,7 +10,7 @@ const filename = path.resolve(__dirname, "../src/views/DSFGStudio/components/Que
 const parsed = parse(fs.readFileSync(filename, "utf8"), { filename });
 const descriptor = parsed.descriptor;
 const ast = ts.createSourceFile(`${filename}.ts`, descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-const handlerNames = ["addNextQuest", "updateNextQuest", "moveNextQuest", "removeNextQuest", "removeSelected"];
+const handlerNames = ["addNextQuest", "updateNextQuest", "moveNextQuest", "removeNextQuest", "removeSelected", "updateSubInteger"];
 const functions = handlerNames.map((name) => {
   const declaration = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
   assert.ok(declaration, `Actual QuestPanel handler missing: ${name}`);
@@ -26,7 +26,7 @@ const compiledHandlers = ts.transpileModule(`${removeHelper.getText(projectAst).
 
 function harness(ids = []) {
   const warnings = [];
-  const sub = { id: 199, title: "当前子任务", nextQuestIds: [...ids] };
+  const sub = { id: 199, title: "当前子任务", nextQuestIds: [...ids], failureQuestId: -1, finishMainQuest: false, questProgress: 0 };
   const context = vm.createContext({
     selectedSub: { value: sub }, nextQuestIdInput: { value: "" },
     toast: { warning: (message) => warnings.push(message) },
@@ -90,6 +90,65 @@ test("Actual QuestPanel script, template and styles compile", () => {
   }
 });
 
+test("New scalar inputs are wired to sub-only fields with exact integer bounds and boolean binding", () => {
+  const inputs = findElements(descriptor.template.ast, (node) => node.tag === "input");
+  const failure = inputs.find((node) => attr(node, "aria-label") === "失败回溯任务 ID");
+  const progress = inputs.find((node) => attr(node, "aria-label") === "任务进度");
+  const finish = inputs.find((node) => attr(node, "aria-label") === "完成主任务");
+  for (const [node, key] of [[failure, "failureQuestId"], [progress, "questProgress"]]) {
+    assert.ok(node); assert.equal(attr(node, "type"), "number"); assert.equal(attr(node, "step"), "1");
+    assert.equal(attr(node, "min"), "-2147483648"); assert.equal(attr(node, "max"), "2147483647");
+    assert.equal(directive(node, "on", "input").exp.content, `updateSubInteger('${key}', $event)`);
+    assert.equal(directive(node, "on", "change").exp.content, `updateSubInteger('${key}', $event, true)`);
+  }
+  assert.equal(attr(finish, "type"), "checkbox"); assert.equal(directive(finish, "model").exp.content, "selectedSub.finishMainQuest");
+});
+test("Rollback and progress update immediately with zero, negatives and Int32 boundaries", () => {
+  const { state, sub, warnings } = harness();
+  for (const key of ["failureQuestId", "questProgress"]) for (const value of [199, 100, 0, -1, 2147483647, -2147483648]) {
+    state.updateSubInteger(key, inputEvent(String(value)));
+    assert.equal(sub[key], value); assert.equal(JSON.parse(JSON.stringify(sub))[key], value);
+  }
+  assert.deepEqual(warnings, []);
+});
+test("New integer fields keep intermediate input until commit, rejecting fractional or out-of-range values", () => {
+  for (const key of ["failureQuestId", "questProgress"]) for (const value of ["-", "1.5", "2147483648", "-2147483649", "Infinity"]) {
+    const { state, sub, warnings } = harness(); sub[key] = 199;
+    const event = inputEvent(value); state.updateSubInteger(key, event);
+    assert.equal(sub[key], 199); assert.deepEqual(warnings, []);
+    assert.equal(event.target.value, value);
+    state.updateSubInteger(key, event, true);
+    assert.equal(sub[key], 199); assert.equal(event.target.value, "199"); assert.equal(warnings.length, 1);
+  }
+});
+test("Clearing rollback persists null, while badInput and an empty progress never turn into zero", () => {
+  const { state, sub, warnings } = harness(); sub.failureQuestId = 100; sub.questProgress = 25;
+  state.updateSubInteger("failureQuestId", inputEvent("", NaN, true)); assert.equal(sub.failureQuestId, 100);
+  state.updateSubInteger("failureQuestId", inputEvent("")); assert.equal(sub.failureQuestId, null);
+  assert.equal(JSON.parse(JSON.stringify(sub)).failureQuestId, null);
+  const bad = inputEvent("-", NaN, true); state.updateSubInteger("failureQuestId", bad, true); assert.equal(bad.target.value, "");
+  const progress = inputEvent(""); state.updateSubInteger("questProgress", progress); assert.equal(sub.questProgress, 25);
+  state.updateSubInteger("questProgress", progress, true); assert.equal(progress.target.value, "25");
+  state.updateSubInteger("failureQuestId", inputEvent("0")); assert.equal(sub.failureQuestId, 0);
+  assert.equal(warnings.length, 2);
+});
+test("New integer handlers do nothing without a selected sub quest", () => {
+  const { state, sub } = harness(), before = JSON.stringify(sub); state.selectedSub.value = undefined;
+  state.updateSubInteger("failureQuestId", inputEvent("1")); state.updateSubInteger("questProgress", inputEvent("1"));
+  assert.equal(JSON.stringify(sub), before);
+});
+test("Main/sub deletion clears rollback targets along with follow-up slots; cancellation preserves both", () => {
+  for (const [kind, id] of [["main", 0], ["sub", 1]]) {
+    const { state, project, successes } = deletionHarness(kind, id);
+    project.subQuests[2].failureQuestId = 1; project.subQuests[3].failureQuestId = 9999;
+    state.removeSelected();
+    assert.equal(project.subQuests.find((sub) => sub.id === 2).failureQuestId, null);
+    assert.equal(project.subQuests.find((sub) => sub.id === 3).failureQuestId, 9999);
+    assert.match(successes[0], new RegExp(`${kind === "main" ? 5 : 6}.*置空`));
+    const cancelled = deletionHarness(kind, id, false); cancelled.project.subQuests[2].failureQuestId = 1;
+    const before = JSON.stringify(cancelled.project); cancelled.state.removeSelected(); assert.equal(JSON.stringify(cancelled.project), before);
+  }
+});
 test("Adding IDs preserves order, duplicates, zero, signed boundaries and complete future references", () => {
   const { state, sub, warnings } = harness();
   const values = ["199", "100", "0", "-1", "199", "9999", "-2147483648", "2147483647", " +000100 "];

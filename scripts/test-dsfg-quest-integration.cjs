@@ -84,7 +84,7 @@ function editorHarness(sfc, names, options = {}) {
     ...options.saveQueue,
   };
   const bindings = {
-    storage, saveQueue, calls, errors, scheduled, exposed,
+    storage, saveQueue, calls, errors, scheduled, exposed, Error,
     ProjectID: "DSFGStudio", DialogueEditorID: "DialogueEditor",
     workspace: ref("original"), workspaceId: ref("original"), disposed: false,
     busy: ref(false), fileBusy: ref(false), loading: false, loadingFile: false,
@@ -93,6 +93,7 @@ function editorHarness(sfc, names, options = {}) {
     files: ref([]), dialogueFiles: ref([]), selectedFile: ref("a.json"), selectedDialogueFile: ref("a.json"),
     selectedGroupNodeId: ref("group"), settingsOpen: ref(false), structIdSettingsOpen: ref(false),
     newName: ref("new"), creating: ref(false), saveStatus: ref("old"), exporting: ref(false),
+    legacyFiles: ref([]), legacySelection: ref(""), loadError: ref(""),
     toast: { error: (...args) => errors.push(args), warning() {}, success() {} },
     showError: (...args) => errors.push(args), console: quiet, consola: quiet,
     crypto: { randomUUID: () => "test-uuid" }, confirm: () => true, prompt: () => "new",
@@ -102,7 +103,10 @@ function editorHarness(sfc, names, options = {}) {
     defineExpose: (api) => Object.assign(exposed, api), nextTick: async () => undefined,
     ...options.bindings,
   };
-  const extras = [variableText(sfc, isQuest ? "directory" : "documentWorkspaceId"), ...(options.extra ?? [])];
+  const extras = [
+    ...(isQuest ? ["workspaceId", "documentPath", "legacyDirectory", "downloadBaseName"] : ["documentWorkspaceId"]).map((name) => variableText(sfc, name)),
+    ...(options.extra ?? []),
+  ];
   if (!isQuest && !names.includes("AssemblyPath")) names = ["AssemblyPath", ...names];
   return execute(sfc, names, bindings, extras);
 }
@@ -120,6 +124,21 @@ function parentHarness(options = {}) {
   return { context, events, errors };
 }
 
+function questLoadHarness(initial = [], options = {}) {
+  const persisted = new Map(initial), io = [];
+  const memory = {
+    async exists(file) { io.push(["exists", file]); return persisted.has(file) || [...persisted.keys()].some((key) => key.startsWith(`${file}/`)); },
+    async getFiles(directory) { io.push(["list", directory]); return [...persisted.keys()].filter((key) => key.startsWith(`${directory}/`)).map((key) => key.slice(directory.length + 1)); },
+    async readFile(file) { io.push(["read", file]); if (!persisted.has(file)) throw new Error("Missing file"); return persisted.get(file); },
+    async writeFile(file, data) { io.push(["write", file, data]); persisted.set(file, data); },
+    ...options.storage,
+  };
+  const state = editorHarness(quest, ["loadProject"], {
+    storage: memory, bindings: { project: ref(undefined), ...options.bindings },
+  });
+  return { state, persisted, io };
+}
+
 async function main() {
   let passed = 0;
   const test = async (name, check) => { await check(); passed++; console.log(`PASS ${name}`); };
@@ -133,23 +152,25 @@ async function main() {
     }
   });
 
-  await test("Both editor selectors precede their file sections and offer only Dialogue/Quest", () => {
+  await test("Both editor selectors remain available above the single Quest panel or Dialogue file list", () => {
     for (const sfc of [quest, dialogue]) {
       const select = findElement(sfc.descriptor.template.ast, "EditorKindSelect");
       assert.ok(select);
       const siblings = select.ancestors.at(-1).children;
       const sectionIndex = siblings.findIndex((node) => node.type === 1 && node.tag === "SectionLayout");
       assert.ok(sectionIndex > siblings.indexOf(select.node));
-      assert.equal(attr(siblings[sectionIndex], "title"), sfc === quest ? "任务文件" : "对话文件");
+      assert.equal(attr(siblings[sectionIndex], "title"), sfc === quest ? "任务编辑区" : "对话文件");
     }
     const select = findElement(kindSelect.descriptor.template.ast, "select").node;
-    assert.deepEqual(select.children.filter((node) => node.type === 1).map((node) => attr(node, "value")), ["Dialogue", "Quest"]);
+    assert.deepEqual(select.children.filter((node) => node.type === 1).map((node) => attr(node, "value")), ["Dialogue", "Quest", "WalkTalk"]);
     const emitted = [];
     const handler = execute(kindSelect, ["change"], { props: { modelValue: "Dialogue" }, emit: (...args) => emitted.push(args) });
     const event = { target: { value: "Quest" } };
     handler.change(event);
     assert.deepEqual(emitted, [["update:modelValue", "Quest"]]);
     assert.equal(event.target.value, "Dialogue", "Selection stays on the saved editor until its parent approves the switch");
+    handler.change({ target: { value: "WalkTalk" } });
+    assert.deepEqual(emitted.at(-1), ["update:modelValue", "WalkTalk"]);
   });
 
   await test("Parent component key recreates the editor for either workspace or editor kind changes", () => {
@@ -169,9 +190,8 @@ async function main() {
     changed();
     actual.workspace.value = "different";
     actual.project.value.title = "new edit";
-    actual.selectedFile.value = "b.json";
     changed();
-    assert.deepEqual(actual.scheduled, [["/original/QuestEditor/a.json", '{"title":"original"}'], ["/original/QuestEditor/b.json", '{"title":"new edit"}']]);
+    assert.deepEqual(actual.scheduled, [["/original/QuestEditor.json", '{"title":"original"}'], ["/original/QuestEditor.json", '{"title":"new edit"}']]);
     actual.loading = true; changed();
     actual.loading = false; actual.disposed = true; changed();
     assert.equal(actual.scheduled.length, 2);
@@ -213,6 +233,9 @@ async function main() {
       state.saveQueue.flush = async () => { throw new Error("storage failed"); };
       await assert.rejects(state.exposed.prepareToLeave(), /storage failed/);
     });
+
+    // Quest no longer has file CRUD; its single-document lifecycle is tested below.
+    if (sfc === quest) continue;
 
     await test(`${label} concurrent file commands are blocked while switching files`, async () => {
       const gate = deferred();
@@ -288,6 +311,186 @@ async function main() {
     });
   }
 
+  await test("Quest has no file management sidebar or file CRUD handlers", () => {
+    assert.equal(findElement(quest.descriptor.template.ast, "SelectableList"), undefined);
+    assert.equal(findElement(quest.descriptor.template.ast, "Splitter"), undefined);
+    for (const name of ["selectFile", "createFile", "deleteFile", "refreshFiles"]) {
+      assert.equal(quest.ast.statements.some((node) => ts.isFunctionDeclaration(node) && node.name?.text === name), false);
+    }
+    const root = quest.descriptor.template.ast.children.find((node) => node.type === 1 && attr(node, "class") === "quest-editor");
+    assert.equal(directive(root, "bind", "inert").exp.content, "busy");
+  });
+
+  await test("A new workspace automatically persists exactly one task document and reopens it", async () => {
+    const { state, persisted, io } = questLoadHarness();
+    await state.loadProject();
+    assert.deepEqual([...persisted.keys()], ["/original/QuestEditor.json"]);
+    assert.deepEqual(plain(state.project.value), { title: "new" });
+    assert.equal(io.some(([op]) => op === "list"), false, "Never list a missing legacy directory");
+    assert.equal(state.busy.value, false);
+    const reopened = questLoadHarness([...persisted]);
+    await reopened.state.loadProject();
+    assert.deepEqual(plain(reopened.state.project.value), { title: "new" });
+    assert.equal(reopened.io.some(([op]) => op === "write"), false);
+  });
+
+  await test("A sole legacy file is copied intact, without renumbering or deleting the original", async () => {
+    const data = { mainQuests: [{ id: 7, style: "Custom" }], subQuests: [{ id: 100, nextQuestIds: [null, 199, 0] }] };
+    const original = JSON.stringify(data);
+    const legacyPath = "/original/QuestEditor/story.json";
+    const { state, persisted } = questLoadHarness([[legacyPath, original]]);
+    await state.loadProject();
+    assert.deepEqual(plain(state.project.value), data);
+    assert.equal(persisted.get(legacyPath), original);
+    assert.deepEqual(JSON.parse(persisted.get("/original/QuestEditor.json")), data);
+    assert.equal(persisted.size, 2);
+    assert.deepEqual(plain(state.legacyFiles.value), []);
+  });
+
+  await test("Multiple legacy files require explicit selection and only the chosen file is copied", async () => {
+    const initial = [
+      ["/original/QuestEditor/a.json", '{"title":"A"}'],
+      ["/original/QuestEditor/b.json", '{"title":"B"}'],
+      ["/original/QuestEditor/readme.txt", "backup note"],
+    ];
+    const { state, persisted, io } = questLoadHarness(initial);
+    await state.loadProject();
+    assert.equal(state.project.value, undefined);
+    assert.equal(state.busy.value, false);
+    assert.deepEqual(plain(state.legacyFiles.value), ["a.json", "b.json"]);
+    assert.equal(io.some(([op]) => op === "read" || op === "write"), false);
+    assert.deepEqual([...persisted], initial);
+    await state.loadProject("b.json");
+    assert.deepEqual(plain(state.project.value), { title: "B" });
+    assert.equal(persisted.get("/original/QuestEditor.json"), '{"title":"B"}');
+    for (const [file, data] of initial) assert.equal(persisted.get(file), data);
+  });
+
+  await test("Existing fixed document wins over backups, even during a legacy selection", async () => {
+    const { state, persisted, io } = questLoadHarness([
+      ["/original/QuestEditor/a.json", '{"title":"A"}'],
+      ["/original/QuestEditor/b.json", '{"title":"B"}'],
+    ]);
+    await state.loadProject();
+    persisted.set("/original/QuestEditor.json", '{"title":"already chosen"}');
+    await state.loadProject("a.json");
+    assert.deepEqual(plain(state.project.value), { title: "already chosen" });
+    assert.equal(io.some(([op]) => op === "write"), false);
+  });
+
+  await test("Corrupt fixed data or a failed read never falls back to a blank document or backup", async () => {
+    for (const readFails of [false, true]) {
+      const initial = [["/original/QuestEditor.json", "broken json"], ["/original/QuestEditor/backup.json", '{"title":"backup"}']];
+      const { state, persisted, io } = questLoadHarness(initial, readFails ? { storage: { async readFile() { throw new Error("Read failed"); } } } : {});
+      await state.loadProject();
+      assert.equal(state.project.value, undefined);
+      assert.ok(state.loadError.value);
+      assert.equal(state.busy.value, false);
+      assert.deepEqual([...persisted], initial);
+      assert.equal(io.some(([op]) => op === "list" || op === "write"), false);
+    }
+  });
+
+  await test("Corrupt legacy data is retained without creating an empty fixed document", async () => {
+    const original = [["/original/QuestEditor/a.json", "invalid"]];
+    const { state, persisted, io } = questLoadHarness(original);
+    await state.loadProject();
+    assert.equal(state.project.value, undefined);
+    assert.ok(state.loadError.value);
+    assert.deepEqual([...persisted], original);
+    assert.equal(io.some(([op]) => op === "write"), false);
+  });
+
+  await test("Invalid legacy choices, including path traversal, do not copy or delete any data", async () => {
+    for (const choice of ["", "../other.json", "missing.json"]) {
+      const initial = [["/original/QuestEditor/a.json", '{"title":"A"}']];
+      const { state, persisted, io } = questLoadHarness(initial);
+      await state.loadProject(choice);
+      assert.equal(state.project.value, undefined);
+      assert.deepEqual([...persisted], initial);
+      assert.equal(io.some(([op]) => op === "read" || op === "write"), false);
+      assert.ok(state.loadError.value);
+    }
+  });
+
+  await test("Failed initialization writes keep the panel closed and allow a safe retry", async () => {
+    const { state, persisted, io } = questLoadHarness([], { storage: { async writeFile() { throw new Error("Disk full"); } } });
+    await state.loadProject();
+    assert.equal(state.project.value, undefined);
+    assert.equal(persisted.size, 0);
+    assert.match(state.loadError.value, /Disk full/);
+    state.storage.writeFile = async (file, data) => { io.push(["write", file, data]); persisted.set(file, data); };
+    await state.loadProject();
+    assert.deepEqual(plain(state.project.value), { title: "new" });
+    assert.equal(state.loadError.value, "");
+    assert.equal(persisted.size, 1);
+  });
+
+  await test("Concurrent initializations are ignored and loading cannot replace an edited project", async () => {
+    const gate = deferred();
+    const { state, persisted } = questLoadHarness([], { storage: { exists: () => gate.promise } });
+    const pending = state.loadProject();
+    assert.equal(state.busy.value, true);
+    await state.loadProject();
+    gate.resolve(false); await pending;
+    assert.equal(persisted.size, 1);
+    state.project.value.title = "unsaved edit";
+    await state.loadProject();
+    assert.equal(state.project.value.title, "unsaved edit");
+  });
+
+  await test("Late legacy reads cannot install or write after unmount or request invalidation", async () => {
+    for (const invalidate of [state => { state.disposed = true; }, state => { state.requestId++; }]) {
+      const started = deferred(), read = deferred();
+      const { state, persisted, io } = questLoadHarness([["/original/QuestEditor/a.json", "old"]], {
+        storage: { readFile() { started.resolve(); return read.promise; } },
+      });
+      const pending = state.loadProject();
+      await started.promise; invalidate(state);
+      read.resolve('{"title":"late"}'); await pending;
+      assert.equal(state.project.value, undefined);
+      assert.equal(io.some(([op]) => op === "write"), false);
+      assert.equal(persisted.size, 1);
+    }
+  });
+
+  await test("A disposed existence check does not continue creating a task", async () => {
+    const gate = deferred();
+    const { state, io } = questLoadHarness([], { storage: { exists: () => gate.promise } });
+    const pending = state.loadProject();
+    state.disposed = true; gate.resolve(false); await pending;
+    assert.equal(state.project.value, undefined);
+    assert.deepEqual(io, []);
+  });
+
+  await test("Pending initialization writes stay in their original workspace and cannot install after unmount", async () => {
+    const started = deferred(), written = deferred(), writes = [];
+    const { state } = questLoadHarness([], { storage: { async writeFile(file, data) { writes.push([file, data]); started.resolve(); await written.promise; } } });
+    const pending = state.loadProject();
+    await started.promise;
+    state.workspace.value = "another"; state.disposed = true;
+    written.resolve(); await pending;
+    assert.deepEqual(writes, [["/original/QuestEditor.json", '{"title":"new"}']]);
+    assert.equal(state.project.value, undefined);
+  });
+
+  await test("Separate workspaces resolve to separate task documents", async () => {
+    const first = questLoadHarness([], { bindings: { workspace: ref("First") } });
+    const second = questLoadHarness([], { bindings: { workspace: ref("Second") } });
+    await Promise.all([first.state.loadProject(), second.state.loadProject()]);
+    assert.deepEqual([...first.persisted.keys()], ["/First/QuestEditor.json"]);
+    assert.deepEqual([...second.persisted.keys()], ["/Second/QuestEditor.json"]);
+  });
+
+  await test("Local JSON download contains the current workspace data and a stable filename", () => {
+    const downloads = [];
+    const state = editorHarness(quest, ["downloadProject"], { bindings: { downloadTextFile: (...args) => downloads.push(args) } });
+    state.workspace.value = "changed";
+    state.project.value.title = "latest";
+    state.downloadProject();
+    assert.deepEqual(downloads, [['{"title":"latest"}', "original-任务.json", "application/json"]]);
+  });
+
   await test("Parent waits for saving before switching and blocks overlapping switches", async () => {
     const gate = deferred();
     const { context: state } = parentHarness({ editorRef: ref({ prepareToLeave: () => gate.promise }) });
@@ -324,7 +527,7 @@ async function main() {
     assert.equal(state.selectedWorkspaceId.value, "");
   });
 
-  await test("Quest exports three real ZIP entries and retains its original name while changing files", async () => {
+  await test("Quest exports three real ZIP entries using its captured workspace name", async () => {
     const gate = deferred(), createdUrls = [], downloaded = [], revoked = [], timers = [];
     const files = ["NOLOC_章节配置.json", "NOLOC_主任务配置.json", "NOLOC_子任务.json"].map((filename, index) => ({ filename, json: JSON.stringify({ variable: index }) }));
     let exportedProject;
@@ -348,10 +551,10 @@ async function main() {
     const original = state.project.value;
     const pending = state.exportVariables();
     assert.equal(state.exporting.value, true);
-    state.selectedFile.value = "different.json"; state.project.value = { title: "different" };
+    state.workspace.value = "different"; state.project.value = { title: "different" };
     gate.resolve(); await pending;
     assert.equal(exportedProject, original);
-    assert.deepEqual(downloaded, [{ name: "a-千星任务.zip", url: "blob:test" }]);
+    assert.deepEqual(downloaded, [{ name: "original-千星任务.zip", url: "blob:test" }]);
     const archive = await JSZip.loadAsync(createdUrls[0]);
     assert.deepEqual(Object.keys(archive.files).sort(), files.map((file) => file.filename).sort());
     for (const file of files) assert.equal(await archive.file(file.filename).async("string"), file.json);
@@ -410,7 +613,7 @@ async function main() {
         extra: [callsText(sfc, "onMounted"), callsText(sfc, "onBeforeUnmount")],
         bindings: {
           onMounted(callback) { mounted.push(callback); }, onBeforeUnmount(callback) { unmount.push(callback); },
-          refreshFiles: async () => undefined,
+          loadProject: async () => undefined,
           downloadProject() { downloads++; }, DownloadDialogueFile() { downloads++; },
           window: { addEventListener: (...args) => added.push(args), removeEventListener: (...args) => removed.push(args) },
         },
