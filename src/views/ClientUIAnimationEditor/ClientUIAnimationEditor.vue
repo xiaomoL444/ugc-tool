@@ -58,19 +58,19 @@
         <div class="search-box"><EditorIcon name="search" :size="17" /><input v-model="search" placeholder="搜索控件" aria-label="搜索控件" /><button v-if="search" class="search-clear" aria-label="清空搜索" @click="search = ''">×</button></div>
         <div ref="hierarchyTree" class="tree" :class="{ 'is-hierarchy-dragging': hierarchyDrag.active }" @pointerdown.stop>
           <div v-if="hierarchyDrag.active" class="root-drop-hint" :class="{ active: hierarchyDrag.dropMode === 'inside' && hierarchyDrag.dropTargetId === rootContainer?.id }">拖到空白处 · 放到根层级</div>
-          <button v-for="item in visibleTree" :key="item.node.id" class="tree-row" :class="{ selected: item.node.id === selectedId, muted: !item.node.visible, 'root-node': item.node.id === rootContainer?.id, dragging: hierarchyDrag.active && hierarchyDrag.nodeId === item.node.id, 'drop-inside': hierarchyDrag.active && hierarchyDrag.dropMode === 'inside' && hierarchyDrag.dropTargetId === item.node.id, 'drop-before': hierarchyDrag.active && hierarchyDrag.dropMode === 'before' && hierarchyDrag.dropTargetId === item.node.id, 'drop-after': hierarchyDrag.active && hierarchyDrag.dropMode === 'after' && hierarchyDrag.dropTargetId === item.node.id }" :data-node-id="item.node.id" :style="{ paddingLeft: `${12 + item.depth * 18}px` }" :title="item.node.id === rootContainer?.id ? '唯一根容器' : '长按并拖动；边缘调整顺序，中间设为子级'" @pointerdown="startHierarchyPress($event, item.node)" @click="selectHierarchyNode(item.node)">
+          <button v-for="item in visibleTree" :key="item.node.id" class="tree-row" :class="{ selected: item.node.id === selectedId, muted: !item.node.visible, 'root-node': item.node.id === rootContainer?.id, dragging: hierarchyDrag.active && hierarchyDrag.nodeId === item.node.id, 'drop-inside': hierarchyDrag.active && hierarchyDrag.dropMode === 'inside' && hierarchyDrag.dropTargetId === item.node.id, 'drop-before': hierarchyDrag.active && hierarchyDrag.dropMode === 'before' && hierarchyDrag.dropTargetId === item.node.id, 'drop-after': hierarchyDrag.active && hierarchyDrag.dropMode === 'after' && hierarchyDrag.dropTargetId === item.node.id }" :data-node-id="item.node.id" :style="{ paddingLeft: `${12 + item.depth * 18}px` }" :title="item.node.id === rootContainer?.id ? '唯一根容器' : '长按并拖动；边缘调整顺序，中间设为子级'" @pointerdown="startHierarchyPress($event, item.node)" @click="selectHierarchyNode(item.node, $event)">
             <span class="chevron" @pointerdown.stop @click.stop="toggleCollapsed(item.node.id)">{{ hasChildren(item.node.id) ? (collapsed.has(item.node.id) ? '›' : '⌄') : '' }}</span>
             <EditorIcon class="node-icon" :name="controlIconName(item.node.type)" :size="17" /><span class="node-name">{{ item.node.name }}</span><span class="visibility" :title="item.node.visible ? '隐藏控件' : '显示控件'" @pointerdown.stop @click.stop="item.node.visible = !item.node.visible"><EditorIcon :name="item.node.visible ? 'eye' : 'eye-off'" :size="15" /></span>
           </button>
           <div v-if="visibleTree.length === 0" class="empty-state">没有匹配的控件</div>
         </div>
         <div v-if="hierarchyDrag.active" class="hierarchy-drag-ghost" :style="hierarchyDragGhostStyle"><span>{{ nodeIcon(draggedHierarchyNode?.type ?? 'container') }}</span><b>{{ draggedHierarchyNode?.name }}</b><small>{{ hierarchyDrag.dropLabel }}</small></div>
-        <div class="hierarchy-actions"><button @click.stop="addMenuOpen = true"><EditorIcon name="plus" :size="16" />添加控件</button><button aria-label="删除选中控件" :disabled="!selectedNode || selectedNode.id === rootContainer?.id" :title="selectedNode?.id === rootContainer?.id ? '根容器不可删除' : '删除选中控件'" @click="removeSelected"><EditorIcon name="trash" :size="16" /></button></div>
+        <div class="hierarchy-actions"><button class="bone-create-toggle" :class="{ active: boneCreateMode }" :aria-pressed="boneCreateMode" :disabled="!hasOpenDocument" title="拖拽创建骨骼 · 单击骨骼切换父级 · Ctrl 点击控件归入当前骨骼 · Esc 退出" @click.stop="toggleBoneCreateMode">以骨骼模式添加</button><button class="add-control-button" @click.stop="addMenuOpen = true"><EditorIcon name="plus" :size="16" />添加控件</button><button aria-label="删除选中控件" :disabled="!selectedNode || selectedNode.id === rootContainer?.id" :title="selectedNode?.id === rootContainer?.id ? '根容器不可删除' : '删除选中控件'" @click="removeSelected"><EditorIcon name="trash" :size="16" /></button></div>
       </aside>
 
       <main class="workspace-panel">
         <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><button class="bone-visibility-toggle" :class="{ active: showContainerBones }" :aria-pressed="showContainerBones" :disabled="!hasOpenDocument" aria-label="显示骨骼" title="显示或隐藏所有容器的方向骨骼，不改变箭头长度" @click.stop="showContainerBones = !showContainerBones"><EditorIcon :name="showContainerBones ? 'eye' : 'eye-off'" :size="14" />显示骨骼</button><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ customCanvasLabel || currentPreset.ratio }}</span></div>
-        <div ref="viewportElement" class="viewport" :class="[{ 'is-panning': isPanning }, `tool-${canvasTool}`]" @wheel.prevent="handleCanvasWheel" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
+        <div ref="viewportElement" class="viewport" :class="[{ 'is-panning': isPanning, 'is-creating-bones': boneCreateMode }, `tool-${canvasTool}`]" @wheel.prevent="handleCanvasWheel" @pointerdown.capture="captureBonePointer" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
           <div class="ruler ruler-x"><span v-for="tick in rulerXTicks" :key="tick">{{ tick }}</span></div>
           <div class="ruler ruler-y"><span v-for="tick in rulerYTicks" :key="tick">{{ tick }}</span></div>
           <div class="canvas-stage" :class="{ 'mobile-frame': isMobilePreview }" :style="stageStyle">
@@ -81,16 +81,18 @@
               <PrimitiveImage v-else-if="node.type === 'primitive'" :image-url="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.imageUrl ?? ''" :preview-mode="node.properties.previewMode" :fit-data="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.fitData" :width="previewNode(node).width" :height="previewNode(node).height" />
               <ControlTemplatePreview v-else-if="node.type === 'reference'" :asset="controlTemplateByIndex.get(node.properties.referencedPrefabIndex ?? -1) ?? null" :missing-index="node.properties.referencedPrefabIndex" :device-index="templateDeviceIndex" :width="previewNode(node).width" :height="previewNode(node).height" />
               <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
-              <span v-else-if="node.type === 'container'" class="container-label">{{ node.name }}</span>
-              <span v-else class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
+              <span v-else-if="node.type !== 'container'" class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
               <div v-if="node.id === selectedId" class="selection-tag">{{ node.name }} · {{ Math.round(previewNode(node).width) }} × {{ Math.round(previewNode(node).height) }}</div>
               <template v-if="node.id === selectedId">
-                <template v-if="canvasTool === 'combined'"><i v-for="corner in resizeCorners" :key="corner" class="selection-corner" :class="[`corner-${corner}`, { 'resize-handle': !node.locked }]" @pointerdown.stop="startResize($event, node, corner)"></i></template>
+                <template v-if="canvasTool === 'combined' && !boneCreateMode"><i v-for="corner in resizeCorners" :key="corner" class="selection-corner" :class="[`corner-${corner}`, { 'resize-handle': !node.locked }]" @pointerdown.stop="startResize($event, node, corner)"></i></template>
                 <i class="selection-pivot" :style="{ left: `${previewNode(node).pivotX * 100}%`, bottom: `${previewNode(node).pivotY * 100}%` }"></i>
               </template>
             </div>
             <ContainerDirectionGuide v-for="guide in renderContainerDirections" :key="guide.id" :data-node-id="guide.id" :length="guide.length" :selected="guide.id === selectedId" :style="guide.style" />
+            <ContainerDirectionGuide v-if="boneDraftGuide" class="bone-draft" :length="boneDraftGuide.length" :selected="true" :style="boneDraftGuide.style" />
           </div>
+          <span v-if="boneRootPoint" class="bone-root-point" :style="boneRootPoint" title="根容器 Pivot" aria-label="根容器中心点"></span>
+          <div v-if="boneCreateMode" class="bone-create-hint" role="status">父级：{{ boneParent?.name }} · 拖拽创建 · 单击骨骼换父级 · Ctrl 点击控件归入 · Esc 退出</div>
           <div v-if="transformGizmo && selectedNode" class="transform-gizmo" :style="transformGizmo.style">
             <template v-if="canvasTool === 'combined'">
               <svg class="transform-gizmo-lines" width="1" height="1" aria-hidden="true"><line :x1="transformGizmo.top.x" :y1="transformGizmo.top.y" :x2="transformGizmo.rotationHandle.x" :y2="transformGizmo.rotationHandle.y" /></svg>
@@ -304,6 +306,7 @@ import { buildKeyframeTimelineDataLua, prepareKeyframeTimelineImport } from "./k
 import { createEditorHistory } from "./editorHistory";
 import { describeHistoryChange } from "./historyChangeLabel";
 import { MAX_DIRECTION_ARROW_LENGTH, normalizeDirectionArrowLength, containerDirectionGuideStyle } from "./containerDirectionGuide";
+import { boneGeometry, boneAttachmentTransform, distanceToBone, BONE_THICKNESS, type BonePoint } from "./boneCreation";
 import { prepareTweenTimelineImport } from "./luaTweenImporter";
 import type { TimelineDataImportMode } from "./luaTweenImporter";
 import { capturePropertyGroup, canPastePropertyGroup, pastePropertyGroup, resetPropertyGroup } from "./propertyGroupActions";
@@ -535,6 +538,26 @@ const canvasTools = [
 ] as const;
 type CanvasTool = typeof canvasTools[number]["id"];
 const canvasTool = ref<CanvasTool>("combined");
+const boneCreateMode = ref(false);
+const boneParentId = ref<string | null>(null);
+const boneParent = computed(() => nodes.value.find(node => node.id === boneParentId.value && node.type === "container") ?? rootContainer.value);
+const boneDraft = ref<{ start: BonePoint; end: BonePoint; parentId: string } | null>(null);
+const boneDraftGuide = computed(() => {
+  const draft = boneDraft.value;
+  const parent = draft && previewWorldTransforms.value.get(draft.parentId);
+  const geometry = draft && parent && boneGeometry(draft.start, draft.end, parent);
+  if (!draft || !parent || !geometry) return null;
+  const angle = geometry.rotation * Math.PI / 180;
+  const matrix = multiplyMatrix(parent.matrix, { a: Math.cos(angle), b: Math.sin(angle), c: -Math.sin(angle), d: Math.cos(angle) });
+  return { length: geometry.length, style: containerDirectionGuideStyle({ ...draft.start, matrix }, canvasHeight.value) };
+});
+const boneRootPoint = computed<CSSProperties | null>(() => {
+  const root = rootContainer.value;
+  const world = root && previewWorldTransforms.value.get(root.id);
+  if (!boneCreateMode.value || !root || !world || !isVisibleInHierarchy(root)) return null;
+  const point = canvasOverlayPoint(world.x, world.y);
+  return { left: `calc(50% + ${point.x}px)`, top: `calc(50% + ${point.y}px)` };
+});
 const activeCanvasTool = computed(() => canvasTools.find(tool => tool.id === canvasTool.value)!);
 interface WorldTransform { x: number; y: number; matrix: Matrix2D }
 interface TimelineNodeRow { kind: "node"; key: string; node: UINode; trackCount: number }
@@ -545,7 +568,7 @@ let timelineContextReturnFocus: HTMLElement | null = null;
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedId.value) ?? null); const renderNodes = computed(() => getCanvasRenderOrder().filter(isVisibleInHierarchy)); const timelineNodes = computed(() => getHierarchyOrder());
 const selectedDirectionArrowLength = computed(() => normalizeDirectionArrowLength(selectedNode.value?.editor?.directionArrowLength));
 const renderContainerDirections = computed(() => {
-  if (!showContainerBones.value) return [];
+  if (!showContainerBones.value && !boneCreateMode.value) return [];
   return renderNodes.value.filter((node) => node.type === "container").map((node) => {
     const displayNode = previewNode(node);
     const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) };
@@ -1119,7 +1142,7 @@ function buildKeyframePreviewNodes(time: number) {
 
 function availableTweenFields(node: UINode) { const used = new Set([...keyframeTracks.value, ...tweenTracks.value].filter(track => track.nodeId === node.id).map(track => track.fieldKey)); return getTweenableFields(node.type).filter((field) => !used.has(field.fieldKey)); }
 function tweenFieldConflict(node: UINode, fieldKey: string) { return getTweenTrackConflict(node.id, fieldKey, nodes.value, [...tweenTracks.value, ...keyframeConflictClips()]); }
-function selectHierarchyNode(node: UINode) { selectedKeyframeId.value = null; selectedId.value = node.id; selectedTweenTrackId.value = null; closeTweenFieldPicker(); }
+function selectHierarchyNode(node: UINode, event?: MouseEvent) { if (boneCreateMode.value && event?.ctrlKey) { attachControlToBone(node); return; } if (boneCreateMode.value && node.type === "container") boneParentId.value = node.id; selectedKeyframeId.value = null; selectedId.value = node.id; selectedTweenTrackId.value = null; closeTweenFieldPicker(); }
 function selectTimelineNode(node: UINode) { selectHierarchyNode(node); }
 function openTweenFieldPicker(node: UINode) { selectedId.value = node.id; selectedTweenTrackId.value = null; tweenFieldSearch.value = ""; tweenFieldPickerNodeId.value = node.id; }
 function closeTweenFieldPicker() { tweenFieldPickerNodeId.value = null; tweenFieldSearch.value = ""; }
@@ -1516,7 +1539,7 @@ function placeNodeRelative(node: UINode, target: UINode, mode: "before" | "after
 function ensureSingleRootContainer() { let root = nodes.value.find((node) => node.type === "container" && node.parentId === null) ?? nodes.value.find((node) => node.type === "container"); if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); } if (root.parentId !== null) { const world = worldTransforms.value.get(root.id); root.parentId = null; root.x = roundLayout(world?.x ?? root.x); root.y = roundLayout(world?.y ?? root.y); rebaseNodeLayout(root); } nodes.value.filter((node) => node.id !== root.id && (!node.parentId || !nodes.value.some((parent) => parent.id === node.parentId))).forEach((node) => reparentNode(node, root.id)); }
 function updateHierarchyDropTarget(clientX: number, clientY: number, draggedNode: UINode) { hierarchyDrag.value.pointerX = clientX; hierarchyDrag.value.pointerY = clientY; const tree = hierarchyTree.value; const root = rootContainer.value; if (!tree || !root) return; const treeRect = tree.getBoundingClientRect(); if (clientX < treeRect.left || clientX > treeRect.right || clientY < treeRect.top || clientY > treeRect.bottom) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "移回层级区域后释放"; return; } const row = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>(".tree-row[data-node-id]"); const hoveredNode = row?.dataset.nodeId ? nodes.value.find((node) => node.id === row.dataset.nodeId) : null; if (!row || !hoveredNode) { hierarchyDrag.value.dropTargetId = root.id; hierarchyDrag.value.dropParentId = root.id; hierarchyDrag.value.dropMode = "inside"; hierarchyDrag.value.dropLabel = `放到根层级 ${root.name}`; return; } const rowRect = row.getBoundingClientRect(); const ratioY = (clientY - rowRect.top) / Math.max(1, rowRect.height); let mode: Exclude<HierarchyDropMode, null> = ratioY < 0.27 ? "before" : ratioY > 0.73 ? "after" : "inside"; if (hoveredNode.id === draggedNode.id) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能放到自身"; return; } if (mode === "inside") { if (isDescendant(hoveredNode.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能归属到自己的子级"; return; } hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = hoveredNode.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = `成为 ${hoveredNode.name} 的子级`; return; } const nextParent = hoveredNode.id === root.id ? root : nodes.value.find((node) => node.id === hoveredNode.parentId) ?? root; if (nextParent.id === draggedNode.id || isDescendant(nextParent.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能移动到自己的子级之间"; return; } if (hoveredNode.id === root.id) mode = "after"; hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = nextParent.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = hoveredNode.id === root.id ? "放到根层级顶部" : `移到 ${hoveredNode.name} ${mode === "before" ? "上方" : "下方"}`; }
 let cancelHierarchyPress: (() => void) | null = null;
-function startHierarchyPress(event: PointerEvent, node: UINode) { if (event.button !== 0) return; selectedId.value = node.id; if (node.id === rootContainer.value?.id) return; cancelHierarchyPress?.(); const startX = event.clientX; const startY = event.clientY; let activated = false; let timer = window.setTimeout(() => { activated = true; hierarchyDrag.value = { nodeId: node.id, active: true, pointerX: startX, pointerY: startY, dropTargetId: null, dropParentId: node.parentId ?? rootContainer.value?.id ?? null, dropMode: null, dropLabel: `当前归属：${getLayoutParent(node)?.name ?? rootContainer.value?.name ?? "根容器"}` }; updateHierarchyDropTarget(startX, startY, node); }, 50); const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", cancel); cancelHierarchyPress = null; }; const move = (next: PointerEvent) => { if (!activated && Math.hypot(next.clientX - startX, next.clientY - startY) > 7) { cleanup(); return; } if (activated) { next.preventDefault(); updateHierarchyDropTarget(next.clientX, next.clientY, node); } }; const finish = (next: PointerEvent) => { if (activated) { updateHierarchyDropTarget(next.clientX, next.clientY, node); const targetId = hierarchyDrag.value.dropTargetId; const mode = hierarchyDrag.value.dropMode; const target = targetId ? nodes.value.find((item) => item.id === targetId) : null; const changed = target && mode === "inside" ? reparentNode(node, target.id) : target && (mode === "before" || mode === "after") ? placeNodeRelative(node, target, mode) : false; if (changed) { const expandId = mode === "inside" ? target?.id : hierarchyDrag.value.dropParentId; if (expandId) { const nextCollapsed = new Set(collapsed.value); nextCollapsed.delete(expandId); collapsed.value = nextCollapsed; } } } cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; const cancel = () => { cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; cancelHierarchyPress = cleanup; window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", cancel); }
+function startHierarchyPress(event: PointerEvent, node: UINode) { if (event.button !== 0 || boneCreateMode.value) return; selectedId.value = node.id; if (node.id === rootContainer.value?.id) return; cancelHierarchyPress?.(); const startX = event.clientX; const startY = event.clientY; let activated = false; let timer = window.setTimeout(() => { activated = true; hierarchyDrag.value = { nodeId: node.id, active: true, pointerX: startX, pointerY: startY, dropTargetId: null, dropParentId: node.parentId ?? rootContainer.value?.id ?? null, dropMode: null, dropLabel: `当前归属：${getLayoutParent(node)?.name ?? rootContainer.value?.name ?? "根容器"}` }; updateHierarchyDropTarget(startX, startY, node); }, 50); const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", cancel); cancelHierarchyPress = null; }; const move = (next: PointerEvent) => { if (!activated && Math.hypot(next.clientX - startX, next.clientY - startY) > 7) { cleanup(); return; } if (activated) { next.preventDefault(); updateHierarchyDropTarget(next.clientX, next.clientY, node); } }; const finish = (next: PointerEvent) => { if (activated) { updateHierarchyDropTarget(next.clientX, next.clientY, node); const targetId = hierarchyDrag.value.dropTargetId; const mode = hierarchyDrag.value.dropMode; const target = targetId ? nodes.value.find((item) => item.id === targetId) : null; const changed = target && mode === "inside" ? reparentNode(node, target.id) : target && (mode === "before" || mode === "after") ? placeNodeRelative(node, target, mode) : false; if (changed) { const expandId = mode === "inside" ? target?.id : hierarchyDrag.value.dropParentId; if (expandId) { const nextCollapsed = new Set(collapsed.value); nextCollapsed.delete(expandId); collapsed.value = nextCollapsed; } } } cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; const cancel = () => { cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; cancelHierarchyPress = cleanup; window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", cancel); }
 function applyDescendantLayouts(parentId: string) { nodes.value.filter((node) => node.parentId === parentId).forEach((child) => { applyNodeLayout(child); applyDescendantLayouts(child.id); }); }
 function propertyGroupLabel(group: PropertyGroup) {
   if (group === "control") return `${selectedControlDefinition.value.label}参数`;
@@ -1682,10 +1705,11 @@ function nodeStyle(node: UINode): CSSProperties {
   const displayNode = previewNode(node);
   const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) };
   const isText = displayNode.type === "text" || displayNode.type === "textWindow";
+  const isContainer = displayNode.type === "container";
   const hasVisual = displayNode.type === "image" || displayNode.type === "primitive" || displayNode.type === "reference" && controlTemplateByIndex.value.has(displayNode.properties.referencedPrefabIndex ?? -1);
   const typeColor = editorTypeColors[displayNode.type];
-  const borderColor = hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor);
-  const backgroundColor = hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, displayNode.type === "container" ? 0.07 : 0.12);
+  const borderColor = isContainer || hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor);
+  const backgroundColor = isContainer || hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, 0.12);
   return { width: `${displayNode.width}px`, height: `${displayNode.height}px`, left: `${world.x - displayNode.width * displayNode.pivotX}px`, top: `${canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY)}px`, transform: `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`, transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) };
 }
 function canvasOverlayPoint(x: number, y: number) {
@@ -1706,6 +1730,7 @@ function screenAxis(matrix: Matrix2D, axis: "x" | "y") {
 }
 const transformGizmo = computed(() => {
   const node = selectedNode.value;
+  if (boneCreateMode.value) return null;
   if (!node || node.locked || canvasTool.value === "move" || !renderNodes.value.some(item => item.id === node.id)) return null;
   const pose = previewNode(node);
   const world = previewWorldTransforms.value.get(node.id);
@@ -1724,6 +1749,7 @@ const transformGizmo = computed(() => {
 });
 const boneLengthHandle = computed<CSSProperties | null>(() => {
   const node = selectedNode.value;
+  if (boneCreateMode.value) return null;
   if (!node || node.locked || !renderContainerDirections.value.some(guide => guide.id === node.id)) return null;
   const world = previewWorldTransforms.value.get(node.id);
   if (!world || Math.hypot(world.matrix.a, world.matrix.b) < 0.000001) return null;
@@ -1751,8 +1777,136 @@ function startBoneLengthDrag(event: PointerEvent) {
 }
 function selectCanvasTool(tool: CanvasTool) {
   stopCanvasNodeDrag?.();
+  boneCreateMode.value = false;
   canvasTool.value = tool;
 }
+function toggleBoneCreateMode() {
+  stopCanvasNodeDrag?.();
+  boneCreateMode.value = !boneCreateMode.value;
+  addMenuOpen.value = false;
+  if (boneCreateMode.value) {
+    playing.value = false;
+    boneParentId.value = rootContainer.value?.id ?? null;
+    selectedId.value = boneParentId.value;
+  }
+}
+function bonePointFromClient(clientX: number, clientY: number): BonePoint | null {
+  const origin = canvasClientPoint(0, 0);
+  return origin ? { x: (clientX - origin.x) / zoom.value, y: (origin.y - clientY) / zoom.value } : null;
+}
+function boneAtPoint(clientX: number, clientY: number) {
+  const point = { x: clientX, y: clientY };
+  return renderNodes.value.slice().reverse().filter(node => node.type === "container").map(node => {
+    const world = previewWorldTransforms.value.get(node.id)!;
+    const length = normalizeDirectionArrowLength(node.editor?.directionArrowLength);
+    const start = canvasClientPoint(world.x, world.y);
+    const end = canvasClientPoint(world.x + world.matrix.a * length, world.y + world.matrix.b * length);
+    return { node, distance: start && end ? distanceToBone(point, start, end) : Infinity };
+  }).filter(hit => hit.distance <= 9).sort((a, b) => a.distance - b.distance)[0]?.node ?? null;
+}
+function createBoneFromDrag(parent: UINode, start: BonePoint, end: BonePoint) {
+  if (!nodes.value.includes(parent) || parent.locked || !isVisibleInHierarchy(parent)) return null;
+  const pose = previewNode(parent), world = previewWorldTransforms.value.get(parent.id);
+  const geometry = world && boneGeometry(start, end, world);
+  if (!geometry) { timelineEditNotice.value = "拖拽距离过短，或父级缩放为 0，无法创建骨骼。"; return null; }
+  let index = 1;
+  while (nodes.value.some(node => node.name === `骨骼_${index}`)) index++;
+  const node = makeNode("container", `骨骼_${index}`, {
+    parentId: parent.id, pivotX: 0, pivotY: 0.5,
+    anchorMinX: pose.pivotX, anchorMaxX: pose.pivotX, anchorMinY: pose.pivotY, anchorMaxY: pose.pivotY,
+    anchorOffsetX: geometry.offset.x, anchorOffsetY: geometry.offset.y,
+    width: geometry.length, height: BONE_THICKNESS, sizeDeltaX: geometry.length, sizeDeltaY: BONE_THICKNESS,
+    rotation: geometry.rotation, editor: { directionArrowLength: geometry.length },
+  });
+  nodes.value.push(node);
+  applyNodeLayout(node);
+  collapsed.value = new Set([...collapsed.value].filter(id => id !== parent.id));
+  boneParentId.value = node.id;
+  selectHierarchyNode(node);
+  timelineEditNotice.value = `已创建 ${node.name}，下一根将作为它的子级。`;
+  return node;
+}
+function attachControlToBone(node: UINode) {
+  const parent = boneParent.value;
+  if (!parent || node.id === rootContainer.value?.id || node.id === parent.id || isDescendant(parent.id, node.id)) {
+    timelineEditNotice.value = "不能把根容器、自身或骨骼的祖先挂到当前骨骼下。"; return false;
+  }
+  if (node.locked || parent.locked) { timelineEditNotice.value = "请先解锁控件和父骨骼。"; return false; }
+  if (node.parentId === parent.id) return true;
+  const pose = previewNode(node), parentPose = previewNode(parent);
+  const world = previewWorldTransforms.value.get(node.id), parentWorld = previewWorldTransforms.value.get(parent.id);
+  const local = world && parentWorld && boneAttachmentTransform(world, parentWorld);
+  if (!local) { timelineEditNotice.value = "当前父级含零缩放或会产生斜切，无法保持控件外观；请先调整父级缩放。"; return false; }
+  node.parentId = parent.id;
+  node.width = pose.width; node.height = pose.height;
+  node.anchorMinX = node.anchorMaxX = parentPose.pivotX;
+  node.anchorMinY = node.anchorMaxY = parentPose.pivotY;
+  node.anchorOffsetX = local.offset.x; node.anchorOffsetY = local.offset.y;
+  node.sizeDeltaX = pose.width; node.sizeDeltaY = pose.height;
+  node.rotation = local.rotation; node.scaleX = local.scaleX; node.scaleY = local.scaleY;
+  applyNodeLayout(node); applyDescendantLayouts(node.id);
+  // Existing animated fields must use the new parent's coordinates at the current frame too.
+  for (const [field, value] of Object.entries({ anchoredPositionX: local.offset.x, anchoredPositionY: local.offset.y,
+    sizeDeltaX: pose.width, sizeDeltaY: pose.height, localRotationZ: local.rotation, localScaleX: local.scaleX, localScaleY: local.scaleY,
+    anchorMinX: parentPose.pivotX, anchorMaxX: parentPose.pivotX, anchorMinY: parentPose.pivotY, anchorMaxY: parentPose.pivotY })) {
+    if (hasAnimatedField(field, node.id)) writeAnimatedValue(node, field, value);
+  }
+  collapsed.value = new Set([...collapsed.value].filter(id => id !== parent.id));
+  selectedId.value = parent.id;
+  timelineEditNotice.value = `已将 ${node.name} 挂到 ${parent.name} 下。`;
+  return true;
+}
+function captureBonePointer(event: PointerEvent) {
+  if (!boneCreateMode.value || event.button !== 0) return;
+  event.stopPropagation();
+  startBoneCreatePress(event);
+}
+function startBoneCreatePress(event: PointerEvent) {
+  stopCanvasNodeDrag?.();
+  const parent = boneParent.value, start = bonePointFromClient(event.clientX, event.clientY);
+  if (!parent || !start) return;
+  playing.value = false;
+  event.preventDefault();
+  const pointerId = event.pointerId, ctrl = event.ctrlKey;
+  let moved = false;
+  const exceedsThreshold = (next: PointerEvent) => Math.hypot(next.clientX - event.clientX, next.clientY - event.clientY) >= 4;
+  const cleanup = () => {
+    boneDraft.value = null;
+    window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish);
+    window.removeEventListener("pointercancel", cancel); window.removeEventListener("blur", cleanup);
+    if (stopCanvasNodeDrag === cleanup) stopCanvasNodeDrag = null;
+  };
+  const move = (next: PointerEvent) => {
+    if (next.pointerId !== pointerId) return;
+    moved ||= exceedsThreshold(next);
+    const end = bonePointFromClient(next.clientX, next.clientY);
+    if (moved && !ctrl && end) boneDraft.value = { start, end, parentId: parent.id };
+  };
+  const finish = (next: PointerEvent) => {
+    if (next.pointerId !== pointerId) return;
+    const end = bonePointFromClient(next.clientX, next.clientY);
+    cleanup();
+    if (!boneCreateMode.value || !end) return;
+    if (moved || exceedsThreshold(next)) { if (!ctrl) createBoneFromDrag(parent, start, end); return; }
+    if (ctrl) {
+      const target = canvasNodesAtPoint(next.clientX, next.clientY).find(node => node.id !== parent.id && node.id !== rootContainer.value?.id);
+      if (target) attachControlToBone(target);
+    } else {
+      const target = boneAtPoint(next.clientX, next.clientY);
+      if (target) selectHierarchyNode(target);
+    }
+  };
+  const cancel = (next: PointerEvent) => { if (next.pointerId === pointerId) cleanup(); };
+  stopCanvasNodeDrag = cleanup;
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish);
+  window.addEventListener("pointercancel", cancel); window.addEventListener("blur", cleanup);
+}
+function handleBoneCreateKey(event: KeyboardEvent) {
+  if (event.key !== "Escape" || !boneCreateMode.value) return;
+  stopCanvasNodeDrag?.(); boneCreateMode.value = false;
+}
+onMounted(() => window.addEventListener("keydown", handleBoneCreateKey));
+onBeforeUnmount(() => window.removeEventListener("keydown", handleBoneCreateKey));
 function canvasNodesAtPoint(clientX: number, clientY: number) {
   const origin = canvasClientPoint(0, 0);
   if (!origin) return [];
@@ -1771,6 +1925,7 @@ function canvasNodesAtPoint(clientX: number, clientY: number) {
 function startCanvasPress(event: PointerEvent) {
   if (event.button === 1) { startCanvasPan(event); return; }
   if (event.button !== 0) return;
+  if (boneCreateMode.value) { startBoneCreatePress(event); return; }
   stopCanvasNodeDrag?.();
   event.preventDefault();
   const pointerId = event.pointerId;
@@ -2311,6 +2466,9 @@ function applyProjectData(serialized: string, resetHistory = true) {
   historyApplyingProject = true;
   try {
     applyProjectDataContents(serialized);
+    stopCanvasNodeDrag?.();
+    boneCreateMode.value = false;
+    boneParentId.value = null;
     if (!archive && resetHistory) editorHistory.reset(captureUndoState());
   } finally { historyApplyingProject = false; }
 }
@@ -3007,7 +3165,13 @@ button, select, input, textarea { font: inherit; }
 .hierarchy-drag-ghost > small { color: #7fc8d0; font-size: 10px; }
 .hierarchy-actions { display: flex; gap: 6px; padding: 9px; border-top: 1px solid var(--line); }
 .hierarchy-actions button { height: 32px; border: 1px solid #4c5362; border-radius: 6px; background: #353c49; color: #b7c1d1; cursor: pointer; }
-.hierarchy-actions button:first-child { flex: 1; }
+.hierarchy-actions .add-control-button { flex: 1; }
+.hierarchy-actions .bone-create-toggle { padding: 0 7px; white-space: nowrap; }
+.hierarchy-actions .bone-create-toggle.active { background: #335565; border-color: #5ce5ee; color: #b5faff; }
+.viewport.is-creating-bones, .viewport.is-creating-bones .canvas-node { cursor: crosshair; }
+.bone-root-point { position: absolute; z-index: 25; width: 10px; height: 10px; border: 2px solid #eefbff; border-radius: 50%; background: #46bacb; transform: translate(-50%, -50%); pointer-events: none; }
+.bone-create-hint { position: absolute; left: 12px; right: 12px; top: 26px; z-index: 25; width: fit-content; max-width: calc(100% - 24px); padding: 5px 8px; background: #23313dea; color: #b5faff; font-size: 11px; pointer-events: none; }
+.bone-draft { opacity: .8; }
 .hierarchy-actions button:disabled { opacity: .35; }
 .empty-state,
 .inspector-empty { color: #a9afbb; text-align: center; font-size: 11px; padding: 25px; }
@@ -3049,10 +3213,8 @@ button, select, input, textarea { font: inherit; }
 .mobile-frame .safe-area { border-color: #67dbe277; border-radius: 18px; }
 
 .canvas-node { position: absolute; box-sizing: border-box; border: 1.5px solid; display: flex; align-items: center; justify-content: center; cursor: move; user-select: none; }
-.canvas-node.type-container { border-style: dashed; }
 .canvas-node.selected { outline: 3px solid #62e1ee; outline-offset: 3px; z-index: 10; }
 .canvas-node.locked { cursor: not-allowed; }
-.container-label { position: absolute; left: 5px; top: 5px; padding: 3px 6px; background: #121b26cc; color: #7bd7e4; font-size: 16px; }
 .image-placeholder { display: flex; flex-direction: column; align-items: center; gap: 9px; color: inherit; }
 .image-placeholder span { font-size: 44px; }
 .image-placeholder small { letter-spacing: .2em; }
@@ -4427,7 +4589,6 @@ button { transition: background .12s, border-color .12s; }
 .viewport-status { background: #363c47dd; color: #c0c8d5; border-color: #5d657570; font-size: 10px; }
 .canvas-node.selected { outline: 2px solid #5ce5ee; outline-offset: 0; }
 .selection-tag { top: -29px; left: 0; padding: 3px 6px; background: #353e4bea; color: #a8f4fa; border-radius: 2px; font-size: 15px; font-weight: 400; }
-.container-label { color: #b9c8d3; background: #30384480; font-size: 16px; }
 .selection-corner { position: absolute; width: 10px; height: 10px; border: 2px solid #434d58; border-radius: 50%; background: #eff6f7; pointer-events: none; }
 .corner-tl { top: -7px; left: -7px; }
 .corner-tr { top: -7px; right: -7px; }

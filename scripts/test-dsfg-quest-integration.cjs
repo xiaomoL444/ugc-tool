@@ -4,7 +4,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
-const JSZip = require("jszip");
 const { parse, compileScript, compileTemplate } = require("@vue/compiler-sfc");
 
 function readSfc(relative) {
@@ -527,79 +526,54 @@ async function main() {
     assert.equal(state.selectedWorkspaceId.value, "");
   });
 
-  await test("Quest exports three real ZIP entries using its captured workspace name", async () => {
-    const gate = deferred(), createdUrls = [], downloaded = [], revoked = [], timers = [];
-    const files = ["NOLOC_章节配置.json", "NOLOC_主任务配置.json", "NOLOC_子任务.json"].map((filename, index) => ({ filename, json: JSON.stringify({ variable: index }) }));
+  await test("Quest downloads one configuration JSON using its captured workspace name", async () => {
+    const downloaded = [];
+    const payload = JSON.stringify({ type: "Struct", structId: "1077936169", value: [] });
     let exportedProject;
-    class DelayedZip extends JSZip {
-      async generateAsync(options) {
-        assert.equal(options.type, "blob");
-        await gate.promise;
-        return super.generateAsync({ type: "nodebuffer" });
-      }
-    }
     const state = editorHarness(quest, ["exportVariables"], { bindings: {
-      JSZip: DelayedZip,
-      exportQuestVariables(project) { exportedProject = project; return { files, warnings: [] }; },
-      URL: { createObjectURL(blob) { createdUrls.push(blob); return "blob:test"; }, revokeObjectURL(url) { revoked.push(url); } },
-      document: { body: { appendChild() {} }, createElement(tag) {
-        assert.equal(tag, "a");
-        return { click() { downloaded.push({ name: this.download, url: this.href }); }, remove() {} };
-      } },
-      window: { setTimeout(callback) { timers.push(callback); } },
+      exportQuestVariables(project) { exportedProject = project; return { json: payload, warnings: [] }; },
+      downloadTextFile: (...args) => downloaded.push(args),
     } });
     const original = state.project.value;
-    const pending = state.exportVariables();
-    assert.equal(state.exporting.value, true);
-    state.workspace.value = "different"; state.project.value = { title: "different" };
-    gate.resolve(); await pending;
+    state.workspace.value = "different";
+    await state.exportVariables();
     assert.equal(exportedProject, original);
-    assert.deepEqual(downloaded, [{ name: "original-千星任务.zip", url: "blob:test" }]);
-    const archive = await JSZip.loadAsync(createdUrls[0]);
-    assert.deepEqual(Object.keys(archive.files).sort(), files.map((file) => file.filename).sort());
-    for (const file of files) assert.equal(await archive.file(file.filename).async("string"), file.json);
+    assert.deepEqual(downloaded, [[payload, "original-任务配置数据.json", "application/json"]]);
     assert.equal(state.exporting.value, false);
-    timers.forEach((callback) => callback());
-    assert.deepEqual(revoked, ["blob:test"]);
+    assert.ok(!quest.descriptor.scriptSetup.content.includes("JSZip"));
   });
 
-  await test("Quest export surfaces empty-reference warnings and still downloads the variables", async () => {
-    const warnings = [
-      "子任务 0「起始任务」的后续任务：第 2 项为空，将按 -1 导出。",
-      "子任务 100「调查」的后续任务：第 1 项（ID 199）在当前文件中不存在，仍保留原 ID，请确认。",
-    ];
-    const notices = [], logged = [];
-    let downloads = 0;
+  await test("Quest export surfaces empty-reference warnings and still downloads the configuration", async () => {
+    const warnings = ["子任务 0 的后续任务为空，按 -1 导出", "子任务 100 引用的任务 199 不存在"];
+    const notices = [], logged = [], downloaded = [];
     const state = editorHarness(quest, ["exportVariables"], { bindings: {
-      JSZip: class { file() {} async generateAsync() { return {}; } },
-      exportQuestVariables: () => ({ files: [], warnings }),
-      URL: { createObjectURL: () => "blob:warnings", revokeObjectURL() {} },
-      document: { body: { appendChild() {} }, createElement() {
-        return { click() { downloads++; }, remove() {} };
-      } },
-      window: { setTimeout(callback) { callback(); } },
-      console: { ...quiet, warn: (value) => logged.push(value) },
-      toast: { warning: (message) => notices.push(message), success() { assert.fail("Warnings cannot be reported as a clean export"); } },
+      exportQuestVariables: () => ({ json: '{"type":"Struct"}', warnings }),
+      downloadTextFile: (...args) => downloaded.push(args),
+      console: { ...quiet, warn: value => logged.push(value) },
+      toast: { warning: message => notices.push(message), success() { assert.fail("Warnings cannot be reported as a clean export"); } },
     } });
     await state.exportVariables();
-    assert.equal(downloads, 1);
-    assert.deepEqual(notices, [warnings.join("；")]);
-    assert.deepEqual(logged, [warnings]);
-    assert.deepEqual(state.errors, []);
-    assert.equal(state.exporting.value, false);
+    assert.equal(downloaded.length, 1); assert.deepEqual(notices, [warnings.join("；")]); assert.deepEqual(logged, [warnings]);
+    assert.deepEqual(state.errors, []); assert.equal(state.exporting.value, false);
   });
 
-  await test("Unmounted Quest export does not initiate a stale browser download", async () => {
-    const gate = deferred(); let downloads = 0;
+  await test("Unmounted, unloaded or busy Quest export does not initiate a download", async () => {
+    for (const flags of [{ disposed: true }, { exporting: ref(true) }, { project: ref(undefined) }]) {
+      const state = editorHarness(quest, ["exportVariables"], { bindings: {
+        ...flags, exportQuestVariables() { assert.fail("Export must not start"); },
+        downloadTextFile() { assert.fail("Download must not start"); },
+      } });
+      await state.exportVariables();
+    }
+  });
+
+  await test("Invalid configuration does not download or replace the open project", async () => {
     const state = editorHarness(quest, ["exportVariables"], { bindings: {
-      JSZip: class { file() {} generateAsync() { return gate.promise; } },
-      exportQuestVariables: () => ({ files: [], warnings: [] }),
-      URL: { createObjectURL() { downloads++; } },
+      exportQuestVariables() { throw new Error("invalid configuration"); },
+      downloadTextFile() { assert.fail("Invalid data cannot be downloaded"); },
     } });
-    const pending = state.exportVariables(); state.disposed = true;
-    gate.resolve({}); await pending;
-    assert.equal(downloads, 0);
-    assert.equal(state.exporting.value, false);
+    const before = state.project.value; await state.exportVariables();
+    assert.equal(state.project.value, before); assert.equal(state.exporting.value, false); assert.equal(state.errors.length, 1);
   });
 
   for (const sfc of [quest, dialogue]) {

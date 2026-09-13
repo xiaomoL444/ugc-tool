@@ -29,6 +29,7 @@ async function main() {
     "canvasTool", "selectCanvasTool", "startCanvasTransform", "startCanvasRotation", "startCanvasScale", "canvasClientPoint", "viewportElement", "panX", "panY", "transformGizmo",
     "startCanvasPress", "canvasNodesAtPoint", "renderNodes", "isVisibleInHierarchy",
     "boneLengthHandle", "startBoneLengthDrag", "selectedDirectionArrowLength", "showContainerBones",
+    "boneCreateMode", "toggleBoneCreateMode", "boneParent", "boneParentId", "boneDraft", "boneRootPoint", "boneAtPoint", "createBoneFromDrag", "attachControlToBone", "handleBoneCreateKey", "selectHierarchyNode",
     "applyAnchorPreset", "currentAnchorPresetId", "propertyClipboard", "copySelectedPropertyGroup", "resetSelectedPropertyGroup", "pasteSelectedPropertyGroup",
     "beginEditorHistoryPointer", "endEditorHistoryPointer", "editorHistory", "captureUndoState", "undoEditorOperation", "redoEditorOperation",
     "serializeProject", "applyProjectData", "loadProject", "createBlankProject", "timelineEditNotice",
@@ -109,6 +110,83 @@ async function main() {
     const history = (api) => plain(api.editorHistory.entries.value);
     function pointer(x = 100, extras = {}) { return { button: 0, pointerId: 9, clientX: x, clientY: 20, target: { closest: () => null }, preventDefault() {}, ...extras }; }
     async function gesture(api, work) { const event = pointer(); api.beginEditorHistoryPointer(event); work(event); api.endEditorHistoryPointer(event); await tick(); }
+
+    await test("Bone mode starts at root, previews without mutations, creates a chain and supports undo and JSON", async () => {
+      const api = fixture(); api.toggleBoneCreateMode();
+      assert.equal(api.boneParent.value.id, "root"); assert.ok(api.boneRootPoint.value);
+      assert.equal(api.transformGizmo.value, null); assert.equal(api.boneLengthHandle.value, null);
+      const begin = { x: 700, y: 400 }, end = { x: 820, y: 490 };
+      const press = (p, extra = {}) => { const screen = api.canvasClientPoint(p.x, p.y); return pointer(screen.x, { clientY: screen.y, ...extra }); };
+      await gesture(api, () => {
+        api.startCanvasPress(press(begin)); api.dispatch("pointermove", press(end));
+        assert.equal(api.nodes.value.length, 3); assert.ok(api.boneDraft.value);
+        api.dispatch("pointerup", press(end));
+      });
+      const first = api.selectedNode.value;
+      assert.equal(first.type, "container"); assert.equal(first.parentId, "root");
+      near(first.width, 150); near(first.height, 25); near(first.editor.directionArrowLength, 150);
+      assert.equal(first.pivotX, 0); assert.equal(first.pivotY, .5);
+      const world = api.previewWorldTransforms.value.get(first.id);
+      nearPoint(world, begin, "Bone pivot");
+      nearPoint({ x: world.x + world.matrix.a * first.width, y: world.y + world.matrix.b * first.width }, end, "Bone tip");
+      assert.equal(api.boneDraft.value, null); assert.equal(history(api).length, 1);
+      const tip = { x: end.x - 60, y: end.y + 80 };
+      await gesture(api, () => { api.startCanvasPress(press(end)); api.dispatch("pointerup", press(tip)); });
+      const secondId = api.selectedNode.value.id;
+      assert.equal(api.selectedNode.value.parentId, first.id); near(api.selectedNode.value.width, 100);
+      await api.editorHistory.undo(); assert.equal(api.nodes.value.some(n => n.id === secondId), false);
+      await api.editorHistory.redo(); assert.equal(api.nodes.value.find(n => n.id === secondId).parentId, first.id);
+      const saved = api.serializeProject(); api.applyProjectData(saved);
+      assert.equal(api.boneCreateMode.value, false); near(api.nodes.value.find(n => n.id === secondId).editor.directionArrowLength, 100);
+    });
+    await test("Bone clicks change parent, Ctrl-click attaches a control without changing its world transform, and undo restores it", async () => {
+      const api = fixture(); api.toggleBoneCreateMode();
+      const bone = api.createBoneFromDrag(node(api, "root"), {x:600,y:300}, {x:700,y:400});
+      api.createBoneFromDrag(bone, {x:700,y:400}, {x:800,y:400});
+      const press = (p, extra = {}) => { const screen = api.canvasClientPoint(p.x, p.y); return pointer(screen.x, { clientY: screen.y, ...extra }); };
+      api.startCanvasPress(press({x:650,y:350})); api.dispatch("pointerup", press({x:650,y:350}));
+      assert.equal(api.boneParent.value.id, bone.id);
+      const image = node(api, "image"), before = plain(api.previewWorldTransforms.value.get(image.id));
+      api.editorHistory.reset(api.captureUndoState());
+      await gesture(api, () => { api.startCanvasPress(press(before, {ctrlKey:true})); api.dispatch("pointerup", press(before, {ctrlKey:true})); });
+      assert.equal(image.parentId, bone.id); assert.equal(api.boneParent.value.id, bone.id);
+      const after = api.previewWorldTransforms.value.get(image.id);
+      nearPoint(after, before, "Attached pivot", .02);
+      for (const field of ["a", "b", "c", "d"]) near(after.matrix[field], before.matrix[field]);
+      await api.editorHistory.undo(); assert.equal(node(api,"image").parentId, "group");
+      await api.editorHistory.redo(); assert.equal(node(api,"image").parentId, bone.id);
+      assert.equal(api.attachControlToBone(node(api,"root")), false);
+      assert.equal(api.attachControlToBone(bone), false);
+      api.selectHierarchyNode(api.nodes.value.find(n => n.parentId === bone.id && n.type === "container"));
+      assert.equal(api.attachControlToBone(bone), false, "Cannot form a cycle");
+      api.selectHierarchyNode(bone);
+      node(api, bone.id).scaleX = 2;
+      const shearBefore = api.serializeProject();
+      assert.equal(api.attachControlToBone(node(api,"group")), false, "Cannot discard shear while reparenting");
+      assert.equal(api.serializeProject(), shearBefore);
+      node(api, bone.id).scaleX = 1;
+      api.selectHierarchyNode(node(api,"group")); assert.equal(api.boneParent.value.id,"group");
+    });
+    await test("Bone creation handles transformed parents, zoom, cancellation, lock and singular scale", () => {
+      const api = fixture(); api.zoom.value = .4; api.panX.value = 70; api.panY.value = -40;
+      node(api).rotation = 35; node(api).scaleX = -2;
+      api.toggleBoneCreateMode(); api.selectHierarchyNode(node(api));
+      const begin = {x:710,y:410}, end = {x:850,y:540};
+      const press = (p, extra = {}) => { const screen = api.canvasClientPoint(p.x,p.y); return pointer(screen.x,{clientY:screen.y,...extra}); };
+      api.startCanvasPress(press(begin)); api.dispatch("pointermove",press(end,{pointerId:99})); assert.equal(api.boneDraft.value,null);
+      api.dispatch("pointermove",press(end)); assert.ok(api.boneDraft.value);
+      api.dispatch("pointercancel",press(end)); assert.equal(api.nodes.value.length,3); assert.equal(api.boneDraft.value,null);
+      api.startCanvasPress(press(begin)); api.dispatch("pointermove",press(end)); api.dispatch("blur",{});
+      api.dispatch("pointerup",press(end)); assert.equal(api.nodes.value.length,3);
+      api.startCanvasPress(press(begin)); api.dispatch("pointermove",press(end)); api.handleBoneCreateKey({key:"Escape"});
+      api.dispatch("pointerup",press(end)); assert.equal(api.nodes.value.length,3); assert.equal(api.boneCreateMode.value,false);
+      api.toggleBoneCreateMode(); api.selectHierarchyNode(node(api));
+      const bone = api.createBoneFromDrag(node(api),begin,end), world = api.previewWorldTransforms.value.get(bone.id);
+      nearPoint(world,begin,"Transformed start",.02);
+      nearPoint({x:world.x+world.matrix.a*bone.width,y:world.y+world.matrix.b*bone.width},end,"Transformed end",.02);
+      node(api).locked = true; assert.equal(api.createBoneFromDrag(node(api),begin,end),null);
+      node(api).locked = false; node(api).scaleX = 0; assert.equal(api.createBoneFromDrag(node(api),begin,end),null);
+    });
 
     await test("Visibility keyframes persist false, undo edits and scrub parent/child visibility without mutating setup", async () => {
       const api = fixture(); api.currentTime.value = 2;

@@ -9,16 +9,16 @@ export const DEFAULT_QUEST_SUB_FIELDS = {
 
 export const DEFAULT_QUEST_STRUCT_IDS: QuestStructIds = {
   chapter: "1077936165", mainQuest: "1077936166", subQuest: "1077936145",
-  subQuestDictionary: "1077936167", positionSlot: "1077936164",
+  configuration: "1077936169", positionSlot: "1077936164",
 };
 
 export const QUEST_STRUCT_ID_FIELDS: ReadonlyArray<{
   key: keyof QuestStructIds; label: string; description: string;
 }> = [
-  { key: "chapter", label: "章节", description: "NOLOC_章节配置 的字典值" },
-  { key: "mainQuest", label: "主任务", description: "NOLOC_主任务配置 的字典值" },
-  { key: "subQuest", label: "子任务", description: "内层字典中的子任务结构体" },
-  { key: "subQuestDictionary", label: "子任务字典", description: "每个外层分桶的结构体，容纳最多 100 项" },
+  { key: "configuration", label: "任务配置数据", description: "导出变量的最外层结构体" },
+  { key: "chapter", label: "章节", description: "任务配置数据中章节字典的值" },
+  { key: "mainQuest", label: "主任务", description: "任务配置数据中主任务字典的值" },
+  { key: "subQuest", label: "子任务", description: "子任务字典的列表元素，每桶最多 100 项" },
   { key: "positionSlot", label: "PositionSlot", description: "子任务调查点的位置参数" },
 ];
 
@@ -110,6 +110,11 @@ export function decodeQuestProject(raw: string): QuestProject {
   try { project = JSON.parse(raw); } catch { throw new Error("任务文件不是有效的 JSON。"); }
   // 旧工程只补缺失字段；已填的样式、空字符串和后续任务空位都按原样保留。
   if (record(project) && project.kind === "DSFGQuest" && project.schemaVersion === 1) {
+    if (record(project.structIds)) {
+      // 旧分桶结构体已停用；其自定义 ID 不能当作新配置结构体 ID 复用。
+      if (!Object.prototype.hasOwnProperty.call(project.structIds, "configuration")) project.structIds.configuration = DEFAULT_QUEST_STRUCT_IDS.configuration;
+      delete (project.structIds as unknown as Record<string, unknown>).subQuestDictionary;
+    }
     if (Array.isArray(project.mainQuests)) for (const main of project.mainQuests) {
       if (record(main) && !Object.prototype.hasOwnProperty.call(main, "style")) main.style = DEFAULT_QUEST_MAIN_STYLE;
     }

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { inject, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
-import JSZip from "jszip";
 import { toast } from "vue-sonner";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import { StorageClass } from "@/services/storage/storage";
@@ -120,23 +119,15 @@ function downloadProject() {
   downloadTextFile(encodeQuestProject(project.value), `${downloadBaseName}-任务.json`, "application/json");
 }
 async function exportVariables() {
-  if (!project.value || exporting.value) return;
+  if (!project.value || exporting.value || disposed) return;
   const exportName = downloadBaseName;
   exporting.value = true;
   try {
     const result = exportQuestVariables(project.value);
-    const zip = new JSZip();
-    for (const file of result.files) zip.file(file.filename, file.json);
-    const blob = await zip.generateAsync({ type: "blob" });
     if (disposed) return;
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${exportName}-千星任务.zip`;
-    document.body.appendChild(link); link.click(); link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadTextFile(result.json, `${exportName}-任务配置数据.json`, "application/json");
     if (result.warnings.length) { console.warn(result.warnings); toast.warning(result.warnings.join("；")); }
-    else toast.success("已导出章节、主任务、子任务三份变量 JSON");
+    else toast.success("已导出任务配置数据 JSON");
   } catch (error) { showError(error, "任务导出失败"); }
   finally { exporting.value = false; }
 }

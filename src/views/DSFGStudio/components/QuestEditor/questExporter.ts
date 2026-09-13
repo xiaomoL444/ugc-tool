@@ -2,11 +2,8 @@ import { VariableValue, VariableWorkspace, type StructDefinition } from "miliast
 import chapterDefinition from "@/assets/DSFGStudio/Quest/1077936165[任务]章节.json";
 import mainDefinition from "@/assets/DSFGStudio/Quest/1077936166[任务]主任务.json";
 import subDefinition from "@/assets/DSFGStudio/Quest/1077936145[任务]子任务.json";
-import subDictionaryDefinition from "@/assets/DSFGStudio/Quest/1077936167[任务]子任务字典.json";
+import configurationDefinition from "@/assets/DSFGStudio/Quest/1077936169[任务]任务配置数据.json";
 import slotDefinition from "@/assets/DSFGStudio/Quest/1077936164PositionSlot.json";
-import chapterVariable from "@/assets/DSFGStudio/Quest/NOLOC_章节配置.json";
-import mainVariable from "@/assets/DSFGStudio/Quest/NOLOC_主任务配置.json";
-import subVariable from "@/assets/DSFGStudio/Quest/NOLOC_子任务.json";
 import { DEFAULT_QUEST_STRUCT_IDS, QUEST_STRUCT_ID_FIELDS, validateQuestProject } from "./questProject";
 import type { QuestProject, QuestStructIds } from "./types";
 
@@ -16,7 +13,7 @@ const definitions: Record<keyof QuestStructIds, StructDefinition> = {
   chapter: chapterDefinition as StructDefinition,
   mainQuest: mainDefinition as StructDefinition,
   subQuest: subDefinition as StructDefinition,
-  subQuestDictionary: subDictionaryDefinition as StructDefinition,
+  configuration: configurationDefinition as StructDefinition,
   positionSlot: slotDefinition as StructDefinition,
 };
 
@@ -40,6 +37,11 @@ export function createQuestStructWorkspace(ids: QuestStructIds): VariableWorkspa
   const remapped = Object.fromEntries(QUEST_STRUCT_ID_FIELDS.map(({ key }) => [
     ids[key], remapIds(definitions[key], replacements) as StructDefinition,
   ]));
+  // 配置定义中的示例条目只说明类型；不能混入实际任务或过时的内嵌样例。
+  for (const field of remapped[ids.configuration].value) {
+    const dictionary = field.value.value as { value: unknown[] };
+    dictionary.value = [];
+  }
   // 子任务内嵌样例多出两个未命名 Int32；暂以独立 PositionSlot 的 8 个命名字段为准。
   const point = remapped[ids.subQuest].value.find((field) => field.key === "任务调查点预设点");
   if (!point) throw new Error("子任务结构体缺少调查点字段。");
@@ -54,7 +56,8 @@ export function createQuestStructWorkspace(ids: QuestStructIds): VariableWorkspa
 }
 
 export interface QuestVariableExportResult {
-  files: Array<{ filename: string; value: unknown; json: string }>;
+  value: unknown;
+  json: string;
   warnings: string[];
 }
 
@@ -63,14 +66,10 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
   if (errors.length) throw new Error(errors.join("；"));
   const ids = project.structIds;
   const workspace = createQuestStructWorkspace(ids);
-  const replacements = idReplacements(ids);
-  // 变量样例仅提供根字典形状；样例中的演示项/过时字段不能混入项目数据。
-  const dictionary = (sample: Record<string, unknown>) => workspace.parse(
-    remapIds({ ...sample, value: [] }, replacements) as Parameters<VariableWorkspace["parse"]>[0],
-  );
-  const chapters = dictionary(chapterVariable);
-  const mains = dictionary(mainVariable);
-  const subs = dictionary(subVariable);
+  const configuration = workspace.createDefault(ids.configuration);
+  const chapters = configuration.value["章节"] as VariableValue;
+  const mains = configuration.value["主任务"] as VariableValue;
+  const subs = configuration.value["子任务"] as VariableValue;
   const warnings = ["已按独立子任务定义导出 Int32 归属主任务和隐藏任务；调查点暂按独立 PositionSlot 的 8 个字段导出，不含内嵌样例多出的两个未命名 Int32，请确认运行时定义。"];
   const subIds = new Set(project.subQuests.map((sub) => sub.id));
   for (const chapter of [...project.chapters].sort((a, b) => a.id - b.id)) {
@@ -124,23 +123,13 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
     const bucketId = Math.floor(sub.id / 100);
     let bucket = buckets.get(bucketId);
     if (!bucket) {
-      bucket = workspace.createDefault(ids.subQuestDictionary);
+      bucket = workspace.parse({ param_type: "StructList", value: { structId: ids.subQuest, value: [] } });
       buckets.set(bucketId, bucket);
     }
-    // 内键必须是完整全局 ID；例如子任务 199 存在外键 1 / 内键 199 下。
-    bucket.value["子任务字典"].appendItem({ key: String(sub.id), value });
+    // 每桶列表按完整 ID 升序填入；删除后的空位不填充假任务，真实 ID 保存在结构体内。
+    bucket.appendItem(value);
   }
   for (const [id, bucket] of buckets) subs.appendItem({ key: String(id), value: bucket });
-  return {
-    files: [
-      ["NOLOC_章节配置.json", chapters],
-      ["NOLOC_主任务配置.json", mains],
-      ["NOLOC_子任务.json", subs],
-    ].map(([filename, variable]) => {
-      const root = variable as VariableValue;
-      if (root.issues.length) throw new Error(`任务变量结构校验失败：${root.issues.map((issue) => issue.message).join("；")}`);
-      return { filename: filename as string, value: root.toQxqyValue(), json: root.serialize(2) };
-    }),
-    warnings,
-  };
+  if (configuration.issues.length) throw new Error(`任务变量结构校验失败：${configuration.issues.map((issue) => issue.message).join("；")}`);
+  return { value: configuration.toQxqyValue(), json: configuration.serialize(2), warnings };
 }

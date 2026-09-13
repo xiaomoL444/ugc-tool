@@ -37,12 +37,12 @@ async function main() {
     function exported(project) {
       const result = exportQuestVariables(project);
       const workspace = createQuestStructWorkspace(project.structIds);
-      const parsed = result.files.map((file) => {
-        assert.deepEqual(JSON.parse(file.json), file.value);
-        const value = workspace.parse(file.value);
-        assert.deepEqual(value.issues, []);
-        return value;
-      });
+      assert.deepEqual(JSON.parse(result.json), result.value);
+      assert.equal(result.value.structId, project.structIds.configuration);
+      const root = workspace.parse(result.value);
+      assert.deepEqual(root.issues, []);
+      assert.deepEqual(Object.keys(root.value), ["章节", "主任务", "子任务"]);
+      const parsed = [root.value["章节"], root.value["主任务"], root.value["子任务"]];
       // 自身 id 必须与字典中的完整键一致，而不是父 ID、数组位置或桶内偏移。
       const assertOwnIds = (dictionary) => dictionary.value.forEach((entry) => {
         assert.equal(entry.value.value.id.type, "Int32");
@@ -50,23 +50,79 @@ async function main() {
         assert.equal(Object.keys(entry.value.value)[0], "id");
       });
       assertOwnIds(parsed[0]); assertOwnIds(parsed[1]);
-      parsed[2].value.forEach((entry) => assertOwnIds(entry.value.value["子任务字典"]));
+      const exportedIds = [];
+      parsed[2].value.forEach((entry) => {
+        assert.equal(entry.value.type, "StructList");
+        assert.ok(entry.value.itemCount <= 100);
+        for (const sub of entry.value.value) {
+          assert.equal(sub.value.id.type, "Int32");
+          const id = Number(sub.value.id.value);
+          assert.equal(Math.floor(id / 100), Number(entry.key.value));
+          exportedIds.push(id);
+        }
+      });
+      assert.deepEqual(exportedIds, project.subQuests.map(sub => sub.id).sort((a, b) => a - b));
       return { result, chapters: parsed[0], mains: parsed[1], subs: parsed[2] };
     }
-    const values = (dict) => dict.value.map((entry) => entry.value);
-    const keys = (dict) => dict.value.map((entry) => Number(entry.key.value));
+    const values = (dict) => dict.type === "StructList" ? dict.value : dict.value.map((entry) => entry.value);
+    const keys = (dict) => dict.type === "StructList" ? dict.value.map(entry => Number(entry.value.id.value)) : dict.value.map((entry) => Number(entry.key.value));
 
-    test("empty project exports precisely three empty source-shaped NOLOC dictionaries", () => {
+    test("empty project exports one source-shaped configuration without sample rows", () => {
       const project = createQuestProject();
-      const result = exportQuestVariables(project);
-      assert.deepEqual(result.files.map((file) => file.filename), ["NOLOC_章节配置.json", "NOLOC_主任务配置.json", "NOLOC_子任务.json"]);
-      for (const file of result.files) {
-        assert.equal(file.value.type, "Dict"); assert.equal(file.value.key_type, "Int32"); assert.equal(file.value.value_type, "Struct");
-        assert.deepEqual(file.value.value, []);
+      const { result } = exported(project);
+      const sample = require(path.join(assetDirectory, "任务配置数据变量.json"));
+      const expected = JSON.parse(JSON.stringify(sample));
+      expected.value.forEach(field => { field.value.value = []; });
+      assert.deepEqual(result.value, expected);
+      assert.equal(result.value.type, "Struct");
+      assert.equal(result.value.structId, "1077936169");
+      assert.deepEqual(result.value.value.map(field => field.value.value_type), ["Struct", "Struct", "StructList"]);
+      assert.equal(result.value.value[2].value.value_structId, project.structIds.subQuest);
+      assert.equal(result.files, undefined);
+    });
+    test("legacy schema IDs migrate without repurposing deleted wrapper IDs or changing task data", () => {
+      const project = source(3);
+      project.structIds = { chapter: "9101", mainQuest: "9102", subQuest: "9103", subQuestDictionary: "9104", positionSlot: "9105" };
+      project.subQuests[0].nextQuestIds = [null, 2]; project.subQuests[0].failureQuestId = 1;
+      const raw = encodeQuestProject(project), restored = decodeQuestProject(raw);
+      assert.deepEqual(restored.structIds, { chapter: "9101", mainQuest: "9102", subQuest: "9103", configuration: "1077936169", positionSlot: "9105" });
+      assert.deepEqual(restored.subQuests, project.subQuests); assert.deepEqual(restored.mainQuests, project.mainQuests);
+      assert.equal(encodeQuestProject(project), raw);
+      const { result } = exported(restored);
+      assert.ok(!result.json.includes('"9104"')); assert.ok(!result.json.includes('"1077936167"'));
+      assert.equal(result.value.structId, "1077936169");
+      assert.deepEqual(decodeQuestProject(encodeQuestProject(restored)), restored);
+    });
+    test("custom configuration ID survives loading while retired IDs are not registered or configurable", () => {
+      const project = source(); project.structIds.configuration = "987654";
+      project.structIds.subQuestDictionary = "1077936167";
+      const restored = decodeQuestProject(encodeQuestProject(project));
+      assert.equal(restored.structIds.configuration, "987654"); assert.equal(restored.structIds.subQuestDictionary, undefined);
+      assert.equal(exported(restored).result.value.structId, "987654");
+      const { QUEST_STRUCT_ID_FIELDS } = require(path.join(questDirectory, "questProject.ts"));
+      assert.ok(QUEST_STRUCT_ID_FIELDS.some(field => field.key === "configuration"));
+      assert.ok(!QUEST_STRUCT_ID_FIELDS.some(field => field.key === "subQuestDictionary"));
+      const registry = createQuestStructWorkspace(restored.structIds);
+      assert.throws(() => registry.createDefault("1077936167"));
+      for (const value of ["", "bad", restored.structIds.chapter]) {
+        restored.structIds.configuration = value; assert.throws(() => exportQuestVariables(restored));
       }
-      assert.equal(result.files[0].value.value_structId, project.structIds.chapter);
-      assert.equal(result.files[1].value.value_structId, project.structIds.mainQuest);
-      assert.equal(result.files[2].value.value_structId, project.structIds.subQuestDictionary);
+    });
+    test("populated output matches the example's exact compound shape without any deleted wrapper", () => {
+      const project = source();
+      project.chapters[0].id = 1; project.mainQuests[0].id = 1; project.mainQuests[0].chapterId = 1;
+      project.subQuests[0].id = 100; project.subQuests[0].mainQuestId = 1;
+      const expected = JSON.parse(JSON.stringify(require(path.join(assetDirectory, "任务配置数据变量.json"))));
+      const chapter = expected.value[0].value.value[0].value.value;
+      chapter.value[0].value = "1"; chapter.value[1].value = project.chapters[0].title;
+      const main = expected.value[1].value.value[0].value.value;
+      main.value[0].value = "1"; main.value[1].value = "1"; main.value[2].value = project.mainQuests[0].title;
+      const sub = expected.value[2].value.value[0].value.value.value[0].value;
+      sub.value[0].value = "100"; sub.value[1].value = "1"; sub.value[2].value = project.subQuests[0].title;
+      // 原有 PositionSlot 内嵌示例差异仍按独立 8 字段定义处理。
+      sub.value[5].value.value = sub.value[5].value.value.slice(0, 8);
+      sub.value[5].value.value[1].value = "Vector3"; sub.value[6].value = "-1";
+      assert.deepEqual(exported(project).result.value, expected);
     });
     test("own IDs remain distinct from parent IDs, struct IDs and bucket offsets through save, reorder and deletion", () => {
       const project = source(5);
@@ -77,23 +133,23 @@ async function main() {
         project.subQuests[index].id = id; project.subQuests[index].mainQuestId = 58;
       });
       project.subQuests[0].nextQuestIds = [100, null, 99]; project.subQuests[0].failureQuestId = 99;
-      project.structIds = { chapter: "9001", mainQuest: "9002", subQuest: "9003", subQuestDictionary: "9004", positionSlot: "9005" };
+      project.structIds = { chapter: "9001", mainQuest: "9002", subQuest: "9003", configuration: "9004", positionSlot: "9005" };
       project.mainQuests.reverse(); project.subQuests.reverse();
       const before = encodeQuestProject(project), restored = decodeQuestProject(before);
       const { result, chapters, mains, subs } = exported(restored);
       assert.equal(values(chapters)[0].value.id.value, "37");
       assert.deepEqual(values(mains).map(value => [value.value.id.value, value.value.chapter.value]), [["6", "-1"], ["58", "37"]]);
       assert.deepEqual(keys(subs), [0, 1, 99]);
-      const rows = values(subs).flatMap(bucket => values(bucket.value["子任务字典"]));
+      const rows = values(subs).flatMap(bucket => values(bucket));
       assert.deepEqual(rows.map(value => value.value.id.value), ["0", "99", "100", "199", "9999"]);
       assert.ok(rows.every(value => value.value.mainQuestId.value === "58"));
-      assert.equal(result.files[2].value.value_structId, "9004");
+      assert.equal(result.value.structId, "9004");
       assert.ok(rows.every(value => value.toQxqyValue().structId === "9003"));
       assert.deepEqual(rows.at(-1).value["后续任务"].value, ["100", "-1", "99"]);
       assert.equal(encodeQuestProject(restored), before); assert.equal(encodeQuestProject(project), before);
       removeQuestSubQuests(restored, new Set([99]));
       restored.subQuests.find(sub => sub.id === 199).mainQuestId = 6;
-      const afterRows = values(exported(restored).subs).flatMap(bucket => values(bucket.value["子任务字典"]));
+      const afterRows = values(exported(restored).subs).flatMap(bucket => values(bucket));
       assert.deepEqual(afterRows.map(value => value.value.id.value), ["0", "100", "199", "9999"]);
       assert.equal(afterRows[2].value.mainQuestId.value, "6");
       assert.deepEqual(afterRows.at(-1).value["后续任务"].value, ["100", "-1", "-1"]);
@@ -117,7 +173,7 @@ async function main() {
       const result = exported(project);
       assert.deepEqual(keys(result.chapters), [7]); assert.deepEqual(keys(result.mains), [21]);
       assert.equal(values(result.mains)[0].value.chapter.value, "7");
-      const value = values(values(result.subs)[0].value["子任务字典"])[0];
+      const value = values(values(result.subs)[0])[0];
       assert.deepEqual(Object.keys(value.value), ["id", "mainQuestId", "title", "desc", "任务单位状态", "任务调查点预设点", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress"]);
       assert.equal(value.value["mainQuestId"].type, "Int32"); assert.equal(value.value["mainQuestId"].value, "21");
       assert.equal(value.value["title"].value, sub.title); assert.equal(value.value["desc"].value, sub.description);
@@ -142,7 +198,7 @@ async function main() {
       const sub = project.subQuests[0];
       assert.equal(sub.failureQuestId, -1); assert.equal(sub.finishMainQuest, false); assert.equal(sub.questProgress, 0);
       const { subs, result } = exported(project);
-      const value = values(values(subs)[0].value["子任务字典"])[0];
+      const value = values(values(subs)[0])[0];
       assert.deepEqual(Object.keys(value.value), definition.value.map((field) => field.key));
       assert.equal(value.value["失败回溯任务"].value, "-1"); assert.equal(value.value.finishMainQuest.value, "False"); assert.equal(value.value.questProgress.value, "0");
       assert.deepEqual(result.warnings.filter((warning) => /失败回溯/.test(warning)), []);
@@ -168,7 +224,7 @@ async function main() {
       project.structIds = Object.fromEntries(Object.keys(project.structIds).map((key, index) => [key, String(20000 + index)]));
       const before = JSON.stringify(project), { subs, result } = exported(project);
       assert.deepEqual(keys(subs), [1]);
-      const inner = values(subs)[0].value["子任务字典"];
+      const inner = values(subs)[0];
       assert.deepEqual(keys(inner), [100, 199]);
       const value = values(inner)[1];
       assert.equal(value.toQxqyValue().structId, project.structIds.subQuest);
@@ -193,7 +249,7 @@ async function main() {
       assert.equal(project.subQuests[0].failureQuestId, null); assert.equal(project.subQuests[1].failureQuestId, null);
       const restored = decodeQuestProject(encodeQuestProject(project));
       const { result, subs } = exported(restored);
-      const value = values(values(subs)[0].value["子任务字典"])[0];
+      const value = values(values(subs)[0])[0];
       assert.equal(value.value["失败回溯任务"].value, "-1");
       const warnings = result.warnings.filter((warning) => /失败回溯/.test(warning));
       assert.equal(warnings.length, 3);
@@ -216,7 +272,7 @@ async function main() {
       }
       const project = source(2); project.subQuests[0].failureQuestId = 0; project.subQuests[1].failureQuestId = -2147483648;
       const { subs } = exported(project);
-      const subValues = values(values(subs)[0].value["子任务字典"]);
+      const subValues = values(values(subs)[0]);
       assert.equal(subValues[0].value["失败回溯任务"].value, "0"); assert.equal(subValues[1].value["失败回溯任务"].value, "-2147483648");
     });
     test("follow-up lists start empty and are independent for each new sub quest", () => {
@@ -229,7 +285,7 @@ async function main() {
       first.nextQuestIds.push(100);
       assert.deepEqual(second.nextQuestIds, []);
       const { subs } = exported(project);
-      const items = values(values(subs)[0].value["子任务字典"]);
+      const items = values(values(subs)[0]);
       assert.deepEqual(items[0].value["后续任务"].value, ["100"]);
       assert.deepEqual(items[1].value["后续任务"].value, []);
     });
@@ -259,7 +315,7 @@ async function main() {
       assert.deepEqual(validateQuestProject(project), []);
       assert.deepEqual(validateQuestProject(project, { allowDraftValues: true }), []);
       const { subs } = exported(project);
-      const inner = values(subs)[1].value["子任务字典"];
+      const inner = values(subs)[1];
       assert.deepEqual(keys(inner), [100]);
       const followups = values(inner)[0].value["后续任务"];
       assert.equal(followups.type, "Int32List");
@@ -273,7 +329,7 @@ async function main() {
       assert.deepEqual(validateQuestProject(project), []);
       assert.deepEqual(decodeQuestProject(encodeQuestProject(project)), project);
       const { subs } = exported(project);
-      assert.deepEqual(values(values(subs)[0].value["子任务字典"])[0].value["后续任务"].value, project.subQuests[0].nextQuestIds.map(String));
+      assert.deepEqual(values(values(subs)[0])[0].value["后续任务"].value, project.subQuests[0].nextQuestIds.map(String));
       project.subQuests[0].nextQuestIds.push(0);
       const before = JSON.stringify(project);
       for (const options of [{}, { allowDraftValues: true }]) {
@@ -307,7 +363,7 @@ async function main() {
       const restored = decodeQuestProject(encodeQuestProject(project));
       assert.deepEqual(restored, project);
       const { result, subs } = exported(restored);
-      const inner = values(subs)[1].value["子任务字典"];
+      const inner = values(subs)[1];
       assert.deepEqual(keys(inner), [199]);
       assert.deepEqual(values(inner)[0].value["后续任务"].value, ["-1", "1", "-1", "9999", "-1", "-1"]);
       const warnings = result.warnings.filter((warning) => /后续任务/.test(warning));
@@ -329,7 +385,7 @@ async function main() {
       assert.deepEqual(validateQuestProject(project), []);
       assert.deepEqual(decodeQuestProject(encodeQuestProject(project)), project);
       const { subs } = exported(project);
-      assert.deepEqual(values(values(subs)[0].value["子任务字典"])[0].value["后续任务"].value, Array(100).fill("-1"));
+      assert.deepEqual(values(values(subs)[0])[0].value["后续任务"].value, Array(100).fill("-1"));
       project.subQuests[0].nextQuestIds.push(null);
       for (const options of [{}, { allowDraftValues: true }]) assert.ok(validateQuestProject(project, options).some((error) => /后续任务/.test(error)));
       assert.throws(() => decodeQuestProject(encodeQuestProject(project)), /后续任务/);
@@ -369,20 +425,20 @@ async function main() {
       assert.equal(replacement.id, 1);
       assert.deepEqual(project.subQuests[0].nextQuestIds, [null, 2, null]);
       const { subs } = exported(project);
-      assert.deepEqual(values(values(subs)[0].value["子任务字典"])[0].value["后续任务"].value, ["-1", "2", "-1"]);
+      assert.deepEqual(values(values(subs)[0])[0].value["后续任务"].value, ["-1", "2", "-1"]);
     });
     test("follow-up IDs survive codec roundtrip with custom struct IDs and future references", () => {
       const project = source();
-      project.structIds = { chapter: "9011", mainQuest: "9012", subQuest: "9013", subQuestDictionary: "9014", positionSlot: "9015" };
+      project.structIds = { chapter: "9011", mainQuest: "9012", subQuest: "9013", configuration: "9014", positionSlot: "9015" };
       project.subQuests[0].id = 199;
       project.subQuests[0].nextQuestIds = [9999, 100, 200, 0, 100, -1];
       const before = JSON.stringify(project);
       const restored = decodeQuestProject(encodeQuestProject(project));
       assert.deepEqual(restored, project);
       const { result, subs } = exported(restored);
-      assert.equal(result.files[2].value.value_structId, "9014");
+      assert.equal(result.value.structId, "9014");
       assert.deepEqual(keys(subs), [1]);
-      const inner = values(subs)[0].value["子任务字典"];
+      const inner = values(subs)[0];
       assert.deepEqual(keys(inner), [199]);
       const sub = values(inner)[0];
       assert.equal(sub.toQxqyValue().structId, "9013");
@@ -470,13 +526,13 @@ async function main() {
     });
     test("custom main struct IDs retain the chapter sentinel and exact custom style without mutation", () => {
       const project = createQuestProject();
-      project.structIds = { chapter: "9501", mainQuest: "9502", subQuest: "9503", subQuestDictionary: "9504", positionSlot: "9505" };
+      project.structIds = { chapter: "9501", mainQuest: "9502", subQuest: "9503", configuration: "9504", positionSlot: "9505" };
       project.unassignedChapterId = -42;
       const main = createQuestMain(project);
       main.id = 21; main.title = "直属任务"; main.style = "Branch_Custom";
       const before = JSON.stringify(project);
       const { result, mains } = exported(project);
-      assert.equal(result.files[1].value.value_structId, "9502");
+      assert.equal(result.value.value[1].value.value_structId, "9502");
       assert.deepEqual(keys(mains), [21]);
       const value = values(mains)[0];
       assert.equal(value.toQxqyValue().structId, "9502");
@@ -490,31 +546,31 @@ async function main() {
     for (const count of [100, 101, 110]) test(`${count} sub quests use 100-entry buckets and complete global inner IDs`, () => {
       const { subs } = exported(source(count));
       assert.deepEqual(keys(subs), count > 100 ? [0, 1] : [0]);
-      const dictionaries = values(subs).map((value) => value.value["子任务字典"]);
+      const dictionaries = values(subs).map((value) => value);
       assert.deepEqual(dictionaries.map((dict) => dict.itemCount), count > 100 ? [100, count - 100] : [100]);
       assert.deepEqual(dictionaries.flatMap(keys), Array.from({ length: count }, (_, id) => id));
     });
-    test("sparse IDs 0/99/100/199/9999 retain exact global keys rather than remainder indices", () => {
+    test("sparse IDs 0/99/100/199/9999 remain in compact bucket lists without phantom tasks", () => {
       const project = source(5);
       [0, 99, 100, 199, 9999].forEach((id, index) => project.subQuests[index].id = id);
       project.subQuests.reverse();
       const { subs } = exported(project);
       assert.deepEqual(keys(subs), [0, 1, 99]);
-      assert.deepEqual(values(subs).map((value) => keys(value.value["子任务字典"])), [[0, 99], [100, 199], [9999]]);
+      assert.deepEqual(values(subs).map((value) => keys(value)), [[0, 99], [100, 199], [9999]]);
     });
     test("10000 sub quests fill exactly 100 buckets of 100 entries", () => {
       const project = source(10000);
       assert.deepEqual(validateQuestProject(project), []);
-      const raw = exportQuestVariables(project).files[2].value;
+      const raw = exportQuestVariables(project).value.value[2].value;
       assert.equal(raw.value.length, 100);
       raw.value.forEach((entry, bucketId) => {
         assert.equal(entry.key.value, String(bucketId));
-        const inner = entry.value.value.value[0].value;
+        const inner = entry.value.value;
         assert.equal(inner.value.length, 100);
-        assert.equal(inner.value[0].key.value, String(bucketId * 100));
-        assert.equal(inner.value[99].key.value, String(bucketId * 100 + 99));
-        inner.value.forEach((item) => {
-          assert.deepEqual(item.value.value.value[0], { param_type: "Int32", value: item.key.value });
+        assert.equal(inner.value[0].value.value[0].value, String(bucketId * 100));
+        assert.equal(inner.value[99].value.value[0].value, String(bucketId * 100 + 99));
+        inner.value.forEach((item, index) => {
+          assert.deepEqual(item.value.value[0], { param_type: "Int32", value: String(bucketId * 100 + index) });
         });
       });
       assert.throws(() => createQuestSub(project, 0), /10000/);
@@ -529,7 +585,7 @@ async function main() {
       const project = createQuestProject();
       for (let i = 0; i < 100; i++) { createQuestChapter(project); createQuestMain(project); }
       assert.deepEqual(validateQuestProject(project), []);
-      assert.equal(exportQuestVariables(project).files[0].value.value.length, 100);
+      assert.equal(exportQuestVariables(project).value.value[0].value.value.length, 100);
       assert.throws(() => createQuestChapter(project), /100/); assert.throws(() => createQuestMain(project), /100/);
       project.chapters.push({ id: 100, title: "溢出" });
       assert.throws(() => exportQuestVariables(project), /章节最多支持 100/);
@@ -546,7 +602,7 @@ async function main() {
     });
     test("all custom struct IDs propagate recursively into root/nested structs and dictionaries", () => {
       const project = source(101);
-      project.structIds = { chapter: "9001", mainQuest: "9002", subQuest: "9003", subQuestDictionary: "9004", positionSlot: "9005" };
+      project.structIds = { chapter: "9001", mainQuest: "9002", subQuest: "9003", configuration: "9004", positionSlot: "9005" };
       const { result } = exported(project);
       const found = new Set();
       function visit(value) {
@@ -557,7 +613,7 @@ async function main() {
           else visit(child);
         }
       }
-      result.files.forEach((file) => visit(file.value));
+      visit(result.value);
       assert.deepEqual([...found].sort(), Object.values(project.structIds).sort());
     });
     test("save/decode preserves all content, IDs and references without mutation", () => {
