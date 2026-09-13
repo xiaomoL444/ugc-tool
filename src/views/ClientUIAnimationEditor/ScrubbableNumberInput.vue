@@ -160,6 +160,7 @@ function startScrub(event: PointerEvent) {
   let active = true;
   let moved = false;
   let locked = false;
+  let discardFirstLockedMovement = false;
   let lastX = startX;
   let accumulated = clampValue(numericValue());
   let lastValue = accumulated;
@@ -232,7 +233,10 @@ function startScrub(event: PointerEvent) {
     if (!active) return;
     // 浏览器或系统吞掉 mouseup 时，下一次移动也必须终止拖动。
     if (!(nextEvent.buttons & 1)) { cleanup(); return; }
-    if (!moved || document.pointerLockElement !== element) return;
+    if (!moved || !locked || document.pointerLockElement !== element) return;
+    // Locking can reset the browser's movement origin. Never add the handover
+    // sample (or a compatibility mousemove before pointerlockchange) to the value.
+    if (discardFirstLockedMovement) { discardFirstLockedMovement = false; return; }
     modifiers = nextEvent;
     nextEvent.preventDefault();
     applyMovement(nextEvent.movementX);
@@ -255,6 +259,7 @@ function startScrub(event: PointerEvent) {
 
   const handleLockChange = () => {
     if (document.pointerLockElement === element) {
+      if (!locked) discardFirstLockedMovement = true;
       locked = true;
       stopEdgeContinuation();
     } else if (locked) cleanup();

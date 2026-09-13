@@ -26,6 +26,9 @@ async function main() {
     "addKeyframeTrack", "insertKeyframeAtTime", "selectKeyframe", "moveKeyframe", "updateKeyframe", "removeKeyframe", "removeKeyframeTrack", "removeSelected",
     "hasAnimatedField", "writeAnimatedValue", "updateAnimatedBaseValue", "updateGeometry", "updateRuntimeLayoutValue", "seekKeyframeTime",
     "buildKeyframePreviewNodes", "buildTweenPreviewNodes", "startMove", "startResize", "keyframePreviousValue",
+    "canvasTool", "selectCanvasTool", "startCanvasTransform", "startCanvasRotation", "startCanvasScale", "canvasClientPoint", "viewportElement", "panX", "panY", "transformGizmo",
+    "startCanvasPress", "canvasNodesAtPoint",
+    "boneLengthHandle", "startBoneLengthDrag", "selectedDirectionArrowLength", "showContainerBones",
     "applyAnchorPreset", "currentAnchorPresetId", "propertyClipboard", "copySelectedPropertyGroup", "resetSelectedPropertyGroup", "pasteSelectedPropertyGroup",
     "beginEditorHistoryPointer", "endEditorHistoryPointer", "editorHistory", "captureUndoState", "undoEditorOperation", "redoEditorOperation",
     "serializeProject", "applyProjectData", "loadProject", "createBlankProject", "timelineEditNotice",
@@ -65,6 +68,7 @@ async function main() {
       });
       const scope = vue.effectScope(); scope.run(() => vm.runInContext(script, context, { filename, timeout: 2000 }));
       const api = context.api;
+      api.viewportElement.value = vue.markRaw({ clientLeft: 0, clientTop: 0, clientWidth: 1200, clientHeight: 700, getBoundingClientRect: () => ({ left: 40, top: 80, width: 1200, height: 700 }) });
       api.downloads = [];
       context.downloadLuaFile = (code, fileName) => api.downloads.push({ code, fileName });
       api.nodes.value = [
@@ -92,6 +96,8 @@ async function main() {
       const point = (x, y) => ({ x: world.x + world.matrix.a * x + world.matrix.c * y, y: world.y + world.matrix.b * x + world.matrix.d * y });
       return {
         topLeft: point(-pose.pivotX * pose.width, (1 - pose.pivotY) * pose.height),
+        topRight: point((1 - pose.pivotX) * pose.width, (1 - pose.pivotY) * pose.height),
+        bottomLeft: point(-pose.pivotX * pose.width, -pose.pivotY * pose.height),
         bottomRight: point((1 - pose.pivotX) * pose.width, -pose.pivotY * pose.height),
       };
     }
@@ -295,6 +301,224 @@ async function main() {
         }
         api.dispatch("pointerup", pointer(100)); api.endEditorHistoryPointer(pointer(100)); await tick();
         assert.deepEqual(plain(api.nodes.value), base);
+      }
+    });
+    await test("All four resize handles preserve the opposite corner through transformed resizing, clamping and undo", async () => {
+      for (const animated of [false, true]) {
+        for (const [corner, dragged, fixed, signX, signY] of [
+          ["tl", "topLeft", "bottomRight", -1, 1], ["tr", "topRight", "bottomLeft", 1, 1],
+          ["bl", "bottomLeft", "topRight", -1, -1], ["br", "bottomRight", "topLeft", 1, -1],
+        ]) {
+          const api = fixture(); node(api).rotation = 37;
+          Object.assign(node(api, "image"), { pivotX: 0.2, pivotY: 0.8, rotation: -23, scaleX: 1.5, scaleY: 0.75, sizeDeltaX: 120, sizeDeltaY: 80 });
+          api.getHierarchyOrder().forEach(api.applyNodeLayout);
+          api.selectedId.value = "image";
+          if (animated) for (const field of ["sizeDeltaX", "sizeDeltaY", "anchoredPositionX", "anchoredPositionY"]) addTrack(api, field, "image");
+          api.currentTime.value = 2; api.zoom.value = 0.5;
+          api.editorHistory.reset(api.captureUndoState());
+          const initialState = api.captureUndoState(); const before = worldCorners(api, "image");
+          const matrix = plain(api.previewWorldTransforms.value.get("image").matrix);
+          await gesture(api, (event) => {
+            api.startResize(event, node(api, "image"), corner);
+            for (const factor of [1, -10, 0, 0.6]) {
+              const localX = signX * 40 * factor, localY = signY * 30 * factor;
+              const dx = matrix.a * localX + matrix.c * localY, dy = matrix.b * localX + matrix.d * localY;
+              api.dispatch("pointermove", pointer(100 + dx * api.zoom.value, { clientY: 20 - dy * api.zoom.value }));
+              const after = worldCorners(api, "image");
+              nearPoint(after[fixed], before[fixed], `${corner} fixed corner`, 0.03);
+              near(preview(api, 2, "image").width, Math.max(20, 120 + 40 * factor));
+              near(preview(api, 2, "image").height, Math.max(20, 80 + 30 * factor));
+              if (factor >= 0) nearPoint(after[dragged], { x: before[dragged].x + dx, y: before[dragged].y + dy }, `${corner} dragged corner`, 0.03);
+            }
+            api.dispatch("pointerup", event);
+          });
+          assert.equal(history(api).length, 1);
+          const resizedState = api.captureUndoState();
+          await api.undoEditorOperation(); assert.equal(api.captureUndoState(), initialState);
+          await api.redoEditorOperation(); assert.equal(api.captureUndoState(), resizedState);
+        }
+      }
+    });
+    await test("Canvas clicks select on release and cycle front-to-back through overlapping controls without transforming or pausing", async () => {
+      const api = fixture(); api.selectedId.value = null; api.playing.value = true;
+      const world = api.previewWorldTransforms.value.get("image"), point = api.canvasClientPoint(world.x, world.y);
+      assert.deepEqual(plain(api.canvasNodesAtPoint(point.x, point.y).map(item => item.id)), ["image", "group", "root"]);
+      const before = api.captureUndoState();
+      for (const id of ["image", "group", "root", "image"]) {
+        const previous = api.selectedId.value;
+        const event = pointer(point.x, { clientY: point.y }); api.startCanvasPress(event);
+        assert.equal(api.selectedId.value, previous, "Press does not change selection");
+        api.dispatch("pointermove", pointer(point.x + 1, { clientY: point.y + 1 }));
+        api.dispatch("pointerup", event);
+        assert.equal(api.selectedId.value, id);
+        assert.equal(api.captureUndoState(), before);
+        assert.equal(api.playing.value, true);
+      }
+      const empty = api.canvasClientPoint(-50, -50), event = pointer(empty.x, { clientY: empty.y });
+      api.startCanvasPress(event); assert.equal(api.selectedId.value, "image");
+      api.dispatch("pointerup", event); assert.equal(api.selectedId.value, null);
+    });
+    await test("Dragging over an overlapping child transforms the selected parent in every tool and never cycles selection", async () => {
+      for (const tool of ["combined", "move", "rotate", "scale"]) {
+        const api = fixture(); api.selectCanvasTool(tool);
+        const world = api.previewWorldTransforms.value.get("image"), point = api.canvasClientPoint(world.x, world.y);
+        const child = plain(node(api, "image")), before = plain(node(api));
+        const initialState = api.captureUndoState();
+        const event = pointer(point.x, { clientY: point.y }); api.beginEditorHistoryPointer(event); api.startCanvasPress(event);
+        api.dispatch("pointermove", pointer(point.x + 30, { clientY: point.y + 15 }));
+        assert.equal(api.selectedId.value, "group");
+        if (tool === "combined" || tool === "move") { near(node(api).x, before.x + 30); near(node(api).y, before.y - 15); }
+        else if (tool === "rotate") assert.notEqual(node(api).rotation, before.rotation);
+        else assert.notEqual(node(api).scaleX, before.scaleX);
+        api.dispatch("pointerup", event); api.endEditorHistoryPointer(event); await tick();
+        assert.equal(api.selectedId.value, "group"); assert.deepEqual(plain(node(api, "image")), child);
+        assert.equal(history(api).length, 1);
+        await api.undoEditorOperation(); assert.equal(api.captureUndoState(), initialState);
+      }
+    });
+    await test("Dragging outside the selection, cancelled presses and unrelated pointers never select or mutate another control", () => {
+      const api = fixture(); api.selectedId.value = "image";
+      const point = api.canvasClientPoint(750, 500), event = pointer(point.x, { clientY: point.y });
+      const before = api.captureUndoState();
+      api.startCanvasPress(event);
+      api.dispatch("pointermove", pointer(point.x + 30, { clientY: point.y }));
+      api.dispatch("pointermove", event); api.dispatch("pointerup", event);
+      assert.equal(api.selectedId.value, "image"); assert.equal(api.captureUndoState(), before);
+      for (const cancel of ["pointercancel", "blur"]) {
+        api.startCanvasPress(event); api.dispatch(cancel, event); api.dispatch("pointerup", event);
+        assert.equal(api.selectedId.value, "image");
+      }
+      api.startCanvasPress(event); api.dispatch("pointerup", { ...event, pointerId: 10 });
+      assert.equal(api.selectedId.value, "image"); api.dispatch("pointerup", event);
+      assert.equal(api.selectedId.value, "group");
+      assert.equal(api.captureUndoState(), before);
+    });
+    await test("Picking follows animated, rotated and mirrored bounds and excludes hidden controls", () => {
+      const api = fixture();
+      Object.assign(node(api), { rotation: 37, scaleX: -2 });
+      Object.assign(node(api, "image"), { rotation: -23, pivotX: 0.2, pivotY: 0.8 });
+      api.getHierarchyOrder().forEach(api.applyNodeLayout);
+      addTrack(api, "anchoredPositionX", "image"); api.currentTime.value = 2; api.writeAnimatedValue(node(api, "image"), "anchoredPositionX", 60);
+      api.zoom.value = 0.55; api.panX.value = 30; api.panY.value = -40;
+      const world = api.previewWorldTransforms.value.get("image");
+      const hitAt = (x, y) => { const point = api.canvasClientPoint(world.x + world.matrix.a * x + world.matrix.c * y, world.y + world.matrix.b * x + world.matrix.d * y); return api.canvasNodesAtPoint(point.x, point.y).some(item => item.id === "image"); };
+      assert.equal(hitAt(10, -10), true); assert.equal(hitAt(25, -10), false);
+      node(api).visible = false; assert.equal(hitAt(10, -10), false);
+    });
+    await test("Bone-tip dragging adjusts only guide length under animated mirrored transforms, clamps, and undoes as one gesture", async () => {
+      const api = fixture();
+      Object.assign(node(api, "root"), { rotation: 37, scaleX: -2, scaleY: 0.75 });
+      node(api).rotation = -23; api.getHierarchyOrder().forEach(api.applyNodeLayout);
+      addTrack(api, "localScaleX"); api.currentTime.value = 2; api.writeAnimatedValue(node(api), "localScaleX", 1.5);
+      api.zoom.value = 0.4; api.editorHistory.reset(api.captureUndoState());
+      const before = api.captureUndoState(), nodesBefore = plain(api.nodes.value), tracksBefore = plain(api.keyframeTracks.value);
+      const world = api.previewWorldTransforms.value.get("group"), { a, b } = world.matrix;
+      const initial = api.selectedDirectionArrowLength.value;
+      const tip = api.canvasClientPoint(world.x + a * initial, world.y + b * initial);
+      const event = pointer(tip.x, { clientY: tip.y }); api.beginEditorHistoryPointer(event); api.startBoneLengthDrag(event);
+      for (const [delta, expected] of [[80, initial + 80], [-500, 0], [3000, 2000], [0, initial], [50, initial + 50]]) {
+        // Add perpendicular movement to verify it cannot change the length.
+        api.dispatch("pointermove", pointer(tip.x + (a * delta - b * 20) * api.zoom.value, { clientY: tip.y - (b * delta + a * 20) * api.zoom.value }));
+        near(api.selectedDirectionArrowLength.value, expected);
+      }
+      api.dispatch("pointerup", event); api.endEditorHistoryPointer(event); await tick();
+      const expectedNodes = plain(nodesBefore); expectedNodes.find(item => item.id === "group").editor.directionArrowLength = initial + 50;
+      assert.deepEqual(plain(api.nodes.value), expectedNodes);
+      assert.deepEqual(plain(api.keyframeTracks.value), tracksBefore);
+      assert.equal(history(api).length, 1);
+      const after = api.captureUndoState(); await api.undoEditorOperation(); assert.equal(api.captureUndoState(), before);
+      await api.redoEditorOperation(); assert.equal(api.captureUndoState(), after);
+    });
+    await test("Bone-length handles appear only on visible unlocked container guides", () => {
+      const api = fixture(); assert.ok(api.boneLengthHandle.value);
+      node(api).locked = true; assert.equal(api.boneLengthHandle.value, null);
+      const before = api.captureUndoState(); api.startBoneLengthDrag(pointer()); api.dispatch("pointermove", pointer(200)); api.dispatch("pointerup", pointer(200));
+      assert.equal(api.captureUndoState(), before); node(api).locked = false;
+      api.showContainerBones.value = false; assert.equal(api.boneLengthHandle.value, null); api.showContainerBones.value = true;
+      node(api, "root").visible = false; assert.equal(api.boneLengthHandle.value, null); node(api, "root").visible = true;
+      node(api).editor.directionArrowLength = 0; assert.equal(api.boneLengthHandle.value, null);
+      api.selectedId.value = "image"; assert.equal(api.boneLengthHandle.value, null);
+    });
+    await test("Combined and move tools move only position; locked controls ignore every transform tool", async () => {
+      for (const tool of ["combined", "move", "rotate", "scale"]) {
+        const api = fixture(); api.selectCanvasTool(tool);
+        const item = node(api); item.locked = true;
+        const lockedState = api.captureUndoState();
+        api.startCanvasTransform(pointer(), item); api.dispatch("pointermove", pointer(180)); api.dispatch("pointerup", pointer(180));
+        assert.equal(api.captureUndoState(), lockedState);
+        assert.equal(api.transformGizmo.value, null);
+        if (tool !== "combined" && tool !== "move") continue;
+        item.locked = false;
+        const before = plain(item); const world = plain(api.selectedWorldPosition.value);
+        await gesture(api, event => {
+          api.startCanvasTransform(event, item); api.dispatch("pointermove", pointer(180, { clientY: 80 })); api.dispatch("pointerup", event);
+        });
+        nearPoint(api.selectedWorldPosition.value, { x: world.x + 80, y: world.y - 60 }, `${tool} move`);
+        for (const key of ["width", "height", "scaleX", "scaleY", "rotation"]) near(item[key], before[key], `${tool} unchanged ${key}`);
+      }
+    });
+    await test("Rotation follows the mouse under a reflected nonuniform parent, crosses 180 degrees, and supports multiple turns and undo", async () => {
+      for (const animated of [false, true]) {
+        const api = fixture();
+        Object.assign(node(api), { rotation: 37, scaleX: -2 });
+        Object.assign(node(api, "image"), { rotation: -23, pivotX: 0.2, pivotY: 0.8 });
+        api.getHierarchyOrder().forEach(api.applyNodeLayout);
+        api.selectedId.value = "image"; api.selectCanvasTool("rotate"); api.zoom.value = 0.55; api.panX.value = 35; api.panY.value = -20;
+        if (animated) addTrack(api, "localRotationZ", "image");
+        api.currentTime.value = 2; api.editorHistory.reset(api.captureUndoState());
+        const beforeState = api.captureUndoState(); const base = plain(node(api, "image"));
+        const world = plain(api.selectedWorldPosition.value), pivot = api.canvasClientPoint(world.x, world.y);
+        const parent = api.previewWorldTransforms.value.get("group").matrix;
+        const at = degrees => {
+          const radians = degrees * Math.PI / 180, x = Math.cos(radians) * 100, y = Math.sin(radians) * 100;
+          return pointer(pivot.x + (parent.a * x + parent.c * y) * api.zoom.value, { clientY: pivot.y - (parent.b * x + parent.d * y) * api.zoom.value });
+        };
+        const event = at(179); api.beginEditorHistoryPointer(event); api.startCanvasTransform(event, node(api, "image"));
+        for (const degrees of [181, 270, 359, 449, 539, 449, 359, 270, 181, 179, 199]) {
+          api.dispatch("pointermove", at(degrees));
+          near(preview(api, 2, "image").rotation, -23 + degrees - 179);
+          nearPoint(api.selectedWorldPosition.value, world, "Rotation keeps pivot fixed");
+        }
+        api.dispatch("pointerup", event); api.endEditorHistoryPointer(event); await tick();
+        assert.equal(history(api).length, 1);
+        if (animated) { assert.deepEqual(plain(node(api, "image")), base); assert.equal(api.keyframeTracks.value[0].keyframes.length, 2); }
+        const afterState = api.captureUndoState(); await api.undoEditorOperation(); assert.equal(api.captureUndoState(), beforeState);
+        await api.redoEditorOperation(); assert.equal(api.captureUndoState(), afterState);
+      }
+    });
+    await test("Uniform and axis scale tools edit scale around the pivot, preserve dimensions, and record a single undo gesture", async () => {
+      for (const animated of [false, true]) for (const axis of ["uniform", "x", "y"]) {
+        const api = fixture(); node(api).rotation = 37;
+        Object.assign(node(api, "image"), { scaleX: -1.5, scaleY: 0.75, rotation: -23, pivotX: 0.2, pivotY: 0.8 });
+        api.getHierarchyOrder().forEach(api.applyNodeLayout);
+        api.selectedId.value = "image"; api.selectCanvasTool("scale"); api.zoom.value = 0.55;
+        if (animated) for (const field of ["localScaleX", "localScaleY"]) addTrack(api, field, "image");
+        api.currentTime.value = 2; api.editorHistory.reset(api.captureUndoState());
+        const beforeState = api.captureUndoState(), base = plain(node(api, "image"));
+        const world = plain(api.selectedWorldPosition.value), pivot = api.canvasClientPoint(world.x, world.y);
+        const matrix = api.previewWorldTransforms.value.get("image").matrix;
+        const vector = axis === "y" ? { x: matrix.c, y: -matrix.d } : { x: matrix.a, y: -matrix.b };
+        const length = Math.hypot(vector.x, vector.y); vector.x /= length; vector.y /= length;
+        const start = axis === "uniform" ? { x: pivot.x + 40, y: pivot.y } : { x: pivot.x + vector.x * 58, y: pivot.y + vector.y * 58 };
+        const event = pointer(start.x, { clientY: start.y }); api.beginEditorHistoryPointer(event);
+        if (axis === "uniform") api.startCanvasTransform(event, node(api, "image")); else api.startCanvasScale(event, node(api, "image"), axis);
+        for (const factor of [1.5, 0, 1, 1.25]) {
+          const next = axis === "uniform" ? pointer(pivot.x + 40 * factor, { clientY: pivot.y })
+            : pointer(start.x + vector.x * (factor - 1) * 100, { clientY: start.y + vector.y * (factor - 1) * 100 });
+          api.dispatch("pointermove", next);
+          const pose = preview(api, 2, "image"), clamped = Math.max(0.01, factor);
+          near(pose.scaleX, base.scaleX * (axis === "y" ? 1 : clamped)); near(pose.scaleY, base.scaleY * (axis === "x" ? 1 : clamped));
+          for (const key of ["width", "height", "rotation"]) near(pose[key], base[key]);
+          nearPoint(api.selectedWorldPosition.value, world, "Scaling keeps pivot fixed");
+        }
+        api.dispatch("pointerup", event); api.endEditorHistoryPointer(event); await tick();
+        assert.equal(history(api).length, 1);
+        if (animated) {
+          assert.deepEqual(plain(node(api, "image")), base);
+          for (const track of api.keyframeTracks.value) assert.equal(track.keyframes.length, axis === "x" && track.fieldKey === "localScaleY" || axis === "y" && track.fieldKey === "localScaleX" ? 1 : 2);
+        }
+        const afterState = api.captureUndoState(); await api.undoEditorOperation(); assert.equal(api.captureUndoState(), beforeState);
+        await api.redoEditorOperation(); assert.equal(api.captureUndoState(), afterState);
       }
     });
     await test("Animated bottom-right resizing preserves the opposite world corner at the default pivot", async () => {

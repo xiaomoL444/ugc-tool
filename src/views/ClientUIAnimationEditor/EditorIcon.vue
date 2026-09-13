@@ -23,6 +23,10 @@ import { computed } from 'vue'
 const props = withDefaults(defineProps<{ name: string; size?: number }>(), { size: 18 })
 
 const icons: Record<string, string[]> = {
+  transform: ['M5 8V4h4M15 4h5v5M20 15v5h-5M9 20H4v-5', 'M8 12h8M12 8v8'],
+  move: ['M12 3v18M3 12h18', 'm9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3'],
+  rotate: ['M20 8a8 8 0 0 0-14-2L3 9', 'M3 3v6h6', 'M4 16a8 8 0 0 0 14 2l3-3', 'M15 15h6v6'],
+  scale: ['M4 13v7h7v-7Z', 'm13 11 7-7M13 4h7v7'],
   back: ['M14 6l-6 6 6 6', 'M8 12h12'],
   undo: ['M9 5 4 10l5 5', 'M4 10h10a6 6 0 0 1 0 12'],
   redo: ['m15 5 5 5-5 5', 'M20 10H10a6 6 0 0 0 0 12'],

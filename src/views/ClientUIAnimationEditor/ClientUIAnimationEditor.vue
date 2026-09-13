@@ -59,24 +59,53 @@
 
       <main class="workspace-panel">
         <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><button class="bone-visibility-toggle" :class="{ active: showContainerBones }" :aria-pressed="showContainerBones" :disabled="!hasOpenDocument" aria-label="显示骨骼" title="显示或隐藏所有容器的方向骨骼，不改变箭头长度" @click.stop="showContainerBones = !showContainerBones"><EditorIcon :name="showContainerBones ? 'eye' : 'eye-off'" :size="14" />显示骨骼</button><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ currentPreset.ratio }}</span></div>
-        <div ref="viewportElement" class="viewport" :class="{ 'is-panning': isPanning }" @wheel.prevent="handleCanvasWheel" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
+        <div ref="viewportElement" class="viewport" :class="[{ 'is-panning': isPanning }, `tool-${canvasTool}`]" @wheel.prevent="handleCanvasWheel" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
           <div class="ruler ruler-x"><span v-for="tick in rulerXTicks" :key="tick">{{ tick }}</span></div>
           <div class="ruler ruler-y"><span v-for="tick in rulerYTicks" :key="tick">{{ tick }}</span></div>
           <div class="canvas-stage" :class="{ 'mobile-frame': isMobilePreview }" :style="stageStyle">
             <div class="device-preview-label">{{ currentDevice.label }} · {{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</div>
             <div class="safe-area"></div>
-            <div v-for="node in renderNodes" :key="node.id" class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked }]" :style="nodeStyle(node)" @pointerdown.stop="startMove($event, node)">
+            <div v-for="node in renderNodes" :key="node.id" class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked }]" :style="nodeStyle(node)" @pointerdown.stop="startCanvasPress($event)">
               <SpriteImage v-if="node.type === 'image'" :asset="getImageAsset(node.properties.imageId)" :width="previewNode(node).width" :height="previewNode(node).height" :image-type="node.properties.imageType" :color="safeColor((previewNode(node) as UINodeOf<'image'>).properties.imageColor, editorTypeColors.image)" />
               <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
               <span v-else-if="node.type === 'container'" class="container-label">{{ node.name }}</span>
               <span v-else class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
               <div v-if="node.id === selectedId" class="selection-tag">{{ node.name }} · {{ Math.round(previewNode(node).width) }} × {{ Math.round(previewNode(node).height) }}</div>
-              <template v-if="node.id === selectedId"><i class="selection-corner corner-tl"></i><i class="selection-corner corner-tr"></i><i class="selection-corner corner-bl"></i><i class="selection-pivot" :style="{ left: `${node.pivotX * 100}%`, bottom: `${node.pivotY * 100}%` }"></i></template>
-              <i v-if="node.id === selectedId && !node.locked" class="resize-handle" @pointerdown.stop="startResize($event, node)"></i>
+              <template v-if="node.id === selectedId">
+                <template v-if="canvasTool === 'combined'"><i v-for="corner in resizeCorners" :key="corner" class="selection-corner" :class="[`corner-${corner}`, { 'resize-handle': !node.locked }]" @pointerdown.stop="startResize($event, node, corner)"></i></template>
+                <i class="selection-pivot" :style="{ left: `${previewNode(node).pivotX * 100}%`, bottom: `${previewNode(node).pivotY * 100}%` }"></i>
+              </template>
             </div>
             <ContainerDirectionGuide v-for="guide in renderContainerDirections" :key="guide.id" :data-node-id="guide.id" :length="guide.length" :selected="guide.id === selectedId" :style="guide.style" />
           </div>
+          <div v-if="transformGizmo && selectedNode" class="transform-gizmo" :style="transformGizmo.style">
+            <template v-if="canvasTool === 'combined'">
+              <svg class="transform-gizmo-lines" width="1" height="1" aria-hidden="true"><line :x1="transformGizmo.top.x" :y1="transformGizmo.top.y" :x2="transformGizmo.rotationHandle.x" :y2="transformGizmo.rotationHandle.y" /></svg>
+              <button class="rotation-handle" :style="{ left: `${transformGizmo.rotationHandle.x}px`, top: `${transformGizmo.rotationHandle.y}px` }" aria-label="旋转选中控件" title="拖动旋转控件" @pointerdown.stop="startCanvasRotation($event, selectedNode)"><EditorIcon name="rotate" :size="17" /></button>
+            </template>
+            <svg v-else-if="canvasTool === 'rotate'" class="rotation-gizmo" width="116" height="116" viewBox="-58 -58 116 116" aria-label="旋转圆环：拖动圆环或控件旋转">
+              <circle class="rotation-ring-hit" r="44" @pointerdown.stop="startCanvasRotation($event, selectedNode)" />
+              <circle class="rotation-ring" r="44" />
+              <path class="rotation-ticks" d="M0 -49v10M49 0H39M0 49V39M-49 0h10" />
+              <line class="rotation-radius" x1="0" y1="0" :x2="transformGizmo.xAxis.x * 44 / 58" :y2="transformGizmo.xAxis.y * 44 / 58" />
+              <circle class="rotation-center" r="4" />
+            </svg>
+            <svg v-else-if="canvasTool === 'scale'" class="scale-gizmo" width="1" height="1" aria-label="缩放手柄：中心等比缩放，红色 X 轴和绿色 Y 轴单独缩放">
+              <g v-for="axis in transformGizmo.scaleAxes" :key="axis.id" :class="`scale-axis axis-${axis.id}`" @pointerdown.stop="startCanvasScale($event, selectedNode, axis.id)">
+                <line class="scale-axis-hit" x1="0" y1="0" :x2="axis.x" :y2="axis.y" />
+                <line x1="0" y1="0" :x2="axis.x" :y2="axis.y" />
+                <rect :x="axis.x - 5" :y="axis.y - 5" width="10" height="10" rx="1" />
+                <text :x="axis.x + 9" :y="axis.y + 4">{{ axis.id.toUpperCase() }}</text>
+              </g>
+              <rect class="scale-uniform" x="-6" y="-6" width="12" height="12" rx="2" @pointerdown.stop="startCanvasScale($event, selectedNode)" />
+            </svg>
+          </div>
+          <button v-if="boneLengthHandle" class="bone-length-handle" :style="boneLengthHandle" aria-label="调整骨骼长度" :title="`拖动尖端调整骨骼长度 · ${selectedDirectionArrowLength} px`" @pointerdown.stop="startBoneLengthDrag"></button>
           <div class="viewport-status"><span>{{ currentDevice.label }}</span><span>{{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</span><span>X {{ cursorPosition.x }} &nbsp; Y {{ cursorPosition.y }}</span></div>
+        </div>
+        <div class="canvas-transform-toolbar" role="toolbar" aria-label="画布变换工具" @pointerdown.stop>
+          <button v-for="tool in canvasTools" :key="tool.id" :class="{ active: canvasTool === tool.id }" :aria-pressed="canvasTool === tool.id" :title="tool.hint" @click="selectCanvasTool(tool.id)"><EditorIcon :name="tool.icon" :size="16" />{{ tool.label }}</button>
+          <span class="canvas-transform-hint">{{ activeCanvasTool.hint }}</span>
         </div>
       </main>
 
@@ -138,8 +167,8 @@
             <label class="setting-switch"><span>允许手柄聚焦</span><input v-model="selectedNode.canControllerFocus" type="checkbox" role="switch" /></label>
           </PropertySection>
           <PropertySection v-if="selectedNode.type === 'container'" title="方向标识">
-            <label class="direction-length-field"><span>箭头长度</span><ScrubbableNumberInput :model-value="selectedDirectionArrowLength" :min="0" :max="MAX_DIRECTION_ARROW_LENGTH" :step="1" :scrub-speed="1" aria-label="方向箭头长度" @update:model-value="updateDirectionArrowLength" /><i>px</i></label>
-            <p class="direction-guide-note">从中心点指向局部 +X（朝右） · 0 隐藏<br />仅为编辑辅助，不影响控件大小或 Lua 导出。</p>
+            <label class="direction-length-field"><span>骨骼长度</span><ScrubbableNumberInput :model-value="selectedDirectionArrowLength" :min="0" :max="MAX_DIRECTION_ARROW_LENGTH" :step="1" :scrub-speed="1" aria-label="方向箭头长度" @update:model-value="updateDirectionArrowLength" /><i>px</i></label>
+            <p class="direction-guide-note">拖动骨骼尖端调整长度 · 0 隐藏<br />仅为编辑辅助，不影响控件大小或 Lua 导出。</p>
           </PropertySection>
           </div>
           <div v-show="inspectorTab === 'runtime'" id="inspector-runtime" role="tabpanel" aria-labelledby="inspector-runtime-tab">
@@ -333,6 +362,13 @@ function makeNode(type: ControlType, name: string, overrides: NodeOverrides<Cont
   if (!Number.isFinite(overrides.sizeDeltaY)) node.sizeDeltaY = node.height - (node.anchorMaxY - node.anchorMinY) * DEFAULT_CANVAS_HEIGHT;
   return node;
 }
+function makeRootContainer(width = DEFAULT_CANVAS_WIDTH, height = DEFAULT_CANVAS_HEIGHT, id = createId()) {
+  return makeNode("container", "Default_UI", {
+    id, x: width / 2, y: height / 2, width, height,
+    anchorMinX: 0, anchorMinY: 0, anchorMaxX: 1, anchorMaxY: 1,
+    anchorOffsetX: 0, anchorOffsetY: 0, sizeDeltaX: 0, sizeDeltaY: 0,
+  });
+}
 interface AnchorPreset extends AnchorValues { id: string; label: string }
 const anchorXModes = [
   { id: "left", label: "左", min: 0, max: 0 },
@@ -355,7 +391,7 @@ const anchorPresetLabels: Record<string, string> = {
 const anchorPresets: AnchorPreset[] = anchorYModes.flatMap((vertical) => anchorXModes.map((horizontal) => ({ id: `${horizontal.id}-${vertical.id}`, label: anchorPresetLabels[`${horizontal.id}-${vertical.id}`], anchorMinX: horizontal.min, anchorMinY: vertical.min, anchorMaxX: horizontal.max, anchorMaxY: vertical.max, pivotX: 0.5, pivotY: 0.5 })));
 const rootId = createId();
 const nodes = ref<UINode[]>([
-  makeNode("container", "Default_UI", { id: rootId, width: 1120, height: 620 }),
+  makeRootContainer(DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT, rootId),
   makeNode("image", "Header_Background", { parentId: rootId, x: 560, y: 555, width: 1120, height: 130, properties: { imageId: 100001, imageColor: colorFromHex("#263d64") } }),
   makeNode("text", "Quest_Title", { parentId: rootId, x: 300, y: 560, width: 480, height: 64, properties: { text: "任务标题", fontSize: 30, fontColor: colorFromHex("#f3f6ff") } }),
   makeNode("image", "Action_Button", { parentId: rootId, x: 925, y: 105, width: 210, height: 72, properties: { imageId: 100001, imageColor: colorFromHex("#5f78ff") } }),
@@ -451,6 +487,17 @@ const hierarchyDrag = ref<HierarchyDragState>(emptyHierarchyDrag());
 const controlLabels = Object.fromEntries(controlDefinitions.map((definition) => [definition.type, definition.label])) as Record<ControlType, string>;
 const currentDevice = computed(() => deviceModes.find((device) => device.id === deviceMode.value) ?? deviceModes[0]); const currentPreviewPresets = computed(() => previewPresets[deviceMode.value]); const currentPreset = computed(() => currentPreviewPresets.value.find((preset) => preset.id === previewPresetId.value) ?? currentPreviewPresets.value[0]); const isMobilePreview = computed(() => deviceMode.value === "mobile" || deviceMode.value === "controllerMobile");
 interface Matrix2D { a: number; b: number; c: number; d: number }
+const resizeCorners = ["tl", "tr", "bl", "br"] as const;
+type ResizeCorner = typeof resizeCorners[number];
+const canvasTools = [
+  { id: "combined", label: "三合一", icon: "transform", hint: "拖动控件移动 · 顶部手柄旋转 · 四角调整大小" },
+  { id: "move", label: "移动", icon: "move", hint: "拖动控件移动位置" },
+  { id: "rotate", label: "旋转", icon: "rotate", hint: "拖动控件或圆环，绕轴心旋转" },
+  { id: "scale", label: "缩放", icon: "scale", hint: "拖动控件等比缩放 · 红色 X / 绿色 Y 手柄单轴缩放" },
+] as const;
+type CanvasTool = typeof canvasTools[number]["id"];
+const canvasTool = ref<CanvasTool>("combined");
+const activeCanvasTool = computed(() => canvasTools.find(tool => tool.id === canvasTool.value)!);
 interface WorldTransform { x: number; y: number; matrix: Matrix2D }
 interface TimelineNodeRow { kind: "node"; key: string; node: UINode; trackCount: number }
 interface TimelineTweenRow { kind: "tween"; key: string; node: UINode; track: UITweenTrack; tracks: UITweenTrack[]; field: TweenableFieldDefinition }
@@ -795,23 +842,25 @@ function startAnimatedCanvasMove(event: PointerEvent, node: UINode) {
   });
   return true;
 }
-function startAnimatedCanvasResize(event: PointerEvent, node: UINode) {
+function startAnimatedCanvasResize(event: PointerEvent, node: UINode, corner: ResizeCorner) {
   if (!keyframeTracks.value.length) return false;
   selectedId.value = node.id;
   playing.value = false;
   const pose = previewNode(node);
   const world = previewWorldTransforms.value.get(node.id)!;
   const matrix = world.matrix;
+  const left = corner === "tl" || corner === "bl";
+  const top = corner === "tl" || corner === "tr";
   let resizedX = false, resizedY = false;
   pointerDrag(event, (dx, dy) => {
     const delta = inverseTransformVector(matrix, dx, -dy);
-    const width = delta.x !== 0 || resizedX ? Math.max(20, pose.width + delta.x) : pose.width;
-    const height = delta.y !== 0 || resizedY ? Math.max(20, pose.height - delta.y) : pose.height;
+    const width = delta.x !== 0 || resizedX ? Math.max(20, pose.width + (left ? -delta.x : delta.x)) : pose.width;
+    const height = delta.y !== 0 || resizedY ? Math.max(20, pose.height + (top ? delta.y : -delta.y)) : pose.height;
     if (delta.x !== 0 || resizedX) { resizedX = true; updateGeometry("width", width); }
     if (delta.y !== 0 || resizedY) { resizedY = true; updateGeometry("height", height); }
     if (resizedX || resizedY) {
-      // The handle is at bottom-right: keep the opposite corner fixed in world space.
-      const shift = transformVector(matrix, (width - pose.width) * pose.pivotX, -(height - pose.height) * (1 - pose.pivotY));
+      // Keep the corner opposite the dragged handle fixed in world space.
+      const shift = transformVector(matrix, (width - pose.width) * (pose.pivotX - (left ? 1 : 0)), (height - pose.height) * (pose.pivotY - (top ? 0 : 1)));
       updateGeometry("x", world.x + shift.x);
       updateGeometry("y", world.y + shift.y);
     }
@@ -1283,7 +1332,7 @@ function startTweenTimingDrag(event: PointerEvent, row: TimelineTweenRow, mode: 
 }
 let syncingTimelineScroll = false;
 function syncTimelineScroll(source: "names" | "content") { if (syncingTimelineScroll) return; const from = source === "names" ? timelineTrackNames.value : timelineContent.value; const to = source === "names" ? timelineContent.value : timelineTrackNames.value; if (!from || !to || Math.abs(to.scrollTop - from.scrollTop) < 1) return; syncingTimelineScroll = true; to.scrollTop = from.scrollTop; requestAnimationFrame(() => { syncingTimelineScroll = false; }); }
-function addNode(type: ControlType) { let root = rootContainer.value; if (!root) { root = makeNode("container", "Default_UI", { width: 1120, height: 620 }); nodes.value.unshift(root); rebaseNodeLayout(root); } const parent = selectedNode.value ?? root; const count = nodes.value.filter((node) => node.type === type).length + 1; const node = makeNode(type, `${controlLabels[type]}_${count}`, { parentId: parent.id, x: parent.width / 2 + (count - 2) * 40, y: parent.height / 2 - (count - 2) * 30 }); rebaseNodeLayout(node); nodes.value.push(node); selectedId.value = node.id; addMenuOpen.value = false; }
+function addNode(type: ControlType) { let root = rootContainer.value; if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); rebaseNodeLayout(root); } const parent = selectedNode.value ?? root; const count = nodes.value.filter((node) => node.type === type).length + 1; const node = makeNode(type, `${controlLabels[type]}_${count}`, { parentId: parent.id, x: parent.width / 2 + (count - 2) * 40, y: parent.height / 2 - (count - 2) * 30 }); rebaseNodeLayout(node); nodes.value.push(node); selectedId.value = node.id; addMenuOpen.value = false; }
 function removeSelected() { if (!selectedId.value || selectedId.value === rootContainer.value?.id) return; const remove = new Set<string>([selectedId.value]); let changed = true; while (changed) { changed = false; nodes.value.forEach((node) => { if (node.parentId && remove.has(node.parentId) && !remove.has(node.id)) { remove.add(node.id); changed = true; } }); } nodes.value = nodes.value.filter((node) => !remove.has(node.id)); tweenTracks.value = tweenTracks.value.filter((track) => !remove.has(track.nodeId)); animations.value.forEach(animation => { animation.keyframeTracks = animation.keyframeTracks.filter(track => !remove.has(track.nodeId)); }); selectedKeyframeId.value = null; selectedTweenTrackId.value = null; selectedId.value = rootContainer.value?.id ?? null; }
 function anchorVisualStyle(values: AnchorValues): CSSProperties { return { "--anchor-min-x": `${values.anchorMinX * 100}%`, "--anchor-min-y": `${values.anchorMinY * 100}%`, "--anchor-max-x": `${values.anchorMaxX * 100}%`, "--anchor-max-y": `${values.anchorMaxY * 100}%`, "--pivot-x": `${values.pivotX * 100}%`, "--pivot-y": `${values.pivotY * 100}%` } as CSSProperties; }
 function clamp01(value: number) { return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)); }
@@ -1306,7 +1355,7 @@ function getHierarchyOrder() { const ordered: UINode[] = []; const visited = new
 function getCanvasRenderOrder() { const ordered: UINode[] = []; const visited = new Set<string>(); const visit = (node: UINode) => { if (visited.has(node.id)) return; visited.add(node.id); ordered.push(node); nodes.value.filter((child) => child.parentId === node.id).slice().reverse().forEach(visit); }; nodes.value.filter((node) => node.parentId === null).slice().reverse().forEach(visit); nodes.value.slice().reverse().forEach(visit); return ordered; }
 function reparentNode(node: UINode, requestedParentId: string | null) { const root = rootContainer.value; if (!root || node.id === root.id) return false; const nextParent = nodes.value.find((item) => item.id === (requestedParentId ?? root.id)); if (!nextParent || nextParent.id === node.id || isDescendant(nextParent.id, node.id)) return false; if (node.parentId === nextParent.id) return true; const currentWorld = worldTransforms.value.get(node.id) ?? { x: node.x, y: node.y, matrix: localMatrix(node) }; const parentWorld = worldTransforms.value.get(nextParent.id) ?? { x: nextParent.x, y: nextParent.y, matrix: localMatrix(nextParent) }; node.parentId = nextParent.id; const localOffset = inverseTransformVector(parentWorld.matrix, currentWorld.x - parentWorld.x, currentWorld.y - parentWorld.y); node.x = roundLayout(nextParent.pivotX * nextParent.width + localOffset.x); node.y = roundLayout(nextParent.pivotY * nextParent.height + localOffset.y); rebaseNodeLayout(node); return true; }
 function placeNodeRelative(node: UINode, target: UINode, mode: "before" | "after") { const root = rootContainer.value; if (!root || node.id === root.id || node.id === target.id) return false; const parentId = target.id === root.id ? root.id : target.parentId ?? root.id; const nextParent = nodes.value.find((item) => item.id === parentId); if (!nextParent || nextParent.id === node.id || isDescendant(nextParent.id, node.id) || !reparentNode(node, nextParent.id)) return false; const movingIndex = nodes.value.findIndex((item) => item.id === node.id); if (movingIndex < 0) return false; const [movingNode] = nodes.value.splice(movingIndex, 1); const targetIndex = nodes.value.findIndex((item) => item.id === target.id); const insertIndex = target.id === root.id ? targetIndex + 1 : targetIndex + (mode === "after" ? 1 : 0); nodes.value.splice(Math.max(0, insertIndex), 0, movingNode); return true; }
-function ensureSingleRootContainer() { let root = nodes.value.find((node) => node.type === "container" && node.parentId === null) ?? nodes.value.find((node) => node.type === "container"); if (!root) { root = makeNode("container", "Default_UI", { width: 1120, height: 620 }); nodes.value.unshift(root); } if (root.parentId !== null) { const world = worldTransforms.value.get(root.id); root.parentId = null; root.x = roundLayout(world?.x ?? root.x); root.y = roundLayout(world?.y ?? root.y); rebaseNodeLayout(root); } nodes.value.filter((node) => node.id !== root.id && (!node.parentId || !nodes.value.some((parent) => parent.id === node.parentId))).forEach((node) => reparentNode(node, root.id)); }
+function ensureSingleRootContainer() { let root = nodes.value.find((node) => node.type === "container" && node.parentId === null) ?? nodes.value.find((node) => node.type === "container"); if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); } if (root.parentId !== null) { const world = worldTransforms.value.get(root.id); root.parentId = null; root.x = roundLayout(world?.x ?? root.x); root.y = roundLayout(world?.y ?? root.y); rebaseNodeLayout(root); } nodes.value.filter((node) => node.id !== root.id && (!node.parentId || !nodes.value.some((parent) => parent.id === node.parentId))).forEach((node) => reparentNode(node, root.id)); }
 function updateHierarchyDropTarget(clientX: number, clientY: number, draggedNode: UINode) { hierarchyDrag.value.pointerX = clientX; hierarchyDrag.value.pointerY = clientY; const tree = hierarchyTree.value; const root = rootContainer.value; if (!tree || !root) return; const treeRect = tree.getBoundingClientRect(); if (clientX < treeRect.left || clientX > treeRect.right || clientY < treeRect.top || clientY > treeRect.bottom) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "移回层级区域后释放"; return; } const row = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>(".tree-row[data-node-id]"); const hoveredNode = row?.dataset.nodeId ? nodes.value.find((node) => node.id === row.dataset.nodeId) : null; if (!row || !hoveredNode) { hierarchyDrag.value.dropTargetId = root.id; hierarchyDrag.value.dropParentId = root.id; hierarchyDrag.value.dropMode = "inside"; hierarchyDrag.value.dropLabel = `放到根层级 ${root.name}`; return; } const rowRect = row.getBoundingClientRect(); const ratioY = (clientY - rowRect.top) / Math.max(1, rowRect.height); let mode: Exclude<HierarchyDropMode, null> = ratioY < 0.27 ? "before" : ratioY > 0.73 ? "after" : "inside"; if (hoveredNode.id === draggedNode.id) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能放到自身"; return; } if (mode === "inside") { if (isDescendant(hoveredNode.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能归属到自己的子级"; return; } hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = hoveredNode.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = `成为 ${hoveredNode.name} 的子级`; return; } const nextParent = hoveredNode.id === root.id ? root : nodes.value.find((node) => node.id === hoveredNode.parentId) ?? root; if (nextParent.id === draggedNode.id || isDescendant(nextParent.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能移动到自己的子级之间"; return; } if (hoveredNode.id === root.id) mode = "after"; hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = nextParent.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = hoveredNode.id === root.id ? "放到根层级顶部" : `移到 ${hoveredNode.name} ${mode === "before" ? "上方" : "下方"}`; }
 let cancelHierarchyPress: (() => void) | null = null;
 function startHierarchyPress(event: PointerEvent, node: UINode) { if (event.button !== 0) return; selectedId.value = node.id; if (node.id === rootContainer.value?.id) return; cancelHierarchyPress?.(); const startX = event.clientX; const startY = event.clientY; let activated = false; let timer = window.setTimeout(() => { activated = true; hierarchyDrag.value = { nodeId: node.id, active: true, pointerX: startX, pointerY: startY, dropTargetId: null, dropParentId: node.parentId ?? rootContainer.value?.id ?? null, dropMode: null, dropLabel: `当前归属：${getLayoutParent(node)?.name ?? rootContainer.value?.name ?? "根容器"}` }; updateHierarchyDropTarget(startX, startY, node); }, 50); const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", cancel); cancelHierarchyPress = null; }; const move = (next: PointerEvent) => { if (!activated && Math.hypot(next.clientX - startX, next.clientY - startY) > 7) { cleanup(); return; } if (activated) { next.preventDefault(); updateHierarchyDropTarget(next.clientX, next.clientY, node); } }; const finish = (next: PointerEvent) => { if (activated) { updateHierarchyDropTarget(next.clientX, next.clientY, node); const targetId = hierarchyDrag.value.dropTargetId; const mode = hierarchyDrag.value.dropMode; const target = targetId ? nodes.value.find((item) => item.id === targetId) : null; const changed = target && mode === "inside" ? reparentNode(node, target.id) : target && (mode === "before" || mode === "after") ? placeNodeRelative(node, target, mode) : false; if (changed) { const expandId = mode === "inside" ? target?.id : hierarchyDrag.value.dropParentId; if (expandId) { const nextCollapsed = new Set(collapsed.value); nextCollapsed.delete(expandId); collapsed.value = nextCollapsed; } } } cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; const cancel = () => { cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; cancelHierarchyPress = cleanup; window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", cancel); }
@@ -1472,7 +1521,200 @@ function textRenderStyle(node: UINodeOf<"text"> | UINodeOf<"textWindow">): CSSPr
   };
 }
 function nodeStyle(node: UINode): CSSProperties { const displayNode = previewNode(node); const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) }; const isText = displayNode.type === "text" || displayNode.type === "textWindow"; const typeColor = editorTypeColors[displayNode.type]; const borderColor = displayNode.type === "image" ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor); const backgroundColor = displayNode.type === "image" ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, displayNode.type === "container" ? 0.07 : 0.12); return { width: `${displayNode.width}px`, height: `${displayNode.height}px`, left: `${world.x - displayNode.width * displayNode.pivotX}px`, top: `${canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY)}px`, transform: `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`, transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) }; }
+function canvasOverlayPoint(x: number, y: number) {
+  return { x: panX.value + (x - canvasWidth.value / 2) * zoom.value, y: panY.value + (canvasHeight.value / 2 - y) * zoom.value };
+}
+function canvasClientPoint(x: number, y: number) {
+  const viewport = viewportElement.value;
+  if (!viewport) return null;
+  const rect = viewport.getBoundingClientRect();
+  const offset = canvasOverlayPoint(x, y);
+  return { x: rect.left + viewport.clientLeft + viewport.clientWidth / 2 + offset.x, y: rect.top + viewport.clientTop + viewport.clientHeight / 2 + offset.y };
+}
+function screenAxis(matrix: Matrix2D, axis: "x" | "y") {
+  const x = axis === "x" ? matrix.a : matrix.c;
+  const y = axis === "x" ? -matrix.b : -matrix.d;
+  const length = Math.hypot(x, y);
+  return length > 0.000001 ? { x: x / length, y: y / length } : { x: axis === "x" ? 1 : 0, y: axis === "y" ? -1 : 0 };
+}
+const transformGizmo = computed(() => {
+  const node = selectedNode.value;
+  if (!node || node.locked || canvasTool.value === "move" || !renderNodes.value.some(item => item.id === node.id)) return null;
+  const pose = previewNode(node);
+  const world = previewWorldTransforms.value.get(node.id);
+  if (!world) return null;
+  const point = canvasOverlayPoint(world.x, world.y);
+  const xAxis = screenAxis(world.matrix, "x"), yAxis = screenAxis(world.matrix, "y");
+  const topOffset = transformVector(world.matrix, (0.5 - pose.pivotX) * pose.width, (1 - pose.pivotY) * pose.height);
+  const top = { x: topOffset.x * zoom.value, y: -topOffset.y * zoom.value };
+  return {
+    style: { left: `calc(50% + ${point.x}px)`, top: `calc(50% + ${point.y}px)` },
+    top,
+    rotationHandle: { x: top.x + yAxis.x * 32, y: top.y + yAxis.y * 32 },
+    xAxis: { x: xAxis.x * 58, y: xAxis.y * 58 },
+    scaleAxes: [{ id: "x" as const, x: xAxis.x * 58, y: xAxis.y * 58 }, { id: "y" as const, x: yAxis.x * 58, y: yAxis.y * 58 }],
+  };
+});
+const boneLengthHandle = computed<CSSProperties | null>(() => {
+  const node = selectedNode.value;
+  if (!node || node.locked || !renderContainerDirections.value.some(guide => guide.id === node.id)) return null;
+  const world = previewWorldTransforms.value.get(node.id);
+  if (!world || Math.hypot(world.matrix.a, world.matrix.b) < 0.000001) return null;
+  const length = selectedDirectionArrowLength.value;
+  const point = canvasOverlayPoint(world.x + world.matrix.a * length, world.y + world.matrix.b * length);
+  const angle = Math.atan2(-world.matrix.b, world.matrix.a) * 180 / Math.PI;
+  const cursors = ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"];
+  return { left: `calc(50% + ${point.x}px)`, top: `calc(50% + ${point.y}px)`, cursor: cursors[((Math.round(angle / 45) % 4) + 4) % 4] };
+});
+function startBoneLengthDrag(event: PointerEvent) {
+  if (event.button === 1) { startCanvasPan(event); return; }
+  const node = selectedNode.value;
+  if (event.button !== 0 || !node || node.type !== "container" || !boneLengthHandle.value) return;
+  playing.value = false;
+  event.preventDefault();
+  const world = previewWorldTransforms.value.get(node.id)!;
+  const { a, b } = world.matrix;
+  const axisLengthSquared = a * a + b * b;
+  const length = selectedDirectionArrowLength.value;
+  pointerDrag(event, (dx, dy) => {
+    // Project onto the displayed bone axis; perpendicular motion leaves length unchanged.
+    const next = normalizeDirectionArrowLength(length + (dx * a - dy * b) / axisLengthSquared);
+    if (next !== normalizeDirectionArrowLength(node.editor?.directionArrowLength)) node.editor = { ...node.editor, directionArrowLength: next };
+  });
+}
+function selectCanvasTool(tool: CanvasTool) {
+  stopCanvasNodeDrag?.();
+  canvasTool.value = tool;
+}
+function canvasNodesAtPoint(clientX: number, clientY: number) {
+  const origin = canvasClientPoint(0, 0);
+  if (!origin) return [];
+  const x = (clientX - origin.x) / zoom.value, y = (origin.y - clientY) / zoom.value;
+  // Rendering is back-to-front. Hit testing follows the same order, reversed,
+  // and uses each preview transform rather than the DOM's topmost event target.
+  return renderNodes.value.slice().reverse().filter(node => {
+    const world = previewWorldTransforms.value.get(node.id);
+    if (!world || Math.abs(world.matrix.a * world.matrix.d - world.matrix.b * world.matrix.c) < 0.000001) return false;
+    const pose = previewNode(node);
+    const local = inverseTransformVector(world.matrix, x - world.x, y - world.y);
+    return local.x >= -pose.width * pose.pivotX && local.x <= pose.width * (1 - pose.pivotX)
+      && local.y >= -pose.height * pose.pivotY && local.y <= pose.height * (1 - pose.pivotY);
+  });
+}
+function startCanvasPress(event: PointerEvent) {
+  if (event.button === 1) { startCanvasPan(event); return; }
+  if (event.button !== 0) return;
+  stopCanvasNodeDrag?.();
+  event.preventDefault();
+  const pointerId = event.pointerId;
+  const selected = selectedNode.value;
+  const dragTarget = selected && !selected.locked && canvasNodesAtPoint(event.clientX, event.clientY).some(node => node.id === selected.id) ? selected : null;
+  let dragged = false;
+  const exceedsClickDistance = (next: PointerEvent) => Math.hypot(next.clientX - event.clientX, next.clientY - event.clientY) >= 4;
+  const cleanup = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", finish);
+    window.removeEventListener("pointercancel", cancel);
+    window.removeEventListener("blur", cleanup);
+    if (stopCanvasNodeDrag === cleanup) stopCanvasNodeDrag = null;
+  };
+  const move = (next: PointerEvent) => {
+    if (next.pointerId !== pointerId || !exceedsClickDistance(next)) return;
+    dragged = true;
+    if (!dragTarget || selectedId.value !== dragTarget.id) return;
+    cleanup();
+    startCanvasTransform(event, dragTarget);
+    // Apply the threshold-crossing movement too, measured from the original press.
+    moveCanvasNodeDrag?.(next);
+  };
+  const finish = (next: PointerEvent) => {
+    if (next.pointerId !== pointerId) return;
+    cleanup();
+    if (dragged || exceedsClickDistance(next)) return;
+    const hits = canvasNodesAtPoint(next.clientX, next.clientY);
+    const current = hits.findIndex(node => node.id === selectedId.value);
+    selectedId.value = hits.length ? hits[(current + 1) % hits.length].id : null;
+  };
+  const cancel = (next: PointerEvent) => { if (next.pointerId === pointerId) cleanup(); };
+  stopCanvasNodeDrag = cleanup;
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", finish);
+  window.addEventListener("pointercancel", cancel);
+  window.addEventListener("blur", cleanup);
+}
+function startCanvasTransform(event: PointerEvent, node: UINode) {
+  if (event.button === 1) { startCanvasPan(event); return; }
+  if (event.button !== 0) return;
+  selectedId.value = node.id;
+  if (node.locked) return;
+  if (canvasTool.value === "rotate") startCanvasRotation(event, node);
+  else if (canvasTool.value === "scale") startCanvasScale(event, node);
+  else startMove(event, node);
+}
+function startCanvasRotation(event: PointerEvent, node: UINode) {
+  if (event.button === 1) { startCanvasPan(event); return; }
+  if (event.button !== 0 || node.locked) return;
+  selectedId.value = node.id;
+  playing.value = false;
+  const pose = previewNode(node);
+  const world = previewWorldTransforms.value.get(node.id);
+  if (!world) return;
+  const pivot = canvasClientPoint(world.x, world.y);
+  if (!pivot) return;
+  event.preventDefault();
+  const parentMatrix = node.parentId ? previewWorldTransforms.value.get(node.parentId)?.matrix : null;
+  const matrix = parentMatrix ?? { a: 1, b: 0, c: 0, d: 1 };
+  if (Math.abs(matrix.a * matrix.d - matrix.b * matrix.c) < 0.000001) return;
+  const initialZoom = zoom.value;
+  const origin = { x: (event.clientX - pivot.x) / initialZoom, y: (pivot.y - event.clientY) / initialZoom };
+  const angleAt = (x: number, y: number) => { const local = inverseTransformVector(matrix, x, y); return Math.atan2(local.y, local.x); };
+  let previousAngle: number | null = Math.hypot(origin.x, origin.y) * initialZoom >= 4 ? angleAt(origin.x, origin.y) : null;
+  let totalAngle = 0;
+  const rotation = pose.rotation;
+  pointerDrag(event, (dx, dy) => {
+    const x = origin.x + dx, y = origin.y - dy;
+    if (Math.hypot(x, y) * initialZoom < 4) return;
+    const angle = angleAt(x, y);
+    if (previousAngle !== null) {
+      // Accumulate short steps so crossing +/-180 degrees never jumps a full turn.
+      const step = angle - previousAngle;
+      totalAngle += Math.atan2(Math.sin(step), Math.cos(step));
+      if (totalAngle !== 0 || step !== 0) writeAnimatedValue(node, "localRotationZ", roundLayout(rotation + totalAngle * 180 / Math.PI));
+    }
+    previousAngle = angle;
+  });
+}
+function startCanvasScale(event: PointerEvent, node: UINode, axis: "uniform" | "x" | "y" = "uniform") {
+  if (event.button === 1) { startCanvasPan(event); return; }
+  if (event.button !== 0 || node.locked) return;
+  selectedId.value = node.id;
+  playing.value = false;
+  const pose = previewNode(node);
+  const world = previewWorldTransforms.value.get(node.id);
+  if (!world) return;
+  const pivot = canvasClientPoint(world.x, world.y);
+  if (!pivot) return;
+  event.preventDefault();
+  const scaleX = pose.scaleX, scaleY = pose.scaleY;
+  const direction = screenAxis(world.matrix, axis === "y" ? "y" : "x");
+  const origin = { x: event.clientX - pivot.x, y: event.clientY - pivot.y };
+  const radius = Math.hypot(origin.x, origin.y);
+  const initialZoom = zoom.value;
+  let changed = false;
+  pointerDrag(event, (dx, dy) => {
+    const screenX = dx * initialZoom, screenY = dy * initialZoom;
+    const ratio = axis !== "uniform" ? 1 + (screenX * direction.x + screenY * direction.y) / 100
+      : radius >= 16 ? Math.hypot(origin.x + screenX, origin.y + screenY) / radius : 1 + (screenX - screenY) / 100;
+    const factor = Math.max(0.01, ratio);
+    if (factor === 1 && !changed) return;
+    changed = true;
+    if (axis !== "y") writeAnimatedValue(node, "localScaleX", Math.round(scaleX * factor * 10000) / 10000);
+    if (axis !== "x") writeAnimatedValue(node, "localScaleY", Math.round(scaleY * factor * 10000) / 10000);
+  });
+}
 let stopCanvasNodeDrag: (() => void) | null = null;
+let moveCanvasNodeDrag: ((event: PointerEvent) => void) | null = null;
+onBeforeUnmount(() => stopCanvasNodeDrag?.());
 function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => void) {
   stopCanvasNodeDrag?.();
   const pointerId = event.pointerId;
@@ -1487,10 +1729,11 @@ function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => vo
     window.removeEventListener("pointerup", finish);
     window.removeEventListener("pointercancel", finish);
     window.removeEventListener("blur", cleanup);
-    if (stopCanvasNodeDrag === cleanup) stopCanvasNodeDrag = null;
+    if (stopCanvasNodeDrag === cleanup) { stopCanvasNodeDrag = null; moveCanvasNodeDrag = null; }
   };
   const finish = (next: PointerEvent) => { if (next.pointerId === pointerId) cleanup(); };
   stopCanvasNodeDrag = cleanup;
+  moveCanvasNodeDrag = move;
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", finish);
   window.addEventListener("pointercancel", finish);
@@ -1499,8 +1742,33 @@ function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => vo
 function inverseTransformVector(matrix: Matrix2D, x: number, y: number) { const determinant = matrix.a * matrix.d - matrix.b * matrix.c; if (Math.abs(determinant) < 0.000001) return { x: 0, y: 0 }; return { x: (matrix.d * x - matrix.c * y) / determinant, y: (-matrix.b * x + matrix.a * y) / determinant }; }
 function handleCanvasWheel(event: WheelEvent) { const viewport = viewportElement.value; if (!viewport) return; const normalizedDelta = event.deltaY * (event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? viewport.clientHeight : 1); const previousZoom = zoom.value; const nextZoom = Math.max(0.2, Math.min(1.5, previousZoom * Math.exp(-normalizedDelta * 0.0015))); if (nextZoom === previousZoom) return; const rect = viewport.getBoundingClientRect(); const pointerX = event.clientX - (rect.left + rect.width / 2); const pointerY = event.clientY - (rect.top + rect.height / 2); const ratio = nextZoom / previousZoom; panX.value = roundLayout(panX.value + (pointerX - panX.value) * (1 - ratio)); panY.value = roundLayout(panY.value + (pointerY - panY.value) * (1 - ratio)); zoom.value = nextZoom; }
 function startCanvasPan(event: PointerEvent) { if (event.button !== 1) return; event.preventDefault(); event.stopPropagation(); const startX = event.clientX; const startY = event.clientY; const originX = panX.value; const originY = panY.value; isPanning.value = true; const move = (next: PointerEvent) => { panX.value = roundLayout(originX + next.clientX - startX); panY.value = roundLayout(originY + next.clientY - startY); }; const end = () => { isPanning.value = false; window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end); }
-function handleViewportPointerDown(event: PointerEvent) { if (event.button === 1) { startCanvasPan(event); return; } if (event.target === event.currentTarget) selectedId.value = null; }
-function startMove(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; selectedId.value = node.id; if (node.locked) return; if (startAnimatedCanvasMove(event, node)) return; const x = node.x; const y = node.y; const parent = getLayoutParent(node); const parentMatrix = parent ? worldTransforms.value.get(parent.id)?.matrix ?? localMatrix(parent) : { a: 1, b: 0, c: 0, d: 1 }; pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(parentMatrix, dx, -dy); node.x = roundLayout(x + localDelta.x); node.y = roundLayout(y + localDelta.y); rebaseNodeLayout(node); const world = worldTransforms.value.get(node.id); cursorPosition.value = { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; }); } function startResize(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; if (startAnimatedCanvasResize(event, node)) return; const width = node.width; const height = node.height; const x = node.x; const y = node.y; const worldMatrix = worldTransforms.value.get(node.id)?.matrix ?? localMatrix(node); const ownMatrix = localMatrix(node); pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(worldMatrix, dx, -dy); const nextWidth = Math.max(20, roundLayout(width + localDelta.x)); const nextHeight = Math.max(20, roundLayout(height - localDelta.y)); const pivotShift = transformVector(ownMatrix, (nextWidth - width) * node.pivotX, -(nextHeight - height) * (1 - node.pivotY)); node.x = roundLayout(x + pivotShift.x); node.y = roundLayout(y + pivotShift.y); node.width = nextWidth; node.height = nextHeight; rebaseNodeLayout(node); applyDescendantLayouts(node.id); }); }
+function handleViewportPointerDown(event: PointerEvent) { startCanvasPress(event); }
+function startMove(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; selectedId.value = node.id; if (node.locked) return; if (startAnimatedCanvasMove(event, node)) return; const x = node.x; const y = node.y; const parent = getLayoutParent(node); const parentMatrix = parent ? worldTransforms.value.get(parent.id)?.matrix ?? localMatrix(parent) : { a: 1, b: 0, c: 0, d: 1 }; pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(parentMatrix, dx, -dy); node.x = roundLayout(x + localDelta.x); node.y = roundLayout(y + localDelta.y); rebaseNodeLayout(node); const world = worldTransforms.value.get(node.id); cursorPosition.value = { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; }); }
+function startResize(event: PointerEvent, node: UINode, corner: ResizeCorner = "br") {
+  if (event.button === 1) { startCanvasPan(event); return; }
+  if (event.button !== 0 || node.locked) return;
+  if (startAnimatedCanvasResize(event, node, corner)) return;
+  const width = node.width;
+  const height = node.height;
+  const x = node.x;
+  const y = node.y;
+  const left = corner === "tl" || corner === "bl";
+  const top = corner === "tl" || corner === "tr";
+  const worldMatrix = worldTransforms.value.get(node.id)?.matrix ?? localMatrix(node);
+  const ownMatrix = localMatrix(node);
+  pointerDrag(event, (dx, dy) => {
+    const localDelta = inverseTransformVector(worldMatrix, dx, -dy);
+    const nextWidth = Math.max(20, roundLayout(width + (left ? -localDelta.x : localDelta.x)));
+    const nextHeight = Math.max(20, roundLayout(height + (top ? localDelta.y : -localDelta.y)));
+    const pivotShift = transformVector(ownMatrix, (nextWidth - width) * (node.pivotX - (left ? 1 : 0)), (nextHeight - height) * (node.pivotY - (top ? 0 : 1)));
+    node.x = roundLayout(x + pivotShift.x);
+    node.y = roundLayout(y + pivotShift.y);
+    node.width = nextWidth;
+    node.height = nextHeight;
+    rebaseNodeLayout(node);
+    applyDescendantLayouts(node.id);
+  });
+}
 function formatDimension(value: number) { return Number.isInteger(value) ? String(value) : value.toFixed(2); }
 function selectPreviewPreset(presetId: string) {
   const device = deviceModes.find((mode) => previewPresets[mode.id].some((preset) => preset.id === presetId));
@@ -1680,7 +1948,7 @@ function createBlankProject(name: string) {
   return JSON.stringify({
     version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
     name, deviceMode: "pc", previewPresetId: "pc-16-9", canvasWidth: DEFAULT_CANVAS_WIDTH, canvasHeight: DEFAULT_CANVAS_HEIGHT,
-    duration: 5, frameRate: 30, nodes: [makeNode("container", "Default_UI", { width: 1120, height: 620 })], tweenTracks: [],
+    duration: 5, frameRate: 30, nodes: [makeRootContainer()], tweenTracks: [],
   });
 }
 async function resetProject() {
@@ -2545,7 +2813,7 @@ button, select, input, textarea { font: inherit; }
 .image-placeholder small { letter-spacing: .2em; }
 .text-preview { font-size: 30px; font-weight: 700; text-shadow: 0 2px 8px #0008; }
 .selection-tag { position: absolute; left: -4px; top: -35px; background: #52cbd8; color: #09222a; padding: 5px 8px; font-size: 13px; font-weight: 700; white-space: nowrap; border-radius: 3px; }
-.resize-handle { position: absolute; right: -9px; bottom: -9px; width: 14px; height: 14px; border: 3px solid #16202d; background: #65e4ef; border-radius: 2px; cursor: nwse-resize; }
+.resize-handle { cursor: nwse-resize; }
 
 .ruler { position: absolute; z-index: 3; color: #556277; font-size: 10px; pointer-events: none; }
 .ruler-x { left: 34px; right: 0; top: 0; height: 20px; display: flex; justify-content: space-between; border-bottom: 1px solid #2a3442aa; }
@@ -3919,8 +4187,43 @@ button { transition: background .12s, border-color .12s; }
 .corner-tl { top: -7px; left: -7px; }
 .corner-tr { top: -7px; right: -7px; }
 .corner-bl { bottom: -7px; left: -7px; }
-.resize-handle { bottom: -7px; right: -7px; width: 10px; height: 10px; border: 2px solid #434d58; border-radius: 50%; background: #eff6f7; }
+.corner-br { bottom: -7px; right: -7px; }
+.resize-handle { pointer-events: auto; touch-action: none; }
+.resize-handle.corner-tr, .resize-handle.corner-bl { cursor: nesw-resize; }
 .selection-pivot { position: absolute; width: 10px; height: 10px; border: 3px solid #5ce5ee; border-radius: 50%; transform: translate(-50%, 50%); pointer-events: none; }
+.canvas-transform-toolbar { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; min-height: 43px; padding: 6px 10px; border-top: 1px solid #505968; background: #303743; }
+.canvas-transform-toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 0 0 auto; padding: 6px 10px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #c4cedc; font-size: 12px; cursor: pointer; }
+.canvas-transform-toolbar button:hover { background: #444e5d; color: #fff; }
+.canvas-transform-toolbar button.active { border-color: #5ce5ee75; background: #5ce5ee1c; color: #a8f4fa; }
+.canvas-transform-toolbar button:focus-visible, .rotation-handle:focus-visible { outline: 2px solid #5ce5ee; outline-offset: 2px; }
+.canvas-transform-hint { margin-left: 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #99a6b9; font-size: 11px; }
+.tool-rotate .canvas-node:not(.locked) { cursor: crosshair; }
+.tool-scale .canvas-node:not(.locked) { cursor: nwse-resize; }
+.canvas-node { touch-action: none; }
+.transform-gizmo { position: absolute; width: 0; height: 0; z-index: 12; pointer-events: none; }
+.transform-gizmo-lines, .scale-gizmo { position: absolute; overflow: visible; }
+.transform-gizmo-lines { stroke: #5ce5ee; stroke-width: 1.5; }
+.rotation-handle { position: absolute; display: flex; align-items: center; justify-content: center; width: 25px; height: 25px; padding: 0; transform: translate(-50%, -50%); border: 1px solid #5ce5ee; border-radius: 50%; background: #303743; color: #c8faff; pointer-events: auto; touch-action: none; cursor: grab; }
+.rotation-handle:hover { background: #426572; }
+.rotation-handle:active { cursor: grabbing; }
+.rotation-gizmo { position: absolute; left: -58px; top: -58px; overflow: visible; }
+.rotation-ring-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; touch-action: none; cursor: crosshair; }
+.rotation-ring { fill: none; stroke: #ff665e; stroke-width: 2; }
+.rotation-ring-hit:hover + .rotation-ring { stroke: #ffaaa4; stroke-width: 3; }
+.rotation-ticks { fill: none; stroke: #ff938b; stroke-width: 1.5; }
+.rotation-radius { stroke: #5ce5ee; stroke-width: 1.5; }
+.rotation-center { fill: #303743; stroke: #8eeef5; stroke-width: 2; }
+.scale-axis { fill: #ff736b; stroke: #ff736b; stroke-width: 2; cursor: ew-resize; pointer-events: auto; touch-action: none; }
+.scale-axis.axis-y { fill: #83e49b; stroke: #83e49b; cursor: ns-resize; }
+.scale-axis-hit { stroke: transparent; stroke-width: 16; pointer-events: stroke; }
+.scale-axis text { font: 11px sans-serif; stroke: none; pointer-events: none; }
+.scale-axis:hover rect { fill: #fff; }
+.scale-uniform { fill: #303743; stroke: #b9f6fa; stroke-width: 2; pointer-events: auto; touch-action: none; cursor: nwse-resize; }
+.scale-uniform:hover { fill: #5ce5ee; }
+.bone-length-handle { position: absolute; z-index: 13; width: 12px; height: 12px; padding: 0; transform: translate(-50%, -50%) rotate(45deg); border: 1.5px solid #b9f6fa; border-radius: 2px; background: #303743; touch-action: none; }
+.bone-length-handle::before { content: ""; position: absolute; inset: -5px; }
+.bone-length-handle:hover, .bone-length-handle:active { background: #5ce5ee; border-color: #fff; }
+.bone-length-handle:focus-visible { outline: 2px solid #5ce5ee; outline-offset: 3px; }
 .direction-length-field { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #bfc8d7; }
 .direction-length-field > span { flex: 0 0 auto; }
 .direction-length-field > input { flex: 1; width: 0; min-width: 0; padding: 7px 9px; border: 1px solid #414c5d; border-radius: 5px; background: #242b36; color: #edf3ff; }
