@@ -57,6 +57,8 @@ async function main() {
     const registry = require(path.join(editor, "controlRegistry.ts"));
     const tweenRegistry = require(path.join(editor, "tweenRegistry.ts"));
     const importer = require(path.join(editor, "giaImporter.ts"));
+    const controlTemplates = require(path.join(editor, "controlTemplates.ts"));
+    Object.assign(controlTemplates, require(path.join(editor, "giaExporter.ts")));
     const exporter = require(path.join(editor, "luaTweenExporter.ts"));
     const propertyActions = require(path.join(editor, "propertyGroupActions.ts"));
     const clipLayout = require(path.join(editor, "timelineClipLayout.ts"));
@@ -68,7 +70,7 @@ async function main() {
     function createEditor() {
       let savedProject;
       const context = vm.createContext({
-        ...vue, ...registry, ...tweenRegistry, ...importer, ...exporter, ...propertyActions, ...clipLayout, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua,
+        ...vue, ...registry, ...tweenRegistry, ...importer, ...controlTemplates, ...exporter, ...propertyActions, ...clipLayout, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua,
         inject: () => null,
         nextTick: () => Promise.resolve(),
         window: { alert(message) { assert.fail(message); } },

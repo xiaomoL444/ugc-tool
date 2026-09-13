@@ -1,6 +1,9 @@
+import type { PrimitiveProperties } from "./primitiveData";
+
 export type ControlType =
   | "container"
   | "image"
+  | "primitive"
   | "text"
   | "textWindow"
   | "presetButton"
@@ -152,6 +155,8 @@ export interface ClientUIReferenceControlProperties {
 }
 
 export interface ControlPropertiesMap {
+  /** 图元控件引用文件级图片资源；旧文件的内嵌图片在载入时迁移。原生导出暂映射为容器。 */
+  primitive: PrimitiveProperties;
   container: ClientUIContainerControlProperties;
   image: ClientUIImageControlProperties;
   text: ClientUITextBoxControlProperties;

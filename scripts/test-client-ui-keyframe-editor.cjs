@@ -32,6 +32,8 @@ async function main() {
     "applyAnchorPreset", "currentAnchorPresetId", "propertyClipboard", "copySelectedPropertyGroup", "resetSelectedPropertyGroup", "pasteSelectedPropertyGroup",
     "beginEditorHistoryPointer", "endEditorHistoryPointer", "editorHistory", "captureUndoState", "undoEditorOperation", "redoEditorOperation",
     "serializeProject", "applyProjectData", "loadProject", "createBlankProject", "timelineEditNotice",
+    "controlTemplates", "saveControlTemplate", "selectControlTemplate", "selectedControlTemplate", "templateLibraryOpen",
+    "createGiaProject", "giaSource", "attachGiaSource", "giaExportOpen", "giaExportError",
     "animations", "activeAnimationId", "activeAnimation", "animationNotice", "animationsPanelCollapsed", "selectAnimation", "createAnimation", "duplicateAnimation", "renameAnimation", "removeAnimation",
     "openTimelineDataImport", "timelineDataImportMode", "timelineDataSource", "confirmTimelineDataImport", "exportSelectedNodeKeyframeData"];
   const script = ts.transpileModule(`${declarations}\n${watches.join("\n")}\nglobalThis.api={${exposed.join(",")}};`, {
@@ -108,6 +110,92 @@ async function main() {
     function pointer(x = 100, extras = {}) { return { button: 0, pointerId: 9, clientX: x, clientY: 20, target: { closest: () => null }, preventDefault() {}, ...extras }; }
     async function gesture(api, work) { const event = pointer(); api.beginEditorHistoryPointer(event); work(event); api.endEditorHistoryPointer(event); await tick(); }
 
+    const templateAsset = () => ({ id: "template-test", index: 7, name: "任务图标", sourceName: "task.gia", warnings: [], devices: [0, 1, 2, 3].map(() => [{
+      sourceNodeIndex: 1, parentSourceNodeIndex: null, childSourceNodeIndices: [], name: "Root", type: "container", properties: {},
+      layout: { active: true, scaleX: .25, scaleY: .25, scaleZ: 1, rotationX: 0, rotationY: 0, rotationZ: 0,
+        anchorMinX: .5, anchorMinY: .5, anchorMaxX: .5, anchorMaxY: .5, anchoredPositionX: 0, anchoredPositionY: 0,
+        sizeDeltaX: 150, sizeDeltaY: 150, pivotX: .5, pivotY: .5 },
+    }]) });
+    await test("Control templates import, select at native size, serialize and reopen with all device layouts", async () => {
+      const api = fixture(); const asset = templateAsset();
+      api.saveControlTemplate(asset); await tick();
+      assert.equal(api.controlTemplates.value.length, 1);
+      await api.editorHistory.undo(); assert.equal(api.controlTemplates.value.length, 0);
+      await api.editorHistory.redo(); assert.equal(api.controlTemplates.value[0].index, 7);
+      const reference = api.makeNode("reference", "引用", { id: "reference", parentId: "root" });
+      api.nodes.value.push(reference); api.selectedId.value = reference.id;
+      api.editorHistory.reset(api.captureUndoState());
+      api.selectControlTemplate(7); await tick();
+      assert.equal(api.selectedNode.value.properties.referencedPrefabIndex, 7);
+      near(api.selectedNode.value.width, 37.5); near(api.selectedNode.value.height, 37.5);
+      assert.equal(history(api).length, 1, "Reference and initial dimensions form one undo operation");
+      await api.editorHistory.undo(); assert.equal(api.selectedNode.value.properties.referencedPrefabIndex, null);
+      await api.editorHistory.redo(); assert.equal(api.selectedControlTemplate.value.name, asset.name);
+      const serialized = api.serializeProject();
+      api.applyProjectData(api.createBlankProject("Empty")); assert.equal(api.controlTemplates.value.length, 0);
+      api.applyProjectData(serialized); api.selectedId.value = "reference";
+      assert.deepEqual(plain(api.controlTemplates.value), [asset]);
+      assert.equal(api.selectedControlTemplate.value.name, asset.name);
+    });
+    await test("Changing a template index updates its references atomically and duplicate indices cannot overwrite resources", async () => {
+      const api = fixture(); const asset = templateAsset(); api.saveControlTemplate(asset);
+      api.nodes.value.push(api.makeNode("reference", "引用", { id: "reference", properties: { referencedPrefabIndex: 7 } }));
+      api.editorHistory.reset(api.captureUndoState());
+      api.saveControlTemplate({ ...asset, index: 12 }); await tick();
+      assert.equal(node(api, "reference").properties.referencedPrefabIndex, 12);
+      await api.editorHistory.undo(); assert.equal(node(api, "reference").properties.referencedPrefabIndex, 7);
+      assert.equal(api.controlTemplates.value[0].index, 7);
+      await api.editorHistory.redo(); assert.equal(api.controlTemplates.value[0].index, 12);
+      const before = api.serializeProject(); api.saveControlTemplate({ ...asset, id: "duplicate", index: 12 });
+      assert.equal(api.serializeProject(), before); assert.match(api.alerts.at(-1), /已被其他模板使用/);
+    });
+    await test("Invalid template libraries reject before mutating the current project; older files clear the library", () => {
+      const api = fixture(); api.saveControlTemplate(templateAsset());
+      const before = api.serializeProject(), invalid = JSON.parse(before);
+      invalid.controlTemplates[0].devices[0][0].parentSourceNodeIndex = 1;
+      assert.throws(() => api.applyProjectData(JSON.stringify(invalid)), /循环/);
+      assert.equal(api.serializeProject(), before);
+      const legacy = JSON.parse(before); delete legacy.controlTemplates;
+      api.applyProjectData(JSON.stringify(legacy)); assert.equal(api.controlTemplates.value.length, 0);
+    });
+    for (const sample of process.argv.slice(2)) await test(`Native GIA source survives the real editor's import, rebase, JSON reload and animation preview: ${path.basename(sample)}`, async () => {
+      const api = fixture(), bytes = fs.readFileSync(sample), arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      const file = { name: path.basename(sample), arrayBuffer: async () => arrayBuffer };
+      const project = await api.createGiaProject(file); api.applyProjectData(project);
+      const source = plain(api.giaSource.value), loadedNodes = plain(api.nodes.value), original = imports.importGiaControls(arrayBuffer);
+      const runExport = () => imports.exportGiaUI({ name: original.projectName, uiIndex: imports.originalGiaUIIndex(api.giaSource.value), deviceIndex: 0, source: api.giaSource.value, nodes: api.nodes.value });
+      let exported = runExport();
+      assert.deepEqual(imports.importGiaControls(exported.bytes.buffer).controls, original.controls, "Initial editor rounding must not rewrite unchanged original floats");
+      const serialized = api.serializeProject(); api.applyProjectData(api.createBlankProject("Empty")); api.applyProjectData(serialized);
+      assert.deepEqual(plain(api.giaSource.value), source);
+      assert.deepEqual(plain(api.nodes.value), loadedNodes);
+      exported = runExport(); assert.deepEqual(imports.importGiaControls(exported.bytes.buffer).controls, original.controls);
+      const image = api.nodes.value.find(node => node.type === "image");
+      api.selectedId.value = image.id; addTrack(api, "localEulerAnglesZ", image.id);
+      api.currentTime.value = 2; api.updateAnimatedBaseValue("localEulerAnglesZ", 90);
+      exported = runExport(); assert.deepEqual(imports.importGiaControls(exported.bytes.buffer).controls, original.controls, "Export uses setup, not animation preview");
+      const legacy = JSON.parse(serialized); delete legacy.giaSource; api.applyProjectData(JSON.stringify(legacy));
+      api.giaExportOpen.value = true; await api.attachGiaSource(file);
+      assert.equal(api.giaExportError.value, "");
+      assert.deepEqual(plain(api.nodes.value), loadedNodes, "Attaching provenance cannot overwrite live edits");
+      exported = runExport(); assert.deepEqual(imports.importGiaControls(exported.bytes.buffer).controls, original.controls);
+    });
+
+    await test("Custom primitive image references survive JSON, history and animation without being converted into native images", async () => {
+      const api = fixture();
+      const primitive = api.makeNode("primitive", "图元", { id: "primitive", parentId: "root" });
+      api.nodes.value.push(primitive); api.selectedId.value = primitive.id; api.editorHistory.reset(api.captureUndoState());
+      const source = "data:image/png;base64,iVBORw0KGgo=";
+      api.selectedProperties.value = { imageUrl: source }; await tick();
+      assert.equal(api.selectedNode.value.type, "primitive"); assert.equal(api.selectedNode.value.properties.imageUrl, source);
+      await api.editorHistory.undo(); assert.equal(api.selectedNode.value.properties.imageUrl, "");
+      await api.editorHistory.redo(); assert.equal(api.selectedNode.value.properties.imageUrl, source);
+      const saved = api.serializeProject(); api.applyProjectData(api.createBlankProject("Empty")); api.applyProjectData(saved); api.selectedId.value = "primitive";
+      assert.equal(api.selectedNode.value.type, "primitive"); assert.equal(api.selectedNode.value.properties.imageUrl, source);
+      addTrack(api, "localScaleX", "primitive"); api.currentTime.value = 2; api.updateAnimatedBaseValue("localScaleX", 2);
+      near(preview(api, 2, "primitive").scaleX, 2);
+      assert.equal(preview(api, 2, "primitive").properties.imageUrl, source);
+    });
     await test("New property tracks seed a real current-time key and mark only that property as animated", () => {
       const api = fixture(); const before = plain(api.nodes.value); api.currentTime.value = 1.25;
       const track = addTrack(api, "localScaleX");

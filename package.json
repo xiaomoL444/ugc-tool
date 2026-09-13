@@ -17,6 +17,7 @@
     "@vue-flow/core": "^1.48.2",
     "@zenfs/core": "^2.5.2",
     "@zenfs/dom": "^1.2.7",
+    "ag-psd": "31.0.2",
     "axios": "^1.13.6",
     "chroma-js": "^3.2.0",
     "consola": "^3.4.2",

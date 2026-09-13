@@ -1,4 +1,4 @@
-import { decode, type UgcValue } from "genshin-impact-ugc-file-converter-web";
+import { decode, type ConverterDocument, type UgcValue } from "genshin-impact-ugc-file-converter-web";
 import type { ColorRGBA, ControlType } from "./types";
 
 type GiaObject = Record<string, UgcValue>;
@@ -37,6 +37,7 @@ export interface GiaImportResult {
   projectName: string;
   controls: GiaImportedControl[];
   warnings: string[];
+  sourceDocument?: ConverterDocument;
 }
 
 const KNOWN_TYPE_COMPONENTS: Array<[string, ControlType]> = [
@@ -45,6 +46,8 @@ const KNOWN_TYPE_COMPONENTS: Array<[string, ControlType]> = [
   ["79", "gridScroller"],
   ["80", "presetButton"],
   ["82", "keyHint"],
+  ["76", "reference"],
+  ["85", "uiAnimation"],
   ["78", "container"],
 ];
 
@@ -53,7 +56,8 @@ function asObject(value: UgcValue | undefined): GiaObject | null {
 }
 
 function asArray(value: UgcValue | undefined): UgcValue[] {
-  return Array.isArray(value) ? value : [];
+  // The codec can decode a repeated field with one entry as a single object.
+  return value === undefined ? [] : Array.isArray(value) ? value : [value];
 }
 
 function numberValue(value: UgcValue | undefined, fallback = 0): number {
@@ -186,6 +190,14 @@ function controllerKeyCode(value: number): string | null {
 }
 
 function propertiesOf(node: GiaObject, type: ControlType): Record<string, unknown> {
+  if (type === "reference") {
+    const value = numberValue(componentBody(node, "76")?.["501"], Number.NaN);
+    return { referencedPrefabIndex: Number.isFinite(value) ? value : null };
+  }
+  if (type === "uiAnimation") {
+    const body = componentBody(node, "85"), animationId = numberValue(body?.["501"], Number.NaN);
+    return { animationId: Number.isFinite(animationId) ? animationId : null, playSoundEffect: numberAt(body, "502") !== 0 };
+  }
   if (type === "container") {
     const body = componentBody(node, "78");
     return {
@@ -296,15 +308,31 @@ function orderControls(controls: GiaImportedControl[]): GiaImportedControl[] {
 /** Decode a GIA file and map only fields observed in the current client-UI schema. */
 export function importGiaControls(input: ArrayBuffer, deviceIndex = 0): GiaImportResult {
   const document = decode(input, { type: "gia" });
-  const root = asObject(document.json);
+  return { ...readGiaControls(document.json, deviceIndex), sourceDocument: document };
+}
+
+/** Templates retain every device layout, decoding the binary only once. */
+export function importGiaControlTemplate(input: ArrayBuffer): GiaImportResult[] {
+  const document = decode(input, { type: "gia" });
+  return [0, 1, 2, 3].map(device => readGiaControls(document.json, device));
+}
+
+export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportResult {
+  const root = asObject(json);
   if (!root) throw new Error("GIA 根数据不是对象");
   const rawNodes = asArray(root["2"]).map(asObject).filter((value): value is GiaObject => Boolean(value));
+  // A template's primary entry is its root control; a UI project's primary
+  // entry is just a wrapper. Only include entries with a real RectTransform.
+  const primary = asObject(root["1"]);
+  if (primary && componentOf(primary, "11") && !componentOf(primary, "72") && primary["5"] !== 21) rawNodes.unshift(primary);
+  const seen = new Set<number>();
   const warnings: string[] = [];
   const controls: GiaImportedControl[] = [];
 
   rawNodes.forEach((node) => {
     const sourceNodeIndex = sourceNodeIndexOf(node);
-    if (sourceNodeIndex === null) return;
+    if (sourceNodeIndex === null || seen.has(sourceNodeIndex)) return;
+    seen.add(sourceNodeIndex);
     const metadata = metadataOf(node);
     const rawParentIndex = numberValue(metadata?.["504"], Number.NaN);
     const detected = controlTypeOf(node);

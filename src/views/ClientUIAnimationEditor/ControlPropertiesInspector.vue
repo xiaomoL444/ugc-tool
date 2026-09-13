@@ -1,8 +1,9 @@
 <template>
   <details class="property-section control-properties-section" open>
-    <summary><h3><span>{{ definition.icon }}</span>{{ definition.label }}参数<i>{{ definition.runtimeClass }}</i></h3><slot name="actions"></slot></summary>
+    <summary><h3><span>{{ definition.icon }}</span>{{ definition.label }}参数<i>{{ definition.editorOnly ? '自定义控件' : definition.runtimeClass }}</i></h3><slot name="actions"></slot></summary>
     <div class="property-content">
-    <p class="source-note">字段来自当前客户端 UI API；“运行时只读”仅表示 Lua 访问权限，编辑器中仍可填写。</p>
+    <p v-if="definition.editorOnly" class="source-note">在图片资源面板统一管理原图、拟合与参数导出，此控件引用资源并选择显示方式。当前 GIA 导出仍为容器节点。</p>
+    <p v-else class="source-note">字段来自当前客户端 UI API；“运行时只读”仅表示 Lua 访问权限，编辑器中仍可填写。</p>
 
     <div v-for="field in definition.fields" :key="field.key" class="control-field" :class="[`kind-${field.kind}`, { 'is-animated-field': isAnimated(field) }]" :data-field="field.key" :data-animated="isAnimated(field) ? 'true' : undefined" :title="fieldTitle(field)">
       <div class="field-heading">
@@ -11,6 +12,7 @@
         <small v-if="field.runtimeReadOnly" class="readonly-badge">运行时只读</small>
       </div>
 
+      <slot :name="`field-${field.key}`" :field="field">
       <ColorRGBAField v-if="field.kind === 'color'" :label="field.label" :model-value="asColor(modelValue[field.key])" :animated="isAnimated(field)" @update:model-value="updateField(field.key, $event)" />
       <textarea v-else-if="field.kind === 'textarea'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" rows="4" @input="updateField(field.key, ($event.target as HTMLTextAreaElement).value)"></textarea>
       <input v-else-if="field.kind === 'text'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" @input="updateField(field.key, ($event.target as HTMLInputElement).value)" />
@@ -18,6 +20,7 @@
       <label v-else-if="field.kind === 'boolean'" class="boolean-control"><input :aria-label="field.label" :checked="Boolean(modelValue[field.key])" type="checkbox" @change="updateField(field.key, ($event.target as HTMLInputElement).checked)" /><i></i><span>{{ modelValue[field.key] ? '开启' : '关闭' }}</span></label>
       <select v-else-if="field.kind === 'nullableBoolean'" :aria-label="field.label" :value="nullableBooleanValue(modelValue[field.key])" @change="updateNullableBoolean(field.key, $event)"><option value="">未设置</option><option value="true">true</option><option value="false">false</option></select>
       <select v-else-if="field.kind === 'select'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" @change="updateSelect(field.key, $event)"><option value="">未设置</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
+      </slot>
     </div>
     </div>
   </details>

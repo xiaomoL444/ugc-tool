@@ -15,6 +15,9 @@
       <button class="tool-button" @click.stop="openProject">导入 JSON</button>
       <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="downloadProject">导出 JSON</button>
       <button class="tool-button gia-import-button" title="导入 GIA，在当前工作区创建新的编辑文件" @click.stop="openGiaFile">导入 GIA</button>
+      <button class="tool-button" :disabled="!hasOpenDocument" title="导出当前控件树的基础参数为原生客户端 UI GIA" @click.stop="openGiaExport">导出 GIA</button>
+      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openControlTemplateLibrary">控件模板</button>
+      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openPrimitiveResourceLibrary">图片资源</button>
       <button class="archive-status" :class="{ 'has-error': archive?.error.value }" :title="archive?.error.value || archive?.status.value" @click.stop="workspacePanelOpen = true">{{ archive?.status.value || 'JSON 文件模式' }}</button>
       <div class="lua-export-wrap" @pointerdown.stop>
         <button class="tool-button lua-export-button" aria-label="Lua 导入与导出" title="导入 Timeline Data，或导出运行库与动画数据" @click.stop="luaExportMenuOpen = !luaExportMenuOpen">Lua 工具 <span>⌄</span></button>
@@ -35,6 +38,9 @@
     </header>
 
     <ImageAssetLibrary v-if="imageLibraryOpen && selectedNode?.type === 'image'" :key="selectedId ?? ''" :selected-id="selectedNode.properties.imageId" @select="selectImageAsset" @close="imageLibraryOpen = false" />
+    <GiaExportDialog v-if="giaExportOpen" :project-name="projectName" :initial-index="originalGiaUIIndex(giaSource)" :count="nodes.length" :has-source="!!giaSource" :busy="giaExportBusy" :error="giaExportError" :notice="giaExportNotice" @close="giaExportOpen = false" @export="downloadGiaUI" @source="attachGiaSource" />
+    <ControlTemplateLibrary v-if="templateLibraryOpen" :assets="controlTemplates" :selected-index="selectedNode?.type === 'reference' ? selectedNode.properties.referencedPrefabIndex : null" :selectable="selectedNode?.type === 'reference'" :device-index="templateDeviceIndex" @select="selectControlTemplate" @save="saveControlTemplate" @close="templateLibraryOpen = false" />
+    <PrimitiveResourceLibrary v-if="primitiveResourceLibraryOpen" :key="keyframeDocumentEpoch" :assets="primitiveResources" :selected-id="selectedNode?.type === 'primitive' ? selectedNode.properties.imageResourceId ?? null : null" :selectable="selectedNode?.type === 'primitive'" :usage="primitiveResourceUsage" @save="savePrimitiveResource" @remove="removePrimitiveResource" @select="selectPrimitiveResource" @close="primitiveResourceLibraryOpen = false" />
     <div class="editor-body" :class="{ 'is-animations-collapsed': animationsPanelCollapsed }">
       <aside class="hierarchy-panel panel">
         <div class="panel-heading">
@@ -67,6 +73,8 @@
             <div class="safe-area"></div>
             <div v-for="node in renderNodes" :key="node.id" class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked }]" :style="nodeStyle(node)" @pointerdown.stop="startCanvasPress($event)">
               <SpriteImage v-if="node.type === 'image'" :asset="getImageAsset(node.properties.imageId)" :width="previewNode(node).width" :height="previewNode(node).height" :image-type="node.properties.imageType" :color="safeColor((previewNode(node) as UINodeOf<'image'>).properties.imageColor, editorTypeColors.image)" />
+              <PrimitiveImage v-else-if="node.type === 'primitive'" :image-url="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.imageUrl ?? ''" :preview-mode="node.properties.previewMode" :fit-data="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.fitData" :width="previewNode(node).width" :height="previewNode(node).height" />
+              <ControlTemplatePreview v-else-if="node.type === 'reference'" :asset="controlTemplateByIndex.get(node.properties.referencedPrefabIndex ?? -1) ?? null" :missing-index="node.properties.referencedPrefabIndex" :device-index="templateDeviceIndex" :width="previewNode(node).width" :height="previewNode(node).height" />
               <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
               <span v-else-if="node.type === 'container'" class="container-label">{{ node.name }}</span>
               <span v-else class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
@@ -156,6 +164,17 @@
             <ImageControlSettings :model-value="(inspectorNode as UINodeOf<'image'>).properties" :asset="selectedImageAsset" :animated="hasAnimatedField('imageColor')" @update:model-value="selectedProperties = $event" @select="selectImageAsset" @open-library="imageLibraryOpen = true" @reset-size="resetSelectedImageSize" />
           </PropertySection>
           <ControlPropertiesInspector v-model="selectedProperties" :definition="selectedInspectorDefinition" :animated-fields="animatedPropertyFields">
+            <template #field-imageResourceId>
+              <div v-if="selectedNode?.type === 'primitive'" class="primitive-resource-reference">
+                <button class="template-reference-picker" aria-label="选择图元图片资源" @click.stop="openPrimitiveResourceLibrary">{{ selectedPrimitiveResource?.name ?? '未选择图片资源' }} <span>选择资源…</span></button>
+                <div class="primitive-display-mode"><button :aria-pressed="selectedNode.properties.previewMode !== 'primitives'" @click="selectedProperties = { ...selectedProperties, previewMode: 'image' }">原图</button><button :disabled="!selectedPrimitiveResource?.fitData" :aria-pressed="selectedNode.properties.previewMode === 'primitives'" @click="selectedProperties = { ...selectedProperties, previewMode: 'primitives' }">游戏图元</button><button v-if="selectedNode.properties.imageResourceId" @click="selectedProperties = { ...selectedProperties, imageResourceId: null, previewMode: 'image' }">解除引用</button></div>
+                <small v-if="selectedPrimitiveResource">{{ selectedPrimitiveResource.fitData ? `${selectedPrimitiveResource.fitData.elements.length} 个图元 · 共用资源拟合结果` : '尚未生成图元，请在图片资源面板中设置拟合。' }}</small>
+              </div>
+            </template>
+            <template #field-referencedPrefabIndex>
+              <button class="template-reference-picker" aria-label="引用预制索引" @click.stop="openControlTemplateLibrary">{{ selectedControlTemplateLabel }} <span>选择模板…</span></button>
+              <button v-if="selectedControlTemplate" class="template-original-size" @click="resetControlTemplateSize">恢复模板原始尺寸</button>
+            </template>
             <template #actions><PropertyActionsMenu :label="`${selectedControlDefinition.label}参数`" :context-key="`${selectedId}:${inspectorTab}`" :can-paste="canPasteSelectedPropertyGroup('control')" :paste-hint="propertyPasteHint('control')" @reset="resetSelectedPropertyGroup('control')" @copy="copySelectedPropertyGroup('control')" @paste="pasteSelectedPropertyGroup('control')" /></template>
           </ControlPropertiesInspector>
           <PropertySection title="创建设置" group="creation">
@@ -253,7 +272,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, defineComponent, h, inject, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
 import { toast } from "vue-sonner";
 import type { StorageClass } from "@/services/storage/storage";
@@ -288,6 +307,15 @@ import ControlPropertiesInspector from "./ControlPropertiesInspector.vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import { controlDefinitions, controlRegistry, createControlProperties, getControlDefinition } from "./controlRegistry";
 import { importGiaControls } from "./giaImporter";
+import { exportGiaUI, normalizeGiaExportSource, originalGiaUIIndex, createGiaExportBaseline, type GiaExportSource } from "./giaExporter";
+import GiaExportDialog from "./GiaExportDialog.vue";
+import PrimitiveImage from "./PrimitiveImage.vue";
+import { normalizePrimitiveProperties } from "./primitiveData";
+import { migratePrimitiveResources, normalizePrimitiveResources, type PrimitiveImageResource } from "./primitiveResources";
+import PrimitiveResourceLibrary from "./PrimitiveResourceLibrary.vue";
+import { buildTemplateScene, normalizeControlTemplates, templateIndexError, type ControlTemplateAsset } from "./controlTemplates";
+import ControlTemplateLibrary from "./ControlTemplateLibrary.vue";
+import ControlTemplatePreview from "./ControlTemplatePreview.vue";
 import { imageAssetById, loadImageCatalog, loadSpriteMetadata } from "./imageAssets";
 import { isStretchable } from "./spriteGeometry";
 import ImageControlSettings from "./ImageControlSettings.vue";
@@ -322,7 +350,7 @@ const inspectorTab = ref<"basic" | "runtime">("basic");
 const propertyClipboard = ref<PropertyGroupSnapshot | null>(null);
 const propertyActionFeedback = ref<{ nodeId: string; message: string } | null>(null);
 function switchInspectorTab(tab: "basic" | "runtime") { inspectorTab.value = tab; nextTick(() => editorElement.value?.querySelector<HTMLButtonElement>(`#inspector-${tab}-tab`)?.focus()); }
-function controlIconName(type: ControlType) { return type === "text" || type === "textWindow" ? "text" : type === "image" ? "image" : type === "gridScroller" ? "grid" : type === "uiAnimation" || type === "fullscreenAnimation" ? "timeline" : "container"; }
+function controlIconName(type: ControlType) { return type === "text" || type === "textWindow" ? "text" : type === "image" || type === "primitive" ? "image" : type === "gridScroller" ? "grid" : type === "uiAnimation" || type === "fullscreenAnimation" ? "timeline" : "container"; }
 const NumberField = defineComponent({ props: { animated: { type: Boolean, default: false }, modelValue: { type: Number, required: true }, axis: { type: String, required: true }, label: { type: String, default: "" }, step: { type: Number, default: 1 }, min: { type: Number as PropType<number | undefined>, default: undefined }, max: { type: Number as PropType<number | undefined>, default: undefined }, scrubSpeed: { type: Number as PropType<number | undefined>, default: undefined } }, emits: ["update:modelValue"], setup(props, { emit }) { return () => h("label", { class: ["number-field", { "animated-number-field": props.animated }] }, [h("span", { class: "field-label" }, props.label), h("div", [h("b", { class: `axis axis-${props.axis.toLowerCase()}` }, props.axis), h(ScrubbableNumberInput, { modelValue: props.modelValue, animated: props.animated, step: props.step, min: props.min, max: props.max, scrubSpeed: props.scrubSpeed, "onUpdate:modelValue": (value: number | null) => { if (value !== null) emit("update:modelValue", value); } })])]); } });
 type AnchorValues = Pick<UINode, "anchorMinX" | "anchorMinY" | "anchorMaxX" | "anchorMaxY" | "pivotX" | "pivotY">;
 const AnchorVisual = defineComponent({ props: { values: { type: Object as PropType<AnchorValues>, required: true } }, setup(props) { return () => h("span", { class: "anchor-visual", style: anchorVisualStyle(props.values) }, [h("span", { class: "anchor-bounds" }), h("i", { class: "anchor-dot anchor-dot-bl" }), h("i", { class: "anchor-dot anchor-dot-br" }), h("i", { class: "anchor-dot anchor-dot-tl" }), h("i", { class: "anchor-dot anchor-dot-tr" }), h("b", { class: "pivot-mark" }, "✦")]); } });
@@ -333,6 +361,7 @@ const MIN_TIMELINE_HEIGHT = 150;
 const MIN_EDITOR_BODY_HEIGHT = 260;
 const EDITOR_TOOLBAR_HEIGHT = 48;
 const editorTypeColors: Record<ControlType, ColorRGBA> = {
+  primitive: colorFromHex("#b48cde"),
   container: colorFromHex("#39a6c8"), image: colorFromHex("#ffffff"), text: colorFromHex("#6d7cff"), textWindow: colorFromHex("#8b74e8"), presetButton: colorFromHex("#5f78ff"), cursorEventArea: colorFromHex("#e59b5a"), gridScroller: colorFromHex("#58b89c"), keyHint: colorFromHex("#d6b85f"), uiAnimation: colorFromHex("#d267e5"), fullscreenAnimation: colorFromHex("#e55f91"), reference: colorFromHex("#7893b8"),
 };
 const createId = () => `node_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -354,6 +383,7 @@ function makeNode(type: ControlType, name: string, overrides: NodeOverrides<Cont
   const defaultHeight = definition.defaultHeight;
   const node = { id: createId(), parentId: null, name, type, active: true, x: DEFAULT_CANVAS_WIDTH / 2, y: DEFAULT_CANVAS_HEIGHT / 2, width: defaultWidth, height: defaultHeight, scaleX: 1, scaleY: 1, scaleZ: 1, rotationX: 0, rotationY: 0, rotation: 0, anchorMinX: 0.5, anchorMinY: 0.5, anchorMaxX: 0.5, anchorMaxY: 0.5, pivotX: 0.5, pivotY: 0.5, anchorOffsetX: 0, anchorOffsetY: 0, sizeDeltaX: defaultWidth, sizeDeltaY: defaultHeight, canControllerFocus: false, visible: true, locked: false, properties: { ...createControlProperties(type), ...propertyOverrides }, ...baseOverrides } as UINode;
   if (type === "container") node.editor = { directionArrowLength: normalizeDirectionArrowLength(editorOverrides?.directionArrowLength) };
+  if (node.type === "primitive") node.properties = normalizePrimitiveProperties(node.properties);
   const anchorRefX = ((1 - node.pivotX) * node.anchorMinX + node.pivotX * node.anchorMaxX) * DEFAULT_CANVAS_WIDTH;
   const anchorRefY = ((1 - node.pivotY) * node.anchorMinY + node.pivotY * node.anchorMaxY) * DEFAULT_CANVAS_HEIGHT;
   if (!Number.isFinite(overrides.anchorOffsetX)) node.anchorOffsetX = node.x - anchorRefX;
@@ -569,6 +599,113 @@ const resolvedTimelineHeight = computed(() => Math.min(timelineMaximumHeight.val
 const editorStyle = computed<CSSProperties>(() => ({ "--timeline-height": `${resolvedTimelineHeight.value}px` } as CSSProperties));
 const selectedControlDefinition = computed(() => getControlDefinition(selectedNode.value?.type ?? "container"));
 const imageLibraryOpen = ref(false);
+const giaSource = shallowRef<GiaExportSource | null>(null);
+const giaExportOpen = ref(false), giaExportBusy = ref(false), giaExportError = ref(""), giaExportNotice = ref("");
+function openGiaExport() { primitiveResourceLibraryOpen.value = false; templateLibraryOpen.value = false; imageLibraryOpen.value = false; giaExportError.value = ""; giaExportNotice.value = ""; giaExportOpen.value = true; }
+function downloadGiaUI(options: { name: string; uiIndex: number }) {
+  giaExportError.value = "";
+  try {
+    const result = exportGiaUI({ ...options, nodes: nodes.value, source: giaSource.value, deviceIndex: templateDeviceIndex.value });
+    const url = URL.createObjectURL(new Blob([result.bytes.buffer as ArrayBuffer], { type: "application/octet-stream" }));
+    const link = document.createElement("a"); link.href = url; link.download = `${options.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_") || "ClientUI"}.gia`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    giaExportNotice.value = `已导出 ${result.controlCount} 个控件，二进制回读校验通过。`;
+  } catch (error) { giaExportError.value = error instanceof Error ? error.message : "GIA 导出失败"; }
+}
+async function attachGiaSource(file: File) {
+  giaExportBusy.value = true; giaExportError.value = "";
+  const epoch = keyframeDocumentEpoch.value;
+  try {
+    const project = JSON.parse(await createGiaProject(file));
+    if (epoch !== keyframeDocumentEpoch.value || !giaExportOpen.value) return;
+    const source = normalizeGiaExportSource(project.giaSource);
+    if (!source) throw new Error("文件中没有可用的 GIA 原始数据");
+    source.baseline = createGiaExportBaseline(project.nodes, project.canvasWidth, project.canvasHeight);
+    const originalIds = new Set(source.baseline.map(node => node.id));
+    // Older imports displayed then-unknown native components as containers.
+    // Keep that old editor baseline while retaining the real native component.
+    source.baseline = source.baseline.map(before => {
+      const current = nodes.value.find(node => node.id === before.id);
+      if (current?.type === "container" && (before.type === "reference" || before.type === "uiAnimation")) {
+        return { ...before, type: "container", properties: createControlProperties("container") };
+      }
+      return before;
+    });
+    const imported = nodes.value.filter(node => /^gia_node_\d+$/.test(node.id));
+    if (!imported.length || imported.some(node => !originalIds.has(node.id))) throw new Error("这个 GIA 与当前控件树的来源 ID 不匹配，请选择最初导入的文件");
+    giaSource.value = source;
+    giaExportNotice.value = `已补充 ${file.name} 的原始组件，当前控件参数保持不变。`;
+  } catch (error) { giaExportError.value = error instanceof Error ? error.message : "读取原始 GIA 失败"; }
+  finally { giaExportBusy.value = false; }
+}
+const templateLibraryOpen = ref(false);
+const controlTemplates = ref<ControlTemplateAsset[]>([]);
+const primitiveResources = ref<PrimitiveImageResource[]>([]);
+const primitiveResourceLibraryOpen = ref(false);
+const primitiveResourceById = computed(() => new Map(primitiveResources.value.map(asset => [asset.id, asset])));
+const selectedPrimitiveResource = computed(() => selectedNode.value?.type === "primitive" ? primitiveResourceById.value.get(selectedNode.value.properties.imageResourceId ?? "") ?? null : null);
+const primitiveResourceUsage = computed(() => {
+  const usage: Record<string, number> = {};
+  for (const node of nodes.value) if (node.type === "primitive" && node.properties.imageResourceId) usage[node.properties.imageResourceId] = (usage[node.properties.imageResourceId] || 0) + 1;
+  return usage;
+});
+function openPrimitiveResourceLibrary() { templateLibraryOpen.value = false; imageLibraryOpen.value = false; primitiveResourceLibraryOpen.value = true; }
+function savePrimitiveResource(asset: PrimitiveImageResource) {
+  const normalized = normalizePrimitiveResources([asset])[0];
+  if (!normalized) return;
+  const index = primitiveResources.value.findIndex(item => item.id === asset.id);
+  if (index < 0) primitiveResources.value.push(normalized); else primitiveResources.value.splice(index, 1, normalized);
+  if (!normalized.fitData) for (const node of nodes.value) if (node.type === "primitive" && node.properties.imageResourceId === asset.id) node.properties.previewMode = "image";
+}
+function removePrimitiveResource(id: string) { if (!primitiveResourceUsage.value[id]) primitiveResources.value = primitiveResources.value.filter(asset => asset.id !== id); }
+function selectPrimitiveResource(id: string) {
+  const node = selectedNode.value, resource = primitiveResourceById.value.get(id);
+  if (node?.type !== "primitive" || !resource) return;
+  node.properties = { imageUrl: "", imageResourceId: id, previewMode: resource.fitData ? "primitives" : "image" };
+  primitiveResourceLibraryOpen.value = false;
+}
+const templateDeviceIndex = computed(() => ({ pc: 0, mobile: 1, controllerDesktop: 2, controllerMobile: 3 })[deviceMode.value]);
+const controlTemplateByIndex = computed(() => new Map(controlTemplates.value.map(asset => [asset.index, asset])));
+const selectedControlTemplate = computed(() => selectedNode.value?.type === "reference" ? controlTemplateByIndex.value.get(selectedNode.value.properties.referencedPrefabIndex ?? -1) ?? null : null);
+const selectedControlTemplateLabel = computed(() => {
+  const node = selectedNode.value;
+  if (node?.type !== "reference" || node.properties.referencedPrefabIndex === null) return "未设置";
+  return `#${node.properties.referencedPrefabIndex} · ${selectedControlTemplate.value?.name ?? '未找到模板'}`;
+});
+function openControlTemplateLibrary() { primitiveResourceLibraryOpen.value = false; imageLibraryOpen.value = false; templateLibraryOpen.value = true; }
+function saveControlTemplate(asset: ControlTemplateAsset) {
+  const error = templateIndexError(asset.index, controlTemplates.value, asset.id);
+  if (error) { window.alert(error); return; }
+  const previous = controlTemplates.value.find(item => item.id === asset.id);
+  const next = normalizeControlTemplates([...controlTemplates.value.filter(item => item.id !== asset.id), asset]);
+  editorHistory.begin("control-template");
+  try {
+    controlTemplates.value = next;
+    if (previous && previous.index !== asset.index) {
+      nodes.value.forEach(node => {
+        if (node.type === "reference" && node.properties.referencedPrefabIndex === previous.index) node.properties.referencedPrefabIndex = asset.index;
+      });
+    }
+  } finally { editorHistory.end("control-template"); }
+}
+function selectControlTemplate(index: number | null) {
+  const node = selectedNode.value;
+  if (node?.type !== "reference" || (index !== null && !controlTemplateByIndex.value.has(index))) return;
+  editorHistory.begin("control-template-reference");
+  try {
+    const firstReference = node.properties.referencedPrefabIndex === null;
+    node.properties.referencedPrefabIndex = index;
+    if (firstReference && index !== null) resetControlTemplateSize();
+    templateLibraryOpen.value = false;
+  } finally { editorHistory.end("control-template-reference"); }
+}
+function resetControlTemplateSize() {
+  if (!selectedControlTemplate.value || selectedNode.value?.type !== "reference") return;
+  const scene = buildTemplateScene(selectedControlTemplate.value, templateDeviceIndex.value);
+  editorHistory.begin("control-template-size");
+  try { updateGeometry("width", scene.width); updateGeometry("height", scene.height); }
+  finally { editorHistory.end("control-template-size"); }
+}
 const selectedInspectorDefinition = computed(() => selectedNode.value?.type === "image" ? { ...selectedControlDefinition.value, fields: selectedControlDefinition.value.fields.filter(field => !["imageSource", "imageId", "imageColor", "imageType"].includes(field.key)) } : selectedControlDefinition.value);
 const tweenFieldPickerNode = computed(() => nodes.value.find((node) => node.id === tweenFieldPickerNodeId.value) ?? null);
 const selectedTweenPickerDefinition = computed(() => getControlDefinition(tweenFieldPickerNode.value?.type ?? "container"));
@@ -1520,7 +1657,16 @@ function textRenderStyle(node: UINodeOf<"text"> | UINodeOf<"textWindow">): CSSPr
     WebkitTextStroke: properties.enableOutline ? `1px ${colorToCss(safeColor(properties.outlineColor, colorFromHex("#333333", 0.2)))}` : undefined,
   };
 }
-function nodeStyle(node: UINode): CSSProperties { const displayNode = previewNode(node); const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) }; const isText = displayNode.type === "text" || displayNode.type === "textWindow"; const typeColor = editorTypeColors[displayNode.type]; const borderColor = displayNode.type === "image" ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor); const backgroundColor = displayNode.type === "image" ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, displayNode.type === "container" ? 0.07 : 0.12); return { width: `${displayNode.width}px`, height: `${displayNode.height}px`, left: `${world.x - displayNode.width * displayNode.pivotX}px`, top: `${canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY)}px`, transform: `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`, transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) }; }
+function nodeStyle(node: UINode): CSSProperties {
+  const displayNode = previewNode(node);
+  const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) };
+  const isText = displayNode.type === "text" || displayNode.type === "textWindow";
+  const hasVisual = displayNode.type === "image" || displayNode.type === "primitive" || displayNode.type === "reference" && controlTemplateByIndex.value.has(displayNode.properties.referencedPrefabIndex ?? -1);
+  const typeColor = editorTypeColors[displayNode.type];
+  const borderColor = hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor);
+  const backgroundColor = hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, displayNode.type === "container" ? 0.07 : 0.12);
+  return { width: `${displayNode.width}px`, height: `${displayNode.height}px`, left: `${world.x - displayNode.width * displayNode.pivotX}px`, top: `${canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY)}px`, transform: `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`, transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) };
+}
 function canvasOverlayPoint(x: number, y: number) {
   return { x: panX.value + (x - canvasWidth.value / 2) * zoom.value, y: panY.value + (canvasHeight.value / 2 - y) * zoom.value };
 }
@@ -1927,6 +2073,7 @@ async function createGiaProject(file: File) {
     name: imported.projectName || file.name.replace(/\.gia$/i, ""),
     deviceMode: mode, previewPresetId: presetId, canvasWidth: width, canvasHeight: height,
     duration: 5, frameRate: 30, nodes: importedNodes, tweenTracks: [],
+    giaSource: { document: imported.sourceDocument, deviceIndex: deviceIndex[mode] },
     giaImportStatus: `GIA · ${imported.controls.length} 个控件 · ${deviceLabel}布局 · ${typeSummary}${imported.warnings.length ? ` · ${imported.warnings.join("；")}` : ""}`,
   });
 }
@@ -1960,7 +2107,7 @@ function serializeProject() {
   return JSON.stringify({ version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
     name: projectName.value, deviceMode: deviceMode.value, previewPresetId: previewPresetId.value,
     canvasWidth: canvasWidth.value, canvasHeight: canvasHeight.value, duration: duration.value, frameRate: frameRate.value,
-    nodes: nodes.value, tweenTracks: tweenTracks.value, keyframeTracks: keyframeTracks.value,
+    nodes: nodes.value, controlTemplates: controlTemplates.value, primitiveResources: primitiveResources.value, giaSource: giaSource.value, tweenTracks: tweenTracks.value, keyframeTracks: keyframeTracks.value,
     animationModelVersion: 1, animations: animations.value, activeAnimationId: activeAnimationId.value,
     timelineSnapEnabled: timelineSnapEnabled.value, showContainerBones: showContainerBones.value, giaImportStatus: giaImportStatus.value }, null, 2);
 }
@@ -2112,6 +2259,13 @@ function applyProjectDataContents(serialized: string) {
   if (!data || !Array.isArray(data.nodes) || data.nodes.some((node: unknown) => !node || typeof node !== "object" || Array.isArray(node))) {
     throw new Error("这不是有效的 UI 动画工程文件");
   }
+  const loadedTemplates = normalizeControlTemplates(data.controlTemplates);
+  const loadedPrimitiveResources = normalizePrimitiveResources(data.primitiveResources);
+  const loadedGiaSource = normalizeGiaExportSource(data.giaSource);
+  giaExportOpen.value = false;
+  templateLibraryOpen.value = false;
+  controlTemplates.value = loadedTemplates;
+  primitiveResourceLibraryOpen.value = false;
   projectName.value = String(data.name || "Untitled UI Animation");
   canvasWidth.value = Math.max(1, Number(data.canvasWidth) || 1600);
   canvasHeight.value = Math.max(1, Number(data.canvasHeight) || 900);
@@ -2127,9 +2281,14 @@ function applyProjectDataContents(serialized: string) {
   timelineEditNotice.value = "";
   frameRate.value = Number(data.frameRate) === 60 ? 60 : 30;
   nodes.value = data.nodes.map((node: SavedNode) => normalizeNode(node));
+  const migratedImages = migratePrimitiveResources(nodes.value, loadedPrimitiveResources);
+  nodes.value = migratedImages.nodes;
+  primitiveResources.value = migratedImages.resources;
   if (data.hierarchyLayoutVersion !== 2) migrateLegacyHierarchyLayout();
   getHierarchyOrder().forEach(rebaseNodeLayout);
   ensureSingleRootContainer();
+  if (loadedGiaSource && !loadedGiaSource.baseline) loadedGiaSource.baseline = JSON.parse(JSON.stringify(nodes.value));
+  giaSource.value = loadedGiaSource;
   tweenTracks.value = data.animations !== undefined ? [] : normalizeTweenTracks(data.tweenTracks, Number(data.timelineModelVersion) || 0);
   const loadedAnimations = data.animations !== undefined
     ? normalizeAnimationCollection(data.animations, nodes.value)
@@ -2173,6 +2332,8 @@ async function loadProject(event: Event) {
   } finally { input.value = ""; }
 }
 function stopDocumentInteraction() {
+  giaExportOpen.value = false;
+  templateLibraryOpen.value = false;
   stopCanvasNodeDrag?.();
   editorHistory.flush();
   historyPanelOpen.value = false;
@@ -2255,7 +2416,7 @@ let historyPointerId: number | null = null;
 let historyInputTarget: HTMLElement | null = null;
 let historyDocumentKey: string | null = null;
 function captureUndoState() {
-  return JSON.stringify({ nodes: nodes.value, tweenTracks: tweenTracks.value, animations: animations.value,
+  return JSON.stringify({ nodes: nodes.value, controlTemplates: controlTemplates.value, primitiveResources: primitiveResources.value, giaSource: giaSource.value, tweenTracks: tweenTracks.value, animations: animations.value,
     frameRate: frameRate.value, deviceMode: deviceMode.value,
     previewPresetId: previewPresetId.value, canvasWidth: canvasWidth.value, canvasHeight: canvasHeight.value,
     timelineSnapEnabled: timelineSnapEnabled.value, showContainerBones: showContainerBones.value,
@@ -2273,6 +2434,11 @@ function restoreUndoState(snapshot: string) {
   closeTweenFieldPicker();
   closeTimelineContextMenu();
   nodes.value = data.nodes;
+  controlTemplates.value = data.controlTemplates ?? [];
+  primitiveResources.value = data.primitiveResources ?? [];
+  primitiveResourceLibraryOpen.value = false;
+  giaSource.value = data.giaSource ?? null;
+  templateLibraryOpen.value = false;
   tweenTracks.value = data.tweenTracks;
   animations.value = data.animations ?? [{ id: "animation-default", name: "默认动画", duration: data.duration ?? 5, keyframeTracks: data.keyframeTracks ?? [] }];
   if (!animations.value.some(animation => animation.id === activeAnimationId.value)) activeAnimationId.value = animations.value[0].id;
@@ -2296,8 +2462,10 @@ function restoreUndoState(snapshot: string) {
 const editorHistory = createEditorHistory({ capture: captureUndoState, restore: restoreUndoState, describe: describeHistoryChange, limit: 100 });
 watch(selectedId, (nodeId) => {
   imageLibraryOpen.value = false;
+  templateLibraryOpen.value = false;
   if (!keyframeTracks.value.some(track => track.nodeId === nodeId && track.keyframes.some(key => key.id === selectedKeyframeId.value))) selectedKeyframeId.value = null;
 }, { flush: "sync" });
+watch(imageLibraryOpen, open => { if (open) templateLibraryOpen.value = false; });
 function handleEditorHistoryChange(snapshot: string) {
   if (historyApplyingProject || !hasOpenDocument.value || archive && (!archive.ready.value || archive.busy.value || archive.loading.value)) return;
   editorHistory.observe(snapshot);
@@ -2439,6 +2607,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.primitive-display-mode { display: flex; gap: 5px; margin-top: 7px; }
+.primitive-display-mode button { padding: 5px 7px; border: 1px solid #596780; border-radius: 5px; background: #343e51; color: #dce6f9; font-size: 11px; cursor: pointer; }
+.primitive-display-mode button[aria-pressed=true] { background: #675084; border-color: #b590dd; }
+.primitive-display-mode button:disabled { opacity: .5; cursor: default; }
+.template-reference-picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px; border: 1px solid #536383; border-radius: 5px; color: #dfe7f7; background: #262b35; text-align: left; font-size: 11px; cursor: pointer; overflow-wrap: anywhere; }
+.template-reference-picker span { flex: none; color: #a6bcff; }
+.template-original-size { margin-top: 6px; padding: 3px 0; border: 0; background: transparent; color: #a6bcff; font-size: 10px; cursor: pointer; }
 .keyframe-panel { display: flex !important; flex-direction: column; min-height: 0; }
 .keyframe-notice { position: absolute; right: 260px; top: -29px; max-width: 560px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 8px; margin: 0; border-radius: 4px; color: #e4c1c6; background: #392b33; pointer-events: none; z-index: 10; }
 .animation-editor {

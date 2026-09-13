@@ -92,6 +92,13 @@ function nodeChange(before: IdentifiedValue, after: IdentifiedValue): string {
   if (changed(before, after, ["editor"])) return `修改${target}的方向标识`;
   const previousProperties = isRecord(before.properties) ? before.properties : {};
   const nextProperties = isRecord(after.properties) ? after.properties : {};
+  if (controlType(after) === "primitive") {
+    if (changed(previousProperties, nextProperties, ["imageResourceId"])) return `更换${target}的图片资源`;
+    if (changed(previousProperties, nextProperties, ["imageUrl"])) return `更换${target}的图元原图`;
+    if (changed(previousProperties, nextProperties, ["fitData"])) return nextProperties.fitData ? `生成${target}的图元数据` : `清除${target}的图元数据`;
+    if (changed(previousProperties, nextProperties, ["fitOptions"])) return `修改${target}的图元生成参数`;
+    if (changed(previousProperties, nextProperties, ["previewMode"])) return `切换${target}的图元预览`;
+  }
   const propertyKeys = [...new Set([...Object.keys(previousProperties), ...Object.keys(nextProperties)])]
     .filter((key) => changed(previousProperties, nextProperties, [key]));
   if (propertyKeys.length) {
@@ -114,6 +121,28 @@ export function describeHistoryChange(beforeSource: string, afterSource: string)
     const before: unknown = JSON.parse(beforeSource);
     const after: unknown = JSON.parse(afterSource);
     if (!isRecord(before) || !isRecord(after)) return "修改编辑内容";
+    if (changed(before, after, ["primitiveResources"])) {
+      const oldResources = identifiedValues(before.primitiveResources), nextResources = identifiedValues(after.primitiveResources);
+      const added = nextResources.find(asset => !oldResources.some(previous => previous.id === asset.id));
+      if (added) return `导入图片资源「${added.name}」`;
+      const removed = oldResources.find(asset => !nextResources.some(next => next.id === asset.id));
+      if (removed) return `移除图片资源「${removed.name}」`;
+      const updated = nextResources.find(asset => JSON.stringify(asset) !== JSON.stringify(oldResources.find(old => old.id === asset.id)));
+      if (updated) {
+        const previous = oldResources.find(old => old.id === updated.id)!;
+        if (changed(previous, updated, ["imageUrl"])) return `替换图片资源「${updated.name}」`;
+        if (changed(previous, updated, ["fitData"])) return `${updated.fitData ? "生成" : "清除"}「${updated.name}」的图元数据`;
+        if (changed(previous, updated, ["fitOptions"])) return `修改「${updated.name}」的拟合参数`;
+        if (changed(previous, updated, ["name"])) return `重命名图片资源「${updated.name}」`;
+      }
+      return "切换图片资源预览";
+    }
+    if (changed(before, after, ["controlTemplates"])) {
+      const oldTemplates = identifiedValues(before.controlTemplates), nextTemplates = identifiedValues(after.controlTemplates);
+      const added = nextTemplates.find(asset => !oldTemplates.some(previous => previous.id === asset.id));
+      if (added) return `导入控件模板「${added.name}」`;
+      return "修改控件模板设置";
+    }
     const oldNodes = identifiedValues(before.nodes);
     const nextNodes = identifiedValues(after.nodes);
     const oldNodeMap = new Map(oldNodes.map((node) => [node.id, node]));

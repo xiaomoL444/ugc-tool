@@ -52,6 +52,8 @@ async function main() {
     const tweenRegistry = require(path.join(editor, "tweenRegistry.ts"));
     const clipLayout = require(path.join(editor, "timelineClipLayout.ts"));
     const importer = require(path.join(editor, "giaImporter.ts"));
+    const controlTemplates = require(path.join(editor, "controlTemplates.ts"));
+    Object.assign(controlTemplates, require(path.join(editor, "giaExporter.ts")));
     const directionGuide = require(path.join(editor, "containerDirectionGuide.ts"));
     const editorHistory = require(path.join(editor, "editorHistory.ts"));
     const historyChangeLabel = require(path.join(editor, "historyChangeLabel.ts"));
@@ -60,7 +62,7 @@ async function main() {
     function createEditor() {
       let savedProject;
       const context = vm.createContext({
-        ...vue, ...registry, ...tweenRegistry, ...clipLayout, ...importer, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua,
+        ...vue, ...registry, ...tweenRegistry, ...clipLayout, ...importer, ...controlTemplates, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua,
         inject: () => null,
         nextTick: () => Promise.resolve(),
         window: { alert(message) { assert.fail(message); } },

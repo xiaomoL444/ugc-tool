@@ -21,6 +21,7 @@ export interface ControlDefinition<T extends ControlType> {
   icon: string;
   description: string;
   runtimeClass: string;
+  editorOnly?: boolean;
   defaultName: string;
   defaultWidth: number;
   defaultHeight: number;
@@ -59,6 +60,11 @@ const controllerKeyOptions = [
 ];
 
 export const controlRegistry: { [T in ControlType]: ControlDefinition<T> } = {
+  primitive: {
+    type: "primitive", label: "图元控件", icon: "▧", description: "图片拟合、游戏图元预览与参数导出", runtimeClass: "ClientUIContainerControl", editorOnly: true,
+    defaultName: "Primitive", defaultWidth: 150, defaultHeight: 150,
+    fields: [{ key: "imageResourceId", label: "图片资源", kind: "text" }], createProperties: () => ({ imageUrl: "", imageResourceId: null, previewMode: "image" }),
+  },
   container: {
     type: "container", label: "容器节点", icon: "▣", description: "组织子控件与输入穿透", runtimeClass: "ClientUIContainerControl", defaultName: "Container", defaultWidth: 280, defaultHeight: 180,
     fields: [boolean("isolateNavigation", "隔离手柄导航"), boolean("disableKeyEventPassthrough", "屏蔽按键事件穿透"), boolean("disableCursorEventPassthrough", "屏蔽点击事件穿透"), boolean("showCursor", "显示常驻光标")],
