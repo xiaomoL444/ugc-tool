@@ -2,6 +2,7 @@ import type { ColorRGBA } from "./types";
 
 export type PrimitiveShape = "ellipse" | "rectangle" | "triangle";
 export interface PrimitiveFitOptions {
+  defaultsVersion?: number;
   count: number;
   resolution: number;
   workers: number;
@@ -34,7 +35,7 @@ export interface PrimitiveProperties {
 }
 export const PRIMITIVE_IMAGE_IDS: Record<PrimitiveShape, number> = { rectangle: 100001, ellipse: 100002, triangle: 100003 };
 export const DEFAULT_PRIMITIVE_OPTIONS: PrimitiveFitOptions = {
-  count: 80, resolution: 128, workers: 2, shapes: ["ellipse", "rectangle"], transparent: true,
+  defaultsVersion: 1, count: 400, resolution: 512, workers: 16, shapes: ["ellipse", "rectangle"], transparent: true,
 };
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
@@ -44,9 +45,10 @@ const round = (value: number) => Math.round(value * 10000) / 10000;
 
 export function normalizePrimitiveOptions(value: unknown): PrimitiveFitOptions {
   const v = record(value) ? value : {};
+  const legacyDefaults = v.defaultsVersion === undefined && v.count === 80 && v.resolution === 128 && v.workers === 2;
   const shapes = Array.isArray(v.shapes) ? [...new Set(v.shapes.filter(shape))] : [];
-  return { count: bounded(v.count, 80, 1, 1000), resolution: bounded(v.resolution, 128, 32, 512),
-    workers: bounded(v.workers, 2, 1, 16), shapes: shapes.length ? shapes : [...DEFAULT_PRIMITIVE_OPTIONS.shapes], transparent: v.transparent !== false };
+  return { defaultsVersion: 1, count: bounded(legacyDefaults ? undefined : v.count, DEFAULT_PRIMITIVE_OPTIONS.count, 1, 1000), resolution: bounded(legacyDefaults ? undefined : v.resolution, DEFAULT_PRIMITIVE_OPTIONS.resolution, 32, 512),
+    workers: bounded(legacyDefaults ? undefined : v.workers, DEFAULT_PRIMITIVE_OPTIONS.workers, 1, 16), shapes: shapes.length ? shapes : [...DEFAULT_PRIMITIVE_OPTIONS.shapes], transparent: v.transparent !== false };
 }
 
 /** The engine searches 16 candidates per round; more workers only add overhead. */

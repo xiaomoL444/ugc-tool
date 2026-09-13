@@ -1,5 +1,5 @@
 /* Run: node scripts/test-client-ui-history-editor.cjs
- * Exercises the real Vue setup, synchronous history watch, layout, Clip handlers
+ * Exercises the real Vue setup, deferred snapshot watches, layout, Clip handlers
  * and Data import. Only browser lifecycle, DOM and archive injection are replaced.
  */
 const assert = require("node:assert/strict");
@@ -23,8 +23,12 @@ async function main() {
   ).map((statement) => statement.getText(ast)).join("\n");
   const historyWatch = ast.statements.filter((statement) => ts.isExpressionStatement(statement) &&
     ts.isCallExpression(statement.expression) && statement.expression.expression.getText(ast) === "watch" &&
-    statement.expression.arguments[0]?.getText(ast) === "captureUndoState").map((statement) => statement.getText(ast));
+    statement.expression.arguments[0]?.getText(ast) === "observeUndoSnapshot").map((statement) => statement.getText(ast));
   assert.equal(historyWatch.length, 1, "The fixture must execute the editor's actual undo observer");
+  const saveWatch = ast.statements.filter((statement) => ts.isExpressionStatement(statement) &&
+    ts.isCallExpression(statement.expression) && statement.expression.expression.getText(ast) === "watch" &&
+    statement.expression.arguments[0]?.getText(ast) === "observeProjectSnapshot").map((statement) => statement.getText(ast));
+  assert.equal(saveWatch.length, 1, "The fixture must execute the editor's actual save observer");
   const documentWatch = ast.statements.filter((statement) => ts.isExpressionStatement(statement) &&
     ts.isCallExpression(statement.expression) && statement.expression.expression.getText(ast) === "watch" &&
     statement.expression.arguments[1]?.getText(ast) === "syncEditorHistoryDocument").map((statement) => statement.getText(ast));
@@ -34,6 +38,7 @@ async function main() {
     "keyframeTracks", "buildKeyframePreviewNodes",
     "zoom", "panX", "panY", "projectName", "deviceMode", "previewPresetId", "canvasWidth", "canvasHeight",
     "showContainerBones", "timelineSnapEnabled", "giaImportStatus", "editorElement", "timelineContent",
+    "primitiveResources", "handleArchiveBeforeUnload",
     "makeNode", "getHierarchyOrder", "applyNodeLayout", "captureUndoState", "restoreUndoState", "editorHistory",
     "undoEditorOperation", "redoEditorOperation", "handleEditorHistoryKeyboard", "handleEditorHistoryChange",
     "beginEditorHistoryPointer", "endEditorHistoryPointer", "beginEditorHistoryInput", "endEditorHistoryInput", "finishEditorHistoryInteraction",
@@ -45,7 +50,7 @@ async function main() {
     "openTimelineDataImport", "confirmTimelineDataImport", "timelineDataImportOpen", "timelineDataSource", "timelineDataImportMode",
     "timelineContextMenu", "workspacePanelOpen", "archiveAction", "luaExportMenuOpen", "tweenFieldPickerNodeId", "timelineEditNotice",
   ];
-  const script = ts.transpileModule(`${declarations}\n${historyWatch.join("\n")}\n${documentWatch.join("\n")}\nglobalThis.editorApi = { ${exposed.join(", ")} };`, {
+  const script = ts.transpileModule(`${declarations}\n${historyWatch.join("\n")}\n${saveWatch.join("\n")}\n${documentWatch.join("\n")}\nglobalThis.editorApi = { ${exposed.join(", ")} };`, {
     fileName: filename + ".ts", compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
   }).outputText;
   const converter = await import("genshin-impact-ugc-file-converter-web");
@@ -115,12 +120,13 @@ async function main() {
       focus() { this.focused = true; }
     }
     function fixture({ archived = false } = {}) {
+      let serializationCount = 0;
       const listeners = new Map();
       const alerts = [];
       const toastMessages = [];
       const root = new Element();
       const archiveMock = archived ? {
-        ready: vue.ref(true), busy: vue.ref(false), loading: vue.ref(false),
+        ready: vue.ref(true), busy: vue.ref(false), loading: vue.ref(false), dirty: vue.ref(false),
         selectedWorkspace: vue.ref("Workspace A"), selectedDocument: vue.ref("Document A"),
         snapshots: [], queueSave(snapshot) { this.snapshots.push(snapshot); },
       } : null;
@@ -128,6 +134,7 @@ async function main() {
         createElement: () => ({ click() {} }), getSelection: () => ({ isCollapsed: true, toString: () => "" }),
         addEventListener() {}, removeEventListener() {} };
       const context = vm.createContext({ ...vue, ...imports, inject: () => archived ? {} : null,
+        JSON: { parse: JSON.parse, stringify(value, ...args) { if (value?.nodes && value?.primitiveResources) serializationCount++; return JSON.stringify(value, ...args); } },
         toast: { info(message) { toastMessages.push(message); } },
         useClientUIWorkspace: archived ? () => archiveMock : imports.useClientUIWorkspace,
         nextTick: vue.nextTick, queueMicrotask, setTimeout, clearTimeout, performance,
@@ -165,6 +172,7 @@ async function main() {
         classList: { contains: (name) => name === "track-lane" }, parentElement: root });
       api.timelineContent.value = lane;
       Object.assign(api, { alerts, toastMessages, root, document, lane, archiveMock,
+        serializationCount: () => serializationCount,
         dispatch: (type, event) => [...(listeners.get(type) || [])].forEach((callback) => callback(event)),
         dispose() { api.editorHistory.dispose?.(); api.editorHistory.reset(api.captureUndoState()); scope.stop(); },
       });
@@ -196,7 +204,7 @@ async function main() {
     await test("History snapshots track document state but ignore playback, view, selection and project naming", async () => {
       const api = fixture();
       const before = api.captureUndoState();
-      assert.deepEqual(Object.keys(value(api)).sort(), ["nodes", "tweenTracks", "animations", "frameRate", "deviceMode", "previewPresetId", "canvasWidth", "canvasHeight", "timelineSnapEnabled", "showContainerBones", "giaImportStatus"].sort());
+      assert.deepEqual(Object.keys(value(api)).sort(), ["nodes", "controlTemplates", "primitiveResources", "giaSource", "tweenTracks", "animations", "frameRate", "deviceMode", "previewPresetId", "canvasWidth", "canvasHeight", "timelineSnapEnabled", "showContainerBones", "giaImportStatus"].sort());
       const count = entries(api);
       api.currentTime.value = 3.75; api.playing.value = true; api.zoom.value = 0.6;
       api.panX.value = 75; api.panY.value = -40; api.selectedId.value = "image"; api.projectName.value = "Rename only";
@@ -253,6 +261,55 @@ async function main() {
       assert.equal(entries(api), count + 1);
       await api.undoEditorOperation(); assert.deepEqual(value(api), before);
       await api.redoEditorOperation(); assert.deepEqual(value(api), dragged);
+    });
+    await test("Image-only dragging never serializes heavy resources between pointerdown and pointerup", async () => {
+      const api = fixture({ archived: true });
+      const fit = { version: 1, width: 200, height: 100, elements: Array.from({ length: 400 }, () => ({ type: 'ellipse', imageId: 100002, x: 1, y: 2, width: 8, height: 9, rotation: 0, color: { r: 255, g: 128, b: 0, a: 1 } })) };
+      api.primitiveResources.value = [{ id: 'heavy', name: 'image', imageUrl: 'data:image/png;base64,' + 'A'.repeat(1024 * 1024), fitData: fit }];
+      const image = api.nodes.value.find(node => node.id === 'image');
+      image.type = 'primitive'; image.properties = { imageResourceId: 'heavy', imageUrl: '', previewMode: 'image' };
+      await tick();
+      api.editorHistory.reset(api.captureUndoState());
+      const before = value(api), resourceBefore = JSON.stringify(api.primitiveResources.value);
+      const event = pointer(api);
+      api.beginEditorHistoryPointer(event); api.startMove(event, image); await tick();
+      const captures = api.serializationCount(), saves = api.archiveMock.snapshots.length;
+      const started = performance.now();
+      for (let frame = 1; frame <= 60; frame++) {
+        api.dispatch('pointermove', pointer(api, 100 + frame)); await tick();
+      }
+      const elapsed = performance.now() - started;
+      assert.equal(api.serializationCount(), captures, 'no full JSON snapshots during 60 reactive drag frames');
+      assert.equal(api.archiveMock.snapshots.length, saves, 'no repeated save scheduling while dragging');
+      assert.equal(JSON.stringify(api.primitiveResources.value), resourceBefore, 'drag must not translate or mutate fitted elements');
+      api.dispatch('pointerup', pointer(api, 160)); api.endEditorHistoryPointer(pointer(api, 160)); await tick();
+      const after = value(api);
+      assert.notDeepEqual(after.nodes, before.nodes);
+      assert.equal(entries(api), 1);
+      assert.equal(api.archiveMock.snapshots.length, saves + 1, 'one latest project snapshot after release');
+      const saved = JSON.parse(api.archiveMock.snapshots.at(-1));
+      assert.deepEqual(saved.nodes, after.nodes); assert.deepEqual(saved.primitiveResources, after.primitiveResources);
+      await api.undoEditorOperation(); assert.deepEqual(value(api), before);
+      await api.redoEditorOperation(); assert.deepEqual(value(api), after);
+      console.log(`INFO 60 synthetic drag frames: ${elapsed.toFixed(1)} ms; 0 document serializations during movement`);
+    });
+    await test("Closing during a deferred drag captures the latest state before checking unsaved changes", async () => {
+      const api = fixture({ archived: true }); await tick();
+      const originalQueueSave = api.archiveMock.queueSave;
+      api.archiveMock.queueSave = function(snapshot) { originalQueueSave.call(this, snapshot); this.dirty.value = true; };
+      api.archiveMock.dirty.value = false;
+      const event = pointer(api);
+      api.beginEditorHistoryPointer(event);
+      api.startMove(event, api.nodes.value.find(node => node.id === 'group'));
+      api.dispatch('pointermove', pointer(api, 180)); await tick();
+      assert.equal(api.archiveMock.dirty.value, false, 'snapshot is still deferred');
+      const closing = { prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } };
+      api.handleArchiveBeforeUnload(closing);
+      assert.equal(closing.prevented, true);
+      assert.equal(closing.returnValue, '');
+      assert.equal(api.editorHistory.interacting.value, false);
+      assert.deepEqual(JSON.parse(api.archiveMock.snapshots.at(-1)).nodes, value(api).nodes);
+      api.dispatch('pointerup', pointer(api, 180)); await tick();
     });
     await test("Canvas move and resize end on blur or pointercancel, ignore other pointers, and cannot leak later moves into history", async () => {
       for (const drag of ["startMove", "startResize"]) for (const ending of ["blur", "pointercancel"]) {

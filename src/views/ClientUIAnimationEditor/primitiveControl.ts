@@ -7,7 +7,7 @@ export function primitiveImageSource(value: unknown): string {
   return /^(https?:\/\/|data:image\/(png|jpe?g|webp|gif|svg\+xml|avif|bmp|x-icon|vnd\.microsoft\.icon)[;,])/i.test(source) ? source : "";
 }
 
-/** Temporary native export rule; keep the editor node and image reference intact. */
+/** GIA carries the empty placeholder; PrimitiveImageLib restores its visibility/focus. */
 export function toNativeExportNode(node: UINode): UINode {
-  return node.type === "primitive" ? { ...node, type: "container", properties: createControlProperties("container") } : node;
+  return node.type === "primitive" ? { ...node, type: "container", visible: true, canControllerFocus: false, properties: createControlProperties("container") } : node;
 }

@@ -18,7 +18,7 @@
  */
 "use strict";
 
-importScripts("./wasm_exec.js");
+importScripts("./wasm_exec.js?v=alpha-edge-1");
 
 let activeJobId = null;
 
@@ -30,7 +30,7 @@ const go = new Go();
 
 async function boot() {
   try {
-    const response = await fetch("./primitive.wasm");
+    const response = await fetch("./primitive.wasm?v=alpha-edge-1");
     if (!response.ok) {
       throw new Error("wasm 下载失败: HTTP " + response.status);
     }

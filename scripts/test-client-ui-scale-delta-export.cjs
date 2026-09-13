@@ -116,7 +116,8 @@ try {
     assert.ok(legacy.indexOf("baseline = ok and baseline or nil") < legacy.indexOf("for _, lane in ipairs(lanes) do"));
     assert.ok(legacy.indexOf("for _, lane in ipairs(lanes) do") < legacy.indexOf("target[1][target[2]] = from"));
     assert.match(library, /fromValue, toValue = previousEnd \+ fromValue, previousEnd \+ toValue/);
-    assert.match(library, /:SetRelative\(false\)/);
+    assert.match(library, /local rotation = IsRotationField\(target\[2\]\)/);
+    assert.match(library, /:SetRelative\(rotation\)/);
     assert.doesNotMatch(library, /:SetRelative\(true\)|track\[[678]\]\s*=(?!=)/);
   });
 

@@ -7,9 +7,7 @@ import {
   type Edge,
 } from "@vue-flow/core";
 import type { DialogueNode } from "./types/DialogueNode";
-import { getDialogueStyle } from "./config/dialogueStyleRegistry";
 import {
-  edgeMatchesOutlet,
   getGroupOutletWarnings,
   resolveGroupOutlets,
 } from "./utils/groupOutlets";
@@ -29,14 +27,6 @@ const props = withDefaults(defineProps<{
 });
 
 const { updateNodeInternals } = useVueFlow();
-
-const dialogueStyleLabel = computed(
-  () => {
-    const dialogue = props.node.dialogue;
-    if (!dialogue) return "无 Dialogue";
-    return getDialogueStyle(dialogue.style)?.label ?? dialogue.style;
-  },
-);
 
 function toSeconds(value: unknown) {
   const seconds = Number(value);
@@ -59,15 +49,6 @@ const outletState = computed(() => resolveGroupOutlets(props.node));
 const outlets = computed(() => outletState.value.outlets);
 const outletWarnings = computed(() =>
   getGroupOutletWarnings(props.node),
-);
-const connectedOutletCount = computed(
-  () =>
-    outlets.value.filter((outlet) =>
-      props.edges.some(
-        (edge) =>
-          edge.source === props.id && edgeMatchesOutlet(edge, outlet.id),
-      ),
-    ).length,
 );
 const outletSignature = computed(() =>
   outlets.value.map((outlet) => outlet.id).join("|"),
@@ -169,8 +150,6 @@ const previewSegments = computed(() => {
     </div>
 
     <section class="group-content">
-      <div class="group-title" :title="node.name">{{ node.name }}</div>
-      <div class="group-type">{{ dialogueStyleLabel }}</div>
       <div
         class="group-dialogue"
         :class="{ empty: !node.dialogue }"
@@ -187,23 +166,16 @@ const previewSegments = computed(() => {
       <div class="group-stats">
         <span>{{ performanceClips.length }} 演出</span>
         <span>{{ node.select?.options.length ?? 0 }} 选项</span>
-        <span>{{ node.lines.length + 2 }} Lines</span>
-        <span v-if="outlets.length">
-          {{ connectedOutletCount }}/{{ outlets.length }} 已连接
-        </span>
       </div>
 
-      <div class="timeline-preview" aria-hidden="true">
-        <template v-if="previewSegments.length">
-          <span
-            v-for="(segment, index) in previewSegments"
-            :key="segment.id"
-            class="timeline-segment"
-            :class="`segment-${(index % 3) + 1}`"
-            :style="{ left: segment.left, width: segment.width }"
-          />
-        </template>
-        <span v-else class="timeline-empty">暂无演出</span>
+      <div v-if="previewSegments.length" class="timeline-preview" aria-hidden="true">
+        <span
+          v-for="(segment, index) in previewSegments"
+          :key="segment.id"
+          class="timeline-segment"
+          :class="`segment-${(index % 3) + 1}`"
+          :style="{ left: segment.left, width: segment.width }"
+        />
       </div>
     </section>
   </article>
@@ -280,22 +252,7 @@ const previewSegments = computed(() => {
   border-radius: 0 0 9px 9px;
 }
 
-.group-title {
-  overflow: hidden;
-  font-size: 15px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-type {
-  margin-top: 3px;
-  color: #aeb9c8;
-  font-size: 11px;
-}
-
 .group-dialogue {
-  margin-top: 8px;
   overflow: hidden;
   color: #e5edf8;
   font-size: 12px;
@@ -337,12 +294,6 @@ const previewSegments = computed(() => {
 
 .segment-3 {
   background: #4ca982;
-}
-
-.timeline-empty {
-  margin: auto;
-  color: #707c8c;
-  font-size: 10px;
 }
 
 .group-flow-ports {

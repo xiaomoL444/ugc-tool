@@ -75,11 +75,13 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
   const subIds = new Set(project.subQuests.map((sub) => sub.id));
   for (const chapter of [...project.chapters].sort((a, b) => a.id - b.id)) {
     const value = workspace.createDefault(ids.chapter);
+    value.value["id"].setValue(String(chapter.id));
     value.value["标题"].setValue(chapter.title);
     chapters.appendItem({ key: String(chapter.id), value });
   }
   for (const main of [...project.mainQuests].sort((a, b) => a.id - b.id)) {
     const value = workspace.createDefault(ids.mainQuest);
+    value.value["id"].setValue(String(main.id));
     value.value["chapter"].setValue(String(main.chapterId ?? project.unassignedChapterId));
     value.value["title"].setValue(main.title);
     value.value["style"].setValue(main.style);
@@ -88,7 +90,8 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
   const buckets = new Map<number, VariableValue>();
   for (const sub of [...project.subQuests].sort((a, b) => a.id - b.id)) {
     const value = workspace.createDefault(ids.subQuest);
-    value.value["mainId"].setValue(String(sub.mainQuestId));
+    value.value["id"].setValue(String(sub.id));
+    value.value["mainQuestId"].setValue(String(sub.mainQuestId));
     value.value["title"].setValue(sub.title);
     value.value["desc"].setValue(sub.description);
     value.value["任务单位状态"].setValue(sub.unitState);

@@ -6,9 +6,10 @@
     <small>{{ embedded ? '本地图片已嵌入，重新打开编辑文件后仍可显示。' : '也可选择本地图片，图片会随编辑文件保存。' }}</small>
     <fieldset :disabled="fitting" class="fit-options">
       <legend>图片转图元</legend>
+      <button type="button" @click="patch({ fitOptions: normalizePrimitiveOptions(undefined) })">恢复默认参数 · 400 / 512 / 16</button>
       <label>图元数量<input aria-label="图元数量" type="number" min="1" max="1000" :value="options.count" @input="updateOption('count', Number(($event.target as HTMLInputElement).value))" /></label>
       <label>拟合精度<select aria-label="拟合精度" :value="options.resolution" @change="updateOption('resolution', Number(($event.target as HTMLSelectElement).value))"><option :value="64">快速 · 64 px</option><option :value="128">标准 · 128 px</option><option :value="256">精细 · 256 px</option><option :value="512">高精度 · 512 px（较慢）</option></select></label>
-      <label>并行数<select aria-label="拟合并行数" :value="Math.min(options.workers, workerLimit)" @change="updateOption('workers', Number(($event.target as HTMLSelectElement).value))"><option v-for="count in workerLimit" :key="count" :value="count">{{ count }}{{ count === 1 ? ' · 低内存' : count === 2 ? ' · 默认' : '' }}</option></select></label>
+      <label>并行数<select aria-label="拟合并行数" :value="Math.min(options.workers, workerLimit)" @change="updateOption('workers', Number(($event.target as HTMLSelectElement).value))"><option v-for="count in workerLimit" :key="count" :value="count">{{ count }}{{ count === 1 ? ' · 低内存' : count === workerLimit ? ' · 默认' : '' }}</option></select></label>
       <small>本机最多 {{ workerLimit }} 个线程。更多线程会增加内存占用，提速取决于设备和图片。</small>
       <div class="shape-options"><label v-for="shape in shapeChoices" :key="shape.value"><input type="checkbox" :checked="options.shapes.includes(shape.value)" :disabled="options.shapes.length === 1 && options.shapes.includes(shape.value)" @change="toggleShape(shape.value)" />{{ shape.label }}</label></div>
       <label class="alpha-option"><input type="checkbox" :checked="options.transparent" @change="updateOption('transparent', ($event.target as HTMLInputElement).checked)" />保留透明背景</label>
@@ -16,7 +17,7 @@
     <div class="image-actions"><button class="generate" type="button" :disabled="!modelValue.imageUrl || loading || fitting" @click="generate">{{ modelValue.fitData ? '重新生成图元' : '生成图元' }}</button><button v-if="fitting" type="button" @click="cancelFit">取消</button></div>
     <div v-if="fitting" class="fit-progress" role="status"><progress :value="completed" :max="options.count"></progress><span>{{ status }}</span></div>
     <p v-else-if="status" class="fit-status" role="status">{{ status }}</p>
-    <small>在本机计算，精度和数量越高耗时越长。修改参数后需重新生成。</small>
+    <small>在本机计算，精度和数量越高耗时越长。透明模式会排除越界和无改善的图元，实际数量可能少于设定值。修改参数后需重新生成。</small>
     <div v-if="modelValue.fitData" class="fit-result">
       <div class="preview-switch" role="group" aria-label="图元预览模式"><button type="button" :aria-pressed="modelValue.previewMode !== 'primitives'" @click="patch({ previewMode: 'image' })">原图</button><button type="button" :aria-pressed="modelValue.previewMode === 'primitives'" @click="patch({ previewMode: 'primitives' })">游戏图元</button></div>
       <p>{{ modelValue.fitData.elements.length }} 个图元 · 椭圆 / 矩形 / 三角形素材组合</p>
@@ -33,7 +34,7 @@ import { primitiveImageSource } from "./primitiveControl";
 import { buildPrimitiveResourceParameters, normalizePrimitiveOptions, primitiveWorkerLimit, type PrimitiveFitOptions, type PrimitiveProperties, type PrimitiveShape } from "./primitiveData";
 import { imageAssetById, imageCatalogLoading, loadImageCatalog } from "./imageAssets";
 const props = defineProps<{ modelValue: PrimitiveProperties; name: string }>();
-const emit = defineEmits<{ (event: "update:modelValue", value: PrimitiveProperties): void }>();
+const emit = defineEmits<{ (event: "update:modelValue", value: PrimitiveProperties): void; (event: "busy", value: boolean): void }>();
 const embedded = computed(() => props.modelValue.imageUrl.startsWith("data:image/"));
 const options = computed(() => normalizePrimitiveOptions(props.modelValue.fitOptions));
 const workerLimit = primitiveWorkerLimit(navigator.hardwareConcurrency);
@@ -42,6 +43,7 @@ const fitting = ref(false), completed = ref(0), status = ref("");
 let controller: AbortController | null = null;
 const missingAssets = computed(() => props.modelValue.fitData?.elements.some(e => { const asset = imageAssetById.get(e.imageId); return !asset?.src || asset.missing; }));
 const url = ref(""), error = ref(""), loading = ref(false), fileInput = ref<HTMLInputElement | null>(null);
+watch(() => fitting.value || loading.value, value => emit("busy", value), { immediate: true, flush: "sync" });
 let reader: FileReader | null = null;
 watch(() => props.modelValue.imageUrl, value => { cancelFit(); url.value = value.startsWith("data:image/") ? "" : value; error.value = ""; status.value = ""; }, { immediate: true });
 function patch(value: Partial<PrimitiveProperties>) { emit("update:modelValue", { ...props.modelValue, ...value }); }
@@ -79,7 +81,7 @@ function exportParameters() {
 }
 function retryAssets() { props.modelValue.fitData?.elements.forEach(e => { const asset = imageAssetById.get(e.imageId); if (asset) asset.missing = false; }); void loadImageCatalog(); }
 function cancelRead() { if (reader) { reader.onload = reader.onerror = null; reader.abort(); reader = null; } loading.value = false; }
-onBeforeUnmount(() => { cancelRead(); cancelFit(); });
+onBeforeUnmount(() => { cancelRead(); cancelFit(); emit("busy", false); });
 function applyUrl() {
   cancelRead(); const source = url.value.trim();
   if (source && !primitiveImageSource(source)) { error.value = "请输入 http / https 图片地址，或选择本地图片。"; return; }

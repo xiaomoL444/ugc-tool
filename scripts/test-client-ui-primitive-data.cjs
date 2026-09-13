@@ -41,6 +41,13 @@ try {
   assert.throws(() => buildPrimitiveParameters(fit,'x',0,100), /尺寸/);
   assert.equal(normalizePrimitiveOptions({ count: Infinity, resolution: 10000, workers: 20 }).resolution,512);
   assert.equal(normalizePrimitiveOptions({ workers: 20 }).workers,16);
+  const upgraded = normalizePrimitiveOptions({ count:80, resolution:128, workers:2, shapes:['triangle'], transparent:false });
+  assert.deepEqual([upgraded.count, upgraded.resolution, upgraded.workers], [400,512,16]);
+  assert.deepEqual(upgraded.shapes, ['triangle']); assert.equal(upgraded.transparent, false);
+  assert.deepEqual(normalizePrimitiveOptions(upgraded), upgraded, 'default migration must be idempotent');
+  const custom = normalizePrimitiveOptions({ ...upgraded, count:80, resolution:128, workers:2 });
+  assert.deepEqual([custom.count, custom.resolution, custom.workers], [80,128,2], 'explicit settings after migration must remain editable');
+  assert.equal(normalizePrimitiveOptions({ count:120, resolution:256, workers:4 }).count, 120, 'legacy custom settings must survive');
   assert.deepEqual([1,8,12,32,NaN].map(primitiveWorkerLimit),[1,8,12,16,2]);
   const old = normalizePrimitiveProperties({ imageUrl: 'data:image/png;base64,OLD' });
   assert.equal(old.previewMode,'image'); assert.equal(old.fitData,null);

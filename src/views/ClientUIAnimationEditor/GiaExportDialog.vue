@@ -4,6 +4,8 @@
       <header><h2>导出客户端控件 UI</h2><button type="button" aria-label="关闭 GIA 导出" @click="emit('close')">×</button></header>
       <p>导出当前控件树的 {{ count }} 个控件及基础参数。Timeline 动画仍通过 Lua 工具导出。</p>
       <p>模板引用按索引保存，对应模板需已存在于游戏工程中。</p>
+      <p>导出时控件内部 ID 按列表顺序重新连续编号，并同步更新层级引用；图片素材 ID 和模板索引保持不变。</p>
+      <p>图元控件导出为空容器，隐藏状态和手柄聚焦由配套图元 Lua 数据及 PrimitiveImageLib 恢复。</p>
       <form @submit.prevent="emit('export', { name: name.trim(), uiIndex: Number(index) })">
         <label>名称<input v-model="name" aria-label="GIA 名称" required /></label>
         <label>客户端 UI 索引<input v-model="index" aria-label="客户端 UI 索引" type="number" min="0" max="2147483647" step="1" required /></label>

@@ -1,6 +1,6 @@
 import {
   applyTweenEase, getGroupAlphaColorFields, getTweenableField, getTweenGroupNodes,
-  GROUP_ALPHA_FIELD_KEY, GROUP_ALPHA_MAX, isRelativeTweenField, isTweenEaseType,
+  GROUP_ALPHA_FIELD_KEY, GROUP_ALPHA_MAX, VISIBILITY_FIELD_KEY, isRelativeTweenField, isTweenEaseType,
 } from "./tweenRegistry";
 import { TWEEN_CLIP_TIME_EPSILON } from "./timelineClipLayout";
 import type { ColorRGBA, UIKeyframe, UIKeyframeTrack, UITweenTrack, UITweenValue, UINode } from "./types";
@@ -31,7 +31,7 @@ function isColor(value: unknown): value is ColorRGBA {
 }
 
 function isFiniteValue(value: unknown): value is Exclude<UITweenValue, null> {
-  return typeof value === "number" ? Number.isFinite(value) : isColor(value);
+  return typeof value === "boolean" || (typeof value === "number" ? Number.isFinite(value) : isColor(value));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,11 +78,11 @@ function interpolateValues(from: UITweenValue, to: UITweenValue, progress: numbe
   return cloneValue(from);
 }
 
-/** Before the first key and after the last key, hold its value (including isolated keys). */
+/** Visibility retains setup state before its first callback; other fields hold their first key. */
 export function evaluateKeyframeTrack(track: UIKeyframeTrack, time: number, base: UITweenValue): UITweenValue {
   const keys = resolveKeyframeTrack(track, base);
   if (!keys.length) return cloneValue(base);
-  if (Number.isNaN(time) || time < keys[0].time) return cloneValue(keys[0].value);
+  if (Number.isNaN(time) || time < keys[0].time) return cloneValue(track.fieldKey === VISIBILITY_FIELD_KEY ? base : keys[0].value);
   for (let index = 0; index < keys.length - 1; index += 1) {
     const key = keys[index];
     const next = keys[index + 1];
@@ -143,8 +143,8 @@ export function normalizeKeyframeTracks(raw: unknown, nodes: readonly UINode[]):
     if (keyCount > 100000) throw new Error("关键帧总数超过 100000。");
     const validateValue = (value: unknown, valueLabel: string): UITweenValue => {
       if (value === null) return null;
-      if (field.valueKind === "number" ? typeof value !== "number" || !Number.isFinite(value) : !isColor(value)) {
-        throw new Error(`${valueLabel}必须是有效${field.valueKind === "number" ? "数字" : "ColorRGBA 颜色"}。`);
+      if (field.valueKind === "boolean" ? typeof value !== "boolean" : field.valueKind === "number" ? typeof value !== "number" || !Number.isFinite(value) : !isColor(value)) {
+        throw new Error(`${valueLabel}必须是有效${field.valueKind === "boolean" ? "布尔值" : field.valueKind === "number" ? "数字" : "ColorRGBA 颜色"}。`);
       }
       if (fieldKey === GROUP_ALPHA_FIELD_KEY && (Number(value) < 0 || Number(value) > GROUP_ALPHA_MAX)) throw new Error(`${valueLabel}透明度必须位于 0–255。`);
       return cloneValue(value as UITweenValue);
@@ -158,6 +158,7 @@ export function normalizeKeyframeTracks(raw: unknown, nodes: readonly UINode[]):
       if (typeof item.time !== "number" || !Number.isFinite(item.time) || item.time < 0) throw new Error(`${keyLabel}时间必须是大于等于 0 的有限数字。`);
       if (!isTweenEaseType(item.easeType)) throw new Error(`${keyLabel}缓动类型无效。`);
       if (item.interpolation !== "tween" && item.interpolation !== "step") throw new Error(`${keyLabel}插值必须是 tween 或 step。`);
+      if (field.valueKind === "boolean" && (item.interpolation !== "step" || item.incomingValue !== undefined)) throw new Error(`${keyLabel}显隐仅支持阶跃切换，不支持补间或左极限值。`);
       for (const flag of ["relative", "incomingRelative"]) {
         if (item[flag] !== undefined && typeof item[flag] !== "boolean") throw new Error(`${keyLabel}的 ${flag} 必须是布尔值。`);
         if (item[flag] === true && !isRelativeTweenField(fieldKey)) throw new Error(`${keyLabel}字段不支持增量。`);

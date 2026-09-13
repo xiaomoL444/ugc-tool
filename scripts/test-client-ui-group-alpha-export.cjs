@@ -142,8 +142,9 @@ try {
     assert.match(library, /ResetBaseColors\(child, visited\)/);
     assert.match(library, /math\.floor\(target\[6\] \* alpha \/ 255 \+ 0\.5\)/);
     assert.ok(library.indexOf("CollectColors(control, targets, {})") < library.indexOf("target[1][target[2]] = from"));
-    assert.match(library, /local tween = game\.Tween\(target\[1\], \{ \[target\[2\]\] = to \}, track\[4\]\)/);
-    assert.match(library, /:SetRelative\(false\)/);
+    assert.match(library, /local tween = game\.Tween\(target\[1\], \{ \[target\[2\]\] = rotation and \(to - from\) or to \}, track\[4\]\)/);
+    assert.match(library, /local rotation = IsRotationField\(target\[2\]\)/);
+    assert.match(library, /:SetRelative\(rotation\)/);
     assert.match(library, /sequence:Insert\(track\[3\], tween\)/);
   });
 

@@ -185,7 +185,7 @@ export type UINode = {
   [T in ControlType]: UINodeOf<T>;
 }[ControlType];
 
-export type UITweenValue = number | ColorRGBA | null;
+export type UITweenValue = number | ColorRGBA | boolean | null;
 
 /** 与 Enum.EaseType 完全一致的缓动类型。 */
 export type TweenEaseType =

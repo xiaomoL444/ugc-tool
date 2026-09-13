@@ -85,6 +85,23 @@ function setHierarchy(raw: Obj, parentId: number | null, childIds: number[]) {
   if (childIds.length) { raw["2"] = childIds.map(identity); meta["503"] = packIndices(childIds); }
   else { delete raw["2"]; delete meta["503"]; }
 }
+/** Only rewrite typed control identities, never arbitrary numbers such as image/template IDs. */
+function remapControlIdentities(value: UgcValue, ids: Map<number, number>) {
+  if (Array.isArray(value)) { value.forEach(item => remapControlIdentities(item, ids)); return; }
+  if (!value || typeof value !== "object") return;
+  const raw = value as Obj;
+  if (raw["2"] === 1 && raw["3"] === 8 && typeof raw["4"] === "number" && ids.has(raw["4"])) raw["4"] = ids.get(raw["4"])!;
+  Object.values(raw).forEach(item => remapControlIdentities(item, ids));
+}
+function reindexNativeControl(raw: Obj, id: number, ids: Map<number, number>) {
+  remapControlIdentities(raw, ids);
+  raw["1"] = { ...obj(raw["1"]), ...identity(id) };
+  const meta = metadata(raw);
+  meta["501"] = id;
+  for (const attribute of list(meta["502"]).map(obj)) {
+    if ("11" in attribute) attribute["11"] = { ...obj(attribute["11"]), "501": id };
+  }
+}
 function writeLayout(raw: Obj, node: UINode, baseline: UINode | undefined, deviceIndex: number) {
   const c = component(raw, 11);
   if (!c) throw new Error(`「${node.name}」缺少原始布局，无法导出`);
@@ -243,28 +260,41 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
   const rawMap = new Map(rawNodes.map(raw => [Number(obj(raw["1"])["4"]), raw]));
   const baseline = new Map((source?.baseline ?? []).map(node => [node.id, node]));
   if (source && !source.baseline) throw new Error("缺少原始 GIA 的编辑基准，请重新导入原始 GIA");
-  const used = new Set([Number(obj(originalPrimary["1"])["4"]), ...rawMap.keys()].filter(Number.isFinite));
+  const oldIds = new Set((source?.baseline ?? []).map(node => Number(/^gia_node_(\d+)$/.exec(node.id)?.[1])));
+  const dependencies = clone(list(original["2"]).map(obj).filter(raw => !oldIds.has(Number(obj(raw["1"])["4"]))));
+  // Reserve a contiguous block for every control plus the UI wrapper. External
+  // dependencies retain their identities, so move the whole block past a collision.
   let nextId = 1073741825;
-  const allocate = () => { while (used.has(nextId)) nextId++; used.add(nextId); return nextId++; };
-  const ids = new Map(nodes.map(node => { const old = /^gia_node_(\d+)$/.exec(node.id); return [node.id, old && rawMap.has(Number(old[1])) ? Number(old[1]) : allocate()] as const; }));
+  const reserved = dependencies.map(raw => Number(obj(raw["1"])["4"])).filter(Number.isFinite).sort((a, b) => a - b);
+  for (const id of reserved) if (id >= nextId && id <= nextId + nodes.length) nextId = id + 1;
+  if (!Number.isSafeInteger(nextId + nodes.length) || nextId + nodes.length > 2147483647) throw new Error("没有足够的连续控件 ID 可用于导出");
+  const ids = new Map(nodes.map(node => [node.id, nextId++] as const));
+  const primaryId = nextId;
+  const remappedIds = new Map<number, number>();
+  for (const node of nodes) {
+    const old = /^gia_node_(\d+)$/.exec(node.id);
+    if (old && rawMap.has(Number(old[1]))) remappedIds.set(Number(old[1]), ids.get(node.id)!);
+  }
+  if (originalPrimary["5"] === 21) remappedIds.set(Number(obj(originalPrimary["1"])["4"]), primaryId);
   const errors: string[] = [], output: Obj[] = [];
   for (const node of nodes) {
     try {
-      const id = ids.get(node.id)!, old = rawMap.get(id), before = baseline.get(node.id);
+      const id = ids.get(node.id)!, oldId = /^gia_node_(\d+)$/.exec(node.id), old = oldId ? rawMap.get(Number(oldId[1])) : undefined, before = baseline.get(node.id);
       if (old && !before) throw new Error(`「${node.name}」缺少原始编辑基准`);
       if (before && node.type !== before.type) throw new Error(`「${node.name}」已更改控件类型，无法保留原始组件`);
       const raw = old ? clone(old) : createNativeControl(node, id);
+      if (old) reindexNativeControl(raw, id, remappedIds);
       raw["5"] = 15;
       if (!before || node.name !== before.name) { raw["3"] = `string:${node.name}`; const name = component(raw, 12); if (name) name["12"] = { ...obj(name["12"]), "501": `string:${node.name}` }; }
       const children = nodes.filter(child => child.parentId === node.id).slice().reverse().map(child => ids.get(child.id)!);
-      const oldChildren = (source?.baseline ?? []).filter(child => child.parentId === node.id).slice().reverse().map(child => ids.get(child.id));
-      if (!before || node.parentId !== before.parentId || !equal(children, oldChildren)) setHierarchy(raw, node.parentId ? ids.get(node.parentId)! : null, children);
+      setHierarchy(raw, node.parentId ? ids.get(node.parentId)! : null, children);
       writeLayout(raw, node, before, options.deviceIndex); writeProperties(raw, node, before); output.push(raw);
     } catch (error) { errors.push((error as Error).message); }
   }
   if (errors.length) throw new Error(errors.join("\n"));
   const rootId = ids.get(roots[0].id)!;
-  const primary = originalPrimary["5"] === 21 ? clone(originalPrimary) : createNativeUI(allocate(), rootId, options.name, options.uiIndex);
+  const primary = originalPrimary["5"] === 21 ? clone(originalPrimary) : createNativeUI(primaryId, rootId, options.name, options.uiIndex);
+  if (originalPrimary["5"] === 21) reindexNativeControl(primary, primaryId, remappedIds);
   primary["3"] = `string:${options.name}`;
   const nameComponent = component(primary, 12); if (nameComponent) nameComponent["12"] = { ...obj(nameComponent["12"]), "501": `string:${options.name}` };
   body(primary, 72)["501"] = rootId;
@@ -274,8 +304,7 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
   const rootAttribute = attributes.find(item => "14" in item);
   if (rootAttribute) rootAttribute["14"] = { ...obj(rootAttribute["14"]), "501": packIndices([rootId]) };
   primary["2"] = [rootId, ...nodes.filter(node => node.parentId === roots[0].id).slice().reverse().map(node => ids.get(node.id)!)].map(identity);
-  const oldIds = new Set((source?.baseline ?? []).map(node => Number(/^gia_node_(\d+)$/.exec(node.id)?.[1])));
-  const dependencies = list(original["2"]).map(obj).filter(raw => !oldIds.has(Number(obj(raw["1"])["4"])));
+  dependencies.forEach(raw => remapControlIdentities(raw, remappedIds));
   const document: ConverterDocument = source ? clone(source.document) : { filetype: "gia", dirtype: "Unknown", info: { "1": 1, "2": 806, "3": 3, "4": 1657 }, json: {}, dtype_csv: "" };
   document.json = { ...original, "1": primary, "2": [...output, ...dependencies] };
   if (!source) (document.json as Obj)["5"] = "string:7.0.54";

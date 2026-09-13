@@ -3,6 +3,14 @@
    "struct_ype" : "basic", 
    "name" : "[任务]章节", 
    "value" : [ 
+      {
+         "key" : "id",
+         "param_type" : "Int32",
+         "value" : {
+            "param_type" : "Int32",
+            "value" : "0"
+         }
+      },
       { 
          "key" : "标题", 
          "param_type" : "String", 

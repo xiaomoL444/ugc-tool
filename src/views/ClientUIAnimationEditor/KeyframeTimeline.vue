@@ -51,11 +51,15 @@
           <p v-if="selection.key.value === null" role="status">当前帧尚未设置属性值，请填写后再导出。</p>
           <label class="kf-field">时间 <span class="kf-with-unit"><ScrubbableNumberInput :model-value="selection.key.time" :animated="true" :min="0" :max="safeDuration" :step="0.01" :scrub-speed="0.01" aria-label="关键帧时间" @update:model-value="changeKeyTime" /><i>s</i></span></label>
           <ColorRGBAField v-if="selection.field?.valueKind === 'color'" label="关键帧颜色" :model-value="selectedColor" :animated="true" @update:model-value="patchSelected({ value: $event })" />
+          <label v-else-if="selection.field?.valueKind === 'boolean'" class="kf-field">控件显隐<select class="is-animated" data-animated="true" :value="String(selection.key.value)" aria-label="关键帧显隐" @change="patchSelected({ value: ($event.target as HTMLSelectElement).value === 'true' })"><option v-if="selection.key.value === null" value="null" disabled>未设置</option><option value="true">显示</option><option value="false">隐藏</option></select></label>
           <label v-else class="kf-field">{{ selection.key.relative ? '增量值' : '属性值' }}<ScrubbableNumberInput :model-value="typeof selection.key.value === 'number' ? selection.key.value : null" :animated="true" :min="selection.key.relative ? undefined : selection.field?.min" :max="selection.key.relative ? undefined : selection.field?.max" :step="selection.field?.step ?? 0.01" :scrub-speed="selection.field?.scrubSpeed ?? 0.1" aria-label="关键帧属性值" @update:model-value="patchSelected({ value: $event })" /></label>
           <button v-if="isRelativeTweenField(selection.track.fieldKey)" class="kf-relative is-animated" data-animated="true" :class="{ active: selection.key.relative }" :aria-pressed="!!selection.key.relative" @click="patchSelected({ relative: !selection.key.relative })">{{ selection.key.relative ? '✓ ' : '' }}相对前帧增量</button>
-          <label class="kf-field">到下一帧<select class="is-animated" data-animated="true" :value="selection.key.interpolation" aria-label="关键帧插值方式" @change="changeInterpolation"><option value="tween">补间</option><option value="step">阶跃（保持当前值）</option></select></label>
-          <label class="kf-field">缓动<select class="is-animated" data-animated="true" :value="selection.key.easeType" :disabled="selection.key.interpolation === 'step'" aria-label="关键帧缓动" @change="changeEase"><option v-for="ease in tweenEaseOptions" :key="ease.value" :value="ease.value">{{ ease.label }}</option></select></label>
-          <p>缓动与补间作用于当前帧 → 下一帧。最后一帧之后保持该帧值。</p>
+          <template v-if="selection.field?.valueKind !== 'boolean'">
+            <label class="kf-field">到下一帧<select class="is-animated" data-animated="true" :value="selection.key.interpolation" aria-label="关键帧插值方式" @change="changeInterpolation"><option value="tween">补间</option><option value="step">阶跃（保持当前值）</option></select></label>
+            <label class="kf-field">缓动<select class="is-animated" data-animated="true" :value="selection.key.easeType" :disabled="selection.key.interpolation === 'step'" aria-label="关键帧缓动" @change="changeEase"><option v-for="ease in tweenEaseOptions" :key="ease.value" :value="ease.value">{{ ease.label }}</option></select></label>
+            <p>缓动与补间作用于当前帧 → 下一帧。最后一帧之后保持该帧值。</p>
+          </template>
+          <p v-else>到达此帧立即切换显隐，之后保持该状态。第一帧之前保留初始可见性；隐藏父控件时子级随之隐藏。</p>
         </template>
         <div v-else class="kf-inspector-empty"><span>◇</span>选择菱形关键帧<p>编辑时间、属性值与下一段补间。<br />右键属性轨道可添加关键帧。</p></div>
       </aside>
@@ -130,7 +134,7 @@ function percent(time: number) { return `${Math.max(0, Math.min(100, time / safe
 function clampTime(time: number) { return Math.round(Math.max(0, Math.min(safeDuration.value, time)) * 1e6) / 1e6; }
 function sortedKeys(track: UIKeyframeTrack) { return [...track.keyframes].sort((a, b) => a.time - b.time); }
 function fieldLabel(node: UINode, track: UIKeyframeTrack) { return getTweenableField(node.type, track.fieldKey)?.label ?? track.fieldKey; }
-function formatValue(value: UITweenValue) { return value === null ? "未设置" : typeof value === "number" ? String(value) : `RGBA(${value.r}, ${value.g}, ${value.b}, ${Math.round(value.a * 100)}%)`; }
+function formatValue(value: UITweenValue) { return value === null ? "未设置" : typeof value === "boolean" ? value ? "显示" : "隐藏" : typeof value === "number" ? String(value) : `RGBA(${value.r}, ${value.g}, ${value.b}, ${Math.round(value.a * 100)}%)`; }
 function segments(track: UIKeyframeTrack) { const keys = sortedKeys(track); return keys.slice(0, -1).map((key, index) => ({ id: key.id, start: key.time, end: keys[index + 1].time, step: key.interpolation === "step" })); }
 function toggleCollapsed(id: string) { const next = new Set(collapsed.value); next.has(id) ? next.delete(id) : next.add(id); collapsed.value = next; }
 function selectKey(track: UIKeyframeTrack, key: UIKeyframe) { emit("select-node", track.nodeId); emit("select-keyframe", track.id, key.id); }

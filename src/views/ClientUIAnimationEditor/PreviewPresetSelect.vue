@@ -6,13 +6,13 @@
     aria-haspopup="listbox"
     :aria-expanded="open"
     :aria-controls="menuId"
-    :aria-label="`预览设备与画布比例：${currentGroup?.label ?? ''} ${currentPreset?.ratio ?? ''}`"
-    :title="currentPreset ? `${currentGroup?.label} · ${currentPreset.width} × ${currentPreset.height}` : '预览设备与画布比例'"
+    :aria-label="`预览设备与画布比例：${currentGroup?.label ?? ''} ${customLabel || currentPreset?.ratio || ''}`"
+    :title="customLabel ? `自定义画布 · ${customLabel}` : currentPreset ? `${currentGroup?.label} · ${currentPreset.width} × ${currentPreset.height}` : '预览设备与画布比例'"
     @click="toggleMenu"
     @keydown="handleTriggerKeydown"
   >
     <DevicePreviewIcon :mode="deviceId" :size="21" />
-    <span>{{ currentPreset?.ratio ?? '选择比例' }}</span>
+    <span>{{ customLabel || currentPreset?.ratio || '选择比例' }}</span>
     <svg class="preview-preset-chevron" viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5Z" fill="currentColor" /></svg>
   </button>
 
@@ -36,9 +36,9 @@
           :id="optionId(option.index)"
           :key="option.id"
           class="preview-preset-option"
-          :class="{ selected: presetId === option.id, highlighted: activeIndex === option.index }"
+          :class="{ selected: !customLabel && presetId === option.id, highlighted: activeIndex === option.index }"
           role="option"
-          :aria-selected="presetId === option.id"
+          :aria-selected="!customLabel && presetId === option.id"
           :aria-label="`${group.label} ${option.ratio}`"
           :title="`${group.label} · ${option.width} × ${option.height}`"
           @pointermove="activeIndex = option.index"
@@ -46,7 +46,7 @@
         >
           <DevicePreviewIcon :mode="group.id" :size="24" />
           <span>{{ option.ratio }}</span>
-          <svg v-if="presetId === option.id" class="preview-preset-check" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+          <svg v-if="!customLabel && presetId === option.id" class="preview-preset-check" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
         </div>
       </div>
     </div>
@@ -60,7 +60,7 @@ import DevicePreviewIcon from './DevicePreviewIcon.vue';
 interface PreviewPreset { id: string; ratio: string; width: number; height: number }
 interface PreviewGroup { id: string; label: string; presets: PreviewPreset[] }
 
-const props = defineProps<{ groups: PreviewGroup[]; deviceId: string; presetId: string }>();
+const props = defineProps<{ groups: PreviewGroup[]; deviceId: string; presetId: string; customLabel?: string }>();
 const emit = defineEmits<{ select: [presetId: string] }>();
 const trigger = ref<HTMLButtonElement | null>(null);
 const menu = ref<HTMLDivElement | null>(null);

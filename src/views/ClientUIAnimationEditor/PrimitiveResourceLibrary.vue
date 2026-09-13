@@ -1,7 +1,10 @@
 <template>
   <section ref="panel" class="primitive-resource-library" role="dialog" aria-label="文件图片资源" tabindex="-1" @pointerdown.stop @keydown.esc.stop.prevent="emit('close')">
-    <header><strong>图片资源 <small>{{ assets.length }}</small></strong><input v-model="search" type="search" aria-label="搜索图片资源" placeholder="搜索本文件图片" /><button :disabled="reading" @click="fileInput?.click()">{{ reading ? '正在导入…' : '导入图片' }}</button><button @click="addEmpty">添加图片网址</button><button aria-label="关闭图片资源面板" @click="emit('close')">×</button></header>
-    <p class="library-note">当前文件的原图与拟合结果统一保存在这里。多个图元控件可共用同一资源。切换资源或关闭面板会取消正在进行的生成。</p>
+    <header><strong>图片资源 <small>{{ assets.length }}</small></strong><input v-model="search" type="search" aria-label="搜索图片资源" placeholder="搜索本文件图片" /><button :disabled="reading || batchBusy" @click="fileInput?.click()">{{ reading ? '正在导入…' : '导入图片' }}</button><button :disabled="batchBusy" @click="addEmpty">添加图片网址</button><button aria-label="关闭图片资源面板" @click="emit('close')">×</button></header>
+    <p class="library-note">当前文件的原图与拟合结果统一保存在这里。多个图元控件可共用同一资源。批量生成按各图片参数依次处理全部未拟合图片，不受搜索筛选影响。关闭面板会取消生成，已完成的结果保留。</p>
+    <div class="batch-actions"><button class="primary" :disabled="batchBusy || reading || singleBusy || !missingCount" @click="generateMissing">一键生成缺失图元（{{ missingCount }}）</button><button v-if="batchBusy" :disabled="batchCancelling" @click="cancelBatch">{{ batchCancelling ? '正在取消…' : '取消批量生成' }}</button><span v-if="batchStatus" role="status" aria-live="polite">{{ batchStatus }}</span></div>
+    <progress v-if="batchBusy" class="batch-progress" aria-label="批量生成进度" :value="batchProgress" :max="batchTotal" />
+    <details v-if="batchFailures.length" class="batch-failures"><summary>{{ batchFailures.length }} 张图片生成失败（可再次点击重试）</summary><ul><li v-for="(failure, index) in batchFailures" :key="index">{{ failure.name }}：{{ failure.message }}</li></ul></details>
     <input ref="fileInput" class="file-input" type="file" accept="image/*" multiple @change="importFiles" />
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <div class="library-body">
@@ -17,10 +20,10 @@
           <label>资源名称<input :key="activeAsset.id" :value="activeAsset.name" aria-label="图片资源名称" @change="rename(($event.target as HTMLInputElement).value)" /></label>
           <div ref="preview" class="resource-preview"><PrimitiveImage :image-url="activeAsset.imageUrl" :preview-mode="activeAsset.previewMode" :fit-data="activeAsset.fitData" :width="previewSize.width" :height="previewSize.height" /></div>
           <p>{{ activeAsset.fitData ? `${activeAsset.fitData.width} × ${activeAsset.fitData.height}` : '选择右侧参数并生成图元' }}</p>
-          <div class="resource-actions"><button v-if="selectable" class="primary" :disabled="!activeAsset.imageUrl" @click="emit('select', activeAsset.id)">用于当前图元控件</button><button :disabled="!!usage[activeAsset.id]" :title="usage[activeAsset.id] ? '先解除控件引用再移除资源' : '从当前文件移除，可撤销'" @click="emit('remove', activeAsset.id)">移除资源</button></div>
+          <div class="resource-actions"><button v-if="selectable" class="primary" :disabled="batchBusy || !activeAsset.imageUrl" @click="emit('select', activeAsset.id)">用于当前图元控件</button><button :disabled="batchBusy || !!usage[activeAsset.id]" :title="usage[activeAsset.id] ? '先解除控件引用再移除资源' : '从当前文件移除，可撤销'" @click="emit('remove', activeAsset.id)">移除资源</button></div>
           <small>参数 JSON 使用资源原始尺寸，坐标相对图片中心；图元控件按自身尺寸等比显示。</small>
         </div>
-        <div class="resource-settings"><PrimitiveImageSettings :key="activeAsset.id" :model-value="activeAsset" :name="activeAsset.name" @update:model-value="updateActive" /></div>
+        <div class="resource-settings"><p v-if="batchBusy" class="library-note">正在批量生成，可切换图片查看已完成的结果。完成或取消后可继续调整参数。</p><PrimitiveImageSettings v-else :key="activeAsset.id" :model-value="activeAsset" :name="activeAsset.name" @busy="singleBusy = $event" @update:model-value="updateActive" /></div>
       </template>
       <div v-else class="empty-selection">选择一张图片，预览原图、设置拟合并导出图元参数。</div>
     </div>
@@ -34,6 +37,7 @@ import PrimitiveImageSettings from "./PrimitiveImageSettings.vue";
 import { primitiveImageSource } from "./primitiveControl";
 import type { PrimitiveProperties } from "./primitiveData";
 import type { PrimitiveImageResource } from "./primitiveResources";
+import { fitMissingPrimitiveResources } from "./primitiveBatch";
 
 const props = defineProps<{ assets: PrimitiveImageResource[]; selectedId: string | null; selectable: boolean; usage: Record<string, number> }>();
 const emit = defineEmits<{ (event: "close"): void; (event: "save", asset: PrimitiveImageResource): void; (event: "remove", id: string): void; (event: "select", id: string): void }>();
@@ -42,9 +46,40 @@ const panel = ref<HTMLElement | null>(null), preview = ref<HTMLElement | null>(n
 const previewSize = ref({width: 280, height: 220});
 const filteredAssets = computed(() => props.assets.filter(a => a.name.toLowerCase().includes(search.value.trim().toLowerCase())));
 const activeAsset = computed(() => props.assets.find(a => a.id === activeId.value) ?? null);
+const missingCount = computed(() => props.assets.filter(asset => asset.imageUrl && !asset.fitData).length);
+const singleBusy = ref(false), batchBusy = ref(false), batchCancelling = ref(false), batchStatus = ref("");
+const batchProgress = ref(0), batchTotal = ref(1);
+const batchFailures = ref<{ name: string; message: string }[]>([]);
+let batchController: AbortController | null = null;
+function cancelBatch() { if (batchController) { batchCancelling.value = true; batchController.abort(); } }
+async function generateMissing() {
+  if (batchBusy.value || singleBusy.value || reading.value || !missingCount.value) return;
+  const job = new AbortController(); batchController = job;
+  batchBusy.value = true; batchCancelling.value = false; batchFailures.value = [];
+  batchProgress.value = 0; batchTotal.value = missingCount.value; batchStatus.value = "正在准备批量生成…";
+  try {
+    const { fitPrimitiveImage } = await import("./primitiveFitter");
+    const result = await fitMissingPrimitiveResources(() => props.assets, fitPrimitiveImage, async asset => {
+      if (disposed || job.signal.aborted) return;
+      emit("save", asset); await nextTick();
+    }, job.signal, ({ index, total, name, progress }) => {
+      batchTotal.value = total;
+      batchProgress.value = index - 1 + (progress?.phase === "fit" ? progress.done / Math.max(1, progress.total) : 0);
+      const phase = !progress || progress.phase === "image" ? "读取图片" : progress.phase === "engine" ? "加载引擎" : `${progress.done} / ${progress.total} 图元`;
+      batchStatus.value = `${index} / ${total} 张 · ${name} · ${phase}`;
+    });
+    if (disposed) return;
+    batchFailures.value = result.failures;
+    batchStatus.value = `${result.cancelled ? '已取消' : '批量生成完成'}：成功 ${result.generated} 张，失败 ${result.failures.length} 张${result.skipped ? `，跳过 ${result.skipped} 张` : ''}。已完成结果已保留。`;
+  } catch (reason) {
+    if (!disposed) batchStatus.value = job.signal.aborted ? "已取消批量生成，已完成结果已保留。" : `批量生成失败：${reason instanceof Error ? reason.message : '引擎加载失败'}`;
+  } finally {
+    batchController = null; batchBusy.value = false; batchCancelling.value = false;
+  }
+}
 let observer: ResizeObserver | null = null, disposed = false, reader: FileReader | null = null;
 onMounted(() => { panel.value?.focus(); });
-onBeforeUnmount(() => { disposed = true; reader?.abort(); observer?.disconnect(); });
+onBeforeUnmount(() => { disposed = true; batchController?.abort(); reader?.abort(); observer?.disconnect(); });
 watch(preview, el => { observer?.disconnect(); if (!el) return; observer = new ResizeObserver(() => { previewSize.value = { width: el.clientWidth, height: el.clientHeight }; }); observer.observe(el); }, { flush: "post" });
 watch(() => props.assets.map(a => a.id), ids => { if (!ids.includes(activeId.value)) activeId.value = ids[0] ?? ""; });
 function updateActive(value: PrimitiveProperties) { if (activeAsset.value) emit("save", { ...value, id: activeAsset.value.id, name: activeAsset.value.name }); }
@@ -83,6 +118,7 @@ async function importFiles(event: Event) {
 header { display: flex; align-items: center; gap: 9px; padding: 12px 16px 4px; } header strong { white-space: nowrap; } header small { color: #a7b2c8; } header input { margin-left: auto; width: 180px; }
 button, input { border: 1px solid #50596b; border-radius: 5px; background: #343b49; color: inherit; font: inherit; padding: 6px 10px; } button { cursor: pointer; } button:disabled { opacity: .5; cursor: default; } button:focus-visible, input:focus-visible { outline: 2px solid #b994e6; } .file-input { display: none; }
 .library-note { margin: 7px 16px 10px; color: #a6b2c7; font-size: 11px; line-height: 1.6; }.library-body { display: grid; grid-template-columns: 180px minmax(180px, 1fr) 320px; flex: 1; min-height: 0; }
+.batch-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 16px 10px; }.batch-actions span { color: #bfcde2; overflow-wrap: anywhere; }.batch-progress { margin: 0 16px 8px; width: calc(100% - 32px); height: 6px; flex-shrink: 0; }.batch-failures { margin: 0 16px 8px; color: #ffacae; max-height: 90px; overflow: auto; flex-shrink: 0; }
 .resource-list { overflow: auto; padding: 6px 12px 16px; }.resource-card { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; margin-bottom: 10px; padding: 10px; }.resource-card.selected { border-color: #c09de8; background: #473b57; }.resource-card img, .empty-thumbnail { width: 110px; height: 70px; object-fit: contain; background: #212631; }.resource-card b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.resource-card small { color: #bac5d7; font-size: 10px; }
 .resource-preview-column { display: flex; flex-direction: column; min-width: 0; overflow: auto; padding: 8px 18px 18px; border-left: 1px solid #454f60; }.resource-preview-column label { display: flex; align-items: center; gap: 8px; }.resource-preview-column input { flex: 1; min-width: 0; }.resource-preview { position: relative; flex: 1; min-height: 140px; margin-top: 12px; overflow: hidden; background: repeating-conic-gradient(#333a46 0% 25%, #242b36 0% 50%) 50% / 20px 20px; }.resource-preview-column small { color: #aab8cd; line-height: 1.7; margin-top: 10px; }.resource-actions { display: flex; gap: 8px; flex-wrap: wrap; }.primary { background: #675084; }
 .resource-settings { overflow: auto; border-left: 1px solid #454f60; padding: 8px 14px 20px; }.empty-state, .empty-selection { color: #aab8cd; line-height: 1.8; padding: 20px 8px; }.empty-selection { grid-column: 2 / -1; display: grid; place-items: center; }.error { color: #ffacae; margin: 4px 16px; }

@@ -3,6 +3,14 @@
    "struct_ype" : "basic", 
    "name" : "[任务]主任务", 
    "value" : [ 
+      {
+         "key" : "id",
+         "param_type" : "Int32",
+         "value" : {
+            "param_type" : "Int32",
+            "value" : "0"
+         }
+      },
       { 
          "key" : "chapter", 
          "param_type" : "Int32", 

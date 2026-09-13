@@ -43,6 +43,14 @@ async function main() {
         assert.deepEqual(value.issues, []);
         return value;
       });
+      // 自身 id 必须与字典中的完整键一致，而不是父 ID、数组位置或桶内偏移。
+      const assertOwnIds = (dictionary) => dictionary.value.forEach((entry) => {
+        assert.equal(entry.value.value.id.type, "Int32");
+        assert.equal(entry.value.value.id.value, entry.key.value);
+        assert.equal(Object.keys(entry.value.value)[0], "id");
+      });
+      assertOwnIds(parsed[0]); assertOwnIds(parsed[1]);
+      parsed[2].value.forEach((entry) => assertOwnIds(entry.value.value["子任务字典"]));
       return { result, chapters: parsed[0], mains: parsed[1], subs: parsed[2] };
     }
     const values = (dict) => dict.value.map((entry) => entry.value);
@@ -59,6 +67,37 @@ async function main() {
       assert.equal(result.files[0].value.value_structId, project.structIds.chapter);
       assert.equal(result.files[1].value.value_structId, project.structIds.mainQuest);
       assert.equal(result.files[2].value.value_structId, project.structIds.subQuestDictionary);
+    });
+    test("own IDs remain distinct from parent IDs, struct IDs and bucket offsets through save, reorder and deletion", () => {
+      const project = source(5);
+      project.chapters[0].id = 37;
+      project.mainQuests[0].id = 58; project.mainQuests[0].chapterId = 37;
+      const otherMain = createQuestMain(project); otherMain.id = 6;
+      [9999, 0, 199, 99, 100].forEach((id, index) => {
+        project.subQuests[index].id = id; project.subQuests[index].mainQuestId = 58;
+      });
+      project.subQuests[0].nextQuestIds = [100, null, 99]; project.subQuests[0].failureQuestId = 99;
+      project.structIds = { chapter: "9001", mainQuest: "9002", subQuest: "9003", subQuestDictionary: "9004", positionSlot: "9005" };
+      project.mainQuests.reverse(); project.subQuests.reverse();
+      const before = encodeQuestProject(project), restored = decodeQuestProject(before);
+      const { result, chapters, mains, subs } = exported(restored);
+      assert.equal(values(chapters)[0].value.id.value, "37");
+      assert.deepEqual(values(mains).map(value => [value.value.id.value, value.value.chapter.value]), [["6", "-1"], ["58", "37"]]);
+      assert.deepEqual(keys(subs), [0, 1, 99]);
+      const rows = values(subs).flatMap(bucket => values(bucket.value["子任务字典"]));
+      assert.deepEqual(rows.map(value => value.value.id.value), ["0", "99", "100", "199", "9999"]);
+      assert.ok(rows.every(value => value.value.mainQuestId.value === "58"));
+      assert.equal(result.files[2].value.value_structId, "9004");
+      assert.ok(rows.every(value => value.toQxqyValue().structId === "9003"));
+      assert.deepEqual(rows.at(-1).value["后续任务"].value, ["100", "-1", "99"]);
+      assert.equal(encodeQuestProject(restored), before); assert.equal(encodeQuestProject(project), before);
+      removeQuestSubQuests(restored, new Set([99]));
+      restored.subQuests.find(sub => sub.id === 199).mainQuestId = 6;
+      const afterRows = values(exported(restored).subs).flatMap(bucket => values(bucket.value["子任务字典"]));
+      assert.deepEqual(afterRows.map(value => value.value.id.value), ["0", "100", "199", "9999"]);
+      assert.equal(afterRows[2].value.mainQuestId.value, "6");
+      assert.deepEqual(afterRows.at(-1).value["后续任务"].value, ["100", "-1", "-1"]);
+      assert.equal(afterRows.at(-1).value["失败回溯任务"].value, "-1");
     });
     test("factories create independent slot defaults matching the camera template", () => {
       const project = source();
@@ -79,8 +118,8 @@ async function main() {
       assert.deepEqual(keys(result.chapters), [7]); assert.deepEqual(keys(result.mains), [21]);
       assert.equal(values(result.mains)[0].value.chapter.value, "7");
       const value = values(values(result.subs)[0].value["子任务字典"])[0];
-      assert.deepEqual(Object.keys(value.value), ["mainId", "title", "desc", "任务单位状态", "任务调查点预设点", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress"]);
-      assert.equal(value.value["mainId"].type, "Int32"); assert.equal(value.value["mainId"].value, "21");
+      assert.deepEqual(Object.keys(value.value), ["id", "mainQuestId", "title", "desc", "任务单位状态", "任务调查点预设点", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress"]);
+      assert.equal(value.value["mainQuestId"].type, "Int32"); assert.equal(value.value["mainQuestId"].value, "21");
       assert.equal(value.value["title"].value, sub.title); assert.equal(value.value["desc"].value, sub.description);
       assert.equal(value.value["任务单位状态"].value, sub.unitState);
       assert.equal(value.value["隐藏任务"].value, "True"); assert.equal(value.value["调查点范围"].value, "2.75");
@@ -91,15 +130,15 @@ async function main() {
       assert.equal(slot.value.guid.value, sub.investigationPoint.guid);
       assert.equal(slot.value.requiresClientPos.value, "True");
     });
-    test("new sub fields use exact source types/defaults and preserve the eleven-field order", () => {
+    test("new sub fields use exact source types/defaults and preserve the twelve-field order", () => {
       const project = source();
       const definition = require(path.join(assetDirectory, "1077936145[任务]子任务.json"));
       assert.deepEqual(definition.value.map((field) => [field.key, field.param_type]), [
-        ["mainId", "Int32"], ["title", "String"], ["desc", "String"], ["任务单位状态", "ConfigReference"],
+        ["id", "Int32"], ["mainQuestId", "Int32"], ["title", "String"], ["desc", "String"], ["任务单位状态", "ConfigReference"],
         ["任务调查点预设点", "Struct"], ["调查点范围", "Float"], ["隐藏任务", "Bool"], ["后续任务", "Int32List"],
         ["失败回溯任务", "Int32"], ["finishMainQuest", "Bool"], ["questProgress", "Int32"],
       ]);
-      assert.deepEqual(definition.value.slice(8).map((field) => field.value.value), ["-1", "False", "0"]);
+      assert.deepEqual(definition.value.slice(9).map((field) => field.value.value), ["-1", "False", "0"]);
       const sub = project.subQuests[0];
       assert.equal(sub.failureQuestId, -1); assert.equal(sub.finishMainQuest, false); assert.equal(sub.questProgress, 0);
       const { subs, result } = exported(project);
@@ -359,24 +398,24 @@ async function main() {
       assert.equal(chapters.itemCount, 1); assert.equal(values(mains)[0].value.chapter.value, "-42");
       assert.equal(project.mainQuests[0].chapterId, null);
     });
-    test("main quest factories and source definitions use chapter/title/style with Mainline default", () => {
+    test("main quest factories and source definitions use id/chapter/title/style with Mainline default", () => {
       const project = source();
       assert.equal(project.mainQuests[0].style, "Mainline");
       assert.equal(createQuestMain(project).style, "Mainline");
       const definition = require(path.join(assetDirectory, "1077936166[任务]主任务.json"));
       assert.deepEqual(definition.value.map((field) => [field.key, field.param_type]), [
-        ["chapter", "Int32"], ["title", "String"], ["style", "String"],
+        ["id", "Int32"], ["chapter", "Int32"], ["title", "String"], ["style", "String"],
       ]);
-      assert.equal(definition.value[2].value.value, "Mainline");
+      assert.equal(definition.value[3].value.value, "Mainline");
       const { chapters, mains } = exported(project);
       const main = values(mains)[0];
-      assert.deepEqual(Object.keys(main.value), ["chapter", "title", "style"]);
+      assert.deepEqual(Object.keys(main.value), ["id", "chapter", "title", "style"]);
       assert.equal(main.value.chapter.type, "Int32");
       assert.equal(main.value.title.type, "String");
       assert.equal(main.value.title.value, project.mainQuests[0].title);
       assert.equal(main.value.style.type, "String");
       assert.equal(main.value.style.value, "Mainline");
-      assert.deepEqual(Object.keys(values(chapters)[0].value), ["标题"], "Chapter fields must not be renamed with main quest fields");
+      assert.deepEqual(Object.keys(values(chapters)[0].value), ["id", "标题"], "Chapter title must not be renamed with main quest fields");
       assert.equal(values(chapters)[0].value["标题"].value, project.chapters[0].title);
     });
     test("old project decoding fills only missing main styles alongside missing follow-up lists", () => {
@@ -441,7 +480,7 @@ async function main() {
       assert.deepEqual(keys(mains), [21]);
       const value = values(mains)[0];
       assert.equal(value.toQxqyValue().structId, "9502");
-      assert.deepEqual(Object.keys(value.value), ["chapter", "title", "style"]);
+      assert.deepEqual(Object.keys(value.value), ["id", "chapter", "title", "style"]);
       assert.equal(value.value.chapter.value, "-42");
       assert.equal(value.value.title.value, "直属任务");
       assert.equal(value.value.style.value, "Branch_Custom");
@@ -474,6 +513,9 @@ async function main() {
         assert.equal(inner.value.length, 100);
         assert.equal(inner.value[0].key.value, String(bucketId * 100));
         assert.equal(inner.value[99].key.value, String(bucketId * 100 + 99));
+        inner.value.forEach((item) => {
+          assert.deepEqual(item.value.value.value[0], { param_type: "Int32", value: item.key.value });
+        });
       });
       assert.throws(() => createQuestSub(project, 0), /10000/);
     });
@@ -587,10 +629,10 @@ async function main() {
         assert.equal(JSON.stringify(require(path.join(assetDirectory, name))), loaded);
       }
       const independent = require(path.join(assetDirectory, "1077936145[任务]子任务.json"));
-      assert.equal(independent.value[4].value.value.value.length, 10);
+      assert.equal(independent.value[5].value.value.value.length, 10);
       assert.equal(independent.value[0].param_type, "Int32");
-      assert.equal(independent.value[7].key, "后续任务");
-      assert.equal(independent.value[7].param_type, "Int32List");
+      assert.equal(independent.value[8].key, "后续任务");
+      assert.equal(independent.value[8].param_type, "Int32List");
       assert.equal(createQuestStructWorkspace(project.structIds).createDefault(project.structIds.subQuest).value["任务调查点预设点"].toQxqyValue().value.length, 8);
     });
     console.log(`${passed} quest export tests passed.`);

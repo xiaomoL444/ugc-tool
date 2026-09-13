@@ -1,7 +1,7 @@
 import { controlRegistry } from "./controlRegistry";
 import type { ControlType, TweenEaseType, UITweenTrack, UINode } from "./types";
 
-export type TweenValueKind = "number" | "color";
+export type TweenValueKind = "number" | "color" | "boolean";
 export type TweenFieldSource = "base" | "properties" | "group";
 
 export interface TweenableFieldDefinition {
@@ -22,6 +22,14 @@ export interface TweenableFieldDefinition {
 
 export const GROUP_ALPHA_FIELD_KEY = "groupAlpha";
 export const GROUP_ALPHA_MAX = 255;
+export const VISIBILITY_FIELD_KEY = "visible";
+
+/** visible 是只读状态；运行库通过 SetVisible 回调写入，不创建 Tween。 */
+const visibilityField: TweenableFieldDefinition = {
+  fieldKey: VISIBILITY_FIELD_KEY, modelKey: "visible", label: "控件显隐",
+  source: "base", valueKind: "boolean",
+  description: "到达关键帧时立即显示或隐藏；首帧前保留初始可见性。隐藏父控件会同时隐藏子级，不改变激活状态。",
+};
 
 /** 原生缩放字段；增量仍然是加法，不是倍率。 */
 export function isScaleTweenField(fieldKey: string): boolean {
@@ -140,7 +148,7 @@ export function getTweenableFields(type: ControlType): TweenableFieldDefinition[
       max: field.max,
       step: field.step ?? 0.01,
     }));
-  return [...baseTweenableFields, ...derivedFields, ...groupTweenableFields];
+  return [...baseTweenableFields, ...derivedFields, ...groupTweenableFields, visibilityField];
 }
 
 export function getTweenableField(type: ControlType, fieldKey: string) {

@@ -33,6 +33,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
   const entries = shallowRef<EditorHistoryEntry[]>([]);
   const index = ref(-1);
   const busy = ref(false);
+  const interacting = ref(false);
   const pending = shallowRef<PendingChange | null>(null);
   const sources = new Set<string>();
   const instanceId = ++historyId;
@@ -130,11 +131,15 @@ export function createEditorHistory(options: EditorHistoryOptions) {
     if (disposed || busy.value || sources.has(source)) return;
     if (!sources.size) flush();
     sources.add(source);
+    interacting.value = true;
   }
 
   function end(source: string) {
     if (disposed || busy.value || !sources.delete(source)) return;
-    if (!sources.size) flush();
+    if (!sources.size) {
+      try { flush(); }
+      finally { interacting.value = false; }
+    }
   }
 
   function reset(snapshot?: string) {
@@ -143,6 +148,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
     revision += 1;
     invalidateScheduledFlush();
     sources.clear();
+    interacting.value = false;
     pending.value = null;
     baseline = nextBaseline;
     replay = null;
@@ -155,6 +161,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
     if (disposed || busy.value) return;
     flush();
     sources.clear();
+    interacting.value = false;
     if (action === "undo" ? !manager.hasUndo() : !manager.hasRedo()) return;
     const originalSnapshot = options.capture();
     const context: ReplayContext = {
@@ -203,6 +210,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
     revision += 1;
     invalidateScheduledFlush();
     sources.clear();
+    interacting.value = false;
     pending.value = null;
     replay = null;
     entries.value = [];
@@ -215,6 +223,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
     entries,
     index,
     busy,
+    interacting,
     canUndo,
     canRedo,
     begin,

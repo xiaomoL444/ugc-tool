@@ -15,25 +15,30 @@
       <button class="tool-button" @click.stop="openProject">导入 JSON</button>
       <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="downloadProject">导出 JSON</button>
       <button class="tool-button gia-import-button" title="导入 GIA，在当前工作区创建新的编辑文件" @click.stop="openGiaFile">导入 GIA</button>
+      <button class="tool-button" :disabled="psdImportBusy" title="导入 PSD 为新文件：文件夹转容器，图层转图片资源和图元控件" @click.stop="openPsdFile">{{ psdImportBusy ? psdImportProgress : '导入 PSD' }}</button>
       <button class="tool-button" :disabled="!hasOpenDocument" title="导出当前控件树的基础参数为原生客户端 UI GIA" @click.stop="openGiaExport">导出 GIA</button>
       <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openControlTemplateLibrary">控件模板</button>
       <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openPrimitiveResourceLibrary">图片资源</button>
+      <button class="tool-button" :disabled="!hasOpenDocument || !fittedPrimitiveNodes.length" :aria-pressed="allPrimitivesFitted" title="一键切换所有图元控件的显示；尚未拟合的图片继续显示原图" @click.stop="toggleAllPrimitivePreviews">{{ allPrimitivesFitted ? '全部显示原图' : '全部显示拟合' }}</button>
       <button class="archive-status" :class="{ 'has-error': archive?.error.value }" :title="archive?.error.value || archive?.status.value" @click.stop="workspacePanelOpen = true">{{ archive?.status.value || 'JSON 文件模式' }}</button>
       <div class="lua-export-wrap" @pointerdown.stop>
-        <button class="tool-button lua-export-button" aria-label="Lua 导入与导出" title="导入 Timeline Data，或导出运行库与动画数据" @click.stop="luaExportMenuOpen = !luaExportMenuOpen">Lua 工具 <span>⌄</span></button>
+        <button class="tool-button lua-export-button" aria-label="Lua 导入与导出" title="导入动画数据，或导出动画、图元数据及独立运行库" @click.stop="luaExportMenuOpen = !luaExportMenuOpen">Lua 工具 <span>⌄</span></button>
         <span class="lua-lib-version" :title="`当前可导出的 TweenTimelineLib 版本：@${TWEEN_TIMELINE_LIB_VERSION}。不代表游戏项目中已安装的版本；更新时请重新导出运行库。`">Lib:v{{ TWEEN_TIMELINE_LIB_VERSION }}</span>
         <div v-if="luaExportMenuOpen" class="lua-export-menu">
           <button :disabled="!hasOpenDocument" @click.stop="openTimelineDataImport"><b>导入 Timeline Data</b><small>从 Data 还原控件的动画时间轴</small></button>
           <button @click.stop="exportTweenTimelineLib"><b>导出运行库</b><small>TweenTimelineLib.lua · v{{ TWEEN_TIMELINE_LIB_VERSION }} · 放入 Lib</small></button>
           <button :disabled="!selectedNode" @click.stop="exportSelectedNodeTweenData"><b>导出 Timeline Data</b><small>{{ selectedNode ? `${activeAnimation.name} · 以 ${selectedNode.name} 为根控件` : '请先选择根控件' }}</small></button>
+          <button :disabled="selectedNode?.type !== 'container'" @click.stop="exportSelectedPrimitiveProject"><b>导出图元项目 Lua</b><small>{{ selectedNode?.type === 'container' ? `以 ${selectedNode.name} 为根容器 · 后代图元按路径生成` : '请先在层级树选择容器' }}</small></button>
+          <button @click.stop="exportPrimitiveImageLib"><b>导出图元运行库</b><small>PrimitiveImageLib.lua · 独立生成图片集合</small></button>
         </div>
       </div>
       <input ref="fileInput" class="file-input" type="file" accept="application/json,.json" @change="loadProject" />
       <input ref="giaFileInput" class="file-input" type="file" accept=".gia,application/octet-stream" @change="loadGiaFile" />
+      <input ref="psdFileInput" class="file-input" type="file" accept=".psd,image/vnd.adobe.photoshop" @change="loadPsdFile" />
       <span v-if="giaImportStatus" class="gia-import-status" :title="giaImportStatus">{{ giaImportStatus }}</span>
       <div class="toolbar-spacer"></div>
-      <PreviewPresetSelect :groups="previewPresetGroups" :device-id="deviceMode" :preset-id="previewPresetId" @select="selectPreviewPreset" />
-      <div class="zoom-control"><button aria-label="缩小画布" @click.stop="zoom = Math.max(0.2, zoom - 0.1)">−</button><span>{{ Math.round(zoom * 100) }}%</span><button aria-label="放大画布" @click.stop="zoom = Math.min(1.5, zoom + 0.1)">＋</button></div>
+      <PreviewPresetSelect :groups="previewPresetGroups" :device-id="deviceMode" :preset-id="previewPresetId" :custom-label="customCanvasLabel" @select="selectPreviewPreset" />
+      <div class="zoom-control"><button aria-label="缩小画布" @click.stop="zoom = Math.max(0.01, zoom - 0.1)">−</button><span>{{ Math.round(zoom * 100) }}%</span><button aria-label="放大画布" @click.stop="zoom = Math.min(1.5, zoom + 0.1)">＋</button></div>
       <button class="icon-button" title="适应画布" aria-label="适应画布" @click.stop="fitCanvas"><EditorIcon name="fit" /></button>
     </header>
 
@@ -64,7 +69,7 @@
       </aside>
 
       <main class="workspace-panel">
-        <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><button class="bone-visibility-toggle" :class="{ active: showContainerBones }" :aria-pressed="showContainerBones" :disabled="!hasOpenDocument" aria-label="显示骨骼" title="显示或隐藏所有容器的方向骨骼，不改变箭头长度" @click.stop="showContainerBones = !showContainerBones"><EditorIcon :name="showContainerBones ? 'eye' : 'eye-off'" :size="14" />显示骨骼</button><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ currentPreset.ratio }}</span></div>
+        <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><button class="bone-visibility-toggle" :class="{ active: showContainerBones }" :aria-pressed="showContainerBones" :disabled="!hasOpenDocument" aria-label="显示骨骼" title="显示或隐藏所有容器的方向骨骼，不改变箭头长度" @click.stop="showContainerBones = !showContainerBones"><EditorIcon :name="showContainerBones ? 'eye' : 'eye-off'" :size="14" />显示骨骼</button><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ customCanvasLabel || currentPreset.ratio }}</span></div>
         <div ref="viewportElement" class="viewport" :class="[{ 'is-panning': isPanning }, `tool-${canvasTool}`]" @wheel.prevent="handleCanvasWheel" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
           <div class="ruler ruler-x"><span v-for="tick in rulerXTicks" :key="tick">{{ tick }}</span></div>
           <div class="ruler ruler-y"><span v-for="tick in rulerYTicks" :key="tick">{{ tick }}</span></div>
@@ -255,7 +260,7 @@
             <header><div><b>{{ group.title }}</b><small>{{ group.description }}</small></div><em>{{ group.fields.length }} 项</em></header>
             <div class="tween-field-picker-grid">
               <button v-for="field in group.fields" :key="field.fieldKey" :disabled="Boolean(tweenFieldConflict(tweenFieldPickerNode, field.fieldKey))" :title="tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) ?? field.description" @click="addKeyframeTrack(tweenFieldPickerNode, field.fieldKey)">
-                <span class="parameter-kind" :class="`kind-${field.valueKind}`">{{ field.valueKind === 'color' ? '颜色' : '数值' }}</span>
+                <span class="parameter-kind" :class="`kind-${field.valueKind}`">{{ field.valueKind === 'boolean' ? '显隐' : field.valueKind === 'color' ? '颜色' : '数值' }}</span>
                 <b>{{ field.label }}</b>
                 <code>{{ field.fieldKey }}</code>
                 <EditorIcon class="parameter-add" name="plus" :size="17" />
@@ -313,6 +318,8 @@ import PrimitiveImage from "./PrimitiveImage.vue";
 import { normalizePrimitiveProperties } from "./primitiveData";
 import { migratePrimitiveResources, normalizePrimitiveResources, type PrimitiveImageResource } from "./primitiveResources";
 import PrimitiveResourceLibrary from "./PrimitiveResourceLibrary.vue";
+import { buildPrimitiveProjectLua } from "./primitiveLuaExporter";
+import { buildPrimitiveImageLibLua } from "./primitiveLuaRuntime";
 import { buildTemplateScene, normalizeControlTemplates, templateIndexError, type ControlTemplateAsset } from "./controlTemplates";
 import ControlTemplateLibrary from "./ControlTemplateLibrary.vue";
 import ControlTemplatePreview from "./ControlTemplatePreview.vue";
@@ -516,6 +523,7 @@ const emptyHierarchyDrag = (): HierarchyDragState => ({ nodeId: null, active: fa
 const hierarchyDrag = ref<HierarchyDragState>(emptyHierarchyDrag());
 const controlLabels = Object.fromEntries(controlDefinitions.map((definition) => [definition.type, definition.label])) as Record<ControlType, string>;
 const currentDevice = computed(() => deviceModes.find((device) => device.id === deviceMode.value) ?? deviceModes[0]); const currentPreviewPresets = computed(() => previewPresets[deviceMode.value]); const currentPreset = computed(() => currentPreviewPresets.value.find((preset) => preset.id === previewPresetId.value) ?? currentPreviewPresets.value[0]); const isMobilePreview = computed(() => deviceMode.value === "mobile" || deviceMode.value === "controllerMobile");
+const customCanvasLabel = computed(() => currentPreset.value.width === canvasWidth.value && currentPreset.value.height === canvasHeight.value ? undefined : `${canvasWidth.value} × ${canvasHeight.value}`);
 interface Matrix2D { a: number; b: number; c: number; d: number }
 const resizeCorners = ["tl", "tr", "bl", "br"] as const;
 type ResizeCorner = typeof resizeCorners[number];
@@ -643,6 +651,18 @@ const controlTemplates = ref<ControlTemplateAsset[]>([]);
 const primitiveResources = ref<PrimitiveImageResource[]>([]);
 const primitiveResourceLibraryOpen = ref(false);
 const primitiveResourceById = computed(() => new Map(primitiveResources.value.map(asset => [asset.id, asset])));
+const fittedPrimitiveNodes = computed(() => nodes.value.filter(node => node.type === "primitive" && primitiveResourceById.value.get(node.properties.imageResourceId ?? "")?.fitData));
+const allPrimitivesFitted = computed(() => fittedPrimitiveNodes.value.length > 0 && fittedPrimitiveNodes.value.every(node => node.type === "primitive" && node.properties.previewMode === "primitives"));
+function toggleAllPrimitivePreviews() {
+  if (!fittedPrimitiveNodes.value.length) return;
+  const mode = allPrimitivesFitted.value ? "image" : "primitives";
+  editorHistory.begin("primitive-preview-all");
+  try {
+    for (const node of nodes.value) {
+      if (node.type === "primitive") node.properties.previewMode = mode === "primitives" && primitiveResourceById.value.get(node.properties.imageResourceId ?? "")?.fitData ? "primitives" : "image";
+    }
+  } finally { editorHistory.end("primitive-preview-all"); }
+}
 const selectedPrimitiveResource = computed(() => selectedNode.value?.type === "primitive" ? primitiveResourceById.value.get(selectedNode.value.properties.imageResourceId ?? "") ?? null : null);
 const primitiveResourceUsage = computed(() => {
   const usage: Record<string, number> = {};
@@ -757,7 +777,7 @@ const currentAnchorPresetId = computed(() => { const node = inspectorNode.value;
 const rulerXTicks = computed(() => Array.from({ length: 9 }, (_, index) => Number((index * canvasWidth.value / 8).toFixed(2)))); const rulerYTicks = computed(() => Array.from({ length: 7 }, (_, index) => Number((canvasHeight.value - index * canvasHeight.value / 6).toFixed(2)))); const timeTicks = computed(() => Array.from({ length: 11 }, (_, index) => duration.value * index / 10)); const stageStyle = computed<CSSProperties>(() => ({ width: `${canvasWidth.value}px`, height: `${canvasHeight.value}px`, left: `calc(50% + ${panX.value}px)`, top: `calc(50% + ${panY.value}px)`, transform: `translate(-50%, -50%) scale(${zoom.value})` }));
 const visibleTree = computed(() => { const result: Array<{ node: UINode; depth: number }> = []; const query = search.value.trim().toLowerCase(); const visit = (parentId: string | null, depth: number) => nodes.value.filter((node) => node.parentId === parentId).forEach((node) => { if (!query || node.name.toLowerCase().includes(query)) result.push({ node, depth }); if (!collapsed.value.has(node.id)) visit(node.id, depth + 1); }); visit(null, 0); return result; });
 function nodeIcon(type: ControlType) { return controlRegistry[type].icon; } function hasChildren(id: string) { return nodes.value.some((node) => node.parentId === id); }
-function isVisibleInHierarchy(node: UINode) { const visited = new Set<string>(); let current: UINode | undefined = node; while (current && !visited.has(current.id)) { if (!current.visible) return false; visited.add(current.id); current = current.parentId ? nodes.value.find((item) => item.id === current?.parentId) : undefined; } return true; }
+function isVisibleInHierarchy(node: UINode) { const visited = new Set<string>(); let current: UINode | undefined = previewNode(node); while (current && !visited.has(current.id)) { if (!current.visible) return false; visited.add(current.id); current = current.parentId ? previewNodeMap.value.get(current.parentId) : undefined; } return true; }
 function isDescendant(id: string, possibleAncestor: string | null): boolean { let current = nodes.value.find((node) => node.id === id); while (current?.parentId) { if (current.parentId === possibleAncestor) return true; current = nodes.value.find((node) => node.id === current?.parentId); } return false; }
 function toggleCollapsed(id: string) { const next = new Set(collapsed.value); next.has(id) ? next.delete(id) : next.add(id); collapsed.value = next; } function closeMenus() { historyPanelOpen.value = false; addMenuOpen.value = false; anchorMenuOpen.value = false; luaExportMenuOpen.value = false; closeTweenFieldPicker(); closeTimelineContextMenu(); }
 function clampTimelineHeight(value: number) { return Math.min(timelineMaximumHeight.value, Math.max(MIN_TIMELINE_HEIGHT, Math.round(value))); }
@@ -884,7 +904,7 @@ function addKeyframeTrack(node: UINode, fieldKey: string) {
   const field = getTweenableField(node.type, fieldKey);
   if (!field) return;
   const value = readTweenFieldValue(previewNode(node), field);
-  const key: UIKeyframe = { id: createTweenId(), time: roundTweenTime(currentTime.value), value: cloneTweenValue(value), easeType: "Linear", interpolation: "tween" };
+  const key: UIKeyframe = { id: createTweenId(), time: roundTweenTime(currentTime.value), value: cloneTweenValue(value), easeType: "Linear", interpolation: field.valueKind === "boolean" ? "step" : "tween" };
   const track: UIKeyframeTrack = { id: createTweenId(), nodeId: node.id, fieldKey, keyframes: [key] };
   keyframeTracks.value.push(track);
   selectedId.value = node.id;
@@ -903,7 +923,7 @@ function insertKeyframeAtTime(trackId: string, time: number) {
   const previous = [...track.keyframes].sort((a, b) => a.time - b.time).filter(key => key.time < time).at(-1);
   const relative = previous?.relative === true && isRelativeTweenField(track.fieldKey) && typeof value === "number";
   const basis = keyframePreviousValue(track, time);
-  const key: UIKeyframe = { id: createTweenId(), time: roundTweenTime(time), value: relative && typeof basis === "number" ? value as number - basis : cloneTweenValue(value), relative, easeType: previous?.easeType ?? "Linear", interpolation: previous?.interpolation ?? "tween" };
+  const key: UIKeyframe = { id: createTweenId(), time: roundTweenTime(time), value: relative && typeof basis === "number" ? value as number - basis : cloneTweenValue(value), relative, easeType: previous?.easeType ?? "Linear", interpolation: track.fieldKey === "visible" ? "step" : previous?.interpolation ?? "tween" };
   track.keyframes.push(key);
   track.keyframes.sort((a,b) => a.time - b.time);
   // Inserting an interpolated key must not add its offset to all later keys twice.
@@ -1032,7 +1052,7 @@ function updateKeyframe(trackId: string, keyId: string, patch: Partial<UIKeyfram
   }
   if (patch.value !== undefined && patch.value !== null) {
     const field = getTweenableField(nodes.value.find(node => node.id === track.nodeId)?.type ?? "container", track.fieldKey);
-    if (field?.valueKind === "number" ? typeof patch.value === "number" && Number.isFinite(patch.value) : Boolean(normalizeColorRGBA(patch.value))) {
+    if (field?.valueKind === "boolean" ? typeof patch.value === "boolean" : field?.valueKind === "number" ? typeof patch.value === "number" && Number.isFinite(patch.value) : Boolean(normalizeColorRGBA(patch.value))) {
       key.value = cloneTweenValue(patch.value);
       delete key.incomingValue;
       delete key.incomingRelative;
@@ -1040,6 +1060,7 @@ function updateKeyframe(trackId: string, keyId: string, patch: Partial<UIKeyfram
   }
   if (patch.easeType && isTweenEaseType(patch.easeType)) key.easeType = patch.easeType;
   if (patch.interpolation === "tween" || patch.interpolation === "step") key.interpolation = patch.interpolation;
+  if (track.fieldKey === "visible") { key.interpolation = "step"; key.easeType = "Linear"; }
   playing.value = false;
 }
 function removeKeyframe(trackId: string, keyId: string) {
@@ -1105,8 +1126,8 @@ function closeTweenFieldPicker() { tweenFieldPickerNodeId.value = null; tweenFie
 type TweenValueSlot = "initialValue" | "endValue";
 function normalizeColorRGBA(value: unknown): ColorRGBA | null { if (!value || typeof value !== "object") return null; const color = value as Partial<ColorRGBA>; if (![color.r, color.g, color.b, color.a].every((part) => typeof part === "number" && Number.isFinite(part))) return null; return { r: Math.min(255, Math.max(0, Math.round(color.r as number))), g: Math.min(255, Math.max(0, Math.round(color.g as number))), b: Math.min(255, Math.max(0, Math.round(color.b as number))), a: clamp01(color.a as number) }; }
 function cloneTweenValue(value: UITweenValue): UITweenValue { const color = normalizeColorRGBA(value); return color ?? value; }
-function readTweenFieldValue(node: UINode, field: TweenableFieldDefinition): UITweenValue { if (field.fieldKey === GROUP_ALPHA_FIELD_KEY) return GROUP_ALPHA_MAX; if (field.fieldKey === "anchoredPositionX" || field.fieldKey === "anchoredPositionY") return getRuntimeLayoutValues(node)[field.fieldKey]; const source = field.source === "base" ? node as unknown as Record<string, unknown> : node.properties as unknown as Record<string, unknown>; const rawValue = source[field.modelKey]; if (field.valueKind === "number") return typeof rawValue === "number" && Number.isFinite(rawValue) ? rawValue : null; return normalizeColorRGBA(rawValue); }
-function normalizeTweenValue(value: unknown, field: TweenableFieldDefinition, fallback: UITweenValue): UITweenValue { if (value === null) return null; if (field.valueKind === "number" && typeof value === "number" && Number.isFinite(value)) return value; if (field.valueKind === "color") { const color = normalizeColorRGBA(value); if (color) return color; } return cloneTweenValue(fallback); }
+function readTweenFieldValue(node: UINode, field: TweenableFieldDefinition): UITweenValue { if (field.fieldKey === GROUP_ALPHA_FIELD_KEY) return GROUP_ALPHA_MAX; if (field.fieldKey === "anchoredPositionX" || field.fieldKey === "anchoredPositionY") return getRuntimeLayoutValues(node)[field.fieldKey]; const source = field.source === "base" ? node as unknown as Record<string, unknown> : node.properties as unknown as Record<string, unknown>; const rawValue = source[field.modelKey]; if (field.valueKind === "boolean") return typeof rawValue === "boolean" ? rawValue : null; if (field.valueKind === "number") return typeof rawValue === "number" && Number.isFinite(rawValue) ? rawValue : null; return normalizeColorRGBA(rawValue); }
+function normalizeTweenValue(value: unknown, field: TweenableFieldDefinition, fallback: UITweenValue): UITweenValue { if (value === null) return null; if (field.valueKind === "boolean" && typeof value === "boolean") return value; if (field.valueKind === "number" && typeof value === "number" && Number.isFinite(value)) return value; if (field.valueKind === "color") { const color = normalizeColorRGBA(value); if (color) return color; } return cloneTweenValue(fallback); }
 /** v4 保存世界坐标和实际尺寸；转换为锚点偏移和 sizeDelta。 */
 function convertAbsoluteTweenEditorValueToRuntime(node: UINode, field: TweenableFieldDefinition, value: UITweenValue): UITweenValue {
   if (typeof value !== "number") return value;
@@ -1886,7 +1907,7 @@ function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => vo
   window.addEventListener("blur", cleanup);
 }
 function inverseTransformVector(matrix: Matrix2D, x: number, y: number) { const determinant = matrix.a * matrix.d - matrix.b * matrix.c; if (Math.abs(determinant) < 0.000001) return { x: 0, y: 0 }; return { x: (matrix.d * x - matrix.c * y) / determinant, y: (-matrix.b * x + matrix.a * y) / determinant }; }
-function handleCanvasWheel(event: WheelEvent) { const viewport = viewportElement.value; if (!viewport) return; const normalizedDelta = event.deltaY * (event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? viewport.clientHeight : 1); const previousZoom = zoom.value; const nextZoom = Math.max(0.2, Math.min(1.5, previousZoom * Math.exp(-normalizedDelta * 0.0015))); if (nextZoom === previousZoom) return; const rect = viewport.getBoundingClientRect(); const pointerX = event.clientX - (rect.left + rect.width / 2); const pointerY = event.clientY - (rect.top + rect.height / 2); const ratio = nextZoom / previousZoom; panX.value = roundLayout(panX.value + (pointerX - panX.value) * (1 - ratio)); panY.value = roundLayout(panY.value + (pointerY - panY.value) * (1 - ratio)); zoom.value = nextZoom; }
+function handleCanvasWheel(event: WheelEvent) { const viewport = viewportElement.value; if (!viewport) return; const normalizedDelta = event.deltaY * (event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? viewport.clientHeight : 1); const previousZoom = zoom.value; const nextZoom = Math.max(0.01, Math.min(1.5, previousZoom * Math.exp(-normalizedDelta * 0.0015))); if (nextZoom === previousZoom) return; const rect = viewport.getBoundingClientRect(); const pointerX = event.clientX - (rect.left + rect.width / 2); const pointerY = event.clientY - (rect.top + rect.height / 2); const ratio = nextZoom / previousZoom; panX.value = roundLayout(panX.value + (pointerX - panX.value) * (1 - ratio)); panY.value = roundLayout(panY.value + (pointerY - panY.value) * (1 - ratio)); zoom.value = nextZoom; }
 function startCanvasPan(event: PointerEvent) { if (event.button !== 1) return; event.preventDefault(); event.stopPropagation(); const startX = event.clientX; const startY = event.clientY; const originX = panX.value; const originY = panY.value; isPanning.value = true; const move = (next: PointerEvent) => { panX.value = roundLayout(originX + next.clientX - startX); panY.value = roundLayout(originY + next.clientY - startY); }; const end = () => { isPanning.value = false; window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end); }
 function handleViewportPointerDown(event: PointerEvent) { startCanvasPress(event); }
 function startMove(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; selectedId.value = node.id; if (node.locked) return; if (startAnimatedCanvasMove(event, node)) return; const x = node.x; const y = node.y; const parent = getLayoutParent(node); const parentMatrix = parent ? worldTransforms.value.get(parent.id)?.matrix ?? localMatrix(parent) : { a: 1, b: 0, c: 0, d: 1 }; pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(parentMatrix, dx, -dy); node.x = roundLayout(x + localDelta.x); node.y = roundLayout(y + localDelta.y); rebaseNodeLayout(node); const world = worldTransforms.value.get(node.id); cursorPosition.value = { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; }); }
@@ -1925,7 +1946,7 @@ function selectPreviewPreset(presetId: string) {
 }
 function switchDevice(mode: DeviceMode) { deviceMode.value = mode; previewPresetId.value = previewPresets[mode][0].id; applyPreviewPreset(); }
 function applyPreviewPreset() { const preset = currentPreset.value; canvasWidth.value = preset.width; canvasHeight.value = preset.height; getHierarchyOrder().forEach(applyNodeLayout); nextTick(fitCanvas); }
-function fitCanvas() { const viewport = viewportElement.value; if (!viewport) return; const availableWidth = Math.max(200, viewport.clientWidth - 90); const availableHeight = Math.max(160, viewport.clientHeight - 80); zoom.value = Math.max(0.2, Math.min(1.5, availableWidth / canvasWidth.value, availableHeight / canvasHeight.value)); panX.value = 0; panY.value = 0; }
+function fitCanvas() { const viewport = viewportElement.value; if (!viewport) return; const availableWidth = Math.max(200, viewport.clientWidth - 90); const availableHeight = Math.max(160, viewport.clientHeight - 80); zoom.value = Math.max(0.01, Math.min(1.5, availableWidth / canvasWidth.value, availableHeight / canvasHeight.value)); panX.value = 0; panY.value = 0; }
 function formatTime(seconds: number) { const frames = Math.round((seconds % 1) * frameRate.value); return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`; }
 function rewindPlayback() { playing.value = false; currentTime.value = 0; }
 function togglePlayback() { if (!playing.value && currentTime.value >= sequenceDurationValue()) currentTime.value = 0; playing.value = !playing.value; }
@@ -2025,6 +2046,31 @@ function canCreateWorkspaceDocument() {
   return false;
 }
 function openGiaFile() { if (canCreateWorkspaceDocument()) giaFileInput.value?.click(); }
+const psdFileInput = ref<HTMLInputElement | null>(null), psdImportBusy = ref(false), psdImportProgress = ref("正在解析 PSD…");
+function openPsdFile() { if (!psdImportBusy.value && canCreateWorkspaceDocument()) psdFileInput.value?.click(); }
+async function createPsdProject(file: File) {
+  const { importPsdFile } = await import("./psdImporter");
+  const imported = await importPsdFile(file, (done, total) => { psdImportProgress.value = `提取图层 ${done}/${total}`; });
+  return JSON.stringify({
+    version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
+    name: file.name.replace(/\.psd$/i, ""), deviceMode: "pc", canvasWidth: imported.width, canvasHeight: imported.height,
+    duration: 5, frameRate: 30, nodes: imported.nodes, primitiveResources: imported.resources, tweenTracks: [], showContainerBones: false,
+    giaImportStatus: `PSD · ${imported.folders} 个文件夹 · ${imported.layers} 个图层 · ${imported.hidden} 个隐藏项${imported.warnings.length ? ` · ${imported.warnings.join("；")}` : ""}`,
+  });
+}
+async function loadPsdFile(event: Event) {
+  const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = "";
+  if (!file || psdImportBusy.value) return;
+  psdImportBusy.value = true; psdImportProgress.value = "正在解析 PSD…";
+  try {
+    if (archive) await archive.createDocument(file.name.replace(/\.psd$/i, ""), () => createPsdProject(file));
+    else applyProjectData(await createPsdProject(file));
+    workspacePanelOpen.value = false; primitiveResourceLibraryOpen.value = false;
+    toast.success("PSD 已导入，图层图片可在图片资源面板中设置拟合。");
+  } catch (error) {
+    toast.error(`PSD 导入失败，当前文件已保留：${error instanceof Error ? error.message : "未知错误"}`);
+  } finally { psdImportBusy.value = false; }
+}
 async function createGiaProject(file: File) {
   const mode = deviceMode.value;
   const presetId = previewPresetId.value;
@@ -2135,6 +2181,20 @@ function exportTweenTimelineLib() {
   const result = buildTweenTimelineLibLua();
   downloadLuaFile(result.code, result.fileName);
   luaExportMenuOpen.value = false;
+}
+function exportPrimitiveImageLib() {
+  const result = buildPrimitiveImageLibLua();
+  downloadLuaFile(result.code, result.fileName);
+  luaExportMenuOpen.value = false;
+}
+function exportSelectedPrimitiveProject() {
+  try {
+    const result = buildPrimitiveProjectLua({ projectName: projectName.value, rootNodeId: selectedNode.value?.id ?? "", nodes: nodes.value, resources: primitiveResources.value });
+    downloadLuaFile(result.code, result.fileName);
+    luaExportMenuOpen.value = false;
+    toast.success(`已导出 ${result.targetCount} 个图元控件，共 ${result.elementCount} 张图片。`);
+    if (result.warnings.length) toast.warning(`已跳过 ${result.warnings.length} 个未拟合控件，名称和原因已写入导出文件开头。`);
+  } catch (error) { toast.error(`无法导出图元项目：${error instanceof Error ? error.message : String(error)}`); }
 }
 function openTimelineDataImport() {
   if (!hasOpenDocument.value || archive?.busy.value) return;
@@ -2405,6 +2465,11 @@ async function retryArchive() {
   if (archive) await runArchiveAction(() => archive.ready.value ? archive.save() : archive.initialize());
 }
 function handleArchiveBeforeUnload(event: BeforeUnloadEvent) {
+  // Deferred gesture snapshots must be visible to the unsaved-changes guard.
+  if (editorHistory.interacting.value) {
+    finishEditorHistoryInteraction();
+    archive?.queueSave(serializeProject());
+  }
   if (archive?.dirty.value || archive?.busy.value) {
     event.preventDefault();
     event.returnValue = "";
@@ -2466,8 +2531,8 @@ watch(selectedId, (nodeId) => {
   if (!keyframeTracks.value.some(track => track.nodeId === nodeId && track.keyframes.some(key => key.id === selectedKeyframeId.value))) selectedKeyframeId.value = null;
 }, { flush: "sync" });
 watch(imageLibraryOpen, open => { if (open) templateLibraryOpen.value = false; });
-function handleEditorHistoryChange(snapshot: string) {
-  if (historyApplyingProject || !hasOpenDocument.value || archive && (!archive.ready.value || archive.busy.value || archive.loading.value)) return;
+function handleEditorHistoryChange(snapshot: string | null) {
+  if (snapshot === null || historyApplyingProject || !hasOpenDocument.value || archive && (!archive.ready.value || archive.busy.value || archive.loading.value)) return;
   editorHistory.observe(snapshot);
 }
 function syncEditorHistoryDocument() {
@@ -2574,8 +2639,12 @@ function handleEditorHistoryKeyboard(event: KeyboardEvent) {
 function syncEditorHeight() { editorHeight.value = editorElement.value?.clientHeight ?? 0; if (timelineHeight.value !== null) timelineHeight.value = clampTimelineHeight(timelineHeight.value); }
 let frame = 0; let lastTime = 0; function animate(now: number) { if (playing.value) { if (!lastTime) lastTime = now; currentTime.value += (now - lastTime) / 1000; if (currentTime.value >= duration.value) currentTime.value = 0; } lastTime = now; frame = requestAnimationFrame(animate); } frame = requestAnimationFrame(animate); onMounted(() => { getHierarchyOrder().forEach(rebaseNodeLayout); ensureSingleRootContainer(); syncEditorHeight(); fitCanvas(); editorResizeObserver = new ResizeObserver(syncEditorHeight); if (editorElement.value) editorResizeObserver.observe(editorElement.value); window.addEventListener("resize", fitCanvas); window.addEventListener("keydown", handleTimelineKeyboardShortcut, true); window.addEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.addEventListener("keyup", handleTimelineKeyboardRelease, true); window.addEventListener("blur", resetTimelineKeyboardShortcut); }); onBeforeUnmount(() => { cancelHierarchyPress?.(); stopTweenClipDrag?.(); stopTimelineResize?.(); stopTimelineScrub?.(); editorResizeObserver?.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", fitCanvas); window.removeEventListener("keydown", handleTimelineKeyboardShortcut, true); window.removeEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.removeEventListener("keyup", handleTimelineKeyboardRelease, true); window.removeEventListener("blur", resetTimelineKeyboardShortcut); resetTimelineKeyboardShortcut(); });
 // 持久化源数据，不监听播放进度或 previewNodes，避免把动画中间值写回基础参数。
-watch(serializeProject, (snapshot) => { if (!editorHistory.busy.value) archive?.queueSave(snapshot); }, { flush: "sync" });
-watch(captureUndoState, handleEditorHistoryChange, { flush: "sync" });
+// Stop before serialization, rather than debouncing only the subsequent disk write.
+// The history controller captures the final state when the last gesture ends.
+function observeProjectSnapshot() { return editorHistory.interacting.value || editorHistory.busy.value ? null : serializeProject(); }
+function observeUndoSnapshot() { return editorHistory.interacting.value || editorHistory.busy.value ? null : captureUndoState(); }
+watch(observeProjectSnapshot, (snapshot) => { if (snapshot !== null) archive?.queueSave(snapshot); }, { flush: "post" });
+watch(observeUndoSnapshot, handleEditorHistoryChange, { flush: "post" });
 watch(() => [archive?.ready.value, archive?.busy.value, archive?.loading.value, archive?.selectedWorkspace.value, archive?.selectedDocument.value], syncEditorHistoryDocument, { flush: "sync" });
 onMounted(() => {
   void loadImageCatalog();
@@ -2631,6 +2700,7 @@ onBeforeUnmount(() => {
   min-width: 980px;
   display: grid;
   grid-template-rows: 48px minmax(260px, 1fr) var(--timeline-height, 250px);
+  grid-template-columns: minmax(0, 1fr);
   background: var(--bg);
   color: var(--text);
   overflow: hidden;

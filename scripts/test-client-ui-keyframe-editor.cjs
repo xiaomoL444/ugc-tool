@@ -1,4 +1,4 @@
-/* Real editor Vue setup + property computed setter + synchronous undo watch. */
+/* Real editor Vue setup + property computed setter + deferred undo watch. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -18,7 +18,7 @@ async function main() {
     !statement.declarationList.declarations.some((declaration) => declaration.initializer && ts.isCallExpression(declaration.initializer) && declaration.initializer.expression.getText(ast) === "defineComponent"))
     .map((statement) => statement.getText(ast)).join("\n");
   const watches = ast.statements.filter((statement) => ts.isExpressionStatement(statement) && ts.isCallExpression(statement.expression) &&
-    statement.expression.expression.getText(ast) === "watch" && statement.expression.arguments[0]?.getText(ast) === "captureUndoState").map((statement) => statement.getText(ast));
+    statement.expression.expression.getText(ast) === "watch" && statement.expression.arguments[0]?.getText(ast) === "observeUndoSnapshot").map((statement) => statement.getText(ast));
   assert.equal(watches.length, 1);
   const exposed = ["nodes", "selectedId", "selectedNode", "selectedKeyframeId", "selectedProperties", "inspectorNode", "animatedPropertyFields",
     "currentTime", "playing", "zoom", "duration", "canvasWidth", "canvasHeight", "selectedWorldPosition", "selectedRuntimeLayoutValues", "previewWorldTransforms",
@@ -27,12 +27,12 @@ async function main() {
     "hasAnimatedField", "writeAnimatedValue", "updateAnimatedBaseValue", "updateGeometry", "updateRuntimeLayoutValue", "seekKeyframeTime",
     "buildKeyframePreviewNodes", "buildTweenPreviewNodes", "startMove", "startResize", "keyframePreviousValue",
     "canvasTool", "selectCanvasTool", "startCanvasTransform", "startCanvasRotation", "startCanvasScale", "canvasClientPoint", "viewportElement", "panX", "panY", "transformGizmo",
-    "startCanvasPress", "canvasNodesAtPoint",
+    "startCanvasPress", "canvasNodesAtPoint", "renderNodes", "isVisibleInHierarchy",
     "boneLengthHandle", "startBoneLengthDrag", "selectedDirectionArrowLength", "showContainerBones",
     "applyAnchorPreset", "currentAnchorPresetId", "propertyClipboard", "copySelectedPropertyGroup", "resetSelectedPropertyGroup", "pasteSelectedPropertyGroup",
     "beginEditorHistoryPointer", "endEditorHistoryPointer", "editorHistory", "captureUndoState", "undoEditorOperation", "redoEditorOperation",
     "serializeProject", "applyProjectData", "loadProject", "createBlankProject", "timelineEditNotice",
-    "controlTemplates", "saveControlTemplate", "selectControlTemplate", "selectedControlTemplate", "templateLibraryOpen",
+    "controlTemplates", "saveControlTemplate", "selectControlTemplate", "selectedControlTemplate", "templateLibraryOpen", "primitiveResourceById",
     "createGiaProject", "giaSource", "attachGiaSource", "giaExportOpen", "giaExportError",
     "animations", "activeAnimationId", "activeAnimation", "animationNotice", "animationsPanelCollapsed", "selectAnimation", "createAnimation", "duplicateAnimation", "renameAnimation", "removeAnimation",
     "openTimelineDataImport", "timelineDataImportMode", "timelineDataSource", "confirmTimelineDataImport", "exportSelectedNodeKeyframeData"];
@@ -109,6 +109,39 @@ async function main() {
     const history = (api) => plain(api.editorHistory.entries.value);
     function pointer(x = 100, extras = {}) { return { button: 0, pointerId: 9, clientX: x, clientY: 20, target: { closest: () => null }, preventDefault() {}, ...extras }; }
     async function gesture(api, work) { const event = pointer(); api.beginEditorHistoryPointer(event); work(event); api.endEditorHistoryPointer(event); await tick(); }
+
+    await test("Visibility keyframes persist false, undo edits and scrub parent/child visibility without mutating setup", async () => {
+      const api = fixture(); api.currentTime.value = 2;
+      const track = addTrack(api, "visible");
+      const hide = track.keyframes[0];
+      assert.equal(hide.value, true); assert.equal(hide.interpolation, "step");
+      api.editorHistory.reset(api.captureUndoState());
+      api.updateKeyframe(track.id, hide.id, { value: false, interpolation: "tween" }); await tick();
+      assert.equal(hide.value, false); assert.equal(hide.interpolation, "step");
+      assert.equal(api.renderNodes.value.some(item => item.id === "group" || item.id === "image"), false);
+      assert.equal(node(api).visible, true); assert.equal(node(api, "image").visible, true);
+      await api.editorHistory.undo(); assert.equal(api.keyframeTracks.value[0].keyframes[0].value, true);
+      await api.editorHistory.redo(); assert.equal(api.keyframeTracks.value[0].keyframes[0].value, false);
+      const active = api.keyframeTracks.value[0];
+      api.insertKeyframeAtTime(active.id, 4);
+      const show = active.keyframes.find(item => item.time === 4);
+      assert.equal(show.value, false); assert.equal(show.interpolation, "step");
+      api.updateKeyframe(active.id, show.id, { value: true });
+      for (const [time, visible] of [[0, true], [1.99999, true], [2, false], [3.99999, false], [4, true], [1, true]]) {
+        api.seekKeyframeTime(time);
+        assert.equal(api.isVisibleInHierarchy(node(api, "image")), visible);
+        assert.equal(api.renderNodes.value.some(item => item.id === "group"), visible);
+      }
+      node(api, "image").visible = false;
+      api.seekKeyframeTime(4); assert.equal(api.isVisibleInHierarchy(node(api, "image")), false);
+      const saved = api.serializeProject();
+      api.applyProjectData(api.createBlankProject("Empty")); api.applyProjectData(saved);
+      assert.equal(api.keyframeTracks.value[0].keyframes[0].value, false);
+      assert.equal(api.keyframeTracks.value[0].keyframes[1].value, true);
+      api.selectedId.value = "root"; api.exportSelectedNodeKeyframeData();
+      assert.match(api.downloads[0].code, /"visible"/);
+      assert.match(api.downloads[0].code, /2, false, false, "Linear", "step"/);
+    });
 
     const templateAsset = () => ({ id: "template-test", index: 7, name: "任务图标", sourceName: "task.gia", warnings: [], devices: [0, 1, 2, 3].map(() => [{
       sourceNodeIndex: 1, parentSourceNodeIndex: null, childSourceNodeIndices: [], name: "Root", type: "container", properties: {},
@@ -191,10 +224,10 @@ async function main() {
       await api.editorHistory.undo(); assert.equal(api.selectedNode.value.properties.imageUrl, "");
       await api.editorHistory.redo(); assert.equal(api.selectedNode.value.properties.imageUrl, source);
       const saved = api.serializeProject(); api.applyProjectData(api.createBlankProject("Empty")); api.applyProjectData(saved); api.selectedId.value = "primitive";
-      assert.equal(api.selectedNode.value.type, "primitive"); assert.equal(api.selectedNode.value.properties.imageUrl, source);
+      assert.equal(api.selectedNode.value.type, "primitive"); assert.equal(api.primitiveResourceById.value.get(api.selectedNode.value.properties.imageResourceId).imageUrl, source);
       addTrack(api, "localScaleX", "primitive"); api.currentTime.value = 2; api.updateAnimatedBaseValue("localScaleX", 2);
       near(preview(api, 2, "primitive").scaleX, 2);
-      assert.equal(preview(api, 2, "primitive").properties.imageUrl, source);
+      assert.equal(api.primitiveResourceById.value.get(preview(api, 2, "primitive").properties.imageResourceId).imageUrl, source);
     });
     await test("New property tracks seed a real current-time key and mark only that property as animated", () => {
       const api = fixture(); const before = plain(api.nodes.value); api.currentTime.value = 1.25;

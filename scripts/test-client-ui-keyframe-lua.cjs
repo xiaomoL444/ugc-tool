@@ -1,5 +1,5 @@
 /* Run: node scripts/test-client-ui-keyframe-lua.cjs
- * Set LUA_BIN to a Lua 5.3+ executable to also run the emitted runtime against API mocks.
+ * Set LUA_BIN, or PYTHON_BIN + LUPA_PATH (lupa.lua53), to execute API mocks.
  */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -225,7 +225,7 @@ try {
     assert.equal(evaluateKeyframeTrack(lane, 3, 100), 200);
   });
   test("Old Clip exports retain @3/5/7 while the shared runtime advertises @8", () => {
-    assert.equal(TWEEN_TIMELINE_LIB_VERSION, "8");
+    assert.equal(TWEEN_TIMELINE_LIB_VERSION, "8.2");
     const runtime = buildTweenTimelineLibLua().code;
     assert.match(runtime, /TweenTimelineLib.Schema = "ClientUIAnimationEditor.TweenTimeline@8"/);
     for (let version = 3; version <= 8; version++) assert.ok(runtime.includes("ClientUIAnimationEditor.TweenTimeline@" + version));
@@ -236,7 +236,7 @@ try {
     const branch = runtime.slice(runtime.indexOf("local function CreateKeyframes"), runtime.indexOf("function TweenTimelineLib.Create"));
     assert.ok(branch.indexOf("baseline = control[field]") < branch.indexOf("game.Tween(target"));
     assert.match(branch, /sequence:InsertCallback\(0, RestoreInitials\)/);
-    assert.match(branch, /sequence:InsertCallback\(key.time, function\(\) target\[1\]\[target\[2\]\] = value end\)/);
+    assert.match(branch, /sequence:InsertCallback\(key.time, function\(\) SetKeyframeField\(target\[1\], target\[2\], value\) end\)/);
     assert.match(branch, /nextKey ~= nil and key.interpolation == "tween"/);
     assert.match(branch, /sequence:InsertCallback\(lastTime, function\(\) end\)/);
     assert.match(branch, /createdTweens\[#createdTweens \+ 1\] = tween\s+tween:SetEase/);
@@ -245,11 +245,29 @@ try {
     assert.doesNotMatch(branch, /require\(|ControlAlphaGroup|SetFrom|:From\(/);
   });
 
+  test("Visibility round trips booleans, switches exactly at keys and retains its setup state before them", () => {
+    const visibility = track("visibility", "group", "visible", [key("hide", 2, false, { interpolation: "step" }), key("show", 4, true, { interpolation: "step" })]);
+    const result = exportData([visibility]);
+    assert.equal(result.tweenCount, 0);
+    assert.match(result.code, /v8\.2\+/);
+    assert.deepEqual(withoutIds(importData(result.code).tracks), withoutIds([visibility]));
+    for (const [time, value] of [[0, true], [1.999999, true], [2, false], [3.999999, false], [4, true], [9, true], [1, true]]) {
+      assert.equal(evaluateKeyframeTrack(visibility, time, true), value);
+    }
+    assert.equal(evaluateKeyframeTrack(visibility, 1, false), false);
+    for (const values of [[2, 0, false, "Linear", "step"], [2, "false", false, "Linear", "step"], [2, false, true, "Linear", "step"],
+      [2, false, false, "Linear", "tween"], [2, false, false, "Linear", "step", true]]) {
+      assert.ok(importData(dataSource([row("容器", "visible", [values])])).errors.length);
+    }
+    assert.throws(() => exportData([{ ...visibility, keyframes: [key("bad", 2, false)] }]), /显隐/);
+  });
+
   const library = buildTweenTimelineLibLua().code;
   const candidates = process.env.LUA_BIN ? [process.env.LUA_BIN] : ["lua", "lua53", "luajit"];
   const executable = candidates.find((candidate) => { const result = spawnSync(candidate, ["-v"], { encoding: "utf8", timeout: 5000, windowsHide: true }); return !result.error && result.status === 0; });
   if (process.env.LUA_BIN && !executable) throw new Error("LUA_BIN does not name a runnable Lua executable");
-  if (executable) {
+  const useLupa = !executable && process.env.PYTHON_BIN && process.env.LUPA_PATH;
+  if (executable || useLupa) {
     test("Generated @8 Lua executes against native-API mocks: relative, jump, step, singleton, replay and legacy", () => {
       const script = `
 local logs = {}
@@ -313,25 +331,33 @@ local alphaData = { schema = Lib.Schema, duration = 2, tracks = { { "", "groupAl
 local alpha = Lib.Create(root, alphaData)
 assert(#alpha.items == 1 and image.imageColor[4] == 128 and root.groupAlpha == nil)
 assert(alpha.items[1][2].values.imageColor[4] == 0)
+assert(alpha.items[1][2].relative == false)
 image.imageColor = Color.FromRGBA(10,20,30,0)
 local again = Lib.Create(root, alphaData)
 assert(image.imageColor[4] == 128 and again.items[1][2].from.imageColor[4] == 128)
 for version = 3,7 do
     local old = Lib.Create(root, { schema = "ClientUIAnimationEditor.TweenTimeline@" .. version, tracks = { { "", "anchoredPositionX", 0,1,"Linear",20,40 } } })
     assert(#old.items == 1 and root.anchoredPositionX == 20)
+    assert(old.items[1][2].relative == false and old.items[1][2].values.anchoredPositionX == 40)
 end
+${fs.readFileSync(path.join(__dirname, "fixtures/timeline-rotation-runtime.lua"), "utf8")}
+${fs.readFileSync(path.join(__dirname, "fixtures/timeline-visibility-runtime.lua"), "utf8")}
 local count = #logs
 local before = root.anchoredPositionX
 local invalid = Lib.Create(root, {schema=Lib.Schema,duration=2,tracks={ {"","anchoredPositionX",{{0,10,false,"Linear","tween"},{0,20,false,"Linear","step"}}} }})
 assert(#invalid.items == 0 and #logs == count + 1 and root.anchoredPositionX == before)
 print("PASS emitted Lua keyframe mocks")
 `;
-      const result = spawnSync(executable, ["-"], { input: script, encoding: "utf8", timeout: 10000, windowsHide: true });
+      const result = useLupa
+        ? spawnSync(process.env.PYTHON_BIN, ["-c", 'import sys; sys.path.insert(0, sys.argv[1]); from lupa.lua53 import LuaRuntime; LuaRuntime().execute(sys.stdin.read())', process.env.LUPA_PATH], { input: script, encoding: "utf8", timeout: 10000, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } })
+        : spawnSync(executable, ["-"], { input: script, encoding: "utf8", timeout: 10000, windowsHide: true });
       assert.ifError(result.error);
       assert.equal(result.status, 0, result.stderr || result.stdout);
       assert.match(result.stdout, /PASS emitted Lua keyframe mocks/);
+      assert.match(result.stdout, /PASS rotation interpolation: 504 cases/);
+      process.stdout.write(result.stdout);
     });
-  } else console.log("SKIP emitted Lua execution: no local Lua executable (set LUA_BIN to enable); game callback ordering remains pending.");
+  } else console.log("SKIP emitted Lua execution: set LUA_BIN or PYTHON_BIN + LUPA_PATH; game callback ordering remains pending.");
   console.log(`${passed} keyframe Lua export/import checks passed.`);
 } finally {
   if (previousTs) Module._extensions[".ts"] = previousTs; else delete Module._extensions[".ts"];

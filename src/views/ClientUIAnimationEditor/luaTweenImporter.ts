@@ -136,6 +136,7 @@ export function prepareTweenTimelineImport(options: TimelineDataImportOptions): 
       const node = resolvePath(path);
       const field = getTweenableField(node.type, fieldKey);
       if (!field) throw new Error("控件「" + node.name + "」不支持 Tweenable 字段 " + fieldKey + "。");
+      if (field.valueKind === "boolean") throw new Error("控件显隐须使用关键帧数据，不支持旧版 Tween Clip。");
       const startTime = read(row, "start");
       const duration = read(row, "duration");
       if (!isNumber(startTime) || startTime < 0 || !isNumber(duration) || duration < MIN_CLIP_DURATION

@@ -1,7 +1,8 @@
 import { convertPrimitiveFit, normalizePrimitiveOptions, primitiveWorkerLimit, type PrimitiveFitData, type PrimitiveFitOptions } from "./primitiveData";
 import { primitiveImageSource } from "./primitiveControl";
+import { preparePrimitivePixels } from "./primitivePixels";
 
-interface FitProgress { done: number; total: number; phase: "image" | "engine" | "fit" }
+export interface FitProgress { done: number; total: number; phase: "image" | "engine" | "fit" }
 type WorkerReply = { type: string; jobId?: number; json?: string; error?: string; message?: string; rgba?: Uint8Array; score?: number };
 const aborted = () => new DOMException("已取消生成", "AbortError");
 function checkAbort(signal: AbortSignal) { if (signal.aborted) throw aborted(); }
@@ -15,7 +16,7 @@ class FitWorker {
   private nextId = 0;
   private disposed = false;
   constructor() {
-    this.worker = new Worker(`${process.env.BASE_URL}primitive-wasm/fit_worker.js?v=46f30bb`);
+    this.worker = new Worker(`${process.env.BASE_URL}primitive-wasm/fit_worker.js?v=alpha-edge-1`);
     this.ready = new Promise((resolve, reject) => {
       this.rejectReady = reject;
       this.worker.onmessage = ({ data }: MessageEvent<WorkerReply>) => {
@@ -79,16 +80,7 @@ async function prepareImage(source: string, options: PrimitiveFitOptions, signal
   let pixels: Uint8ClampedArray;
   try { pixels = context.getImageData(0, 0, workWidth, workHeight).data; }
   catch { throw new Error("图片地址不允许跨域读取，请下载后选择本地图片。"); }
-  const rgba = new Uint8Array(pixels.length), alpha = new Uint8Array(workWidth * workHeight);
-  let hasAlpha = false, visible = false;
-  for (let i = 0; i < alpha.length; i++) {
-    const a = pixels[i * 4 + 3]; alpha[i] = a;
-    if (a < 255) hasAlpha = true;
-    if (a > 0) visible = true;
-    const af = a / 255;
-    for (let c = 0; c < 3; c++) rgba[i * 4 + c] = Math.round(pixels[i * 4 + c] * af + 255 * (1 - af));
-    rgba[i * 4 + 3] = options.transparent ? Math.round(Math.pow(Math.max(0, (af - 0.2) / 0.8), 1.6) * 255) : 255;
-  }
+  const { rgba, alpha, hasAlpha, visible } = preparePrimitivePixels(pixels, options.transparent);
   canvas.width = canvas.height = 1;
   if (!visible) throw new Error("图片完全透明，没有可生成的图元。");
   return { width, height, workWidth, workHeight, rgba, alpha, transparent: options.transparent && hasAlpha };

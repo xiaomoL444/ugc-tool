@@ -3,8 +3,16 @@
    "struct_ype" : "basic", 
    "name" : "[任务]子任务", 
    "value" : [ 
+      {
+         "key" : "id",
+         "param_type" : "Int32",
+         "value" : {
+            "param_type" : "Int32",
+            "value" : "0"
+         }
+      },
       { 
-         "key" : "mainId",
+         "key" : "mainQuestId",
          "param_type" : "Int32", 
          "value" : { 
             "param_type" : "Int32", 

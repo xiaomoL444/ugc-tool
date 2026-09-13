@@ -89,7 +89,11 @@ function hierarchy(nodes: UINode[], rootNodeId: string) {
   return { root, byId, resolve, relativePath };
 }
 
-function decode(value: unknown, kind: "number" | "color"): UITweenValue {
+function decode(value: unknown, kind: "number" | "color" | "boolean"): UITweenValue {
+  if (kind === "boolean") {
+    if (typeof value !== "boolean") throw new Error("显隐关键帧必须是布尔值。");
+    return value;
+  }
   if (kind === "number") {
     if (!finite(value)) throw new Error("关键帧值必须是有限数值。");
     return value;
@@ -101,6 +105,7 @@ function decode(value: unknown, kind: "number" | "color"): UITweenValue {
 }
 
 function encode(value: UITweenValue): string {
+  if (typeof value === "boolean") return String(value);
   if (typeof value === "number" && Number.isFinite(value)) return luaNumber(value);
   if (value && typeof value === "object") {
     const color = value as ColorRGBA;
@@ -142,6 +147,7 @@ export function buildKeyframeTimelineDataLua(options: KeyframeTimelineLuaExportO
     "-- 关键帧: { 时间, 值, 增量, 缓动, 插值, 左极限值(可选), 左极限增量(可选) }。",
     "-- 插值 tween/step 作用于此帧到下一帧；增量基于上一帧实际右值，首帧基于 Create 前属性。",
     "-- ColorRGBA 通道均为 0–255；需要 TweenTimelineLib v8 或更高版本。",
+    ...(tracks.some(track => track.fieldKey === "visible") ? ["-- 显隐需要 TweenTimelineLib v8.2+；visible=true/false 在关键帧时间通过 InsertCallback + SetVisible 切换。"] : []),
     "", "local TweenTimelineData = {", `    schema = ${luaString(KEYFRAME_TIMELINE_SCHEMA)},`,
   ];
   const rows: string[] = [];

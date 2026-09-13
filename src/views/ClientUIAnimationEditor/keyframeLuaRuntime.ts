@@ -1,13 +1,14 @@
 import { controlDefinitions } from "./controlRegistry";
-import { baseTweenableFields } from "./tweenRegistry";
+import { baseTweenableFields, VISIBILITY_FIELD_KEY, type TweenValueKind } from "./tweenRegistry";
 
 /** Inserted after the existing Decode/Ease/CollectColors helpers, before Create. */
 export function buildKeyframeRuntimeLuaLines(): string[] {
-  const fields = new Map<string, "number" | "color">(baseTweenableFields.map((field) => [field.fieldKey, field.valueKind]));
+  const fields = new Map<string, TweenValueKind>(baseTweenableFields.map((field) => [field.fieldKey, field.valueKind]));
   for (const control of controlDefinitions) {
     for (const field of control.fields) if (field.tweenable) fields.set(field.key, field.kind === "color" ? "color" : "number");
   }
   fields.set("groupAlpha", "number");
+  fields.set(VISIBILITY_FIELD_KEY, "boolean");
   return [
     "-- @8 原生关键帧；不借助虚拟 Clip 或额外运行库。",
     "local KeyframeFields = {",
@@ -15,6 +16,7 @@ export function buildKeyframeRuntimeLuaLines(): string[] {
     "}",
     ...`
 local function KeyframeValue(value, kind)
+    if kind == "boolean" then return type(value) == "boolean" end
     if kind == "number" then return IsNumber(value) end
     if type(value) ~= "table" or #value ~= 4 then return false end
     for index = 1, 4 do
@@ -33,11 +35,20 @@ local function ResolveKeyframeValue(value, relative, previous)
     return value
 end
 
+-- visible 是只读字段；显隐、初始化和失败回滚都必须通过 SetVisible。
+local function SetKeyframeField(control, field, value)
+    if field == "visible" then
+        if control.alive ~= false then control:SetVisible(value) end
+    else
+        control[field] = value
+    end
+end
+
 local function CreateKeyframes(root, data)
     local sequence = game.TweenSequence()
     local createdTweens, initials, originals = {}, {}, {}
     local function RestoreInitials()
-        for _, entry in ipairs(initials) do entry[1][entry[2]] = entry[3] end
+        for _, entry in ipairs(initials) do SetKeyframeField(entry[1], entry[2], entry[3]) end
     end
     local ok, message = pcall(function()
         if root == nil then error("根控件不能为空") end
@@ -59,6 +70,7 @@ local function CreateKeyframes(root, data)
                 if #targets == 0 then printerr("[TweenTimeline] 组透明度没有可控制的颜色：" .. row[1]) end
             else
                 baseline = control[field]
+                if kind == "boolean" and type(baseline) ~= "boolean" then error("控件没有可读取的显隐状态：" .. row[1]) end
                 if kind == "number" and not IsNumber(baseline) then error("控件没有可读取的数值字段：" .. row[1] .. "/" .. field) end
                 if kind == "color" then
                     local r, g, b, a = Color.ToRGBA(baseline)
@@ -84,6 +96,7 @@ local function CreateKeyframes(root, data)
                     error("关键帧格式或增量字段无效：" .. trackIndex .. "/" .. keyIndex)
                 end
                 if isGroup and (key[2] < 0 or key[2] > 255 or (key[6] ~= nil and (key[6] < 0 or key[6] > 255))) then error("组透明度超出 0–255") end
+                if kind == "boolean" and (key[5] ~= "step" or key[6] ~= nil) then error("显隐仅支持阶跃切换，不支持补间或左极限值") end
                 rawKeys[#rawKeys + 1] = key
             end
             table.sort(rawKeys, function(a, b) return a[1] < b[1] end)
@@ -96,12 +109,13 @@ local function CreateKeyframes(root, data)
                 keys[#keys + 1] = { time = key[1], value = value, incoming = incoming, ease = key[4], interpolation = key[5] }
                 previous, previousTime = value, key[1]
             end
-            lanes[#lanes + 1] = { targets = targets, keys = keys, isGroup = isGroup }
+            lanes[#lanes + 1] = { targets = targets, keys = keys, isGroup = isGroup, isVisibility = kind == "boolean", baseline = baseline }
         end
         -- 确定每个真实字段的首值；构造后和 Restart 的 0 秒统一恢复同一状态。
         for _, lane in ipairs(lanes) do
             for _, target in ipairs(lane.targets) do
                 local first = lane.isGroup and GroupColor(target, lane.keys[1].value) or Decode(lane.keys[1].value)
+                if lane.isVisibility and lane.keys[1].time > 0 then first = lane.baseline end
                 initials[#initials + 1] = { target[1], target[2], first }
             end
         end
@@ -113,15 +127,19 @@ local function CreateKeyframes(root, data)
                 for keyIndex, key in ipairs(lane.keys) do
                     local value = lane.isGroup and GroupColor(target, key.value) or Decode(key.value)
                     -- 每个首/尾/孤立帧都写值；step 段仅通过关键帧回调跳变。
-                    sequence:InsertCallback(key.time, function() target[1][target[2]] = value end)
+                    sequence:InsertCallback(key.time, function() SetKeyframeField(target[1], target[2], value) end)
                     lastTime = math.max(lastTime, key.time)
                     local nextKey = lane.keys[keyIndex + 1]
                     if nextKey ~= nil and key.interpolation == "tween" then
                         local to = lane.isGroup and GroupColor(target, nextKey.incoming) or Decode(nextKey.incoming)
+                        -- 欧拉角 getter 可能将负角度读回为 0～360；用数据中的角度差保留实际转动量。
+                        local rotation = IsRotationField(target[2])
+                        local goal = rotation and (to - value) or to
+                        if rotation and not IsNumber(goal) then error("旋转角度差超出有效数值范围") end
                         target[1][target[2]] = value
-                        local tween = game.Tween(target[1], { [target[2]] = to }, nextKey.time - key.time)
+                        local tween = game.Tween(target[1], { [target[2]] = goal }, nextKey.time - key.time)
                         createdTweens[#createdTweens + 1] = tween
-                        tween:SetEase(Ease[key.ease]):SetRelative(false)
+                        tween:SetEase(Ease[key.ease]):SetRelative(rotation)
                         sequence:Insert(key.time, tween)
                     end
                 end
@@ -134,7 +152,7 @@ local function CreateKeyframes(root, data)
         -- 构造失败时按创建逆序释放资源，不遗留已经创建的 Tween。
         for index = #createdTweens, 1, -1 do pcall(function() createdTweens[index]:Kill(false) end) end
         pcall(function() sequence:Kill(false) end)
-        for _, entry in ipairs(originals) do pcall(function() entry[1][entry[2]] = entry[3] end) end
+        for _, entry in ipairs(originals) do pcall(function() SetKeyframeField(entry[1], entry[2], entry[3]) end) end
         printerr("[TweenTimeline] 无法创建关键帧序列：" .. tostring(message))
         return game.TweenSequence()
     end

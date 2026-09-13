@@ -399,7 +399,7 @@ function parentLabel(main: QuestMain) {
             <section class="inspector-info"><h3>子任务</h3><p>包含 {{ subGroups.get(selectedMain.id)?.length ?? 0 }} 个子任务。可通过左侧层级选择子任务并设置调查点、范围及其他参数。</p><button type="button" :disabled="project.subQuests.length >= 10000" @click="addSub(selectedMain.id)">＋ 在此主任务创建子任务</button></section>
           </template>
           <template v-else-if="selectedSub">
-            <label class="quest-field"><span>归属主任务 <code>mainId</code></span><select :value="selectedSub.mainQuestId" aria-label="归属主任务" @change="changeMain"><option v-for="main in project.mainQuests" :key="main.id" :value="main.id">{{ parentLabel(main) }}</option></select></label>
+            <label class="quest-field"><span>归属主任务 <code>mainQuestId</code></span><select :value="selectedSub.mainQuestId" aria-label="归属主任务" @change="changeMain"><option v-for="main in project.mainQuests" :key="main.id" :value="main.id">{{ parentLabel(main) }}</option></select></label>
             <label class="quest-field"><span>任务描述 <code>desc</code></span><textarea v-model="selectedSub.description" aria-label="任务描述" rows="4" placeholder="填写任务描述" /></label>
             <label class="quest-field"><span>单位状态 <code>unitState · ConfigReference</code></span><input v-model="selectedSub.unitState" aria-label="单位状态" placeholder="填写配置引用" /><small>以字符串保存 ConfigReference。</small></label>
             <div class="position-editor"><ClipPropertyEditor :property="pointProperty" :model-value="selectedSub.investigationPoint" @update:model-value="updatePoint" /></div>

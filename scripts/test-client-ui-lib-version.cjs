@@ -53,11 +53,11 @@ try {
   let passed = 0;
   function test(name, check) { check(); passed += 1; console.log(`PASS ${name}`); }
 
-  test("The runtime version is derived from the current Timeline Data schema number", () => {
+  test("The runtime patch version retains the current Timeline Data schema number", () => {
     assert.equal(typeof version, "string");
     assert.equal(schema, "ClientUIAnimationEditor.TweenTimeline@8");
-    assert.equal(version, "8");
-    assert.equal(version, schema.split("@").at(-1));
+    assert.equal(version, "8.2");
+    assert.equal(version.split(".")[0], schema.split("@").at(-1));
   });
   test("Generated Lua header uses the schema version without a separate public Version field", () => {
     assert.ok(library.code.split("\n")[0].startsWith("-- "));
@@ -81,8 +81,8 @@ try {
       }
     }
     assert.ok(initializer && ts.isStringLiteral(initializer));
-    const alternateVersion = "77";
-    const alternateSchema = `ClientUIAnimationEditor.TweenTimeline@${alternateVersion}`;
+    const alternateVersion = "77.2";
+    const alternateSchema = "ClientUIAnimationEditor.TweenTimeline@77";
     const altered = exporterSource.slice(0, initializer.getStart(source)) + JSON.stringify(alternateSchema)
       + exporterSource.slice(initializer.end);
     const alternateModule = new Module(exporterPath, module);

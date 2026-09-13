@@ -57,7 +57,7 @@ const SCALE_RELATIVE_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimel
 const MULTI_CLIP_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@6";
 const LAYOUT_RELATIVE_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@7";
 const TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@8";
-export const TWEEN_TIMELINE_LIB_VERSION = TWEEN_TIMELINE_SCHEMA.slice(TWEEN_TIMELINE_SCHEMA.lastIndexOf("@") + 1);
+export const TWEEN_TIMELINE_LIB_VERSION = TWEEN_TIMELINE_SCHEMA.slice(TWEEN_TIMELINE_SCHEMA.lastIndexOf("@") + 1) + ".2";
 
 export interface TweenTimelineLibLuaExportResult {
   code: string;
@@ -125,6 +125,8 @@ export function buildTweenTimelineLibLua(): TweenTimelineLibLuaExportResult {
     "-- 首次扫描记录基础 Alpha；之后 Create 使用当前 RGB 与原始 Alpha，出场后仍可再次入场。",
     "-- 位置/大小/缩放 relative=true：首段加上 Create 前的属性，后续段加上同轨道上一段终值。",
     "-- 同一属性可有多个互不重叠的 Clip；空档保持上一段终值，暂停/重播复用原序列。",
+    "-- 旋转按原始关键帧角度差补间，避免欧拉角读回归一化造成绕圈；保留有意设置的多圈旋转。",
+    "-- visible 显隐关键帧使用 InsertCallback + SetVisible；首帧前保留 Create 时的可见性。",
     "",
     "local TweenTimelineLib = {}",
     `TweenTimelineLib.Schema = ${luaString(TWEEN_TIMELINE_SCHEMA)}`,
@@ -146,6 +148,10 @@ export function buildTweenTimelineLibLua(): TweenTimelineLibLuaExportResult {
     '    return field == "localScaleX" or field == "localScaleY" or field == "localScaleZ"',
     '        or field == "anchoredPositionX" or field == "anchoredPositionY"',
     '        or field == "sizeDeltaX" or field == "sizeDeltaY"',
+    "end",
+    "",
+    "local function IsRotationField(field)",
+    '    return field == "localRotationX" or field == "localRotationY" or field == "localRotationZ"',
     "end",
     "",
     "local function IsNumber(value)",
@@ -239,6 +245,7 @@ export function buildTweenTimelineLibLua(): TweenTimelineLibLuaExportResult {
     "            and IsValue(track[6]) and IsValue(track[7]) and type(track[6]) == type(track[7])",
     `        local isGroup = valid and track[2] == ${luaString(GROUP_ALPHA_FIELD_KEY)}`,
     "        valid = valid and (not isGroup or IsNumber(track[6]))",
+    "            and (not IsRotationField(track[2]) or IsNumber(track[6]))",
     "            and (track[8] ~= true or (IsRelativeField(track[2]) and IsNumber(track[6])))",
     "        if not valid then",
     '            printerr("[TweenTimeline] 跳过时间、首尾值或增量字段无效的 Clip：" .. order)',
@@ -300,7 +307,8 @@ export function buildTweenTimelineLibLua(): TweenTimelineLibLuaExportResult {
     "                if IsNumber(previousEnd) then fromValue, toValue = previousEnd + fromValue, previousEnd + toValue",
     "                else invalidRelative = true end",
     "            end",
-    '            if invalidRelative or (type(fromValue) == "number" and (not IsNumber(fromValue) or not IsNumber(toValue))) then',
+    '            if invalidRelative or (type(fromValue) == "number" and (not IsNumber(fromValue) or not IsNumber(toValue)))',
+    '                or (IsRotationField(track[2]) and not IsNumber(toValue - fromValue)) then',
     '                printerr("[TweenTimeline] 跳过计算后超出有效数值范围的 Clip：" .. track[1] .. "/" .. track[2])',
     "            else",
     "                previousEnd = toValue",
@@ -310,9 +318,10 @@ export function buildTweenTimelineLibLua(): TweenTimelineLibLuaExportResult {
     "                    if initials[index] == nil then initials[index] = from end",
     "                    -- 设置构造初值以支持立即捕获；回调同时保证延迟开始时使用该 Clip 的初值。",
     "                    target[1][target[2]] = from",
-    "                    local tween = game.Tween(target[1], { [target[2]] = to }, track[4])",
+    "                    local rotation = IsRotationField(target[2])",
+    "                    local tween = game.Tween(target[1], { [target[2]] = rotation and (to - from) or to }, track[4])",
     "                        :SetEase(Ease[track[5]] or Enum.EaseType.Linear)",
-    "                        :SetRelative(false)",
+    "                        :SetRelative(rotation)",
     "                    sequence:InsertCallback(track[3], function() target[1][target[2]] = from end)",
     "                    sequence:Insert(track[3], tween)",
     "                end",
@@ -402,6 +411,7 @@ export function buildTweenTimelineDataLua(
     const nodePath = node ? pathByNodeId.get(node.id) : undefined;
     if (!node || nodePath === undefined) continue;
     const field = getTweenableField(node.type, track.fieldKey);
+    if (field?.valueKind === "boolean") throw new Error("控件显隐须使用关键帧导出，不支持旧版 Tween Clip。");
     if (!field) {
       warnings.push(`控件「${node.name}」的字段 ${track.fieldKey} 不是已知 Tweenable 字段，已跳过。`);
       continue;
