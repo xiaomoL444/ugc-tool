@@ -2,6 +2,7 @@ export interface QuestStructIds {
   chapter: string;
   mainQuest: string;
   subQuest: string;
+  subQuestDictionary: string;
   configuration: string;
   positionSlot: string;
 }

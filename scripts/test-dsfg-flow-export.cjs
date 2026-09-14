@@ -228,7 +228,9 @@ async function main() {
       const actions = output.actions("G");
       assert.deepEqual(actions.find((action) => action.value.actionType.value === "NOLOC_DIALOG").value.intParams.value, ["0"]);
       assert.deepEqual(actions.find((action) => action.value.actionType.value === "NOLOC_DIALOG_SELECT").value.intParams.value, ["0"]);
-      assert.deepEqual(actions.find((action) => action.value.actionType.value === "NOLOC_CAMERA").value.stringParams.value, ["0"]);
+      const cameraAction = actions.find((action) => action.value.actionType.value === "NOLOC_CAMERA");
+      assert.deepEqual(cameraAction.value.intParams.value, ["0"]);
+      assert.deepEqual(cameraAction.value.stringParams.value, []);
       const actualIds = new Set();
       function walk(value) {
         if (!value || typeof value !== "object") return;

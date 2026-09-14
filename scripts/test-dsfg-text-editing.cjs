@@ -51,7 +51,7 @@ try {
   }
   const line = (speaker = "说话人", subtitle = "字幕", hasDialogue = true) => ({ nodeId: "A", name: "Group", content: "台词", speaker, subtitle, hasDialogue });
 
-  for (const field of ["speaker", "content", "subtitle"]) {
+  for (const field of ["speaker", "content", "subtitle", "style"]) {
     test(`${field} updates only its existing Dialogue text property`, () => {
       const source = project();
       const expected = copy(source);
@@ -86,7 +86,7 @@ try {
 
   test("Runtime field whitelist rejects non-text properties and malformed fields", () => {
     const source = freeze(project());
-    for (const field of ["id", "name", "style", "next", "lines", "startTime", "continueDelayTime", "advanceMode", "nodeGraphEvent", "__proto__", "constructor", "speaker ", "Content", "", null, undefined, 1, {}, ["content"]]) {
+    for (const field of ["id", "name", "next", "lines", "startTime", "continueDelayTime", "advanceMode", "nodeGraphEvent", "__proto__", "constructor", "speaker ", "Content", "", null, undefined, 1, {}, ["content"]]) {
       assert.equal(apply(source, { nodeId: "A", field, value: "不应该写入" }), false);
     }
   });
@@ -135,6 +135,11 @@ try {
   test("Subtitle changes force a new speaker label even for the same speaker", () => {
     const lines = [line("同一人", "第一字幕"), line("同一人", "第二字幕"), line("同一人", ""), line("同一人", "")];
     assert.deepEqual(lines.map((_, index) => show(lines, index)), [true, true, true, false]);
+  });
+
+  test("A different dialogue style keeps its own style selector visible", () => {
+    const lines = ['Default_UI', 'Black_Screen', 'Black_Screen', 'Clear'].map(style => ({ ...line(), style }));
+    assert.deepEqual(lines.map((_, index) => show(lines, index)), [true, true, false, true]);
   });
 
   test("Missing Dialogue on either side breaks label merging", () => {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { ClipPropertyDefinition } from "../../types/DialogueNode";
-import { createClipPropertyValues, isClipPropertyVisible } from "../../utils/clipProperties";
+import { createClipPropertyValues, getClipListLimits, isClipPropertyVisible, updateClipStructField } from "../../utils/clipProperties";
 
 const props = defineProps<{
   property: ClipPropertyDefinition;
@@ -21,7 +21,9 @@ const structValue = computed(() =>
 const listValue = computed<unknown[]>(() =>
   Array.isArray(value.value) ? value.value : [],
 );
-const maxItems = computed(() => props.property.maxItems ?? Infinity);
+const listLimits = computed(() => getClipListLimits(props.property, props.siblingValues));
+const maxItems = computed(() => listLimits.value.max);
+const minItems = computed(() => listLimits.value.min);
 const vectorParts = computed(() => {
   const parts = String(value.value ?? "0,0,0").split(",");
   return [0, 1, 2].map((index) => parts[index]?.trim() || "0");
@@ -66,7 +68,7 @@ function updateVector(index: number, event: Event) {
 }
 
 function updateStructField(key: string, fieldValue: unknown) {
-  emit("update:modelValue", { ...structValue.value, [key]: fieldValue });
+  emit("update:modelValue", updateClipStructField(fields.value, structValue.value, key, fieldValue));
 }
 
 function itemFields(item: unknown) {
@@ -85,6 +87,7 @@ function addItem() {
 }
 
 function removeItem(index: number) {
+  if (listValue.value.length <= minItems.value) return;
   emit("update:modelValue", listValue.value.filter((_, itemIndex) => itemIndex !== index));
 }
 
@@ -119,9 +122,10 @@ function moveItem(index: number, offset: number) {
     <section v-else-if="property.type === 'struct-list'" class="list-field">
       <div class="list-heading" :title="fieldTitle">
         <span>{{ property.label }} <code>{{ property.key }}</code></span>
-        <small>{{ listValue.length }}<template v-if="property.maxItems !== undefined"> / {{ property.maxItems }}</template></small>
+        <small>{{ listValue.length }}<template v-if="Number.isFinite(maxItems)"> / {{ maxItems }}</template></small>
       </div>
       <p v-if="property.description" class="field-description">{{ property.description }}</p>
+      <p v-if="listValue.length > maxItems" class="field-description">当前类型最多允许 {{ maxItems }} 个条目，请移除多余点位。</p>
       <p v-if="!listValue.length" class="empty-list">暂无条目，点击下方添加。</p>
       <details v-for="(item, index) in listValue" :key="index" class="list-item" :open="index === 0">
         <summary>
@@ -129,7 +133,7 @@ function moveItem(index: number, offset: number) {
           <span class="item-actions" @click.stop>
             <button type="button" :disabled="index === 0" :aria-label="`上移条目 ${index + 1}`" title="上移" @click.prevent="moveItem(index, -1)">↑</button>
             <button type="button" :disabled="index === listValue.length - 1" :aria-label="`下移条目 ${index + 1}`" title="下移" @click.prevent="moveItem(index, 1)">↓</button>
-            <button type="button" :aria-label="`删除条目 ${index + 1}`" title="删除" @click.prevent="removeItem(index)">×</button>
+            <button type="button" :disabled="listValue.length <= minItems" :aria-label="`删除条目 ${index + 1}`" title="删除" @click.prevent="removeItem(index)">×</button>
           </span>
         </summary>
         <div class="nested-fields">

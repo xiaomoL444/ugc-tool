@@ -1,8 +1,9 @@
-import { VariableValue, VariableWorkspace, type StructDefinition } from "miliastra-variable";
+import { VariableValue, VariableWorkspace, type StructDefinition, type QxqyStructNode } from "miliastra-variable";
 import chapterDefinition from "@/assets/DSFGStudio/Quest/1077936165[任务]章节.json";
 import mainDefinition from "@/assets/DSFGStudio/Quest/1077936166[任务]主任务.json";
 import subDefinition from "@/assets/DSFGStudio/Quest/1077936145[任务]子任务.json";
 import configurationDefinition from "@/assets/DSFGStudio/Quest/1077936169[任务]任务配置数据.json";
+import subDictionaryDefinition from "@/assets/DSFGStudio/Quest/1077936170[任务]子任务字典.json";
 import slotDefinition from "@/assets/DSFGStudio/Quest/1077936164PositionSlot.json";
 import { DEFAULT_QUEST_STRUCT_IDS, QUEST_STRUCT_ID_FIELDS, validateQuestProject } from "./questProject";
 import type { QuestProject, QuestStructIds } from "./types";
@@ -14,6 +15,7 @@ const definitions: Record<keyof QuestStructIds, StructDefinition> = {
   mainQuest: mainDefinition as StructDefinition,
   subQuest: subDefinition as StructDefinition,
   configuration: configurationDefinition as StructDefinition,
+  subQuestDictionary: subDictionaryDefinition as StructDefinition,
   positionSlot: slotDefinition as StructDefinition,
 };
 
@@ -42,16 +44,25 @@ export function createQuestStructWorkspace(ids: QuestStructIds): VariableWorkspa
     const dictionary = field.value.value as { value: unknown[] };
     dictionary.value = [];
   }
-  // 子任务内嵌样例多出两个未命名 Int32；暂以独立 PositionSlot 的 8 个命名字段为准。
+  const subDictionary = remapped[ids.subQuestDictionary].value.find((field) => field.key === "子任务字典");
+  if (!subDictionary) throw new Error("子任务字典结构体缺少子任务字典字段。");
+  (subDictionary.value.value as { value: unknown[] }).value = [];
+  // 新子任务定义和实际变量都有 10 个调查点字段；独立 PositionSlot 仅命名了前 8 个。
+  // 仅在任务导出的私有注册表中补齐尾部字段，保留源类型/顺序/默认值，不猜测业务含义。
   const point = remapped[ids.subQuest].value.find((field) => field.key === "任务调查点预设点");
   if (!point) throw new Error("子任务结构体缺少调查点字段。");
-  point.value = {
-    param_type: "Struct",
-    value: {
-      structId: ids.positionSlot, type: "Struct",
-      value: remapped[ids.positionSlot].value.map((field) => field.value),
-    },
-  };
+  const embedded = point.value.value as QxqyStructNode;
+  const slot = remapped[ids.positionSlot];
+  if (embedded.structId !== ids.positionSlot || !Array.isArray(embedded.value)
+    || embedded.value.length < slot.value.length
+    || slot.value.some((field, index) => field.param_type !== embedded.value[index].param_type)) {
+    throw new Error("子任务内嵌调查点与 PositionSlot 定义不匹配，请更新结构体定义。");
+  }
+  slot.value = embedded.value.map((value, index) => ({
+    key: slot.value[index]?.key ?? `__sourceField${index + 1}`,
+    param_type: value.param_type,
+    value,
+  }));
   return new VariableWorkspace(remapped);
 }
 
@@ -70,7 +81,10 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
   const chapters = configuration.value["章节"] as VariableValue;
   const mains = configuration.value["主任务"] as VariableValue;
   const subs = configuration.value["子任务"] as VariableValue;
-  const warnings = ["已按独立子任务定义导出 Int32 归属主任务和隐藏任务；调查点暂按独立 PositionSlot 的 8 个字段导出，不含内嵌样例多出的两个未命名 Int32，请确认运行时定义。"];
+  const warnings: string[] = [];
+  if (project.subQuests.length && Object.keys(workspace.createDefault(ids.positionSlot).value).length > slotDefinition.value.length) {
+    warnings.push("调查点已完整保留新版子任务结构体的字段；独立 PositionSlot 尚未命名的尾部字段按源默认值导出，暂不可编辑。");
+  }
   const subIds = new Set(project.subQuests.map((sub) => sub.id));
   for (const chapter of [...project.chapters].sort((a, b) => a.id - b.id)) {
     const value = workspace.createDefault(ids.chapter);
@@ -95,9 +109,9 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
     value.value["desc"].setValue(sub.description);
     value.value["任务单位状态"].setValue(sub.unitState);
     const point = value.value["任务调查点预设点"] as VariableValue;
-    for (const [key, field] of Object.entries(point.value)) {
+    for (const { key } of slotDefinition.value) {
       const parameter = sub.investigationPoint[key];
-      (field as VariableValue).setValue(typeof parameter === "boolean" ? parameter ? "True" : "False" : String(parameter));
+      (point.value[key] as VariableValue).setValue(typeof parameter === "boolean" ? parameter ? "True" : "False" : String(parameter));
     }
     value.value["调查点范围"].setValue(String(sub.investigationRange));
     value.value["隐藏任务"].setValue(sub.hidden ? "True" : "False");
@@ -123,11 +137,11 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
     const bucketId = Math.floor(sub.id / 100);
     let bucket = buckets.get(bucketId);
     if (!bucket) {
-      bucket = workspace.parse({ param_type: "StructList", value: { structId: ids.subQuest, value: [] } });
+      bucket = workspace.createDefault(ids.subQuestDictionary);
       buckets.set(bucketId, bucket);
     }
-    // 每桶列表按完整 ID 升序填入；删除后的空位不填充假任务，真实 ID 保存在结构体内。
-    bucket.appendItem(value);
+    // 内层键使用完整 ID（例如桶 1 的键为 100–199），不取余、不因删除重新编号。
+    (bucket.value["子任务字典"] as VariableValue).appendItem({ key: String(sub.id), value });
   }
   for (const [id, bucket] of buckets) subs.appendItem({ key: String(id), value: bucket });
   if (configuration.issues.length) throw new Error(`任务变量结构校验失败：${configuration.issues.map((issue) => issue.message).join("；")}`);

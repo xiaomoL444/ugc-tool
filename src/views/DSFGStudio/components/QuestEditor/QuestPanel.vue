@@ -385,7 +385,7 @@ function parentLabel(main: QuestMain) {
           </header>
           <div class="identity-strip">
             <span>ID <code>{{ selectedItem.id }}</code></span>
-            <span v-if="selectedSub">字典桶 <code>{{ Math.floor(selectedSub.id / 100) }}</code> / 自身 ID <code>{{ selectedSub.id }}</code></span>
+            <span v-if="selectedSub">字典桶 <code>{{ Math.floor(selectedSub.id / 100) }}</code> / 内层键（自身 ID）<code>{{ selectedSub.id }}</code></span>
             <span v-else>只读 · 移动时保持不变</span>
           </div>
           <label class="quest-field"><span>{{ selectedKindLabel }}标题 <code>title</code></span><input v-model="selectedItem.title" :aria-label="`${selectedKindLabel}标题`" placeholder="填写标题" /></label>
@@ -433,7 +433,7 @@ function parentLabel(main: QuestMain) {
             </label>
             <label class="hidden-field"><input v-model="selectedSub.finishMainQuest" type="checkbox" aria-label="完成主任务" /><span>完成主任务 <code>finishMainQuest</code></span></label>
             <label class="quest-field"><span>任务进度 <code>questProgress · Int32</code></span><input type="number" aria-label="任务进度" :value="selectedSub.questProgress" step="1" min="-2147483648" max="2147483647" @input="updateSubInteger('questProgress', $event)" @change="updateSubInteger('questProgress', $event, true)" /><small>默认 0，按填写的整数导出。</small></label>
-            <p class="inspector-note">导出到任务配置数据的子任务字典，桶键为 {{ Math.floor(selectedSub.id / 100) }}；桶内是结构体列表，自身 ID 保留为 {{ selectedSub.id }}，不使用列表位置作为 ID。</p>
+            <p class="inspector-note">导出到任务配置数据的子任务字典，桶键为 {{ Math.floor(selectedSub.id / 100) }}；桶内结构体的子任务字典使用完整 ID {{ selectedSub.id }} 作为键，与自身 ID 一一对应。</p>
           </template>
         </template>
         <div v-else class="inspector-empty">

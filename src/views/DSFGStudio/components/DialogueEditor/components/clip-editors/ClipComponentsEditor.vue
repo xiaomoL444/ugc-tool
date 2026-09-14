@@ -13,11 +13,15 @@ import type {
 } from "../../types/DialogueNode";
 
 const props = defineProps<{ clip: PerformanceClip }>();
+const cameraParameterCount = computed(() =>
+  props.clip.components.filter(component => component.templateId === "camera.shot").length,
+);
 const lineDefinition = computed(() => getLineDefinition(props.clip.type));
 const availableTemplates = computed(() => {
   const allowed = lineDefinition.value?.allowedComponentTemplateIds;
   return getClipComponentTemplates(allowed?.length ? allowed : undefined).filter(
-    (template) => !template.id.startsWith("base."),
+    (template) => !template.id.startsWith("base.") &&
+      (template.id !== "camera.shot" || cameraParameterCount.value === 0),
   );
 });
 const selectedTemplateId = ref("");
@@ -33,7 +37,7 @@ watch(
 );
 
 function addComponent() {
-  if (selectedTemplateId.value) {
+  if (availableTemplates.value.some(template => template.id === selectedTemplateId.value)) {
     props.clip.components = [...props.clip.components, createClipComponent(selectedTemplateId.value)];
   }
 }
@@ -86,6 +90,9 @@ function updateString(component: ClipComponent, key: string, event: Event) {
 <template>
   <section class="components-editor">
     <header><strong>Components</strong><span>{{ clip.components.length }}</span></header>
+    <p v-if="cameraParameterCount > 1" class="component-warning" role="status">
+      当前有 {{ cameraParameterCount }} 份镜头参数，请保留需要的一份并删除其余项。多个启用项的同名参数会由后面的覆盖。
+    </p>
 
     <article v-for="component in clip.components" :key="component.id" class="component-card">
       <div class="component-heading">
@@ -122,7 +129,7 @@ function updateString(component: ClipComponent, key: string, event: Event) {
     </article>
 
     <div class="add-component">
-      <select v-model="selectedTemplateId">
+      <select v-model="selectedTemplateId" aria-label="添加组件类型" :disabled="!availableTemplates.length">
         <option v-for="template in availableTemplates" :key="template.id" :value="template.id">
           {{ template.name }}
         </option>
@@ -137,6 +144,7 @@ function updateString(component: ClipComponent, key: string, event: Event) {
 .components-editor > header, .component-heading, .enabled-toggle, .add-component, .custom-field > div { display: flex; align-items: center; }
 .components-editor > header, .component-heading { justify-content: space-between; }
 .components-editor > header span { color: #71839a; font-size: 10px; }
+.component-warning { color: #efc781; font-size: 11px; line-height: 1.5; }
 .component-card { margin-top: 8px; padding: 8px; background: #1d2531; border: 1px solid #3b485b; border-radius: 6px; }
 .component-card label:not(.enabled-toggle) { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; color: #98a8bc; font-size: 10px; }
 .enabled-toggle { gap: 6px; color: #d9e6f7; font-size: 11px; font-weight: 700; }

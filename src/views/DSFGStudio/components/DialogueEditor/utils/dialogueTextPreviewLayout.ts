@@ -7,10 +7,9 @@ export interface TextPreviewLayout {
   edges: Array<{ id: string; path: string; isReturn: boolean; labelX: number; labelY: number }>;
 }
 
-const BLOCK_WIDTH = 380;
 const DEFAULT_HEIGHT = 160;
 const COLUMN_GAP = 72;
-const ROW_GAP = 128;
+const ROW_GAP = 88;
 const COMPONENT_GAP = 80;
 const PADDING = 64;
 const SIDE_GAP = 32;
@@ -35,7 +34,9 @@ interface Layer {
 export function layoutDialogueTextPreview(
   preview: DialogueTextPreview,
   heights: Readonly<Record<string, number>> = {},
+  blockWidth = 560,
 ): TextPreviewLayout {
+  const BLOCK_WIDTH = Number.isFinite(blockWidth) ? Math.max(320, Math.min(560, blockWidth)) : 560;
   if (!preview.blocks.length) return { width: BLOCK_WIDTH + PADDING * 2, height: PADDING * 2, blocks: [], edges: [] };
 
   const byId = new Map(preview.blocks.map((block) => [block.id, block]));

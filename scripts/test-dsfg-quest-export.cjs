@@ -52,9 +52,13 @@ async function main() {
       assertOwnIds(parsed[0]); assertOwnIds(parsed[1]);
       const exportedIds = [];
       parsed[2].value.forEach((entry) => {
-        assert.equal(entry.value.type, "StructList");
-        assert.ok(entry.value.itemCount <= 100);
-        for (const sub of entry.value.value) {
+        assert.equal(entry.value.type, "Struct");
+        assert.equal(entry.value.toQxqyValue().structId, project.structIds.subQuestDictionary);
+        const inner = entry.value.value["子任务字典"];
+        assert.equal(inner.type, "Dict");
+        assert.ok(inner.itemCount <= 100);
+        assertOwnIds(inner);
+        for (const { value: sub } of inner.value) {
           assert.equal(sub.value.id.type, "Int32");
           const id = Number(sub.value.id.value);
           assert.equal(Math.floor(id / 100), Number(entry.key.value));
@@ -64,8 +68,9 @@ async function main() {
       assert.deepEqual(exportedIds, project.subQuests.map(sub => sub.id).sort((a, b) => a - b));
       return { result, chapters: parsed[0], mains: parsed[1], subs: parsed[2] };
     }
-    const values = (dict) => dict.type === "StructList" ? dict.value : dict.value.map((entry) => entry.value);
-    const keys = (dict) => dict.type === "StructList" ? dict.value.map(entry => Number(entry.value.id.value)) : dict.value.map((entry) => Number(entry.key.value));
+    const dictionary = (value) => value.type === "Struct" ? value.value["子任务字典"] : value;
+    const values = (dict) => dictionary(dict).value.map((entry) => entry.value);
+    const keys = (dict) => dictionary(dict).value.map((entry) => Number(entry.key.value));
 
     test("empty project exports one source-shaped configuration without sample rows", () => {
       const project = createQuestProject();
@@ -76,53 +81,101 @@ async function main() {
       assert.deepEqual(result.value, expected);
       assert.equal(result.value.type, "Struct");
       assert.equal(result.value.structId, "1077936169");
-      assert.deepEqual(result.value.value.map(field => field.value.value_type), ["Struct", "Struct", "StructList"]);
-      assert.equal(result.value.value[2].value.value_structId, project.structIds.subQuest);
+      assert.deepEqual(result.value.value.map(field => field.value.value_type), ["Struct", "Struct", "Struct"]);
+      assert.equal(result.value.value[2].value.value_structId, project.structIds.subQuestDictionary);
       assert.equal(result.files, undefined);
     });
-    test("legacy schema IDs migrate without repurposing deleted wrapper IDs or changing task data", () => {
+    test("legacy schema IDs retain custom wrapper IDs and task data while adding configuration", () => {
       const project = source(3);
       project.structIds = { chapter: "9101", mainQuest: "9102", subQuest: "9103", subQuestDictionary: "9104", positionSlot: "9105" };
       project.subQuests[0].nextQuestIds = [null, 2]; project.subQuests[0].failureQuestId = 1;
       const raw = encodeQuestProject(project), restored = decodeQuestProject(raw);
-      assert.deepEqual(restored.structIds, { chapter: "9101", mainQuest: "9102", subQuest: "9103", configuration: "1077936169", positionSlot: "9105" });
+      assert.deepEqual(restored.structIds, { chapter: "9101", mainQuest: "9102", subQuest: "9103", subQuestDictionary: "9104", configuration: "1077936169", positionSlot: "9105" });
       assert.deepEqual(restored.subQuests, project.subQuests); assert.deepEqual(restored.mainQuests, project.mainQuests);
       assert.equal(encodeQuestProject(project), raw);
       const { result } = exported(restored);
-      assert.ok(!result.json.includes('"9104"')); assert.ok(!result.json.includes('"1077936167"'));
+      assert.ok(result.json.includes('"9104"')); assert.ok(!result.json.includes('"1077936170"'));
       assert.equal(result.value.structId, "1077936169");
       assert.deepEqual(decodeQuestProject(encodeQuestProject(restored)), restored);
     });
-    test("custom configuration ID survives loading while retired IDs are not registered or configurable", () => {
+    test("custom configuration and wrapper IDs survive loading and are registered and configurable", () => {
       const project = source(); project.structIds.configuration = "987654";
       project.structIds.subQuestDictionary = "1077936167";
       const restored = decodeQuestProject(encodeQuestProject(project));
-      assert.equal(restored.structIds.configuration, "987654"); assert.equal(restored.structIds.subQuestDictionary, undefined);
+      assert.equal(restored.structIds.configuration, "987654"); assert.equal(restored.structIds.subQuestDictionary, "1077936167");
       assert.equal(exported(restored).result.value.structId, "987654");
       const { QUEST_STRUCT_ID_FIELDS } = require(path.join(questDirectory, "questProject.ts"));
       assert.ok(QUEST_STRUCT_ID_FIELDS.some(field => field.key === "configuration"));
-      assert.ok(!QUEST_STRUCT_ID_FIELDS.some(field => field.key === "subQuestDictionary"));
+      assert.ok(QUEST_STRUCT_ID_FIELDS.some(field => field.key === "subQuestDictionary"));
       const registry = createQuestStructWorkspace(restored.structIds);
-      assert.throws(() => registry.createDefault("1077936167"));
+      assert.equal(registry.createDefault("1077936167").value["子任务字典"].type, "Dict");
       for (const value of ["", "bad", restored.structIds.chapter]) {
         restored.structIds.configuration = value; assert.throws(() => exportQuestVariables(restored));
       }
     });
-    test("populated output matches the example's exact compound shape without any deleted wrapper", () => {
+    test("list-era documents backfill the wrapper ID without changing configuration, IDs or references", () => {
+      const project = source(3); delete project.structIds.subQuestDictionary;
+      project.structIds.configuration = "987654";
+      project.subQuests[0].nextQuestIds = [2, null, 1]; project.subQuests[0].failureQuestId = 2;
+      const before = encodeQuestProject(project), restored = decodeQuestProject(before);
+      assert.equal(restored.structIds.subQuestDictionary, "1077936170");
+      assert.equal(restored.structIds.configuration, "987654");
+      assert.deepEqual(restored.subQuests, project.subQuests);
+      assert.equal(encodeQuestProject(project), before);
+      exported(restored);
+      assert.deepEqual(decodeQuestProject(encodeQuestProject(restored)), restored);
+    });
+    test("populated output matches the new sample's wrapper and dictionary shape with full ID keys", () => {
       const project = source();
       project.chapters[0].id = 1; project.mainQuests[0].id = 1; project.mainQuests[0].chapterId = 1;
       project.subQuests[0].id = 100; project.subQuests[0].mainQuestId = 1;
       const expected = JSON.parse(JSON.stringify(require(path.join(assetDirectory, "任务配置数据变量.json"))));
       const chapter = expected.value[0].value.value[0].value.value;
+      expected.value[0].value.value[0].key.value = "1";
       chapter.value[0].value = "1"; chapter.value[1].value = project.chapters[0].title;
       const main = expected.value[1].value.value[0].value.value;
+      expected.value[1].value.value[0].key.value = "1";
       main.value[0].value = "1"; main.value[1].value = "1"; main.value[2].value = project.mainQuests[0].title;
-      const sub = expected.value[2].value.value[0].value.value.value[0].value;
+      expected.value[2].value.value[0].key.value = "1";
+      const inner = expected.value[2].value.value[0].value.value.value[0].value;
+      const definition = require(path.join(assetDirectory, "1077936145[任务]子任务.json"));
+      const sub = { type: "Struct", structId: "1077936145", value: JSON.parse(JSON.stringify(definition.value.map(field => field.value))) };
+      inner.value = [{ key: { param_type: "Int32", value: "100" }, value: { param_type: "Struct", value: sub } }];
       sub.value[0].value = "100"; sub.value[1].value = "1"; sub.value[2].value = project.subQuests[0].title;
-      // 原有 PositionSlot 内嵌示例差异仍按独立 8 字段定义处理。
-      sub.value[5].value.value = sub.value[5].value.value.slice(0, 8);
+      // 完整保留新源定义的 10 字段，不裁剪未命名尾部。
       sub.value[5].value.value[1].value = "Vector3"; sub.value[6].value = "-1";
       assert.deepEqual(exported(project).result.value, expected);
+    });
+    test("fresh real runtime sample parses and serializes without changing any nested fields", () => {
+      const project = createQuestProject();
+      const workspace = createQuestStructWorkspace(project.structIds);
+      const sample = require(path.join(assetDirectory, "任务配置数据变量.json"));
+      const parsed = workspace.parse(sample);
+      assert.deepEqual(parsed.issues, []);
+      assert.deepEqual(JSON.parse(parsed.serialize(2)), sample);
+      const configuration = require(path.join(assetDirectory, "1077936169[任务]任务配置数据.json"));
+      assert.equal(configuration.value[2].value.value.value_type, "Struct");
+      assert.equal(configuration.value[2].value.value.value_structId, project.structIds.subQuestDictionary);
+      const slot = require(path.join(assetDirectory, "1077936164PositionSlot.json"));
+      assert.equal(slot.value.length, 8, "The original named schema is not rewritten");
+    });
+    test("every task exports all ten source PositionSlot fields including untouched unnamed defaults", () => {
+      const project = source(2);
+      project.structIds.positionSlot = "912345";
+      project.subQuests[1].investigationPoint.vector3 = "160,900,1";
+      const { subs, result } = exported(project);
+      const sample = require(path.join(assetDirectory, "任务配置数据变量.json"));
+      const sourceRows = sample.value[2].value.value[0].value.value.value[0].value.value;
+      const sampleSlot = sourceRows[0].value.value.value[5].value;
+      for (const sub of values(values(subs)[0])) {
+        const slot = sub.value["任务调查点预设点"].toQxqyValue();
+        assert.equal(slot.structId, "912345");
+        assert.equal(slot.value.length, sampleSlot.value.length);
+        assert.deepEqual(slot.value.map(field => field.param_type), sampleSlot.value.map(field => field.param_type));
+        assert.deepEqual(slot.value.slice(8), sampleSlot.value.slice(8));
+      }
+      assert.ok(!result.json.includes("__sourceField"), "Internal field aliases must never be exported");
+      assert.ok(result.warnings.some(warning => /完整保留/.test(warning)));
     });
     test("own IDs remain distinct from parent IDs, struct IDs and bucket offsets through save, reorder and deletion", () => {
       const project = source(5);
@@ -133,7 +186,7 @@ async function main() {
         project.subQuests[index].id = id; project.subQuests[index].mainQuestId = 58;
       });
       project.subQuests[0].nextQuestIds = [100, null, 99]; project.subQuests[0].failureQuestId = 99;
-      project.structIds = { chapter: "9001", mainQuest: "9002", subQuest: "9003", configuration: "9004", positionSlot: "9005" };
+      project.structIds = { chapter: "9001", mainQuest: "9002", subQuest: "9003", configuration: "9004", subQuestDictionary: "9006", positionSlot: "9005" };
       project.mainQuests.reverse(); project.subQuests.reverse();
       const before = encodeQuestProject(project), restored = decodeQuestProject(before);
       const { result, chapters, mains, subs } = exported(restored);
@@ -182,7 +235,7 @@ async function main() {
       assert.equal(value.value["后续任务"].type, "Int32List");
       assert.deepEqual(value.value["后续任务"].value, []);
       const slot = value.value["任务调查点预设点"];
-      assert.equal(Object.keys(slot.value).length, 8);
+      assert.equal(Object.keys(slot.value).length, 10);
       assert.equal(slot.value.guid.value, sub.investigationPoint.guid);
       assert.equal(slot.value.requiresClientPos.value, "True");
     });
@@ -429,7 +482,7 @@ async function main() {
     });
     test("follow-up IDs survive codec roundtrip with custom struct IDs and future references", () => {
       const project = source();
-      project.structIds = { chapter: "9011", mainQuest: "9012", subQuest: "9013", configuration: "9014", positionSlot: "9015" };
+      project.structIds = { chapter: "9011", mainQuest: "9012", subQuest: "9013", configuration: "9014", subQuestDictionary: "9016", positionSlot: "9015" };
       project.subQuests[0].id = 199;
       project.subQuests[0].nextQuestIds = [9999, 100, 200, 0, 100, -1];
       const before = JSON.stringify(project);
@@ -526,7 +579,7 @@ async function main() {
     });
     test("custom main struct IDs retain the chapter sentinel and exact custom style without mutation", () => {
       const project = createQuestProject();
-      project.structIds = { chapter: "9501", mainQuest: "9502", subQuest: "9503", configuration: "9504", positionSlot: "9505" };
+      project.structIds = { chapter: "9501", mainQuest: "9502", subQuest: "9503", configuration: "9504", subQuestDictionary: "9506", positionSlot: "9505" };
       project.unassignedChapterId = -42;
       const main = createQuestMain(project);
       main.id = 21; main.title = "直属任务"; main.style = "Branch_Custom";
@@ -546,11 +599,11 @@ async function main() {
     for (const count of [100, 101, 110]) test(`${count} sub quests use 100-entry buckets and complete global inner IDs`, () => {
       const { subs } = exported(source(count));
       assert.deepEqual(keys(subs), count > 100 ? [0, 1] : [0]);
-      const dictionaries = values(subs).map((value) => value);
+      const dictionaries = values(subs).map(dictionary);
       assert.deepEqual(dictionaries.map((dict) => dict.itemCount), count > 100 ? [100, count - 100] : [100]);
       assert.deepEqual(dictionaries.flatMap(keys), Array.from({ length: count }, (_, id) => id));
     });
-    test("sparse IDs 0/99/100/199/9999 remain in compact bucket lists without phantom tasks", () => {
+    test("sparse IDs 0/99/100/199/9999 retain actual inner dictionary keys without phantom tasks", () => {
       const project = source(5);
       [0, 99, 100, 199, 9999].forEach((id, index) => project.subQuests[index].id = id);
       project.subQuests.reverse();
@@ -565,12 +618,13 @@ async function main() {
       assert.equal(raw.value.length, 100);
       raw.value.forEach((entry, bucketId) => {
         assert.equal(entry.key.value, String(bucketId));
-        const inner = entry.value.value;
+        const inner = entry.value.value.value[0].value;
         assert.equal(inner.value.length, 100);
-        assert.equal(inner.value[0].value.value[0].value, String(bucketId * 100));
-        assert.equal(inner.value[99].value.value[0].value, String(bucketId * 100 + 99));
+        assert.equal(inner.value[0].key.value, String(bucketId * 100));
+        assert.equal(inner.value[99].key.value, String(bucketId * 100 + 99));
         inner.value.forEach((item, index) => {
-          assert.deepEqual(item.value.value[0], { param_type: "Int32", value: String(bucketId * 100 + index) });
+          assert.deepEqual(item.key, { param_type: "Int32", value: String(bucketId * 100 + index) });
+          assert.deepEqual(item.value.value.value[0], item.key);
         });
       });
       assert.throws(() => createQuestSub(project, 0), /10000/);
@@ -602,7 +656,7 @@ async function main() {
     });
     test("all custom struct IDs propagate recursively into root/nested structs and dictionaries", () => {
       const project = source(101);
-      project.structIds = { chapter: "9001", mainQuest: "9002", subQuest: "9003", configuration: "9004", positionSlot: "9005" };
+      project.structIds = { chapter: "9001", mainQuest: "9002", subQuest: "9003", configuration: "9004", subQuestDictionary: "9006", positionSlot: "9005" };
       const { result } = exported(project);
       const found = new Set();
       function visit(value) {
@@ -689,7 +743,7 @@ async function main() {
       assert.equal(independent.value[0].param_type, "Int32");
       assert.equal(independent.value[8].key, "后续任务");
       assert.equal(independent.value[8].param_type, "Int32List");
-      assert.equal(createQuestStructWorkspace(project.structIds).createDefault(project.structIds.subQuest).value["任务调查点预设点"].toQxqyValue().value.length, 8);
+      assert.equal(createQuestStructWorkspace(project.structIds).createDefault(project.structIds.subQuest).value["任务调查点预设点"].toQxqyValue().value.length, 10);
     });
     console.log(`${passed} quest export tests passed.`);
   } finally {

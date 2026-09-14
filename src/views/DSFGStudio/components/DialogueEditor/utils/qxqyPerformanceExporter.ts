@@ -403,7 +403,12 @@ function createActionData(
 
 function flattenComponentProperties(clip: PerformanceClip) {
   return clip.components.reduce<Record<string, unknown>>((result, component) => {
-    if (component.enabled) Object.assign(result, component.properties);
+    if (component.enabled) {
+      Object.assign(result, component.properties);
+      if (component.templateId === "camera.shot" && component.cameraViewpointEnabled === false) {
+        result.rotationData = { type: "", slot: [], snapToTarget: false };
+      }
+    }
     return result;
   }, {});
 }

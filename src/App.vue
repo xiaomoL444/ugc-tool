@@ -5,6 +5,7 @@
     <PanelLayout class="title-panel">
       <div class="header" ><img src="@/assets/logo.png" style="height: 36px; width: 36px; margin:0px,20px;"></img>
     <h2 class="title" style="color: white;">{{ pageTitle }}</h2></div></PanelLayout>
+    <StorageSettings />
     <label class="language-switch">
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <circle cx="12" cy="12" r="9" />
@@ -250,15 +251,24 @@ background-color: #0001;
 
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
-import { computed, ref, watch } from 'vue'
+import { computed, onErrorCaptured, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isAppLocale, setLocale, supportedLocales } from './i18n'
-import { Toaster } from 'vue-sonner'
+import { Toaster, toast } from 'vue-sonner'
 import 'vue-sonner/style.css'
 import PanelLayout from './components/Layout/PanelLayout.vue'
+import StorageSettings from './components/StorageSettings.vue'
+import { DesktopStorageError } from './services/storage/desktopStorage'
+import { StorageSyncPausedError } from './services/storage/storage'
 import { appRoutes } from './configs/routes'
 
 const route = useRoute()
+onErrorCaptured((error) => {
+  if (error instanceof DesktopStorageError || error instanceof StorageSyncPausedError) {
+    toast.error(error.message, { id: 'desktop-storage-error' })
+    return false
+  }
+})
 const { t, locale } = useI18n({ useScope: 'global' })
 const pageTitle = computed(() => typeof route.meta.titleKey === 'string'
   ? t(route.meta.titleKey)

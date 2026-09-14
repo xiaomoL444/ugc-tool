@@ -12,7 +12,7 @@
           {
             "key": {
               "param_type": "Int32",
-              "value": "1"
+              "value": "0"
             },
             "value": {
               "param_type": "Struct",
@@ -26,7 +26,7 @@
                   },
                   {
                     "param_type": "String",
-                    "value": ""
+                    "value": "章节一"
                   }
                 ]
               }
@@ -46,7 +46,7 @@
           {
             "key": {
               "param_type": "Int32",
-              "value": "1"
+              "value": "0"
             },
             "value": {
               "param_type": "Struct",
@@ -64,7 +64,7 @@
                   },
                   {
                     "param_type": "String",
-                    "value": ""
+                    "value": "任务一 id:0"
                   },
                   {
                     "param_type": "String",
@@ -83,118 +83,244 @@
       "value": {
         "type": "Dict",
         "key_type": "Int32",
-        "value_type": "StructList",
+        "value_type": "Struct",
         "value": [
           {
             "key": {
               "param_type": "Int32",
-              "value": "1"
+              "value": "0"
             },
             "value": {
-              "param_type": "StructList",
+              "param_type": "Struct",
               "value": {
-                "structId": "1077936145",
+                "structId": "1077936170",
+                "type": "Struct",
                 "value": [
                   {
-                    "param_type": "Struct",
+                    "param_type": "Dict",
                     "value": {
-                      "structId": "1077936145",
-                      "type": "Struct",
+                      "type": "Dict",
+                      "key_type": "Int32",
+                      "value_type": "Struct",
                       "value": [
                         {
-                          "param_type": "Int32",
-                          "value": "0"
-                        },
-                        {
-                          "param_type": "Int32",
-                          "value": "0"
-                        },
-                        {
-                          "param_type": "String",
-                          "value": ""
-                        },
-                        {
-                          "param_type": "String",
-                          "value": ""
-                        },
-                        {
-                          "param_type": "ConfigReference",
-                          "value": "0"
-                        },
-                        {
-                          "param_type": "Struct",
+                          "key": {
+                            "param_type": "Int32",
+                            "value": "1"
+                          },
                           "value": {
-                            "structId": "1077936164",
-                            "type": "Struct",
-                            "value": [
-                              {
-                                "param_type": "Int32",
-                                "value": "0"
-                              },
-                              {
-                                "param_type": "String",
-                                "value": ""
-                              },
-                              {
-                                "param_type": "Vector3",
-                                "value": "0,0,0"
-                              },
-                              {
-                                "param_type": "Guid",
-                                "value": "0"
-                              },
-                              {
-                                "param_type": "String",
-                                "value": ""
-                              },
-                              {
-                                "param_type": "String",
-                                "value": ""
-                              },
-                              {
-                                "param_type": "Vector3",
-                                "value": "0,0,0"
-                              },
-                              {
-                                "param_type": "Bool",
-                                "value": "False"
-                              },
-                              {
-                                "param_type": "Int32",
-                                "value": "0"
-                              },
-                              {
-                                "param_type": "Int32",
-                                "value": "0"
-                              }
-                            ]
+                            "param_type": "Struct",
+                            "value": {
+                              "structId": "1077936145",
+                              "type": "Struct",
+                              "value": [
+                                {
+                                  "param_type": "Int32",
+                                  "value": "0"
+                                },
+                                {
+                                  "param_type": "Int32",
+                                  "value": "0"
+                                },
+                                {
+                                  "param_type": "String",
+                                  "value": ""
+                                },
+                                {
+                                  "param_type": "String",
+                                  "value": ""
+                                },
+                                {
+                                  "param_type": "ConfigReference",
+                                  "value": "0"
+                                },
+                                {
+                                  "param_type": "Struct",
+                                  "value": {
+                                    "structId": "1077936164",
+                                    "type": "Struct",
+                                    "value": [
+                                      {
+                                        "param_type": "Int32",
+                                        "value": "0"
+                                      },
+                                      {
+                                        "param_type": "String",
+                                        "value": ""
+                                      },
+                                      {
+                                        "param_type": "Vector3",
+                                        "value": "0,0,0"
+                                      },
+                                      {
+                                        "param_type": "Guid",
+                                        "value": "0"
+                                      },
+                                      {
+                                        "param_type": "String",
+                                        "value": ""
+                                      },
+                                      {
+                                        "param_type": "String",
+                                        "value": ""
+                                      },
+                                      {
+                                        "param_type": "Vector3",
+                                        "value": "0,0,0"
+                                      },
+                                      {
+                                        "param_type": "Bool",
+                                        "value": "False"
+                                      },
+                                      {
+                                        "param_type": "Int32",
+                                        "value": "0"
+                                      },
+                                      {
+                                        "param_type": "Int32",
+                                        "value": "0"
+                                      }
+                                    ]
+                                  }
+                                },
+                                {
+                                  "param_type": "Float",
+                                  "value": "-1.00"
+                                },
+                                {
+                                  "param_type": "Bool",
+                                  "value": "False"
+                                },
+                                {
+                                  "param_type": "Int32List",
+                                  "value": []
+                                },
+                                {
+                                  "param_type": "Int32",
+                                  "value": "-1"
+                                },
+                                {
+                                  "param_type": "Bool",
+                                  "value": "False"
+                                },
+                                {
+                                  "param_type": "Int32",
+                                  "value": "0"
+                                }
+                              ]
+                            }
                           }
                         },
                         {
-                          "param_type": "Float",
-                          "value": "-1.00"
-                        },
-                        {
-                          "param_type": "Bool",
-                          "value": "False"
-                        },
-                        {
-                          "param_type": "Int32List",
-                          "value": []
-                        },
-                        {
-                          "param_type": "Int32",
-                          "value": "-1"
-                        },
-                        {
-                          "param_type": "Bool",
-                          "value": "False"
-                        },
-                        {
-                          "param_type": "Int32",
-                          "value": "0"
+                          "key": {
+                            "param_type": "Int32",
+                            "value": "2"
+                          },
+                          "value": {
+                            "param_type": "Struct",
+                            "value": {
+                              "structId": "1077936145",
+                              "type": "Struct",
+                              "value": [
+                                {
+                                  "param_type": "Int32",
+                                  "value": "0"
+                                },
+                                {
+                                  "param_type": "Int32",
+                                  "value": "0"
+                                },
+                                {
+                                  "param_type": "String",
+                                  "value": ""
+                                },
+                                {
+                                  "param_type": "String",
+                                  "value": ""
+                                },
+                                {
+                                  "param_type": "ConfigReference",
+                                  "value": "0"
+                                },
+                                {
+                                  "param_type": "Struct",
+                                  "value": {
+                                    "structId": "1077936164",
+                                    "type": "Struct",
+                                    "value": [
+                                      {
+                                        "param_type": "Int32",
+                                        "value": "0"
+                                      },
+                                      {
+                                        "param_type": "String",
+                                        "value": ""
+                                      },
+                                      {
+                                        "param_type": "Vector3",
+                                        "value": "0,0,0"
+                                      },
+                                      {
+                                        "param_type": "Guid",
+                                        "value": "0"
+                                      },
+                                      {
+                                        "param_type": "String",
+                                        "value": ""
+                                      },
+                                      {
+                                        "param_type": "String",
+                                        "value": ""
+                                      },
+                                      {
+                                        "param_type": "Vector3",
+                                        "value": "0,0,0"
+                                      },
+                                      {
+                                        "param_type": "Bool",
+                                        "value": "False"
+                                      },
+                                      {
+                                        "param_type": "Int32",
+                                        "value": "0"
+                                      },
+                                      {
+                                        "param_type": "Int32",
+                                        "value": "0"
+                                      }
+                                    ]
+                                  }
+                                },
+                                {
+                                  "param_type": "Float",
+                                  "value": "-1.00"
+                                },
+                                {
+                                  "param_type": "Bool",
+                                  "value": "False"
+                                },
+                                {
+                                  "param_type": "Int32List",
+                                  "value": []
+                                },
+                                {
+                                  "param_type": "Int32",
+                                  "value": "-1"
+                                },
+                                {
+                                  "param_type": "Bool",
+                                  "value": "False"
+                                },
+                                {
+                                  "param_type": "Int32",
+                                  "value": "0"
+                                }
+                              ]
+                            }
+                          }
                         }
-                      ]
+                      ],
+                      "value_structId": "1077936145"
                     }
                   }
                 ]
@@ -202,7 +328,7 @@
             }
           }
         ],
-        "value_structId": "1077936145"
+        "value_structId": "1077936170"
       }
     }
   ]

@@ -62,6 +62,7 @@ export function createClipComponent(templateId: string): ClipComponent {
     templateId: template.id,
     name: template.name,
     enabled: true,
+    ...(template.id === "camera.shot" ? { cameraViewpointEnabled: false } : {}),
     properties: createClipPropertyValues(template.properties),
   };
 }

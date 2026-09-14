@@ -24,7 +24,7 @@ import {
 import { createClipPropertyValues } from "./clipProperties";
 import { getLineDefinition } from "../config/lineRegistry";
 import { DEFAULT_DIALOGUE_STYLE_ID } from "../config/dialogueStyleRegistry";
-import { DEFAULT_SELECT_STYLE_ID } from "../config/selectStyleRegistry";
+import { DEFAULT_SELECT_STYLE_ID, DEFAULT_SELECT_ICON_ID } from "../config/selectStyleRegistry";
 import {
   DEFAULT_CONTINUE_DELAY_TIME,
   DEFAULT_TIMELINE_DURATION,
@@ -63,7 +63,7 @@ export function createSelectOption(): SelectOption {
   return {
     id: createId("option"),
     content: "新选项",
-    icon: 0,
+    icon: DEFAULT_SELECT_ICON_ID,
   };
 }
 
@@ -342,7 +342,7 @@ function normalizeSelectClip(value: unknown): SelectClip {
 
 function normalizeSelectOption(value: unknown, index: number): SelectOption {
   const source = isRecord(value) ? value : {};
-  const icon = Number(source.icon);
+  const icon = source.icon == null ? DEFAULT_SELECT_ICON_ID : Number(source.icon);
   return {
     id:
       typeof source.id === "string" && source.id
@@ -352,7 +352,7 @@ function normalizeSelectOption(value: unknown, index: number): SelectOption {
     icon:
       Number.isInteger(icon) && icon >= -2147483648 && icon <= 2147483647
         ? icon
-        : 0,
+        : DEFAULT_SELECT_ICON_ID,
   };
 }
 
@@ -429,6 +429,7 @@ function normalizeClipComponent(
         ? source.name
         : "未命名 Component",
     enabled: source.enabled !== false,
+    ...(typeof source.cameraViewpointEnabled === "boolean" ? { cameraViewpointEnabled: source.cameraViewpointEnabled } : {}),
     properties: createClipPropertyValues(template?.properties ?? [], source.properties),
   };
 }

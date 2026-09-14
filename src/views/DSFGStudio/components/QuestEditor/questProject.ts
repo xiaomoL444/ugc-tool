@@ -9,7 +9,7 @@ export const DEFAULT_QUEST_SUB_FIELDS = {
 
 export const DEFAULT_QUEST_STRUCT_IDS: QuestStructIds = {
   chapter: "1077936165", mainQuest: "1077936166", subQuest: "1077936145",
-  configuration: "1077936169", positionSlot: "1077936164",
+  configuration: "1077936169", subQuestDictionary: "1077936170", positionSlot: "1077936164",
 };
 
 export const QUEST_STRUCT_ID_FIELDS: ReadonlyArray<{
@@ -18,7 +18,8 @@ export const QUEST_STRUCT_ID_FIELDS: ReadonlyArray<{
   { key: "configuration", label: "任务配置数据", description: "导出变量的最外层结构体" },
   { key: "chapter", label: "章节", description: "任务配置数据中章节字典的值" },
   { key: "mainQuest", label: "主任务", description: "任务配置数据中主任务字典的值" },
-  { key: "subQuest", label: "子任务", description: "子任务字典的列表元素，每桶最多 100 项" },
+  { key: "subQuestDictionary", label: "子任务字典", description: "子任务分桶结构体，内含完整任务 ID 到子任务的字典" },
+  { key: "subQuest", label: "子任务", description: "内层子任务字典的值，每桶最多 100 项" },
   { key: "positionSlot", label: "PositionSlot", description: "子任务调查点的位置参数" },
 ];
 
@@ -111,9 +112,9 @@ export function decodeQuestProject(raw: string): QuestProject {
   // 旧工程只补缺失字段；已填的样式、空字符串和后续任务空位都按原样保留。
   if (record(project) && project.kind === "DSFGQuest" && project.schemaVersion === 1) {
     if (record(project.structIds)) {
-      // 旧分桶结构体已停用；其自定义 ID 不能当作新配置结构体 ID 复用。
+      // 只补缺失的结构体设置，已有自定义 ID 和任务数据保持不变。
       if (!Object.prototype.hasOwnProperty.call(project.structIds, "configuration")) project.structIds.configuration = DEFAULT_QUEST_STRUCT_IDS.configuration;
-      delete (project.structIds as unknown as Record<string, unknown>).subQuestDictionary;
+      if (!Object.prototype.hasOwnProperty.call(project.structIds, "subQuestDictionary")) project.structIds.subQuestDictionary = DEFAULT_QUEST_STRUCT_IDS.subQuestDictionary;
     }
     if (Array.isArray(project.mainQuests)) for (const main of project.mainQuests) {
       if (record(main) && !Object.prototype.hasOwnProperty.call(main, "style")) main.style = DEFAULT_QUEST_MAIN_STYLE;

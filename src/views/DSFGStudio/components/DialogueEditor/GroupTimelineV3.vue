@@ -187,7 +187,7 @@ function hidePreview() {
 function openEditor(event: MouseEvent, selected: SelectedClip) {
   if (suppressClick) return;
   const viewportGap = 12;
-  const editorWidth = Math.min(335, window.innerWidth - viewportGap * 2);
+  const editorWidth = Math.min(selected.kind === 'performance' && selected.clip.type === 'Camera' ? 420 : 335, window.innerWidth - viewportGap * 2);
   const maximumLeft = Math.max(
     viewportGap,
     window.innerWidth - editorWidth - viewportGap,
@@ -734,6 +734,7 @@ onBeforeUnmount(() => {
         v-if="editorOpen && selectedClip"
         data-clip-editor
         class="clip-editor-popover"
+        :class="{ 'camera-popover': selectedClip.kind === 'performance' && selectedClip.clip.type === 'Camera' }"
         :style="{
           left: `${editorPosition.left}px`,
         }"
@@ -745,7 +746,7 @@ onBeforeUnmount(() => {
                 ? "Dialogue Clip"
                 : selectedClip.kind === "select"
                   ? "Select Clip"
-                  : `${selectedClip.line.type} Clip`
+                  : selectedClip.clip.type === 'Camera' ? '镜头设置' : `${selectedClip.line.type} Clip`
             }}
           </span>
           <button type="button" aria-label="关闭 Clip 参数" @click="editorOpen = false">
@@ -1296,4 +1297,10 @@ onBeforeUnmount(() => {
 .number-fields label {
   flex: 1;
 }
+.camera-popover { width: min(420px, calc(100vw - 24px)); border-color: #405572; border-radius: 12px; background: #1b2637; }
+.camera-popover .popover-header { min-height: 46px; padding: 0 16px; color: #e2edfc; background: #223149; font-size: 13px; }
+.camera-popover .popover-content { display: flex; flex-direction: column; padding: 16px; scrollbar-width: thin; scrollbar-color: #4a5f7c transparent; }
+.camera-popover .number-fields { display: flex; order: -1; gap: 12px; margin-bottom: 14px; }
+.camera-popover .number-fields label { min-width: 0; margin: 0; font-size: 11px; }
+.camera-popover .number-fields input { box-sizing: border-box; padding: 9px 10px; border: 1px solid #35455c; border-radius: 7px; background: #151e2c; font-size: 12px; font-family: inherit; }
 </style>

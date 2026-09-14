@@ -12,8 +12,8 @@ import { createQuestProject, decodeQuestProject, encodeQuestProject, validateQue
 import { exportQuestVariables } from "./questExporter";
 import { createWorkspaceSaveQueue } from "./workspaceSaveQueue";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" }>(), { editorKind: "Quest" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk"] }>();
+withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" }>(), { editorKind: "Quest" });
+const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets"] }>();
 const storage = inject<StorageClass>("storage")!;
 const workspace = inject<Ref<string>>("selectedWorkspaceId")!;
 // 工作区切换会重建 Panel；所有异步保存固定使用原工作区路径。
@@ -152,7 +152,7 @@ function saveShortcut(event: KeyboardEvent) {
   event.preventDefault();
   downloadProject();
 }
-async function changeEditor(kind: "Dialogue" | "Quest" | "WalkTalk") {
+async function changeEditor(kind: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets") {
   try { await saveQueue.flush(); emit("update:editorKind", kind); }
   catch { /* 保存失败时留在任务编辑器，防止丢失未保存内容。 */ }
 }

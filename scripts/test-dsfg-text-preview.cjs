@@ -68,15 +68,34 @@ try {
     assert.equal(result.edges.length, 1);
   });
 
-  test("Select terminates a merged passage and preserves option text/order and empty outlets", () => {
+  test("Dialogue plus Select is a standalone node and preserves option text/order and empty outlets", () => {
     const source = project(); group(source, "A"); group(source, "S", [" 选择一\n", "", "第三项"]); group(source, "B"); group(source, "C");
     connect(source, "start", "A"); connect(source, "A", "S");
     connect(source, "S", "C", "select:option-2"); connect(source, "S", "B", "select:option-0");
     const result = preview(source);
-    assert.deepEqual(result.blocks.map((block) => block.nodeIds), [["start"], ["A", "S"], ["B"], ["C"]]);
+    assert.deepEqual(result.blocks.map((block) => block.nodeIds), [["start"], ["A"], ["S"], ["B"], ["C"]]);
     assert.equal(find(result, "S").kind, "select");
     assert.deepEqual(find(result, "S").outlets.map((outlet) => [outlet.text, outlet.connected]), [[" 选择一\n", true], ["", false], ["第三项", true]]);
     assert.deepEqual(result.edges.filter((edge) => edge.source === find(result, "S").id).map((edge) => edge.outletIndex), [0, 2]);
+  });
+
+  test("Dialogue with performance Clips stays in its collection and projects per-line counts and styles", () => {
+    const source = project();
+    ['A', 'B', 'Performance', 'C', 'Choices', 'D'].forEach(id => group(source, id));
+    source.dialogue.nodes.A.lines = [{ type: 'Camera', clips: [] }];
+    source.dialogue.nodes.Performance.lines = [{ type: 'Camera', clips: [{ id: 'camera' }] }, { type: 'Behavior', clips: [{ id: 'event' }, { id: 'disabled', enabled: false }] }];
+    source.dialogue.nodes.Performance.dialogue.style = 'Black_Screen';
+    const choices = group(source, 'Choices', ['go']); delete choices.dialogue;
+    connect(source, 'start', 'A'); connect(source, 'A', 'B'); connect(source, 'B', 'Performance');
+    connect(source, 'Performance', 'C'); connect(source, 'C', 'Choices'); connect(source, 'Choices', 'D', 'select:option-0');
+    const result = preview(source);
+    assert.deepEqual(result.blocks.map(block => block.nodeIds), [['start'], ['A', 'B', 'Performance', 'C'], ['Choices'], ['D']]);
+    assert.equal(find(result, 'Performance').kind, 'dialogue');
+    assert.deepEqual(find(result, 'A').lines.map(line => line.clipCount), [0, 0, 3, 0]);
+    assert.deepEqual(find(result, 'A').lines.map(line => line.style), ['Default_UI', 'Default_UI', 'Black_Screen', 'Default_UI']);
+    assert.equal(find(result, 'Choices').lines[0].hasDialogue, false);
+    delete source.dialogue.nodes.Performance.dialogue;
+    assert.equal(find(preview(source), 'Performance').kind, 'action');
   });
 
   test("Condition expressions are per outlet, literal and traversed in declared order", () => {

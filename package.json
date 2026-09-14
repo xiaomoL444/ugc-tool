@@ -10,6 +10,7 @@
     "push-data": "node scripts/push-data.js"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
     "@primeuix/themes": "^2.0.3",
     "@tanstack/react-virtual": "^3.13.21",
     "@types/chroma-js": "^3.1.2",

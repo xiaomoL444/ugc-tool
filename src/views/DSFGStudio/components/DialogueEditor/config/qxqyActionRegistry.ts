@@ -58,5 +58,5 @@ registerQxqyActionMapping({
   actionType: "NOLOC_CAMERA",
   dataField: "CameraMovementDate",
   dataStructKey: "camera",
-  referenceParam: "stringParams",
+  referenceParam: "intParams",
 });

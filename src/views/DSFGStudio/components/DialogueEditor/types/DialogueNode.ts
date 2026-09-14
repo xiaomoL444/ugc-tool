@@ -106,6 +106,8 @@ export interface ClipComponent {
   templateId: string;
   name: string;
   enabled: boolean;
+  /** Camera only: omitted in older files, where viewpoint configuration stays enabled. */
+  cameraViewpointEnabled?: boolean;
   properties: Record<string, unknown>;
 }
 
@@ -139,6 +141,9 @@ export interface ClipPropertyDefinition {
   /** 嵌套结构体的字段；struct-list 时表示每个列表元素的字段。 */
   properties?: ClipPropertyDefinition[];
   maxItems?: number;
+  minItems?: number;
+  /** List bounds selected by a sibling field in the same struct. */
+  itemLimitsWhen?: { key: string; cases: Record<string, { min: number; max: number }> };
 }
 
 /** 模板只描述结构和默认值；实例属性保存在 ClipComponent 中。 */

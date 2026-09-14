@@ -1,5 +1,7 @@
 import type { DialogueProject } from "../types/FileStruct";
 import type { DialogueNode } from "../types/DialogueNode";
+import { DEFAULT_DIALOGUE_STYLE_ID } from "../config/dialogueStyleRegistry";
+import { DEFAULT_SELECT_ICON_ID } from "../config/selectStyleRegistry";
 import { normalizeSourceHandle, resolveGroupOutlets } from "./groupOutlets";
 
 export interface TextPreviewLine {
@@ -8,10 +10,13 @@ export interface TextPreviewLine {
   speaker: string;
   content: string;
   subtitle: string;
+  style: string;
+  clipCount: number;
   hasDialogue: boolean;
 }
 
 export interface TextPreviewOutlet {
+  icon?: number;
   id: string;
   label: string;
   text: string;
@@ -21,7 +26,7 @@ export interface TextPreviewOutlet {
 
 export interface TextPreviewBlock {
   id: string;
-  kind: "entry" | "dialogue" | "select" | "condition" | "output";
+  kind: "entry" | "dialogue" | "select" | "action" | "condition" | "output";
   title: string;
   nodeIds: string[];
   lines: TextPreviewLine[];
@@ -54,6 +59,11 @@ interface PreviewVertex {
   reachable: boolean;
 }
 
+/** Performance Clips belong to their sentence; only choices split a dialogue collection. */
+export function isDialogueCollectionNode(node: DialogueNode): boolean {
+  return Boolean(node.dialogue) && !node.select;
+}
+
 /**
  * 只读的文本流程投影。连线来自画布，文本与出口来自业务数据；
  * 不读取布局坐标或旧 next 缓存，也不解析、执行条件表达式。
@@ -70,7 +80,7 @@ export function buildDialogueTextPreview(project: DialogueProject): DialogueText
     vertices.set(id, {
       id,
       nodeId,
-      kind: node.select ? "select" : "dialogue",
+      kind: node.select ? "select" : isDialogueCollectionNode(node) ? "dialogue" : "action",
       title: node.name,
       line: {
         nodeId,
@@ -78,6 +88,8 @@ export function buildDialogueTextPreview(project: DialogueProject): DialogueText
         speaker: node.dialogue?.speaker ?? "",
         content: node.dialogue?.content ?? "",
         subtitle: node.dialogue?.subtitle ?? "",
+        style: node.dialogue?.style ?? DEFAULT_DIALOGUE_STYLE_ID,
+        clipCount: node.lines.reduce((count, line) => count + line.clips.length, 0),
         hasDialogue: Boolean(node.dialogue),
       },
       outlets: state.outlets.map((outlet) => ({
@@ -87,6 +99,7 @@ export function buildDialogueTextPreview(project: DialogueProject): DialogueText
           ? node.select?.options.find((option) => option.id === outlet.optionId)?.content ?? ""
           : "",
         kind: outlet.kind === "Select" ? "select" : "next",
+        icon: outlet.kind === "Select" ? node.select?.options.find(option => option.id === outlet.optionId)?.icon ?? DEFAULT_SELECT_ICON_ID : undefined,
         connected: false,
       })),
       targets: [],
@@ -234,7 +247,7 @@ export function buildDialogueTextPreview(project: DialogueProject): DialogueText
     if (vertex.kind !== "dialogue" || vertex.outlets.length !== 1 || vertex.outlets[0].kind !== "next") continue;
     const targetId = vertex.targets[0];
     const target = targetId === undefined ? undefined : vertices.get(targetId);
-    if (!target || (target.kind !== "dialogue" && target.kind !== "select")) continue;
+    if (!target || target.kind !== "dialogue") continue;
     if (incomingCount.get(target.id) !== 1 || returnTargets.has(target.id)) continue;
     mergeNext.set(vertex.id, target.id);
     mergePrevious.set(target.id, vertex.id);

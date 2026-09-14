@@ -39,7 +39,10 @@ import GroupNode from "./GroupNode.vue";
 import ConditionBranchNode from "./ConditionBranchNode.vue";
 import GroupTimeline from "./GroupTimelineV3.vue";
 import DialogueTextPreview from "./DialogueTextPreview.vue";
+import { layoutDialogueGraph, type GraphNodeSize } from "./utils/dialogueGraphLayout";
+import { applyDialogueTextEdit, applyDialogueOptionIconEdit, type DialogueTextEdit } from "./utils/dialogueTextEditing";
 import EditorKindSelect from "../EditorKindSelect.vue";
+import { useEntityPresets } from "../EntityPresetEditor/useEntityPresets";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
 import { resolveTextPreviewGraphNodeId, type TextPreviewNavigationTarget } from "./utils/dialogueTextNavigation";
 import type {
@@ -65,8 +68,9 @@ import {
   resolveGroupOutlets,
 } from "./utils/groupOutlets";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" }>(), { editorKind: "Dialogue" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk"] }>();
+withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" }>(), { editorKind: "Dialogue" });
+const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets"] }>();
+const { presets: entityPresets, error: entityPresetsError, retry: retryEntityPresets } = useEntityPresets();
 
 const {
   onConnect, onNodesChange, getSelectedNodes, getSelectedEdges, nodesSelectionActive,
@@ -75,7 +79,8 @@ const {
 
 const dialogueProject = ref<DialogueProject>(); //读取文件后的对话内容
 const selectedGroupNodeId = ref("");
-const editorView = ref<"graph" | "text">("graph");
+const editorView = ref<"graph" | "text">("text");
+const arrangingGraph = ref(false);
 const structIdSettingsOpen = ref(false);
 const selectedGroupNode = computed(() =>
   selectedGroupNodeId.value && dialogueProject.value
@@ -148,9 +153,52 @@ function SelectGraphNode(event: { node: Node<FlowNodeData> }) {
   selectedGroupNodeId.value = event.node.data?.dialogueNodeId ?? "";
 }
 
-function ChangeEditorView(view: "graph" | "text") {
+function ChangeEditorView(view: "graph" | "text", arrange = true) {
+  const enteringGraph = view === "graph" && editorView.value !== "graph";
   editorView.value = view;
   selectedGroupNodeId.value = "";
+  if (enteringGraph && arrange) void ArrangeGraph();
+}
+
+function ApplyGraphLayout(project: DialogueProject) {
+  const sizes = new Map<string, GraphNodeSize>();
+  for (const node of project.graph.nodes) {
+    const dimensions = findNode(node.id)?.dimensions;
+    if (dimensions) sizes.set(node.id, dimensions);
+  }
+  project.graph.nodes = layoutDialogueGraph(project.graph, sizes);
+}
+
+async function ArrangeGraph() {
+  const project = dialogueProject.value;
+  if (!project || arrangingGraph.value) return;
+  arrangingGraph.value = true;
+  try {
+    await nextTick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    if (dialogueProject.value !== project || editorView.value !== "graph") return;
+    ApplyGraphLayout(project);
+    await nextTick();
+    if (dialogueProject.value !== project || editorView.value !== "graph") return;
+    nodesSelectionActive.value = false;
+    await fitView({ padding: 0.2, minZoom: 0.05, maxZoom: 1, duration: 250 });
+  } catch (error) {
+    consola.error(error);
+    toast.error("节点排列失败，请重试");
+  } finally {
+    arrangingGraph.value = false;
+  }
+}
+
+function EditDialogueText(edit: DialogueTextEdit) {
+  if (dialogueProject.value) applyDialogueTextEdit(dialogueProject.value, edit);
+}
+function EditDialogueOption(nodeId: string, optionId: string, value: string) {
+  const option = dialogueProject.value?.dialogue.nodes[nodeId]?.select?.options.find((item) => item.id === optionId);
+  if (option) option.content = value;
+}
+function EditDialogueOptionIcon(nodeId: string, optionId: string, icon: number) {
+  if (dialogueProject.value) applyDialogueOptionIconEdit(dialogueProject.value, nodeId, optionId, icon);
 }
 
 async function NavigateToPreviewNode(target: TextPreviewNavigationTarget) {
@@ -162,10 +210,10 @@ async function NavigateToPreviewNode(target: TextPreviewNavigationTarget) {
     return;
   }
 
-  ChangeEditorView("graph");
+  ChangeEditorView("graph", false);
   nodesSelectionActive.value = false;
   // 先展开目标 Timeline，再测量画布，避免定位后被下方 Timeline 挤出可视区域。
-  selectedGroupNodeId.value = target.kind === "dialogue" || target.kind === "select"
+  selectedGroupNodeId.value = target.kind === "dialogue" || target.kind === "select" || target.kind === "action"
     ? target.nodeId : "";
   await nextTick();
   // v-show 恢复后，需要让 ResizeObserver 更新 Vue Flow 的视口/节点尺寸。
@@ -173,6 +221,9 @@ async function NavigateToPreviewNode(target: TextPreviewNavigationTarget) {
   if (dialogueProject.value !== project || editorView.value !== "graph") return;
   const node = findNode(graphNodeId);
   if (!node || node.hidden) return;
+  ApplyGraphLayout(project);
+  await nextTick();
+  if (dialogueProject.value !== project || editorView.value !== "graph") return;
   removeSelectedNodes(getSelectedNodes.value);
   removeSelectedEdges(getSelectedEdges.value);
   addSelectedNodes([node]);
@@ -208,6 +259,8 @@ function AssemblyPath(path: string) {
 
 const dialogueFiles = ref<string[]>([]);
 const selectedDialogueFile = ref<string>("");
+const newDialogueFileOpen = ref(false);
+const newDialogueFileName = ref("");
 
 watch(
   dialogueProject,
@@ -293,8 +346,7 @@ async function SelectDialogueFile(id: string) {
 }
 async function AddDialogueFile() {
   if (fileBusy.value) return;
-  const input = prompt("输入变量名");
-  if (input === null) return;
+  const input = newDialogueFileName.value;
   const base = input.trim().replace(/\.json$/i, "");
   if (!base || /[<>:"/\\|?*\u0000-\u001f]/.test(base) || base === "." || base === "..") {
     toast.warning("请输入有效的对话文件名"); return;
@@ -309,8 +361,11 @@ async function AddDialogueFile() {
     await saveQueue.flush();
     await storage.setProject(ProjectID).writeFile(filePath, encodeDialogueProject(createEmptyDialogueProject()));
     await RefreshDialogueFile();
+    newDialogueFileOpen.value = false;
+    newDialogueFileName.value = "";
   } catch (error) { consola.error(error); toast.error("创建对话文件失败"); }
   finally { fileBusy.value = false; }
+  if (!newDialogueFileOpen.value) await SelectDialogueFile(fileName);
 }
 async function DeleteDialogueFile(undoGroupId = "", isForce = false) {
   if (fileBusy.value) return;
@@ -438,11 +493,16 @@ onBeforeUnmount(() => {
       <SectionLayout title="对话文件">
         <SelectableList
           @select="SelectDialogueFile"
-          @add="AddDialogueFile"
+          @add="newDialogueFileOpen = true"
           @delete="DeleteDialogueFile"
           :values="dialogueFiles"
           :selected-value="selectedDialogueFile"
-        ></SelectableList></SectionLayout>
+        ></SelectableList>
+        <form v-if="newDialogueFileOpen" class="new-dialogue-file" @submit.prevent="AddDialogueFile">
+          <input v-model="newDialogueFileName" aria-label="新对话文件名" placeholder="对话文件名" required />
+          <div><button type="submit">创建并打开</button><button type="button" @click="newDialogueFileOpen = false">取消</button></div>
+        </form>
+      </SectionLayout>
     </div></SplitterPanel>
     <SplitterPanel :size="85"
       ><SectionLayout title="编辑区">
@@ -454,9 +514,10 @@ onBeforeUnmount(() => {
             <div class="dialogue-export-toolbar">
               <div class="dialogue-view-switch" role="group" aria-label="预览风格">
                 <button type="button" :aria-pressed="editorView === 'graph'" @click="ChangeEditorView('graph')">节点编辑</button>
-                <button type="button" :aria-pressed="editorView === 'text'" @click="ChangeEditorView('text')">文本流程</button>
+                <button type="button" :aria-pressed="editorView === 'text'" @click="ChangeEditorView('text')">文本编辑</button>
               </div>
               <span v-if="editorView === 'graph'">右键平移 · 左键框选</span>
+              <button v-if="editorView === 'graph'" type="button" :disabled="arrangingGraph" title="按连线从左到右排列全部节点，并适应画布" @click="ArrangeGraph">{{ arrangingGraph ? '排列中…' : '一键排列' }}</button>
               <span>编辑器 JSON：Ctrl+S</span>
               <button
                 type="button"
@@ -470,6 +531,7 @@ onBeforeUnmount(() => {
               </button>
             </div>
             <div v-show="editorView === 'graph'" class="dnd-flow" @drop="onDrop">
+              <Sidebar />
                <VueFlow
                  v-model:nodes="dialogueProject.graph.nodes"
                  v-model:edges="dialogueProject.graph.edges"
@@ -539,10 +601,10 @@ onBeforeUnmount(() => {
               </DropzoneBackground>
               </VueFlow>
 
-              <Sidebar />
             </div>
 
-            <DialogueTextPreview v-if="editorView === 'text'" :key="selectedDialogueFile" :project="dialogueProject" @navigate="NavigateToPreviewNode" />
+            <DialogueTextPreview v-if="editorView === 'text'" :key="selectedDialogueFile" :project="dialogueProject" :entity-presets="entityPresets" :presets-error="entityPresetsError" @retry-presets="retryEntityPresets().catch(() => undefined)" @navigate="NavigateToPreviewNode"
+              @edit="EditDialogueText" @option="EditDialogueOption" @option-icon="EditDialogueOptionIcon" @replace="dialogueProject = $event" />
 
             <GroupTimeline
               v-if="editorView === 'graph' && selectedGroupNode"
@@ -561,6 +623,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.new-dialogue-file { padding: 8px; display: grid; gap: 6px; }
+.new-dialogue-file input { width: 100%; min-width: 0; box-sizing: border-box; padding: 6px; border: 1px solid #cbd7e6; border-radius: 4px; font: inherit; font-size: 12px; }
+.new-dialogue-file > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.new-dialogue-file button { padding: 4px 7px; border: 1px solid #d4deec; border-radius: 4px; background: #f3f7fd; color: #557397; font-size: 11px; cursor: pointer; }
 @import "./main.css";
 
 .editor-file-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }

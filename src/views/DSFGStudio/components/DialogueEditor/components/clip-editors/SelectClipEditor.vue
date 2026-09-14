@@ -2,16 +2,11 @@
 import type { SelectClip } from "../../types/DialogueNode";
 import { getSelectStyles } from "../../config/selectStyleRegistry";
 import { createSelectOption } from "../../utils/dialogueProject";
+import SelectOptionIcon from "../SelectOptionIcon.vue";
 
 const props = defineProps<{ clip: SelectClip }>();
 const selectStyles = getSelectStyles();
 
-function updateIcon(index: number, event: Event) {
-  const value = Number((event.target as HTMLInputElement).value);
-  props.clip.options[index].icon = Number.isFinite(value)
-    ? Math.min(2147483647, Math.max(-2147483648, Math.trunc(value)))
-    : 0;
-}
 </script>
 
 <template>
@@ -47,15 +42,7 @@ function updateIcon(index: number, event: Event) {
     >
       <span>{{ index + 1 }}</span>
       <input v-model="option.content" placeholder="Content" />
-      <input
-        type="number"
-        step="1"
-        min="-2147483648"
-        max="2147483647"
-        :value="option.icon"
-        placeholder="Icon"
-        @input="updateIcon(index, $event)"
-      />
+      <SelectOptionIcon v-model="option.icon" :label="`选项 ${index + 1} 图标`" />
       <button
         type="button"
         aria-label="删除选项"
@@ -122,7 +109,7 @@ function updateIcon(index: number, event: Event) {
 
 .option-row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 80px 26px;
+  grid-template-columns: 20px minmax(0, 1fr) 105px 26px;
   align-items: center;
   gap: 6px;
   margin-top: 7px;

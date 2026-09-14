@@ -22,6 +22,7 @@ import CameraEditor from "./components/editormap/CameraEditor.vue";
 import DialogueEditor from "./components/DialogueEditor/DialogueEditor.vue";
 import QuestEditor from "./components/QuestEditor/QuestEditor.vue";
 import WalkTalkEditor from "./components/WalkTalkEditor/WalkTalkEditor.vue";
+import EntityPresetEditor from "./components/EntityPresetEditor/EntityPresetEditor.vue";
 
 const storage = inject<StorageClass>("storage")!.setProject(ProjectID); //储存区
 
@@ -113,7 +114,7 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
   finally { switchingEditor.value = false; }
 }
 
-async function ChangeEditorKind(kind: "Dialogue" | "Quest" | "WalkTalk") {
+async function ChangeEditorKind(kind: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets") {
   if (switchingEditor.value || selectedFunction.value === kind) return;
   switchingEditor.value = true;
   try {
@@ -127,7 +128,7 @@ onBeforeMount(async () => {
   //如果工作区的长度为0则执行初始化操作
   if ((await storage.getFolders("/")).length == 0) {
     consola.info("结构体编辑页面无存档，进行初始创建中");
-    storage.mkdir("/默认工作区");
+    await storage.mkdir("/默认工作区");
   }
   //加载完毕后触发一次刷新工作区
   await ChangeWorkspace((await storage.getFolders("/"))[0], "", true);
@@ -136,13 +137,14 @@ onBeforeMount(async () => {
   selectedFunction.value = "Dialogue";
 });
 
-const selectedFunction = ref<"Dialogue" | "Quest" | "WalkTalk">("Dialogue");
+const selectedFunction = ref<"Dialogue" | "Quest" | "WalkTalk" | "EntityPresets">("Dialogue");
 function onSelectFunction() {}
 
 const functionViewMap: Record<string, Component> = {
   Dialogue: DialogueEditor,
   Quest: QuestEditor,
   WalkTalk: WalkTalkEditor,
+  EntityPresets: EntityPresetEditor,
 };
 </script>
 

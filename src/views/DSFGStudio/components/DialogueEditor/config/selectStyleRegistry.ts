@@ -1,6 +1,7 @@
 import type { SelectStyleDefinition } from "../types/DialogueNode";
 
 export const DEFAULT_SELECT_STYLE_ID = "Default_UI";
+export const DEFAULT_SELECT_ICON_ID = 100160;
 
 const definitions = new Map<string, SelectStyleDefinition>();
 

@@ -89,7 +89,7 @@ const previewSegments = computed(() => {
 <template>
   <article class="group-node" :class="{ selected }">
     <header class="group-header">
-      <span class="group-kind">GROUP</span>
+      <span class="group-kind">普通事件节点</span>
       <div class="group-header-meta">
         <span
           v-if="outletWarnings.length"

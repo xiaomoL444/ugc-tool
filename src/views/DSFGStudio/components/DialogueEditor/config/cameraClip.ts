@@ -34,20 +34,30 @@ function slotProperty(): ClipPropertyDefinition {
 }
 
 export const CAMERA_POSITION_PROPERTIES: ClipPropertyDefinition[] = [
-  { key: "type", label: "位置类型", type: "select", defaultValue: "Fixed",
+  { key: "type", label: "相机位置类型", type: "select", defaultValue: "Fixed",
     options: ["Fixed", "Linear", "Follow", "Orbit"].map((value) => ({ label: value, value })) },
-  slotProperty(),
-  { key: "snapToTarget", label: "吸附到目标", type: "boolean", defaultValue: false },
-  { key: "orbitRot", label: "环绕旋转", type: "vector3", defaultValue: "0,0,0", step: 0.1 },
+  { ...slotProperty(), defaultValue: [{}], minItems: 1, maxItems: 1,
+    itemLimitsWhen: { key: "type", cases: {
+      Fixed: { min: 1, max: 1 }, Follow: { min: 1, max: 1 }, Orbit: { min: 1, max: 1 }, Linear: { min: 1, max: 2 },
+    } }, description: "Fixed、Follow、Orbit 使用 1 个 Slot；Linear 可使用 1～2 个。切换为单 Slot 类型时保留第一个点位。" },
+  { key: "snapToTarget", label: "立即抵达目标", type: "boolean", defaultValue: false,
+    visibleWhen: { key: "type", values: ["Follow"] } },
+  { key: "orbitRot", label: "环绕旋转", type: "vector3", defaultValue: "0,0,0", step: 0.1,
+    visibleWhen: { key: "type", values: ["Orbit"] } },
   // CameraClip 内嵌默认是 0，而独立 PositionData 导出文件的示例值为 2。
-  { key: "orbitRadius", label: "环绕半径", type: "number", defaultValue: 0, step: 0.01 },
+  { key: "orbitRadius", label: "环绕半径", type: "number", defaultValue: 0, step: 0.01,
+    visibleWhen: { key: "type", values: ["Orbit"] } },
 ];
 
 export const CAMERA_ROTATION_PROPERTIES: ClipPropertyDefinition[] = [
-  { key: "type", label: "旋转类型", type: "string", defaultValue: "",
-    description: "填写运行时约定的旋转类型标识。" },
-  slotProperty(),
-  { key: "snapToTarget", label: "吸附到目标", type: "boolean", defaultValue: false },
+  { key: "type", label: "视点位置类型", type: "select", defaultValue: "Fixed",
+    options: ["Fixed", "Linear", "LookAt"].map((value) => ({ label: value, value })) },
+  { ...slotProperty(), defaultValue: [{}], minItems: 1, maxItems: 1,
+    itemLimitsWhen: { key: "type", cases: {
+      Fixed: { min: 1, max: 1 }, Linear: { min: 1, max: 2 }, LookAt: { min: 1, max: 1 },
+    } }, description: "Fixed、LookAt 使用 1 个 Slot；Linear 可使用 1～2 个。切换为单 Slot 类型时保留第一个点位。" },
+  { key: "snapToTarget", label: "吸附到目标", type: "boolean", defaultValue: false,
+    visibleWhen: { key: "type", values: ["LookAt"] } },
 ];
 
 /** duration 直接使用 Timeline Clip 的持续时间，不在组件内保存第二份。 */
@@ -57,16 +67,19 @@ export const CAMERA_CLIP_COMPONENT_TEMPLATE: ClipComponentTemplate = {
   description: "V2.0 CameraClip；开始时间和持续时间由 Timeline 控制。",
   properties: [
     { key: "cameraName", label: "相机名称", type: "string", defaultValue: "Default" },
-    { key: "positionData", label: "位置配置", type: "struct", defaultValue: {},
+    { key: "positionData", label: "相机位置", type: "struct", defaultValue: {},
       properties: CAMERA_POSITION_PROPERTIES },
-    { key: "rotationData", label: "旋转配置", type: "struct", defaultValue: {},
+    { key: "rotationData", label: "视点位置", type: "struct", defaultValue: {},
       properties: CAMERA_ROTATION_PROPERTIES },
   ],
 };
 
 export function getCameraClipPreview(clip: PerformanceClip): string[] {
   const properties = clip.components.reduce<Record<string, unknown>>((result, component) => {
-    if (component.enabled) Object.assign(result, component.properties);
+    if (component.enabled) {
+      Object.assign(result, component.properties);
+      if (component.templateId === "camera.shot" && component.cameraViewpointEnabled === false) result.rotationData = undefined;
+    }
     return result;
   }, {});
   const describeData = (label: string, value: unknown) => {
@@ -77,7 +90,7 @@ export function getCameraClipPreview(clip: PerformanceClip): string[] {
   };
   return [
     `相机：${properties.cameraName || "未命名"}`,
-    describeData("位置", properties.positionData),
-    describeData("旋转", properties.rotationData),
+    describeData("相机位置", properties.positionData),
+    properties.rotationData ? describeData("视点位置", properties.rotationData) : "视点位置：未配置",
   ];
 }

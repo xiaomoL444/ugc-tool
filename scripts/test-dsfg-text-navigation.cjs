@@ -150,28 +150,28 @@ async function main() {
 
   const previewElements = elements(preview.descriptor.template.ast);
   const cardElement = withClass(previewElements, "text-flow-block");
-  const lineElement = withClass(previewElements, "text-dialogue-line");
-  const outletElement = withClass(previewElements, "text-block-outlets");
-  await test("Double-click card, line and outlet bindings use the actual navigation targets and stop bubbling", () => {
-    for (const [element, expected] of [[cardElement, [block()]], [lineElement, [block(), "B"]], [outletElement, [block(), undefined, true]]]) {
-      const handler = directive(element, "on", "dblclick");
-      assert.ok(modifiers(handler).includes("stop"));
+  await test("Explicit Clip and node buttons navigate without stealing double-click text selection", () => {
+    const lineElement = previewElements.find((node) => node.tag === "DialogueTextLine");
+    const cardButton = previewElements.find((node) => directive(node, "on", "click")?.exp?.content === "navigateToBlock(placed.block)");
+    const outletButton = previewElements.find((node) => directive(node, "on", "click")?.exp?.content === "navigateToBlock(placed.block, undefined, true)");
+    for (const [element, event, expected] of [[cardButton, "click", [block()]], [lineElement, "configure", [block(), "B"]], [outletButton, "click", [block(), undefined, true]]]) {
+      const handler = directive(element, "on", event);
       let args;
       vm.runInNewContext(handler.exp.content, { placed: { block: block() }, line: { nodeId: "B" }, navigateToBlock(...values) { args = values; } });
       assert.deepEqual(args, expected);
     }
   });
-  await test("Keyboard Enter can navigate a focused card without intercepting descendants", () => {
+  await test("Cards allow focus but leave Enter and double-click to the text inputs", () => {
     assert.ok(cardElement.props.some((property) => property.name === "tabindex" && property.value?.content === "0"));
-    const handler = directive(cardElement, "on", "keydown");
-    for (const modifier of ["enter", "self", "stop", "prevent"]) assert.ok(modifiers(handler).includes(modifier));
+    assert.equal(directive(cardElement, "on", "keydown"), undefined);
+    assert.equal(directive(cardElement, "on", "dblclick"), undefined);
   });
-  await test("Preview remains read-only and the parent binds navigation, not editing", () => {
-    assert.ok(!previewElements.some((node) => ["input", "textarea", "select"].includes(node.tag)));
-    assert.ok(!previewElements.some((node) => node.props.some((property) => property.name === "contenteditable" || (property.type === 7 && property.name === "model"))));
-    assert.doesNotMatch(preview.source, /applyDialogueTextEdit|applyTextFlowCommand|@edit(?:\W|$)/);
+  await test("Text editor binds both direct text edits and graph navigation", () => {
+    assert.ok(previewElements.some((node) => node.tag === "DialogueTextLine"));
     const previewComponent = elements(editor.descriptor.template.ast).find((node) => node.tag === "DialogueTextPreview");
     assert.equal(directive(previewComponent, "on", "navigate")?.exp.content, "NavigateToPreviewNode");
+    assert.equal(directive(previewComponent, "on", "edit")?.exp.content, "EditDialogueText");
+    assert.equal(directive(previewComponent, "on", "replace")?.exp.content, "dialogueProject = $event");
   });
   await test("Actual preview handler emits only a valid navigation event", () => {
     const calls = [];
@@ -195,6 +195,7 @@ async function main() {
     const context = vm.createContext({
       dialogueProject, editorView, selectedGroupNodeId, nodesSelectionActive,
       resolveTextPreviewGraphNodeId: graphIdFor,
+      ApplyGraphLayout() { calls.push("layout"); },
       toast: { warning(message) { warnings.push(message); } },
       nextTick() { calls.push("tick"); return Promise.resolve(); },
       requestAnimationFrame(callback) { frames.push(callback); return frames.length; },
@@ -233,6 +234,8 @@ async function main() {
     assert.deepEqual(state.calls, ["tick"]);
     await state.finish(pending);
     const fit = state.calls.find((call) => Array.isArray(call) && call[0] === "fit");
+    assert.equal(state.calls.filter((call) => call === "layout").length, 1);
+    assert.ok(state.calls.indexOf("layout") < state.calls.indexOf(fit));
     assert.deepEqual(fit[1].nodes, ["view-B"]);
     assert.equal(fit[1].maxZoom, 1);
     assert.ok(fit[1].padding > 0);

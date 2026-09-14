@@ -23,8 +23,9 @@
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import EditorIcon from "./EditorIcon.vue";
-import { imageAssets, imageAssetById, imageCategories, imageCategoryLabel, imageCategoryNames, imageCatalogLoading, imageCatalogError, loadImageCatalog, loadSpriteMetadata, type UIImageAsset } from "./imageAssets";
-const props = defineProps<{ selectedId: number | null }>();
+import { clientImageCatalog, type createImageCatalog, type UIImageAsset } from "./imageAssets";
+const props = withDefaults(defineProps<{ selectedId: number | null; catalog?: ReturnType<typeof createImageCatalog>; loadMetadata?: boolean }>(), { loadMetadata: true });
+const { imageAssets, imageAssetById, imageCategories, imageCategoryLabel, imageCategoryNames, imageCatalogLoading, imageCatalogError, loadImageCatalog, loadSpriteMetadata } = props.catalog ?? clientImageCatalog;
 const emit = defineEmits<{ (event: "close"): void; (event: "select", id: number | null): void }>();
 const { locale } = useI18n();
 const search = ref("");
@@ -41,9 +42,9 @@ const filteredAssets = computed(() => {
 async function selectAsset(asset: UIImageAsset) {
   const version = ++selectionVersion;
   selectionError.value = "";
-  const metadata = await loadSpriteMetadata(asset);
+  const metadata = props.loadMetadata ? await loadSpriteMetadata(asset) : undefined;
   if (version !== selectionVersion) return;
-  if (asset.borderPath && !metadata) selectionError.value = "拉伸参数暂未加载，已选择图片；再次点击可重试。";
+  if (props.loadMetadata && asset.borderPath && !metadata) selectionError.value = "拉伸参数暂未加载，已选择图片；再次点击可重试。";
   emit("select", asset.id);
 }
 function clearSelection() { selectionVersion++; selectionError.value = ""; emit("select", null); }
