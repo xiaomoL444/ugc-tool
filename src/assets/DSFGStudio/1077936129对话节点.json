@@ -51,6 +51,14 @@
             "value" : [ 
             ]
          }
+      }, 
+      { 
+         "key" : "autoContinue", 
+         "param_type" : "Float", 
+         "value" : { 
+            "param_type" : "Float", 
+            "value" : "10.00"
+         }
       }
    ]
 }

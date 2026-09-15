@@ -73,7 +73,7 @@ button.danger { color: #b45353; }
 .card-title small { color: #8292a7; }
 .card-body { display: grid; grid-template-columns: minmax(140px, 24%) minmax(0, 1fr); gap: 18px; padding: 14px; }
 label { display: block; color: #61748c; font-size: 12px; }
-code { color: #91a0b3; font: 10px ui-monospace, monospace; }
+code { color: #91a0b3; font-family: inherit; font-size: 10px; }
 input, textarea, select { box-sizing: border-box; width: 100%; min-width: 0; margin-top: 6px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 5px; color: #334155; background: #fff; line-height: 1.5; }
 textarea { resize: vertical; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 1px; }

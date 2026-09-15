@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { CAMERA_POSITION_PROPERTIES, CAMERA_ROTATION_PROPERTIES, CAMERA_SLOT_PROPERTIES } from "../../config/cameraClip";
-import { createClipPropertyValues, getClipListLimits, isClipPropertyVisible, updateClipStructField } from "../../utils/clipProperties";
+import { CAMERA_POSITION_PROPERTIES, CAMERA_ROTATION_PROPERTIES } from "../../config/cameraClip";
+import { createClipPropertyValues, getClipListLimits, getClipNestedProperties, isClipPropertyVisible, updateClipStructField } from "../../utils/clipProperties";
 import ClipPropertyEditor from "./ClipPropertyEditor.vue";
 
 const props = defineProps<{ kind: "position" | "rotation"; modelValue: unknown }>();
 const emit = defineEmits<{ "update:modelValue": [value: Record<string, unknown>] }>();
 const definitions = computed(() => props.kind === "position" ? CAMERA_POSITION_PROPERTIES : CAMERA_ROTATION_PROPERTIES);
+const slotFields = computed(() => getClipNestedProperties(definitions.value.find(field => field.key === "slot")!, value.value));
 const value = computed(() => createClipPropertyValues(definitions.value, props.modelValue));
 const mode = computed(() => String(value.value.type));
 const slots = computed(() => value.value.slot as Record<string, unknown>[]);
@@ -18,7 +19,7 @@ function update(key: string, next: unknown) { emit("update:modelValue", updateCl
 function updateSlot(index: number, key: string, next: unknown) {
   update("slot", slots.value.map((slot, i) => i === index ? { ...slot, [key]: next } : slot));
 }
-function addSlot() { if (slots.value.length < limits.value.max) update("slot", [...slots.value, createClipPropertyValues(CAMERA_SLOT_PROPERTIES)]); }
+function addSlot() { if (slots.value.length < limits.value.max) update("slot", [...slots.value, createClipPropertyValues(slotFields.value)]); }
 function removeSlot(index: number) { if (slots.value.length > limits.value.min) update("slot", slots.value.filter((_, i) => i !== index)); }
 function swapSlots() { update("slot", [...slots.value].reverse()); }
 function slotName(index: number) {
@@ -46,10 +47,11 @@ function slotName(index: number) {
         <button v-if="slots.length > limits.min" type="button" class="remove-slot" :aria-label="`删除${slotName(index)}`" @click="removeSlot(index)">移除</button>
       </header>
       <div class="slot-fields">
-        <ClipPropertyEditor v-for="field in CAMERA_SLOT_PROPERTIES.filter(field => isClipPropertyVisible(field, slot))" :key="field.key"
+        <ClipPropertyEditor v-for="field in slotFields.filter(field => isClipPropertyVisible(field, slot))" :key="field.key"
           :class="{ 'half-field': field.key === 'space' || field.key === 'pointType' }"
-          :property="field" :model-value="slot[field.key]" :sibling-values="slot" @update:model-value="updateSlot(index, field.key, $event)" />
+          :property="kind === 'rotation' && slot.pointType === 'Rot' && field.key === 'vector3' ? { ...field, label: '旋转' } : field" :model-value="slot[field.key]" :sibling-values="slot" @update:model-value="updateSlot(index, field.key, $event)" />
       </div>
+      <p v-if="kind === 'rotation' && slot.pointType === 'Rot'" class="rot-hint">根据旋转确定视点位置</p>
     </article>
     <button v-if="slots.length < limits.max" type="button" class="add-target" @click="addSlot">＋ 添加终点</button>
     <div v-if="extras.length" class="motion-extras">

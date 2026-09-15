@@ -20,6 +20,7 @@ Line 可以有多个 Clip；每个 Clip 默认创建一个 `camera.shot` 组件�
 | `positionData.slot` / `rotationData.slot` | PositionSlot 的 StructList，保留编辑顺序 |
 
 `NOLOC_CAMERA` 的 `intParams[0]`（Int32List）引用 `CameraMovementDate` 中的全局序号，`stringParams` 为空。
+演出根结构中的 `CameraMovementDate` 字典键使用 Int32。已同步 V2.0 新版演出与对话节点定义；对话新增的 `autoContinue` 按结构体默认值 `10.00` 导出。
 Camera 数据仍按每 100 项拆分字典；位置和旋转 Slot 数量分别按类型限制。
 
 字段及中文标签定义在 `cameraClip.ts`，注册入口在 `clipComponentRegistry.ts`。
@@ -33,6 +34,8 @@ Camera 数据仍按每 100 项拆分字典；位置和旋转 Slot 数量分别�
 - 位置 Slot 默认 1 个且不能删除最后一个。Fixed、Follow、Orbit 限定 1 个，Linear 允许 1～2 个；切换为单 Slot 模式时保留第一个点位。旧文件若有超量点位，读取时保留并在面板提示，可手动删除或切换模式规范数量。
 - 仅 Follow 显示 `snapToTarget`（立即抵达目标）；仅 Orbit 显示 `orbitRot` 的三维输入和 `orbitRadius`。切换时保留隐藏字段值。
 - Slot 的坐标空间下拉为 `Local`（数值 0，默认）与 `World`（数值 1）。点位类型为 `Vector3`（默认）、`Guid`、`Entity`。
+- 视点位置的点位类型额外支持 `Rot`（旋转）。选择后显示旋转 XYZ，表示根据旋转确定视点位置；仍保存并导出到 PositionSlot 的 `vector3` 字段，`pointType` 为 `Rot`。相机位置不提供此选项，切换类型保留已有字段值。
+- Fixed 视点的点位类型仅提供 `Vector3` 和 `Rot`，专用面板与高级设置一致。主动切换为 Fixed 时，Guid／Entity 点位改为 Vector3，原目标字段保留；Rot 保持原样。只读取旧文件不改写原点位，受限类型在下拉框中提示重新选择。
 - Vector3 点位只显示向量；Guid / Entity 点位显示对应目标字段以及挂接点、offset、requiresClientPos。显隐由模板 `visibleWhen` 定义，切换时保留隐藏字段的原值，导出仍按完整结构体顺序写入。
 - 已保存的空值或未知枚举不会被擅自覆盖，下拉会提示重新选择。业务默认由组件模板提供，不改动源结构体 JSON。
 - `guid` 用整数字符串保存；`entity` 在 V2.0 中是 String，不是 Entity ID 类型。

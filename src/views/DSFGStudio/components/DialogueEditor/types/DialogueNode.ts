@@ -140,6 +140,8 @@ export interface ClipPropertyDefinition {
   visibleWhen?: { key: string; values: Array<string | number | boolean> };
   /** 嵌套结构体的字段；struct-list 时表示每个列表元素的字段。 */
   properties?: ClipPropertyDefinition[];
+  /** List element fields selected by a sibling mode. */
+  propertiesWhen?: { key: string; cases: Record<string, ClipPropertyDefinition[]> };
   maxItems?: number;
   minItems?: number;
   /** List bounds selected by a sibling field in the same struct. */

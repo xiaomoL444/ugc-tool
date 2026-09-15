@@ -42,9 +42,10 @@ async function main() {
       CAMERA_POSITION_PROPERTIES,
       CAMERA_ROTATION_PROPERTIES,
       CAMERA_SLOT_PROPERTIES,
+      CAMERA_VIEWPOINT_SLOT_PROPERTIES,
     } = require(path.join(editorDirectory, "config/cameraClip.ts"));
     const { createClipComponent } = require(path.join(editorDirectory, "config/clipComponentRegistry.ts"));
-    const { createClipPropertyValues, isClipPropertyVisible, getClipListLimits, updateClipStructField } = require(path.join(editorDirectory, "utils/clipProperties.ts"));
+    const { createClipPropertyValues, isClipPropertyVisible, getClipListLimits, getClipNestedProperties, updateClipStructField } = require(path.join(editorDirectory, "utils/clipProperties.ts"));
     const { encodeDialogueProject, decodeDialogueProject } = require(path.join(editorDirectory, "utils/dialogueProjectCodec.ts"));
     let passed = 0;
     function test(name, check) {
@@ -183,7 +184,7 @@ async function main() {
       assert.equal(name.type, "string");
       assert.equal(name.defaultValue, "Default");
       for (const properties of [CAMERA_POSITION_PROPERTIES, CAMERA_ROTATION_PROPERTIES]) {
-        assert.equal(properties.find((property) => property.key === "slot").properties, CAMERA_SLOT_PROPERTIES);
+        assert.equal(properties.find((property) => property.key === "slot").properties, properties === CAMERA_POSITION_PROPERTIES ? CAMERA_SLOT_PROPERTIES : CAMERA_VIEWPOINT_SLOT_PROPERTIES);
       }
       for (const selected of space.options) {
         const properties = createClipPropertyValues(CAMERA_SLOT_PROPERTIES);
@@ -196,6 +197,41 @@ async function main() {
         const { parsed } = exported(decoded);
         assert.equal(table(parsed.value.CameraMovementDate)[0].value.positionData.value.slot.value[0].value.space.value, String(selected.value));
       }
+    });
+
+    test("Viewpoint Rot uses the vector field and preserves its type and values through codec and export", () => {
+      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.find(field => field.key === 'pointType').options.map(item => item.value), ['Vector3', 'Guid', 'Entity', 'Rot']);
+      assert.ok(!CAMERA_SLOT_PROPERTIES.find(field => field.key === 'pointType').options.some(item => item.value === 'Rot'));
+      const target = createClipPropertyValues(CAMERA_VIEWPOINT_SLOT_PROPERTIES, slot({ pointType: 'Rot', vector3: '10,20,-30' }));
+      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(field => isClipPropertyVisible(field, target)).map(field => field.key), ['space', 'pointType', 'vector3']);
+      const decoded = decodeDialogueProject(encodeDialogueProject(project([camera({ rotationData: { type: 'Fixed', slot: [target], snapToTarget: false } })])));
+      const restored = decoded.dialogue.nodes.group.lines[0].clips[0].components[0].properties.rotationData.slot[0];
+      assert.deepEqual(restored, target);
+      const output = table(exported(decoded).parsed.value.CameraMovementDate)[0].value.rotationData.value.slot.value[0].value;
+      assert.equal(output.pointType.value, 'Rot');
+      assert.equal(output.vector3.value, '10,20,-30');
+      assert.deepEqual(Object.keys(output), CAMERA_SLOT_PROPERTIES.map(field => field.key));
+      const switched = updateClipStructField(CAMERA_VIEWPOINT_SLOT_PROPERTIES, target, 'pointType', 'Entity');
+      assert.equal(switched.vector3, '10,20,-30');
+      assert.equal(switched.entity, target.entity);
+    });
+
+    test("Fixed viewpoint offers only Vector3 and Rot; mode changes keep hidden target fields", () => {
+      const definition = CAMERA_ROTATION_PROPERTIES.find(field => field.key === 'slot');
+      const choices = mode => getClipNestedProperties(definition, { type: mode }).find(field => field.key === 'pointType').options.map(option => option.value);
+      assert.deepEqual(choices('Fixed'), ['Vector3', 'Rot']);
+      assert.deepEqual(choices('Linear'), ['Vector3', 'Guid', 'Entity', 'Rot']);
+      assert.deepEqual(choices('LookAt'), ['Vector3', 'Guid', 'Entity', 'Rot']);
+      for (const pointType of ['Guid', 'Entity', 'Vector3', 'Rot']) {
+        const original = createClipPropertyValues(CAMERA_ROTATION_PROPERTIES, { type: 'LookAt', slot: [slot({ pointType, vector3: '1,2,3' })] });
+        const updated = updateClipStructField(CAMERA_ROTATION_PROPERTIES, original, 'type', 'Fixed');
+        assert.equal(updated.slot[0].pointType, pointType === 'Rot' ? 'Rot' : 'Vector3');
+        for (const key of ['vector3', 'guid', 'entity', 'attachmentPoint', 'offset']) assert.equal(updated.slot[0][key], original.slot[0][key]);
+        assert.equal(original.slot[0].pointType, pointType);
+      }
+      assert.equal(createClipPropertyValues(CAMERA_ROTATION_PROPERTIES, { type: 'Fixed', slot: [slot({ pointType: 'Entity' })] }).slot[0].pointType, 'Entity', 'Reading older files must not rewrite targets');
+      const position = CAMERA_POSITION_PROPERTIES.find(field => field.key === 'slot');
+      assert.deepEqual(getClipNestedProperties(position, { type: 'Fixed' }).find(field => field.key === 'pointType').options.map(option => option.value), ['Vector3', 'Guid', 'Entity']);
     });
 
     test("Slot visibility follows point type and compares condition values without coercion", () => {
@@ -528,6 +564,9 @@ async function main() {
       assert.equal(dialogue.subtitle.value, "副标题");
       assert.equal(dialogue.continueDelay.value, "0.50");
       assert.deepEqual(dialogue.prams.value, ["42"]);
+      assert.equal(dialogue.autoContinue.type, "Float");
+      assert.equal(dialogue.autoContinue.value, "10.00");
+      assert.equal(Object.keys(dialogue).at(-1), "autoContinue");
     });
     console.log(`\n${passed} DSFG Camera export checks passed.`);
   } finally {

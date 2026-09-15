@@ -25,10 +25,20 @@ export const CAMERA_SLOT_PROPERTIES: ClipPropertyDefinition[] = [
     visibleWhen: { key: "pointType", values: ["Guid", "Entity"] } },
 ];
 
-function slotProperty(): ClipPropertyDefinition {
+/** 视点额外支持以旋转值确定目标位置，仍写入 PositionSlot.vector3。 */
+export const CAMERA_VIEWPOINT_SLOT_PROPERTIES: ClipPropertyDefinition[] = CAMERA_SLOT_PROPERTIES.map(property => {
+  if (property.key === "pointType") return { ...property, options: [...(property.options ?? []), { label: "Rot（旋转）", value: "Rot" }] };
+  if (property.key === "vector3") return { ...property, visibleWhen: { key: "pointType", values: ["Vector3", "Rot"] } };
+  return property;
+});
+const CAMERA_FIXED_VIEWPOINT_SLOT_PROPERTIES = CAMERA_VIEWPOINT_SLOT_PROPERTIES.map(property =>
+  property.key === "pointType" ? { ...property, options: property.options?.filter(option => option.value === "Vector3" || option.value === "Rot") } : property,
+);
+
+function slotProperty(properties = CAMERA_SLOT_PROPERTIES): ClipPropertyDefinition {
   return {
     key: "slot", label: "点位列表", type: "struct-list", defaultValue: [],
-    properties: CAMERA_SLOT_PROPERTIES, maxItems: 100,
+    properties, maxItems: 100,
     description: "按列表顺序导出；每个 Slot 是一个 PositionSlot 结构体。",
   };
 }
@@ -52,7 +62,8 @@ export const CAMERA_POSITION_PROPERTIES: ClipPropertyDefinition[] = [
 export const CAMERA_ROTATION_PROPERTIES: ClipPropertyDefinition[] = [
   { key: "type", label: "视点位置类型", type: "select", defaultValue: "Fixed",
     options: ["Fixed", "Linear", "LookAt"].map((value) => ({ label: value, value })) },
-  { ...slotProperty(), defaultValue: [{}], minItems: 1, maxItems: 1,
+  { ...slotProperty(CAMERA_VIEWPOINT_SLOT_PROPERTIES), defaultValue: [{}], minItems: 1, maxItems: 1,
+    propertiesWhen: { key: "type", cases: { Fixed: CAMERA_FIXED_VIEWPOINT_SLOT_PROPERTIES } },
     itemLimitsWhen: { key: "type", cases: {
       Fixed: { min: 1, max: 1 }, Linear: { min: 1, max: 2 }, LookAt: { min: 1, max: 1 },
     } }, description: "Fixed、LookAt 使用 1 个 Slot；Linear 可使用 1～2 个。切换为单 Slot 类型时保留第一个点位。" },

@@ -54,5 +54,5 @@ input:not([type="color"]){
   align-items: center;
   justify-content: center;
   resize: none; /* 禁止手动拉伸 */
-  font-family:'StarRailFont'
+  font-family: var(--app-font-family)
 }

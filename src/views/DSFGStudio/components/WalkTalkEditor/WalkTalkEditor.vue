@@ -187,7 +187,7 @@ onBeforeUnmount(() => {
     </SplitterPanel>
   </Splitter>
   <Teleport to="body">
-    <div v-if="settingsOpen && settingsDraft" class="settings-backdrop" :inert="busy" @click.self="settingsOpen = false" @keydown.esc="settingsOpen = false">
+    <div v-if="settingsOpen && settingsDraft" class="settings-backdrop dsfg-typography" :inert="busy" @click.self="settingsOpen = false" @keydown.esc="settingsOpen = false">
       <form class="settings" role="dialog" aria-modal="true" aria-label="边走边说结构体 ID 设置" @submit.prevent="applySettings">
         <header><h3>边走边说结构体 ID</h3><button type="button" aria-label="关闭结构体设置" @click="settingsOpen = false">×</button></header>
         <p>按实际编辑器填写，导出会同时替换外层、列表类型和每条台词的结构体 ID。</p>

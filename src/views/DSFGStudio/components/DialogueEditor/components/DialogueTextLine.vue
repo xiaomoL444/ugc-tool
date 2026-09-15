@@ -83,7 +83,7 @@ function keydown(event: KeyboardEvent) {
 <style scoped>
 .script-line { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; padding: 9px 12px 9px 6px; border-radius: 7px; }
 .script-line:hover, .script-line:focus-within { background: #f7f9fc; }
-.line-gutter { display: flex; flex-direction: column; align-items: center; padding-top: 5px; color: #a1aaba; font: 11px/1.5 monospace; }
+.line-gutter { display: flex; flex-direction: column; align-items: center; padding-top: 5px; color: #a1aaba; font-family: inherit; font-size: 11px; line-height: 1.5; }
 .line-grip { font-size: 20px; cursor: grab; opacity: .35; user-select: none; touch-action: none; }
 .script-line:hover .line-grip { opacity: 1; }
 .line-body { position: relative; min-width: 0; padding-bottom: 4px; }

@@ -1,0 +1,5 @@
+/* Shared by the editor workspace and panels teleported outside #app. */
+.dsfg-typography,
+.dsfg-typography :where(*) {
+  font-family: var(--app-font-family);
+}

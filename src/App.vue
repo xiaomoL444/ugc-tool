@@ -71,8 +71,12 @@ overflow: hidden;
   font-style: normal;
 }
 
+:root {
+  --app-font-family: StarRailFont, Avenir, Helvetica, Arial, sans-serif;
+}
+
 #app {
-  font-family: StarRailFont, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--app-font-family);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-align: center;

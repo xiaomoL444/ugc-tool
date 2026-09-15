@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { ClipPropertyDefinition } from "../../types/DialogueNode";
-import { createClipPropertyValues, getClipListLimits, isClipPropertyVisible, updateClipStructField } from "../../utils/clipProperties";
+import { createClipPropertyValues, getClipListLimits, getClipNestedProperties, isClipPropertyVisible, updateClipStructField } from "../../utils/clipProperties";
 
 const props = defineProps<{
   property: ClipPropertyDefinition;
@@ -11,7 +11,7 @@ const props = defineProps<{
 const emit = defineEmits<{ "update:modelValue": [value: unknown] }>();
 
 const value = computed(() => props.modelValue ?? props.property.defaultValue);
-const fields = computed(() => props.property.properties ?? []);
+const fields = computed(() => getClipNestedProperties(props.property, props.siblingValues));
 const fieldTitle = computed(() =>
   [props.property.key, props.property.description].filter(Boolean).join("\n"),
 );
@@ -200,7 +200,7 @@ function moveItem(index: number, offset: number) {
 
 <style scoped>
 .clip-property { min-width: 0; margin-top: 8px; color: #a8b7cb; font-size: 10px; }
-code { color: #788ea9; font: 9px ui-monospace, monospace; overflow-wrap: anywhere; }
+code { color: #788ea9; font-family: inherit; font-size: 9px; overflow-wrap: anywhere; }
 input:not([type="checkbox"]), textarea, select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; color: #edf4ff; background: #141922; border: 1px solid #3b485b; border-radius: 4px; font: inherit; resize: vertical; }
 input:focus, textarea:focus, select:focus { outline: 1px solid #628bc1; outline-offset: 0; }
 input[type="checkbox"] { margin: 0; }

@@ -73,7 +73,8 @@ function mode(key: string) { return String((values.value[key] as Record<string, 
 .camera-editor :deep(.slot-heading button), .camera-editor :deep(.remove-slot) { padding: 0; border: 0; background: none; color: #93b9ea; cursor: pointer; font-size: 10px; }
 .camera-editor :deep(.camera-slot) { padding: 12px; margin-top: 8px; border: 1px solid #34445b; border-radius: 9px; background: #1a2535; }
 .camera-editor :deep(.camera-slot header) { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.camera-editor :deep(.slot-index) { color: #7997bc; font: 10px ui-monospace, monospace; }
+.camera-editor :deep(.slot-index) { color: #7997bc; font-family: inherit; font-size: 10px; }
+.camera-editor :deep(.rot-hint) { margin: 10px 0 0; color: #7d93af; font-size: 10px; }
 .camera-editor :deep(.camera-slot strong) { font-size: 11px; font-weight: 500; }
 .camera-editor :deep(.remove-slot) { margin-left: auto; color: #be98a0; }
 .camera-editor :deep(.slot-fields) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

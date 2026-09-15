@@ -733,7 +733,7 @@ onBeforeUnmount(() => {
       <aside
         v-if="editorOpen && selectedClip"
         data-clip-editor
-        class="clip-editor-popover"
+        class="clip-editor-popover dsfg-typography"
         :class="{ 'camera-popover': selectedClip.kind === 'performance' && selectedClip.clip.type === 'Camera' }"
         :style="{
           left: `${editorPosition.left}px`,

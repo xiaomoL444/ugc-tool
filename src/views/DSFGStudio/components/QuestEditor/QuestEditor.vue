@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
       </SectionLayout>
   </div>
   <Teleport to="body">
-    <div v-if="settingsOpen && settingsDraft" :inert="busy" class="quest-settings-backdrop" @click.self="settingsOpen = false" @keydown.esc="settingsOpen = false">
+    <div v-if="settingsOpen && settingsDraft" :inert="busy" class="quest-settings-backdrop dsfg-typography" @click.self="settingsOpen = false" @keydown.esc="settingsOpen = false">
       <form class="quest-settings" role="dialog" aria-modal="true" aria-label="任务结构体 ID 设置" @submit.prevent="applySettings">
         <header><h3>任务结构体 ID</h3><button type="button" aria-label="关闭任务结构体设置" @click="settingsOpen = false">×</button></header>
         <p>不同千星编辑器的结构体 ID 可能不同；修改后会同时替换嵌套结构体和字典类型。</p>

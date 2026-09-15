@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import "./editorTypography.css";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 
@@ -149,7 +150,7 @@ const functionViewMap: Record<string, Component> = {
 </script>
 
 <template>
-  <Splitter style="height: 100%; width: 100%" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor">
+  <Splitter class="dsfg-typography" style="height: 100%; width: 100%" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor">
     <SplitterPanel :size="15">
       <SectionLayout title="工作区选择" class="top">
         <SelectableList

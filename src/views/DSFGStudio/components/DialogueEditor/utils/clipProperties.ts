@@ -20,6 +20,13 @@ export function getClipListLimits(property: ClipPropertyDefinition, siblings: Re
   return { min: limits?.min ?? property.minItems ?? 0, max: limits?.max ?? property.maxItems ?? Infinity };
 }
 
+export function getClipNestedProperties(property: ClipPropertyDefinition, siblings: Record<string, unknown> = {}) {
+  const conditional = property.propertiesWhen;
+  const mode = conditional ? siblings[conditional.key] : undefined;
+  return conditional && typeof mode === "string" && Object.prototype.hasOwnProperty.call(conditional.cases, mode)
+    ? conditional.cases[mode] : property.properties ?? [];
+}
+
 /** An explicit mode change applies its Slot limit in the same update. Merely
  * loading an older file does not discard its extra point data. */
 export function updateClipStructField(definitions: ClipPropertyDefinition[], source: unknown, key: string, value: unknown) {
@@ -28,6 +35,20 @@ export function updateClipStructField(definitions: ClipPropertyDefinition[], sou
     if (property.type !== "struct-list" || property.itemLimitsWhen?.key !== key) continue;
     const { max } = getClipListLimits(property, next);
     next[property.key] = (next[property.key] as unknown[]).slice(0, max);
+    if (property.propertiesWhen?.key === key) {
+      const fields = getClipNestedProperties(property, next);
+      next[property.key] = (next[property.key] as unknown[]).map(item => {
+        const slot = createClipPropertyValues(fields, item);
+        for (const field of fields) {
+          const originalField = property.properties?.find(original => original.key === field.key);
+          if (field.type === "select" && originalField?.options?.some(option => option.value === slot[field.key]) &&
+              field.options && !field.options.some(option => option.value === slot[field.key])) {
+            slot[field.key] = structuredClone(field.defaultValue);
+          }
+        }
+        return slot;
+      });
+    }
   }
   return next;
 }

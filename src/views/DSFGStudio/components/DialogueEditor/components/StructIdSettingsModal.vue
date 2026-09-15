@@ -40,7 +40,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", handleKeydown));
 
 <template>
   <Teleport to="body">
-    <div class="struct-id-modal-backdrop" @pointerdown.self="emit('close')">
+    <div class="struct-id-modal-backdrop dsfg-typography" @pointerdown.self="emit('close')">
       <section
         class="struct-id-modal"
         role="dialog"
@@ -215,7 +215,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", handleKeydown));
   background: #f5f8fc;
   border: 1px solid #bdcad9;
   border-radius: 6px;
-  font-family: Consolas, monospace;
+  font-family: inherit;
   font-size: 13px;
   outline: none;
 }

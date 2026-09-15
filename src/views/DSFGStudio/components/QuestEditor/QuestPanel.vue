@@ -482,7 +482,7 @@ button.danger:hover { background: #fef2f2; }
 .chapter .tree-kind { color: #8264a3; background: #f1ebf7; }
 .sub .tree-kind { color: #4c856d; background: #e8f3ec; }
 .tree-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.tree-item small { color: #94a3b8; font: 10px ui-monospace, monospace; }
+.tree-item small { color: #94a3b8; font-family: inherit; font-size: 10px; }
 .tree-count { font-size: 10px; color: #64748b; padding: 1px 4px; background: #f1f5f9; border-radius: 8px; }
 .tree-add { flex: 0 0 28px; padding: 6px 0; color: #5273a0; }
 .tree-empty { padding: 14px 8px; color: #94a3b8; font-size: 12px; line-height: 1.7; }
@@ -497,7 +497,7 @@ button.danger:hover { background: #fef2f2; }
 .kind-badge { display: inline-block; font-size: 10px; color: #5273a0; background: #e8eef8; border-radius: 4px; padding: 3px 6px; }
 .inspector-header h2 { margin: 8px 0 12px; color: #1e293b; font-size: 20px; line-height: 1.4; overflow-wrap: anywhere; }
 .identity-strip { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 11px; color: #64748b; padding: 9px 11px; background: #eef2f7; border-radius: 6px; margin-bottom: 20px; }
-code { color: #7a8ca2; font: 11px ui-monospace, monospace; }
+code { color: #7a8ca2; font-family: inherit; font-size: 11px; }
 .identity-strip code { color: #334155; margin-left: 4px; }
 .quest-field { display: flex; flex-direction: column; gap: 7px; margin-top: 17px; }
 .quest-field > span { color: #475569; font-size: 12px; }
