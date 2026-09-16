@@ -29,7 +29,7 @@ export function createImageCatalog(project: string, categoryProject = project) {
   function normalizeImageCatalog(data: ImageCatalog): UIImageAsset[] {
     const entries = new Map<number, UIImageAsset>();
     for (const item of Object.values(data.imageData)) {
-      entries.set(item.id, { id: item.id, src: item.img ? oss.path("sprite", item.img) : "", borderPath: item.border, categories: [] });
+      entries.set(item.id, { id: item.id, src: item.img ? oss.path(item.img) : "", borderPath: item.border, categories: [] });
     }
     for (const [category, group] of Object.entries(data.category)) {
       for (const id of group.images) {
@@ -41,8 +41,8 @@ export function createImageCatalog(project: string, categoryProject = project) {
     return [...entries.values()];
   }
 
-  function loadImageCatalog() {
-    if (catalogRequest) return catalogRequest;
+  function loadImageCatalog(refresh = false) {
+    if (catalogRequest && (imageCatalogLoading.value || !refresh)) return catalogRequest;
     imageCatalogLoading.value = true;
     imageCatalogError.value = "";
     catalogRequest = (async () => {
@@ -79,7 +79,7 @@ export function createImageCatalog(project: string, categoryProject = project) {
     if (asset.metadata || !asset.borderPath) return Promise.resolve(asset.metadata);
     const pending = metadataRequests.get(asset.id);
     if (pending) return pending;
-    const request = oss.json("border", asset.borderPath).then(raw => {
+    const request = oss.json(asset.borderPath).then(raw => {
       const metadata = parseSpriteMetadata(raw);
       if (metadata) asset.metadata = metadata;
       return metadata;
@@ -90,5 +90,5 @@ export function createImageCatalog(project: string, categoryProject = project) {
   return { imageAssets, imageAssetById, imageCategories, imageCategoryNames, imageCatalogLoading, imageCatalogError, normalizeImageCatalog, loadImageCatalog, imageCategoryLabel, loadSpriteMetadata };
 }
 
-export const clientImageCatalog = createImageCatalog("ClientUIAnimationEditor");
+export const clientImageCatalog = createImageCatalog("Public/CustomUIImage", "ClientUIAnimationEditor");
 export const { imageAssets, imageAssetById, imageCategories, imageCategoryNames, imageCatalogLoading, imageCatalogError, normalizeImageCatalog, loadImageCatalog, imageCategoryLabel, loadSpriteMetadata } = clientImageCatalog;

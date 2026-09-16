@@ -36,7 +36,7 @@ Camera 数据仍按每 100 项拆分字典；位置和旋转 Slot 数量分别�
 - Slot 的坐标空间下拉为 `Local`（数值 0，默认）与 `World`（数值 1）。点位类型为 `Vector3`（默认）、`Guid`、`Entity`。
 - 视点位置的点位类型额外支持 `Rot`（旋转）。选择后显示旋转 XYZ，表示根据旋转确定视点位置；仍保存并导出到 PositionSlot 的 `vector3` 字段，`pointType` 为 `Rot`。相机位置不提供此选项，切换类型保留已有字段值。
 - Fixed 视点的点位类型仅提供 `Vector3` 和 `Rot`，专用面板与高级设置一致。主动切换为 Fixed 时，Guid／Entity 点位改为 Vector3，原目标字段保留；Rot 保持原样。只读取旧文件不改写原点位，受限类型在下拉框中提示重新选择。
-- Vector3 点位只显示向量；Guid / Entity 点位显示对应目标字段以及挂接点、offset、requiresClientPos。显隐由模板 `visibleWhen` 定义，切换时保留隐藏字段的原值，导出仍按完整结构体顺序写入。
+- Vector3 点位只显示向量；Guid / Entity 点位显示对应目标字段以及挂接点、offset、requiresClientPos。相机位置为 Orbit 时，无论点位类型都显示 Vector3；offset 仍按点位类型显示。显隐由模板 `propertiesWhen` 和 `visibleWhen` 定义，切换时保留隐藏字段的原值，导出仍按完整结构体顺序写入。
 - 已保存的空值或未知枚举不会被擅自覆盖，下拉会提示重新选择。业务默认由组件模板提供，不改动源结构体 JSON。
 - `guid` 用整数字符串保存；`entity` 在 V2.0 中是 String，不是 Entity ID 类型。
 - Vector3 用 `"x,y,z"` 保存，面板提供 X/Y/Z 独立输入框。

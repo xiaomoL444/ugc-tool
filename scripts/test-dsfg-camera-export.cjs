@@ -245,6 +245,7 @@ async function main() {
         assert.deepEqual(CAMERA_SLOT_PROPERTIES.filter((property) => isClipPropertyVisible(property, values)).map((property) => property.key), expected);
       }
       const conditional = { key: "test", label: "test", type: "string", defaultValue: "", visibleWhen: { key: "space", values: [1] } };
+      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(property => isClipPropertyVisible(property, { pointType: 'Guid' })).map(property => property.key), [...common, 'guid', 'attachmentPoint', 'offset', 'requiresClientPos']);
       assert.equal(isClipPropertyVisible(conditional, { space: 1 }), true);
       assert.equal(isClipPropertyVisible(conditional, { space: "1" }), false);
       assert.equal(isClipPropertyVisible(conditional, {}), false);
@@ -263,6 +264,11 @@ async function main() {
         assert.equal(value.slot.length, 1);
         assert.deepEqual(CAMERA_POSITION_PROPERTIES.filter(property => isClipPropertyVisible(property, value)).map(property => property.key), fields);
         assert.deepEqual(getClipListLimits(slotDefinition, value), { min: 1, max });
+        const slotFields = getClipNestedProperties(slotDefinition, value);
+        for (const pointType of ['Vector3', 'Guid', 'Entity']) {
+          assert.equal(isClipPropertyVisible(slotFields.find(field => field.key === 'vector3'), { pointType }), type === 'Orbit' || pointType === 'Vector3', `${type}/${pointType}: Vector3 visibility`);
+          assert.equal(isClipPropertyVisible(slotFields.find(field => field.key === 'offset'), { pointType }), pointType !== 'Vector3', `${type}/${pointType}: offset visibility`);
+        }
       }
       assert.deepEqual(getClipListLimits(CAMERA_ROTATION_PROPERTIES.find(property => property.key === 'slot')), { min: 1, max: 1 });
     });

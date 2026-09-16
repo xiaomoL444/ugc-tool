@@ -1,8 +1,8 @@
 <template>
   <section ref="panel" class="image-library" role="dialog" aria-label="图片资源库" tabindex="-1" @keydown.esc.stop.prevent="$emit('close')" @pointerdown.stop>
-    <header><strong>图片资源库</strong><span>{{ filteredAssets.length }} 项</span><button aria-label="关闭图片资源库" @click="$emit('close')">×</button></header>
+    <header><strong>图片资源库</strong><span>{{ filteredAssets.length }} 项</span><button class="refresh-library" :disabled="imageCatalogLoading" @click="loadImageCatalog(true)">刷新</button><button aria-label="关闭图片资源库" @click="$emit('close')">×</button></header>
     <div class="library-search"><EditorIcon name="search" :size="18" /><input ref="searchInput" v-model="search" aria-label="搜索图片资源" placeholder="搜索图片 ID / 分类" /><button v-if="search" aria-label="清空图片搜索" @click="search = ''">×</button></div>
-    <div v-if="imageCatalogError" class="library-status" role="status">{{ imageCatalogError }} <button @click="loadImageCatalog">重试</button></div>
+    <div v-if="imageCatalogError" class="library-status" role="status">{{ imageCatalogError }} <button @click="loadImageCatalog(true)">重试</button></div>
     <div v-if="selectionError" class="library-status" role="status">{{ selectionError }}</div>
     <div class="library-body">
       <nav aria-label="图片分类"><button :class="{ active: !category }" @click="category = ''">全部图片</button><button v-for="key in imageCategories" :key="key" :class="{ active: category === key }" @click="category = key">{{ imageCategoryLabel(key, locale) }}</button></nav>
@@ -48,13 +48,14 @@ async function selectAsset(asset: UIImageAsset) {
   emit("select", asset.id);
 }
 function clearSelection() { selectionVersion++; selectionError.value = ""; emit("select", null); }
-onMounted(() => { previousFocus = document.activeElement as HTMLElement; searchInput.value?.focus(); void loadImageCatalog(); });
+onMounted(() => { previousFocus = document.activeElement as HTMLElement; searchInput.value?.focus(); void loadImageCatalog(true); });
 onBeforeUnmount(() => { selectionVersion++; if (previousFocus?.isConnected) previousFocus.focus(); });
 </script>
 <style scoped>
 .image-library { position: absolute; inset: auto 0 0; z-index: 100; display: flex; flex-direction: column; height: min(420px, 48%); min-height: 220px; background: #292d3b; border-top: 2px solid #606779; color: #d8dbe5; box-shadow: 0 -8px 28px #0003; font-size: 12px; outline: none; }
 header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #20232d; }
-header span { color: #9da7ba; font-size: 11px; } header button { margin-left: auto; font-size: 23px; }
+header span { color: #9da7ba; font-size: 11px; } header button { font-size: 23px; }
+header .refresh-library { margin-left: auto; font-size: 12px; } .refresh-library:disabled { opacity: .5; cursor: wait; }
 button { border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 button:focus-visible, input:focus-visible { outline: 2px solid #89a7ff; outline-offset: -2px; }
 .library-search { display: flex; align-items: center; gap: 8px; margin: 8px; padding: 4px 10px; border: 2px solid #858b98; border-radius: 20px; background: #20232d; }

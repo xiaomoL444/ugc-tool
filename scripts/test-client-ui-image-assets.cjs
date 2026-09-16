@@ -4,14 +4,14 @@ const ts = require('typescript');
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText, filename);
 const { normalizeImageCatalog, createImageCatalog, clientImageCatalog } = require('../src/views/ClientUIAnimationEditor/imageAssets.ts');
 const optionCatalog = createImageCatalog('Public/CustomUIImage');
-const optionAssets = optionCatalog.normalizeImageCatalog({ imageData: { 100160: { id: 100160, img: '100160.png', border: '' } }, category: { 1: { id: 1, images: [100160] } } });
+const optionAssets = optionCatalog.normalizeImageCatalog({ imageData: { 100160: { id: 100160, img: 'sprite/100160.png', border: '' } }, category: { 1: { id: 1, images: [100160] } } });
 assert.match(optionAssets[0].src, /Public\/CustomUIImage\/sprite\/100160.png$/);
 assert.notEqual(optionCatalog.imageAssetById, clientImageCatalog.imageAssetById);
 assert.notEqual(optionCatalog.imageAssets, clientImageCatalog.imageAssets);
 const { parseSpriteMetadata, isStretchable, spriteSlices } = require('../src/views/ClientUIAnimationEditor/spriteGeometry.ts');
-const assets = normalizeImageCatalog({ imageData: { 104001: { id: 104001, img: '104001.png', border: '104001.json' }, 104004: { id: 104004, img: '', border: '' } }, category: { 5: { id: 5, images: [104001, 104004, 104005] } } });
+const assets = normalizeImageCatalog({ imageData: { 104001: { id: 104001, img: 'sprite/104001.png', border: 'border/104001.json' }, 104004: { id: 104004, img: '', border: '' } }, category: { 5: { id: 5, images: [104001, 104004, 104005] } } });
 assert.deepEqual(assets.map(asset => asset.id), [104001, 104004, 104005]);
-assert.match(assets[0].src, /ClientUIAnimationEditor\/sprite\/104001.png$/);
+assert.match(assets[0].src, /Public\/CustomUIImage\/sprite\/104001.png$/);
 assert.equal(assets[1].src, '');
 assert.equal(assets[2].src, '');
 assert.deepEqual(assets[2].categories, ['5']);
@@ -47,3 +47,46 @@ const collapsedX = { ...ring, top: 5, bottom: 5 };
 assert.equal(spriteSlices(collapsedX, 158, 150, true).length, 9);
 console.log('PASS image IDs, missing entries, OSS paths, Unity border order, nine-slice corners, small sizes, partial borders and pixels per unit');
 console.log('PASS sprite 106004 continuous edges with zero-width/height source center, small targets and basic mode');
+
+async function testCatalogRefresh() {
+  const originalFetch = global.fetch;
+  const requests = [];
+  let revision = 'first';
+  let failCatalog = false;
+  global.fetch = async (url, options) => {
+    requests.push({ url, options });
+    if (url.includes('/data.json')) return {
+      ok: !failCatalog, status: failCatalog ? 503 : 200,
+      json: async () => ({ imageData: { 100160: { id: 100160, img: `${revision}.png`, border: 'border/100160.json' } }, category: {} }),
+    };
+    return { ok: true, json: async () => url.includes('/border/')
+      ? { m_Rect: { width: 32, height: 32 }, m_Border: { X: 1, Y: 1, Z: 1, W: 1 } }
+      : {} };
+  };
+  try {
+    const first = clientImageCatalog.loadImageCatalog();
+    assert.equal(clientImageCatalog.loadImageCatalog(true), first, 'Concurrent loads share the pending request');
+    await first;
+    assert.match(clientImageCatalog.imageAssetById.get(100160).src, /Public\/CustomUIImage\/first.png$/);
+    revision = 'updated';
+    await clientImageCatalog.loadImageCatalog();
+    assert.equal(requests.filter(request => request.url.includes('/data.json')).length, 1);
+    await clientImageCatalog.loadImageCatalog(true);
+    const updated = clientImageCatalog.imageAssetById.get(100160);
+    assert.match(updated.src, /Public\/CustomUIImage\/updated.png$/);
+    assert.ok(await clientImageCatalog.loadSpriteMetadata(updated));
+    assert.ok(requests.some(request => /Public\/CustomUIImage\/border\/100160.json\?/.test(request.url)));
+    assert.ok(requests.filter(request => request.url.includes('/data.json')).every(request => request.options.cache === 'no-store' && /\?_t=\d+$/.test(request.url)));
+    failCatalog = true;
+    await clientImageCatalog.loadImageCatalog(true);
+    assert.equal(clientImageCatalog.imageAssetById.get(100160), updated, 'A failed refresh preserves loaded assets');
+    assert.ok(clientImageCatalog.imageCatalogError.value);
+    failCatalog = false;
+    await clientImageCatalog.loadImageCatalog();
+    assert.equal(clientImageCatalog.imageCatalogError.value, '');
+    console.log('PASS shared public catalog refresh, request deduplication, relative sprite/border paths and failed refresh recovery');
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+testCatalogRefresh().catch(error => { console.error(error); process.exitCode = 1; });

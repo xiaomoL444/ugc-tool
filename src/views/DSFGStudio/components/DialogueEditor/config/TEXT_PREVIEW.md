@@ -25,6 +25,6 @@ Ctrl+Enter 插入下一句，Enter 在台词内换行。台词把手可在集合
 
 编辑自动保存，Ctrl+S 下载继续走原有逻辑。节点图布局坐标保持独立；新增对话、选项卡或条件分支会同步创建对应的可见节点。
 
-每个选项显示图标缩略图与可编辑的 ID，新选项默认 `100160`，已有 ID 保留。点击缩略图打开与客户端动画编辑器共用的图片资源库，支持分类、搜索 ID、选择图片及清空（ID `0`）。对话选项使用 `Public/CustomUIImage/data.json` 和其 `sprite/` 图片目录，不加载 border。文本编辑和节点图的 Select Clip 参数面板共用此控件与选项数据。
+每个选项显示图标缩略图与可编辑的 ID，新选项默认 `100160`，已有 ID 保留。点击缩略图打开与客户端动画编辑器共用的图片资源库，支持分类、搜索 ID、选择图片及清空（ID `0`）。两个编辑器共用 `Public/CustomUIImage/data.json`，其中 img 和 border 路径相对于 data.json 所在目录解析；对话选项不加载 border。打开图库时重新获取索引，也可点击“刷新”获取原址更新的数据。文本编辑和节点图的 Select Clip 参数面板共用此控件与选项数据。
 
 回归检查：`node scripts/test-dsfg-text-preview.cjs`、`node scripts/test-dsfg-text-preview-layout.cjs`、`node scripts/test-dsfg-text-editing.cjs`、`node scripts/test-dsfg-text-actions.cjs`、`node scripts/test-dsfg-text-navigation.cjs`。

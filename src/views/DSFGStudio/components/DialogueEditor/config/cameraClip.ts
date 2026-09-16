@@ -25,6 +25,10 @@ export const CAMERA_SLOT_PROPERTIES: ClipPropertyDefinition[] = [
     visibleWhen: { key: "pointType", values: ["Guid", "Entity"] } },
 ];
 
+const CAMERA_ORBIT_SLOT_PROPERTIES = CAMERA_SLOT_PROPERTIES.map(property =>
+  property.key === "vector3" ? { ...property, visibleWhen: undefined } : property,
+);
+
 /** 视点额外支持以旋转值确定目标位置，仍写入 PositionSlot.vector3。 */
 export const CAMERA_VIEWPOINT_SLOT_PROPERTIES: ClipPropertyDefinition[] = CAMERA_SLOT_PROPERTIES.map(property => {
   if (property.key === "pointType") return { ...property, options: [...(property.options ?? []), { label: "Rot（旋转）", value: "Rot" }] };
@@ -47,6 +51,7 @@ export const CAMERA_POSITION_PROPERTIES: ClipPropertyDefinition[] = [
   { key: "type", label: "相机位置类型", type: "select", defaultValue: "Fixed",
     options: ["Fixed", "Linear", "Follow", "Orbit"].map((value) => ({ label: value, value })) },
   { ...slotProperty(), defaultValue: [{}], minItems: 1, maxItems: 1,
+    propertiesWhen: { key: "type", cases: { Orbit: CAMERA_ORBIT_SLOT_PROPERTIES } },
     itemLimitsWhen: { key: "type", cases: {
       Fixed: { min: 1, max: 1 }, Follow: { min: 1, max: 1 }, Orbit: { min: 1, max: 1 }, Linear: { min: 1, max: 2 },
     } }, description: "Fixed、Follow、Orbit 使用 1 个 Slot；Linear 可使用 1～2 个。切换为单 Slot 类型时保留第一个点位。" },
