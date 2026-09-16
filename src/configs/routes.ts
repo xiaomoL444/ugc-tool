@@ -58,4 +58,11 @@ export const appRoutes: AppRoute[] = [
       
       ————无边天下第一制作提供`,
   },
+   {
+    path: "/ClientUIAnimationEditor",
+    name: "ClientUIAnimationEditor",
+    title: "客户端UI动画编辑器",
+    description:
+      `目前网页为空，等待正式服更新推送~`,
+  }
 ];
