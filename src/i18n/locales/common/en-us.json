@@ -9,5 +9,6 @@
   "app.effectPlayerTitle": "Effect Player",
   "app.effectPlayerDescription": "Browse Miliastra Wonderland effects from before version 7.0, with image, animation, and audio previews.",
   "common.copySuccess": "Copied {text}",
-  "common.copyFailed": "Copy failed: {error}"
+  "common.copyFailed": "Copy failed: {error}",
+  "common.storageUnderDevelopment": "Storage settings are still under development."
 }

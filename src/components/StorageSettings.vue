@@ -19,6 +19,7 @@
           <button type="button" :aria-label="labels.close" :disabled="syncBusy" @click="dialog?.close()">×</button>
         </div>
         <div class="storage-fields">
+        <p class="storage-development" role="status">{{ t('common.storageUnderDevelopment') }}</p>
         <p>{{ labels.description }}</p>
         <label>{{ labels.location }}
           <select v-model="draft.mode" :disabled="syncBusy || syncLocked">
@@ -78,7 +79,7 @@ const busy = ref(false);
 const failed = ref(false);
 const feedback = ref("");
 const origin = window.location.origin;
-const { locale } = useI18n({ useScope: "global" });
+const { locale, t } = useI18n({ useScope: "global" });
 const labels = computed(() => locale.value.startsWith("zh") ? {
   browser: "浏览器存档", disk: "电脑存档", settings: "存储设置", close: "关闭",
   sync: "迁移 / 双向同步存档", synced: "同步操作后已暂停编辑器读写，请刷新页面读取存档。", reload: "刷新并读取存档",
@@ -159,6 +160,7 @@ async function applySettings() {
 .storage-dialog code { overflow-wrap: anywhere; user-select: all; }
 .storage-dialog .storage-copy { padding: 2px 6px; margin-left: 6px; }
 .storage-note { padding: 12px; background: #f2f4fb; border-radius: 8px; }
+.storage-development { padding: 10px 12px; border: 1px solid #e5ba75; border-radius: 8px; background: #fff6e7; color: #7b4815; }
 .storage-change { color: #60708d; overflow-wrap: anywhere; }
 .storage-error { color: #b72c2c; }
 .storage-actions { display: flex; justify-content: flex-end; flex-shrink: 0; gap: 10px; padding: 16px 24px; border-top: 1px solid #e8eaf1; }

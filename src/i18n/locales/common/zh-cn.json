@@ -9,5 +9,6 @@
   "app.effectPlayerTitle": "特效播放器",
   "app.effectPlayerDescription": "可浏览千星奇域 7.0 版本之前的特效，预览图片、动画与音效。",
   "common.copySuccess": "{text} 复制成功",
-  "common.copyFailed": "复制失败：{error}"
+  "common.copyFailed": "复制失败：{error}",
+  "common.storageUnderDevelopment": "存储设置功能暂未开发完毕。"
 }
