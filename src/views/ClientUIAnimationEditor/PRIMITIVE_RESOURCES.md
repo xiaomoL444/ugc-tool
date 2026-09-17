@@ -73,6 +73,32 @@ TweenTimelineLib v8.1 对 localRotationX/Y/Z 使用原始数据的终值减初�
 
 旧文件的拟合结果不会自动改写，需要在图片资源面板重新生成。搜索可能跳过无改善或不合法候选，实际数量不超过设定预算。构建方法见 vendor/primitive-fitting/README.md；回归验证运行 node scripts/test-client-ui-primitive-alpha.cjs。
 
+## 拟合 SVG 编辑
+
+图片资源的拟合设置提供「导出拟合 SVG」和「导入 SVG 覆盖拟合」。导出的是独立、可编辑的矢量图元，不是内嵌位图；顺序、颜色、单图元透明度、位置及旋转保留。SVG 使用左上原点 / Y 向下，导入时转换回图片中心 / Y 向上。
+
+导出图形使用绝对坐标，颜色为小写 `#rrggbb`，透明度为 `opacity`（四位小数），旋转为 `rotate(角度 中心X 中心Y)`，不使用 `translate`。坐标、尺寸和旋转角保留两位小数（因此重新导入存在相应舍入误差），例如 `<ellipse cx="150.00" cy="150.00" rx="88.00" ry="88.00" fill="#0f766e" opacity="0.9500" transform="rotate(-0.00 150.00 150.00)" />`。原项目数据不受导出舍入影响。
+
+导入只替换当前资源的 fitData 并切到图元预览，保留资源 ID、名称、原图、拟合参数和控件引用，通过原有资源保存流程持久化及撤销。已有拟合结果时，按其画布尺寸等比居中适配 SVG viewBox；没有结果时采用 SVG 自身 viewBox / 像素宽高。与原图替换入口分开：选择本地图片仍表示替换原图并清空拟合。
+
+支持纯填充 rect、ellipse、circle、等腰三角形 polygon / M-L-H-V-Z 直线路径，以及可表示的平移、旋转、缩放和矩阵变换。支持纯色、单图元透明度及组内填充继承。曲线、描边、圆角、渐变、滤镜、蒙版、引用、组透明度混色、斜切等无法无损表达的内容会报错，不会部分覆盖。建议直接编辑本工具导出的 SVG，并保留原始图元类型。游戏素材边缘与数学矢量图形仍可能存在采样差异。
+
+SVG 最大 2 MiB、1001 个图元、画布边长 32768。只使用脱离页面的 XML 解析，不挂载 SVG；拒绝脚本、事件、外部引用和实体声明。导入失败或读取期间切换资源 / 替换原图 / 更新拟合，均不会覆盖已有结果。
+
+验证：`node scripts/test-client-ui-primitive-svg.cjs` 覆盖转换、顺序、颜色透明度、适配、拒绝不支持内容和资源持久化（Node 测试采用 AST 适配，不代替浏览器 XML 解析）。`scripts/fixtures/primitive-svg-*.svg` 用于页面实测；已验证导入、失败保留和撤销。下载事件的浏览器自动化确认仍待验证。
+
+## 拟合 CSS 导出
+
+「导出拟合 CSS」生成 `.css` 文件，采用 `/* Miliastra CSS Export */`、`.shaper-container`、`.shaper-element` 与 `.shaper-element.shaper-e0` 等选择器。容器按资源原尺寸、白色背景、裁剪溢出输出（不改写资源透明度或项目数据）；需要透明底可将导出文件的容器背景改为 `transparent`。
+
+图元使用绝对中心坐标（左上原点 / Y 向下）与 `translate(-50%, -50%) rotate(...)`；坐标、大小及角度保留两位小数，`opacity` 四位小数，颜色为小写 `#rrggbb`，`z-index` 按原图元顺序从 0 递增。椭圆使用 `border-radius: 50%`，三角形使用 `clip-path: polygon(50% 0%, 0% 100%, 100% 100%)`。
+
+CSS 本身不创建 DOM，需要配套结构，例如 `<div class="shaper-container"><div class="shaper-element shaper-e0"></div><div class="shaper-element shaper-e1"></div></div>`，为每个图元创建对应编号的子元素。
+
+「导入 CSS 覆盖拟合」读取本工具的 shaper 格式（不需要 HTML），还原图元坐标、大小、旋转、颜色及透明度。按非负整数 z-index 排序，相同层级按 shaper-e 编号排序；容器纯色背景转为底层矩形，透明底不添加，已被最底层不透明矩形完全覆盖的背景不重复添加。颜色自身 alpha 与 opacity 相乘。已有拟合时按其尺寸等比居中适配，否则使用 CSS 容器尺寸。CSS 背景矩形计入最多 1001 个图元的限制，单文件上限 2 MiB。
+
+只解析明确支持的规则，不向页面注入 CSS、不加载外部资源。未知属性/选择器、重复规则、渐变、图片、任意变换、媒体查询、负层级等会整份拒绝；与 SVG 共用读取忙碌状态及过期保护，保留原图、资源 ID 和引用，通过原资源保存/撤销流程覆盖拟合。测试：`node scripts/test-client-ui-primitive-css.cjs`。
+
 ## PSD 导入
 
 工具栏「导入 PSD」在当前工作区创建独立文件，画布采用 PSD 原始尺寸。文件夹转为容器，图层转为嵌入 PNG 的图片资源，并创建引用该资源的图元控件。保留名称、嵌套关系、叠放顺序、隐藏状态及相对位置，拟合由图片资源面板单独设置。

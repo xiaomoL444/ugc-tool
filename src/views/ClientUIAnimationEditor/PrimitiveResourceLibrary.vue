@@ -20,7 +20,7 @@
           <label>资源名称<input :key="activeAsset.id" :value="activeAsset.name" aria-label="图片资源名称" @change="rename(($event.target as HTMLInputElement).value)" /></label>
           <div ref="preview" class="resource-preview"><PrimitiveImage :image-url="activeAsset.imageUrl" :preview-mode="activeAsset.previewMode" :fit-data="activeAsset.fitData" :width="previewSize.width" :height="previewSize.height" /></div>
           <p>{{ activeAsset.fitData ? `${activeAsset.fitData.width} × ${activeAsset.fitData.height}` : '选择右侧参数并生成图元' }}</p>
-          <div class="resource-actions"><button v-if="selectable" class="primary" :disabled="batchBusy || !activeAsset.imageUrl" @click="emit('select', activeAsset.id)">用于当前图元控件</button><button :disabled="batchBusy || !!usage[activeAsset.id]" :title="usage[activeAsset.id] ? '先解除控件引用再移除资源' : '从当前文件移除，可撤销'" @click="emit('remove', activeAsset.id)">移除资源</button></div>
+          <div class="resource-actions"><button v-if="selectable" class="primary" :disabled="batchBusy || (!activeAsset.imageUrl && !activeAsset.fitData)" @click="emit('select', activeAsset.id)">用于当前图元控件</button><button :disabled="batchBusy || !!usage[activeAsset.id]" :title="usage[activeAsset.id] ? '先解除控件引用再移除资源' : '从当前文件移除，可撤销'" @click="emit('remove', activeAsset.id)">移除资源</button></div>
           <small>参数 JSON 使用资源原始尺寸，坐标相对图片中心；图元控件按自身尺寸等比显示。</small>
         </div>
         <div class="resource-settings"><p v-if="batchBusy" class="library-note">正在批量生成，可切换图片查看已完成的结果。完成或取消后可继续调整参数。</p><PrimitiveImageSettings v-else :key="activeAsset.id" :model-value="activeAsset" :name="activeAsset.name" @busy="singleBusy = $event" @update:model-value="updateActive" /></div>
