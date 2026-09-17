@@ -1,8 +1,10 @@
 import { createI18n } from "vue-i18n";
-import zhCNCommon from "./locales/zh-CN/common";
-import enUSCommon from "./locales/en-US/common";
-import zhCNEffectPlayer from "./locales/zh-CN/effectPlayer";
-import enUSEffectPlayer from "./locales/en-US/effectPlayer";
+import zhCNCommon from "./locales/common/zh-cn.json";
+import enUSCommon from "./locales/common/en-us.json";
+import zhCNEffectPlayer from "./locales/effectPlayer/zh-cn.json";
+import enUSEffectPlayer from "./locales/effectPlayer/en-us.json";
+import zhCNSoundEffectPlayer from "./locales/soundEffectPlayer/zh-cn.json";
+import enUSSoundEffectPlayer from "./locales/soundEffectPlayer/en-us.json";
 import { defaultLocale, isAppLocale, localeStorageKey, resolveInitialLocale, supportedLocales } from "./preferences";
 import type { AppLocale } from "./preferences";
 import { createOss } from "../utils/oss";
@@ -15,6 +17,7 @@ export type { AppLocale } from "./preferences";
 export function createAppI18n(locale: AppLocale = defaultLocale) {
   return createI18n({
     legacy: false,
+    flatJson: true,
     locale,
     // Empty decision chains also disable implicit regional fallback (en-US → en).
     // fallbackLocale: false only disables explicit fallback languages.
@@ -24,8 +27,8 @@ export function createAppI18n(locale: AppLocale = defaultLocale) {
     ]),
     fallbackFormat: false,
     messages: {
-      "zh-CN": { ...zhCNCommon, effectPlayer: zhCNEffectPlayer },
-      "en-US": { ...enUSCommon, effectPlayer: enUSEffectPlayer },
+      "zh-CN": { ...zhCNCommon, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer },
+      "en-US": { ...enUSCommon, ...enUSEffectPlayer, ...enUSSoundEffectPlayer },
     },
   });
 }

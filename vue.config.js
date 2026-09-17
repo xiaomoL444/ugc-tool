@@ -1,4 +1,5 @@
 const { defineConfig } = require('@vue/cli-service')
+const { createDevOssProxy } = require('./scripts/dev-oss-proxy.cjs')
 
 module.exports = defineConfig({
   transpileDependencies: true,
@@ -21,11 +22,9 @@ module.exports = defineConfig({
     },
   },
   devServer: {
-    proxy: {
-      "/ugc-tool-data": {
-        target: "https://oss.xiaomol444.xyz",
-        changeOrigin: true,
-      },
+    setupMiddlewares: (middlewares) => {
+      middlewares.unshift({ name: "oss-beta-fallback", middleware: createDevOssProxy() })
+      return middlewares
     },
     client: {
       overlay: {

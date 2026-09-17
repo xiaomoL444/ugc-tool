@@ -69,6 +69,18 @@ function mergeTree(base: MessageTree, override: MessageTree): MessageTree {
 export function parseTranslationTable(input: unknown, namespace: string, locale: string) {
   assertSegment(namespace);
   assertLocale(locale);
+  // Resource exports may contain a flat dictionary of fully qualified keys.
+  // Normalize it before using the same validation and literal-text handling.
+  const prefix = `${namespace}.`;
+  if (isRecord(input) && Object.keys(input).every((key) => key.startsWith(prefix))) {
+    input = {
+      version: 1,
+      namespace,
+      locale,
+      format: "text",
+      translations: Object.fromEntries(Object.entries(input).map(([key, value]) => [key.slice(prefix.length), value])),
+    };
+  }
   if (!isRecord(input) || input.version !== 1 || input.namespace !== namespace || !isRecord(input.translations)) {
     throw new Error(`Expected version 1 translation table for namespace ${namespace}`);
   }

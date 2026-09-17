@@ -151,8 +151,8 @@ const functionViewMap: Record<string, Component> = {
 
 <template>
   <Splitter class="dsfg-typography" style="height: 100%; width: 100%" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor">
-    <SplitterPanel :size="15">
-      <SectionLayout title="工作区选择" class="top">
+    <SplitterPanel :size="10">
+      <SectionLayout title="工作区" class="top">
         <SelectableList
           @select="ChangeWorkspace"
           @add="AddWorkspace"
@@ -162,7 +162,7 @@ const functionViewMap: Record<string, Component> = {
         />
       </SectionLayout>
     </SplitterPanel>
-    <SplitterPanel :size="85">
+    <SplitterPanel :size="90">
       <SectionLayout title="DSFG Studio">
         <component v-if="selectedWorkspaceId" ref="editorRef" :is="functionViewMap[selectedFunction]"
           :key="`${selectedWorkspaceId}:${selectedFunction}`" :editor-kind="selectedFunction"

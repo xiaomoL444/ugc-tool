@@ -1,0 +1,13 @@
+{
+  "app.language": "语言",
+  "app.navigation": "导航",
+  "app.openNavigation": "打开导航",
+  "app.testTools": "测试工具",
+  "app.onlineTools": "线上工具",
+  "app.home": "标题页",
+  "app.defaultTitle": "晓末L444的工具集",
+  "app.effectPlayerTitle": "特效播放器",
+  "app.effectPlayerDescription": "可浏览千星奇域 7.0 版本之前的特效，预览图片、动画与音效。",
+  "common.copySuccess": "{text} 复制成功",
+  "common.copyFailed": "复制失败：{error}"
+}

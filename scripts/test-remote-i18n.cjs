@@ -42,6 +42,18 @@ function validateFormat() {
   assert.equal(parsed.entries, 2);
   assert.deepEqual(parsed.messages, { names: { 2: "White Dust" }, tags: { 4: "Glow" } });
   assert.deepEqual(parse(table({})), { messages: {}, entries: 0 });
+  assert.deepEqual(parse({ "effectPlayer.data.10001": "Wind", "effectPlayer.category.1": "Environment" }), {
+    messages: { data: { 10001: "Wind" }, category: { 1: "Environment" } }, entries: 2,
+  });
+  assert.deepEqual(parse({}), { messages: {}, entries: 0 });
+  assert.deepEqual(parse({ "effectPlayer.data.1": null, "effectPlayer.data.2": "  " }), { messages: {}, entries: 0 });
+  for (const invalid of [
+    { "otherPlayer.data.1": "Wrong namespace" },
+    { "effectPlayer.data.1": "Wind", "otherPlayer.data.2": "Mixed namespaces" },
+    { "effectPlayer.data.1": 123 },
+    { "effectPlayer.data": "Parent", "effectPlayer.data.1": "Child" },
+    { "effectPlayer.__proto__.injected": "Bad" },
+  ]) assert.throws(() => parse(invalid));
   assert.equal(parse(table({ title: "Uppercase locale" }, { locale: "EN-US" })).messages.title, "Uppercase locale", "Table locale matching is case-insensitive");
   assert.equal(parse(table({ "category.自定义分类": "Custom category" })).messages.category.自定义分类, "Custom category", "Data-defined category names may contain Chinese characters");
   assert.deepEqual(parseTranslationTable(chineseTable({ "names.2": "白色烟尘" }), source.namespace, "zh-CN").messages, { names: { 2: "白色烟尘" } });
@@ -64,6 +76,22 @@ function validateFormat() {
 async function textAndMessages() {
   const literal = "Mage's @ aura {rank} | {'quoted'} \\ spark\nNext line";
   assert.equal(messageSearchText(escapeMessageText(literal)), literal);
+  const flat = setup([
+    response({ "effectPlayer.data.10001": literal, "effectPlayer.category.1": "Environment" }),
+    response({ "effectPlayer.data.10001": "风声", "effectPlayer.category.1": "环境" }),
+    response({}),
+  ]);
+  assert.equal((await flat.loader.load(source)).status, "loaded");
+  assert.equal(flat.composer.t("effectPlayer.data.10001"), literal);
+  assert.equal(flat.composer.t("effectPlayer.category.1"), "Environment");
+  await flat.loader.load(chineseSource);
+  flat.composer.locale.value = "zh-CN";
+  assert.equal(flat.composer.t("effectPlayer.data.10001"), "风声");
+  assert.equal(flat.composer.t("effectPlayer.category.1"), "环境");
+  await flat.loader.load(chineseSource);
+  assert.equal(flat.composer.t("effectPlayer.data.10001"), "effectPlayer.data.10001");
+  flat.composer.locale.value = "en-US";
+  assert.equal(flat.composer.t("effectPlayer.data.10001"), literal);
   const { composer, loader } = setup([response(table({ "names.2": literal })), response(table({
     greeting: "Hello, {name}", count: "One effect | {count} effects",
   }, { format: "message" }))]);
@@ -219,8 +247,9 @@ async function reactiveSearch() {
 }
 
 async function translatedFiltersKeepSelections() {
-  const englishMessages = require("../src/i18n/locales/en-US/effectPlayer.ts").default;
-  const chineseMessages = require("../src/i18n/locales/zh-CN/effectPlayer.ts").default;
+  const catalogs = require("../src/i18n/index.ts").createAppI18n().global;
+  const englishMessages = catalogs.getLocaleMessage("en-US").effectPlayer;
+  const chineseMessages = catalogs.getLocaleMessage("zh-CN").effectPlayer;
   const { composer, loader } = setup([
     response(table({ "category.1": "Remote element family", "category.2": "Remote custom group", "tags.1": "Remote wind" })),
     response(chineseTable({ "category.1": "远程元素类别", "category.2": "远程自定义类别", "tags.1": "远程风元素" })),

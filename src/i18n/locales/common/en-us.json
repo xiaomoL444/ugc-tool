@@ -1,0 +1,13 @@
+{
+  "app.language": "Language",
+  "app.navigation": "Navigation",
+  "app.openNavigation": "Open navigation",
+  "app.testTools": "Test tools",
+  "app.onlineTools": "Online tools",
+  "app.home": "Home",
+  "app.defaultTitle": "XiaomoL444's tools",
+  "app.effectPlayerTitle": "Effect Player",
+  "app.effectPlayerDescription": "Browse Miliastra Wonderland effects from before version 7.0, with image, animation, and audio previews.",
+  "common.copySuccess": "Copied {text}",
+  "common.copyFailed": "Copy failed: {error}"
+}
