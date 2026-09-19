@@ -13,7 +13,17 @@ require.extensions[".ts"] = (loaded, filename) => {
 };
 
 const { createAppI18n, i18n, initializeLocale, setLocale, loadOssTranslations } = require("../src/i18n/index.ts");
-const { localeStorageKey, resolveInitialLocale } = require("../src/i18n/preferences.ts");
+const { localeStorageKey, resolveInitialLocale, supportedLocales } = require("../src/i18n/preferences.ts");
+assert.deepEqual(supportedLocales.map(({ value }) => value), ["zh-CN", "zh-TW", "en-US", "ja-JP", "ru-RU"]);
+for (const language of ["zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-Hant-HK", "zh_TW"]) {
+  assert.equal(resolveInitialLocale(null, [language]), "zh-TW");
+}
+assert.equal(resolveInitialLocale(null, ["zh-Hans-TW"]), "zh-CN", "Explicit script takes priority over region");
+assert.equal(resolveInitialLocale(null, ["ja"]), "ja-JP");
+assert.equal(resolveInitialLocale(null, ["ru-RU"]), "ru-RU");
+for (const locale of ["zh-TW", "ja-JP", "ru-RU"]) {
+  assert.equal(resolveInitialLocale(locale, ["en-US"]), locale, "New saved language wins");
+}
 assert.equal(resolveInitialLocale("en-US", ["zh-CN"]), "en-US", "Saved preference wins");
 assert.equal(resolveInitialLocale(null, ["fr-FR", "en-GB"]), "en-US");
 assert.equal(resolveInitialLocale("invalid", ["zh-Hans-CN", "en-US"]), "zh-CN");
@@ -92,6 +102,11 @@ try {
   assert.doesNotThrow(() => initializeLocale());
   assert.doesNotThrow(() => setLocale("en-US"));
   assert.equal(document.documentElement.lang, "en-US", "Language switching works with storage blocked");
+  for (const locale of ["zh-TW", "ja-JP", "ru-RU"]) {
+    setLocale(locale);
+    assert.equal(i18n.global.locale.value, locale);
+    assert.equal(document.documentElement.lang, locale);
+  }
 } finally {
   for (const [key, descriptor] of Object.entries(savedDescriptors)) {
     if (descriptor) Object.defineProperty(global, key, descriptor);
@@ -107,22 +122,23 @@ async function verifyOssLanguageFiles() {
     global.fetch = async (url) => {
       requests.push(url);
       const path = new URL(url, "https://example.test").pathname;
-      assert.ok(path.endsWith("/EffectPlayer/i18n/zh-cn.json") || path.endsWith("/EffectPlayer/i18n/en-us.json"));
+      const target = supportedLocales.find(({ value }) => path.endsWith(`/EffectPlayer/i18n/${value.toLowerCase()}.json`));
+      assert.ok(target, `Unexpected language URL: ${path}`);
       const chinese = path.endsWith("/zh-cn.json");
       if (!chinese && !englishUploaded) return { status: 404, ok: false };
       return { status: 200, ok: true, json: async () => ({
-        version: 1, namespace: "effectPlayer", locale: chinese ? "zh-cn" : "en-us",
+        version: 1, namespace: "effectPlayer", locale: target.value.toLowerCase(),
         translations: { "names.2": chinese ? "白色烟尘" : "White Dust Cloud" },
       }) };
     };
     const first = await loadOssTranslations("EffectPlayer", "effectPlayer", "i18n/");
-    assert.deepEqual(first.map(({ locale, status }) => [locale, status]), [["zh-CN", "loaded"], ["en-US", "missing"]]);
+    assert.deepEqual(first.map(({ locale, status }) => [locale, status]), supportedLocales.map(({ value }) => [value, value === "zh-CN" ? "loaded" : "missing"]));
     assert.equal(i18n.global.getLocaleMessage("zh-CN").effectPlayer.names[2], "白色烟尘");
     assert.equal(i18n.global.te("effectPlayer.names.2", "en-US"), false, "A missing language file must not reuse another language");
     englishUploaded = true;
     const second = await loadOssTranslations("EffectPlayer", "effectPlayer");
     assert.ok(second.every(({ status }) => status === "loaded"));
-    assert.equal(requests.length, 4, "Each supported language is revalidated, including previously missing files");
+    assert.equal(requests.length, supportedLocales.length * 2, "Each supported language is revalidated, including previously missing files");
     assert.equal(i18n.global.getLocaleMessage("en-US").effectPlayer.names[2], "White Dust Cloud");
   } finally {
     global.fetch = originalFetch;

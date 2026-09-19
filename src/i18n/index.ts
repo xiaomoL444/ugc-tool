@@ -5,6 +5,11 @@ import zhCNEffectPlayer from "./locales/effectPlayer/zh-cn.json";
 import enUSEffectPlayer from "./locales/effectPlayer/en-us.json";
 import zhCNSoundEffectPlayer from "./locales/soundEffectPlayer/zh-cn.json";
 import enUSSoundEffectPlayer from "./locales/soundEffectPlayer/en-us.json";
+import zhCNHomePage from "./locales/homePage/zh-cn.json";
+import enUSHomePage from "./locales/homePage/en-us.json";
+import zhTWHomePage from "./locales/homePage/zh-tw.json";
+import jaJPHomePage from "./locales/homePage/ja-jp.json";
+import ruRUHomePage from "./locales/homePage/ru-ru.json";
 import { defaultLocale, isAppLocale, localeStorageKey, resolveInitialLocale, supportedLocales } from "./preferences";
 import type { AppLocale } from "./preferences";
 import { createOss } from "../utils/oss";
@@ -27,8 +32,12 @@ export function createAppI18n(locale: AppLocale = defaultLocale) {
     ]),
     fallbackFormat: false,
     messages: {
-      "zh-CN": { ...zhCNCommon, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer },
-      "en-US": { ...enUSCommon, ...enUSEffectPlayer, ...enUSSoundEffectPlayer },
+      "zh-CN": { ...zhCNCommon, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer, ...zhCNHomePage },
+      "en-US": { ...enUSCommon, ...enUSEffectPlayer, ...enUSSoundEffectPlayer, ...enUSHomePage },
+      // Other modules' catalogs for these languages are still pending.
+      "zh-TW": { ...zhTWHomePage },
+      "ja-JP": { ...jaJPHomePage },
+      "ru-RU": { ...ruRUHomePage },
     },
   });
 }

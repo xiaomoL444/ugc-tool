@@ -4,6 +4,7 @@ import { onMounted, ref } from "vue";
 import { AppRoute, appRoutes } from "@/configs/routes";
 import axios from "axios";
 import { useI18n } from "vue-i18n";
+import { contactLinks } from "@/configs/contactLinks";
 
 const { t } = useI18n({ useScope: "global" });
 
@@ -14,6 +15,7 @@ function jumpAddress(item: AppRoute) {
 
 <template>
   <div
+    class="home-page"
     style="
       padding-top: 30px;
       display: flex;
@@ -108,11 +110,90 @@ function jumpAddress(item: AppRoute) {
         </PanelLayout>
       </div>
     </div>
-    <!-- <div class="bottom-line">发现这个头像有点欲迎还拒的感觉，很可爱</div> -->
+    <section v-if="contactLinks.length" class="contact-section" aria-labelledby="contact-title">
+      <h2 id="contact-title">{{ t('homePage.ui.contactTitle') }}</h2>
+      <div class="contact-links">
+        <a v-for="contact in contactLinks" :key="contact.href" class="contact-badge"
+          :href="contact.href" target="_blank" rel="noopener noreferrer"
+          :aria-label="`${contact.platform}: ${contact.label}`">
+          <span class="contact-platform">
+            <img :src="contact.image" alt="" width="16" height="16" loading="lazy" />
+            {{ contact.platform }}
+          </span>
+          <span class="contact-label" :style="{ backgroundColor: contact.color }">{{ contact.label }}</span>
+        </a>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
+.home-page {
+  box-sizing: border-box;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.home-page::-webkit-scrollbar {
+  display: none;
+}
+.contact-section {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: min(1140px, 100%);
+  margin: 32px auto;
+  padding: 0 20px;
+}
+.contact-section h2 {
+  text-align: center;
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #6a5acd30;
+  font-size: 1.4rem;
+}
+.contact-links {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.contact-badge {
+  display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 4px;
+  color: #fff;
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 1px 2px #0002;
+  transition: filter 0.15s;
+}
+.contact-badge:hover {
+  filter: brightness(1.1);
+}
+.contact-badge:focus-visible {
+  outline: 3px solid #6a5acd;
+  outline-offset: 3px;
+}
+.contact-platform,
+.contact-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+}
+.contact-platform {
+  flex-shrink: 0;
+  background: #555;
+}
+.contact-platform img {
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.contact-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .Grid {
   position: relative;
   width: 100%;

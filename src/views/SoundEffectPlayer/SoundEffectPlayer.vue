@@ -27,7 +27,7 @@
                 </button>
               </div>
 
-              <VVirtualList v-if="libraryRows.length" ref="libraryListRef" :items="libraryRows" :item-size="105"
+              <VVirtualList v-if="libraryRows.length" ref="libraryListRef" :items="libraryRows" :item-size="72"
                 :padding-top="10" class="sound-virtual-list">
                 <template #default="{ item }: { item: SoundRow }">
                   <div class="sound-row" :class="[
@@ -35,7 +35,7 @@
                     { 'group-first': item.isFirst, 'group-last': item.isLast },
                   ]">
                     <span v-if="item.isFirst" class="sound-group-label">{{ categoryName(item.category) }}</span>
-                    <ListButton v-for="id in item.data" :key="id" :is-selected="id == selectedId"
+                    <ListButton v-for="id in item.data" :key="id" class="sound-card" :is-selected="id == selectedId"
                       v-on:update:selected="SelectSound(id)">
                       <div class="item">
                         <div class="title">
@@ -120,9 +120,14 @@
 @import "./styles/iosCheckBoc.css";
 
 .item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   text-align: left;
   width: 100%;
-  margin: 10px 6px;
+  min-width: 0;
+  margin: 0 6px;
 }
 
 .search-bar {
@@ -242,10 +247,10 @@
   --category-background: rgba(106, 90, 205, 0.04);
   box-sizing: border-box;
   position: relative;
-  display: flex;
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
-  height: 105px;
+  height: 72px;
   padding: 0 5px 5px;
   border-right: 2px solid var(--category-color);
   border-left: 2px solid var(--category-color);
@@ -329,23 +334,29 @@
 }
 
 .item .title {
+  width: 100%;
+  min-width: 0;
   font-size: 1.2rem;
+  line-height: 1.2;
+}
+
+.sound-card {
+  min-width: 0;
 }
 
 .item .subtitle {
-  width: 10rem;
-  word-wrap: break-word;
-  /* 老方法 */
-  overflow-wrap: break-word;
-  /* 新方法 */
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 
   border-radius: 10px;
   border: 1px solid #cdcdcd;
 
-  padding: 10px;
-  margin-top: 0.5rem;
+  padding: 3px 8px;
 
   font-size: 0.8rem;
+  line-height: 1.2;
 
   display: flex;
   background-color: #f0f1f5cc;
@@ -401,7 +412,7 @@ const interval = ref(0);
 
 const expandedCategories = ref<string[]>([]);
 const libraryListRef = ref<VVirtualListInst | null>(null);
-const itemsPerRow = 4;
+const itemsPerRow = 3;
 
 interface SoundRow {
   key: string;
