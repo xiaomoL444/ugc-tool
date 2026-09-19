@@ -22,7 +22,7 @@ export const contactLinks: ContactLink[] = [
   },
   {
     platform: "Discord",
-    label: "xiamol444 · Replies may be slow",
+    label: "xiaomoL444 · Replies may be slow",
     href: "https://discord.com/users/437418965531099136",
     image: discordIcon,
     color: "#4752c4",
