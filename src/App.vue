@@ -10,17 +10,7 @@
       </div>
     </PanelLayout>
     <StorageSettings />
-    <label class="language-switch">
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" />
-        <ellipse cx="12" cy="12" rx="4" ry="9" />
-        <path d="M3 12h18" />
-      </svg>
-      <select :value="locale" :aria-label="t('app.language')" @change="changeLanguage">
-        <option v-for="language in supportedLocales" :key="language.value" :value="language.value"
-          :lang="language.value">{{ language.label }}</option>
-      </select>
-    </label>
+    <LanguageSwitcher />
   </div>
   <main class="background">
     <div class="content">
@@ -136,42 +126,6 @@ nav a.router-link-exact-active {
   flex-shrink: 0;
 }
 
-.language-switch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  padding: 0 10px;
-  height: 42px;
-  border: 1px solid rgba(106, 90, 205, 0.25);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.75);
-  color: #35476b;
-}
-
-.language-switch svg {
-  width: 19px;
-  height: 19px;
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-
-.language-switch select {
-  max-width: 115px;
-  padding: 6px 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.language-switch:focus-within {
-  outline: 2px solid #0ea2e5;
-  outline-offset: 2px;
-}
-
 @media (max-width: 480px) {
   .topbar {
     gap: 6px;
@@ -189,14 +143,6 @@ nav a.router-link-exact-active {
     font-size: 1.05rem;
   }
 
-  .language-switch {
-    padding: 0 6px;
-    gap: 4px;
-  }
-
-  .language-switch select {
-    font-size: 0.8rem;
-  }
 }
 
 .background {
@@ -309,7 +255,7 @@ nav a.router-link-exact-active {
 import { useRoute } from 'vue-router'
 import { computed, onErrorCaptured, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { isAppLocale, setLocale, supportedLocales } from './i18n'
+import LanguageSwitcher from './components/LanguageSwitcher.vue'
 import { Toaster, toast } from 'vue-sonner'
 import 'vue-sonner/style.css'
 import PanelLayout from './components/Layout/PanelLayout.vue'
@@ -325,17 +271,12 @@ onErrorCaptured((error) => {
     return false
   }
 })
-const { t, locale } = useI18n({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const pageTitle = computed(() => typeof route.meta.titleKey === 'string'
   ? t(route.meta.titleKey)
   : String(route.meta.title || t('app.defaultTitle')))
 
 watch(pageTitle, (title) => { document.title = title }, { immediate: true })
-
-function changeLanguage(event: Event) {
-  const value = (event.target as HTMLSelectElement).value
-  if (isAppLocale(value)) setLocale(value)
-}
 
 const isLocal = process.env.NODE_ENV === "development"
 
