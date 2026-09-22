@@ -21,7 +21,7 @@
       <ScrubbableNumberInput v-else-if="field.kind === 'number'" :aria-label="field.label" :model-value="numberValue(modelValue[field.key])" :animated="isAnimated(field)" :min="field.min" :max="field.max" :step="field.step ?? 1" :allow-empty="!isAnimated(field)" placeholder="未设置" @update:model-value="updateNumber(field.key, $event)" />
       <label v-else-if="field.kind === 'boolean'" class="boolean-control"><input :aria-label="field.label" :checked="booleanValue(field.key)" type="checkbox" role="switch" @change="updateField(field.key, ($event.target as HTMLInputElement).checked)" /><i></i><span>{{ booleanValue(field.key) ? '开启' : '关闭' }}</span></label>
       <select v-else-if="field.kind === 'nullableBoolean'" :aria-label="field.label" :value="nullableBooleanValue(modelValue[field.key])" @change="updateNullableBoolean(field.key, $event)"><option value="">未设置</option><option value="true">true</option><option value="false">false</option></select>
-      <select v-else-if="field.kind === 'select'" :aria-label="field.label" :value="field.key === 'softEdgeMode' ? modelValue.softEdgeMode === 'percentage' ? 'percentage' : 'pixel' : stringValue(modelValue[field.key])" @change="updateSelect(field.key, $event)"><option v-if="field.key !== 'softEdgeMode'" value="">未设置</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
+      <select v-else-if="field.kind === 'select'" :aria-label="field.label" :value="selectValue(field)" @change="updateSelect(field.key, $event)"><option v-if="definition.type !== 'image'" value="">未设置</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
       </slot>
     </div>
     </div>
@@ -56,7 +56,18 @@ function updateNumber(key: string, value: number | null) {
   updateField(key, value);
 }
 function updateNullableBoolean(key: string, event: Event) { const raw = (event.target as HTMLSelectElement).value; updateField(key, raw === "" ? null : raw === "true"); }
-function updateSelect(key: string, event: Event) { const raw = (event.target as HTMLSelectElement).value; updateField(key, raw === "" ? null : raw); }
+function selectValue(field: ControlPropertyField) {
+  const value = stringValue(props.modelValue[field.key]);
+  return props.definition.type === 'image' && !field.options?.some(option => option.value === value) ? field.options?.[0]?.value ?? '' : value;
+}
+function updateSelect(key: string, event: Event) {
+  const raw = (event.target as HTMLSelectElement).value;
+  if (props.definition.type === 'image') {
+    const field = visibleFields.value.find(field => field.key === key);
+    if (!field?.options?.some(option => option.value === raw)) return;
+  }
+  updateField(key, raw === "" ? null : raw);
+}
 function stringValue(value: unknown) { return typeof value === "string" ? value : ""; }
 function numberValue(value: unknown) { return typeof value === "number" && Number.isFinite(value) ? value : ""; }
 function nullableBooleanValue(value: unknown) { return value === true ? "true" : value === false ? "false" : ""; }

@@ -27,6 +27,9 @@ assert.match(combined.maskImage,/conic-gradient/);
 assert.deepEqual(imageFeatherPreview({enableMask:false,fillType:'horizontal',fillAmount:0.5},100,100),{});
 assert.match(imageFeatherPreview({enableMask:true,enableSoftEdge:false,fillType:'horizontal',fillAmount:0.5},100,100).maskImage,/#000 50%/);
 assert.equal(controlRegistry.image.createProperties().softEdgeMode,'pixel');
+for (const field of controlRegistry.image.fields.filter(field=>field.kind==='select' && (field.key==='softEdgeMode' || field.key.startsWith('fill')))) {
+  assert.equal(controlRegistry.image.createProperties()[field.key],field.options[0].value);
+}
 assert.ok(imageMaskFields(controlRegistry.image.fields,{enableMask:true,enableSoftEdge:true,softEdgeMode:null}).some(f=>f.key==='softEdgeWidthX'));
 const pixel = {enableMask:true,enableSoftEdge:true,softEdgeMode:'pixel',softEdgeWidthY:0};
 assert.match(imageFeatherPreview({...pixel,softEdgeWidthX:100},100,100).maskImage,/rgba\(0,0,0,0.5\)/);

@@ -429,7 +429,12 @@ function makeNode(type: ControlType, name: string, overrides: NodeOverrides<Cont
   const node = { id: createId(), parentId: null, name, type, active: true, x: DEFAULT_CANVAS_WIDTH / 2, y: DEFAULT_CANVAS_HEIGHT / 2, width: defaultWidth, height: defaultHeight, scaleX: 1, scaleY: 1, scaleZ: 1, rotationX: 0, rotationY: 0, rotation: 0, anchorMinX: 0.5, anchorMinY: 0.5, anchorMaxX: 0.5, anchorMaxY: 0.5, pivotX: 0.5, pivotY: 0.5, anchorOffsetX: 0, anchorOffsetY: 0, sizeDeltaX: defaultWidth, sizeDeltaY: defaultHeight, canControllerFocus: false, visible: true, locked: false, properties: { ...createControlProperties(type), ...propertyOverrides }, ...baseOverrides } as UINode;
   if (type === "container") node.editor = { directionArrowLength: normalizeDirectionArrowLength(editorOverrides?.directionArrowLength) };
   if (node.type === "primitive") node.properties = normalizePrimitiveProperties(node.properties);
-  if (node.type === "image" && node.properties.softEdgeMode !== "percentage") node.properties.softEdgeMode = "pixel";
+  if (node.type === "image") {
+    const properties = node.properties as unknown as Record<string, unknown>;
+    for (const field of controlRegistry.image.fields.filter(field => field.kind === 'select' && (field.key === 'softEdgeMode' || field.key.startsWith('fill')))) {
+      if (!field.options?.some(option => option.value === properties[field.key])) properties[field.key] = field.options?.[0]?.value;
+    }
+  }
   const anchorRefX = ((1 - node.pivotX) * node.anchorMinX + node.pivotX * node.anchorMaxX) * DEFAULT_CANVAS_WIDTH;
   const anchorRefY = ((1 - node.pivotY) * node.anchorMinY + node.pivotY * node.anchorMaxY) * DEFAULT_CANVAS_HEIGHT;
   if (!Number.isFinite(overrides.anchorOffsetX)) node.anchorOffsetX = node.x - anchorRefX;

@@ -75,14 +75,14 @@ export const controlRegistry: { [T in ControlType]: ControlDefinition<T> } = {
     fields: [
       select("imageSource", "图片来源", [option("staticReference", "静态引用"), option("item", "道具"), option("equipment", "装备"), option("skill", "技能"), option("unitStatus", "单位状态"), option("faction", "阵营"), option("currency", "货币"), option("prefab", "元件")], { runtimeReadOnly: true }),
       number("imageId", "图片 ID", { step: 1, runtimeReadOnly: true }), colorField("imageColor", "图片颜色"), select("imageType", "图片类型", [option("basic", "基础"), option("stretch", "拉伸")]),
-      boolean("enableMask", "启用遮罩"), boolean("enableSoftEdge", "启用边缘羽化"), select("softEdgeMode", "羽化模式", [option("percentage", "按比例"), option("pixel", "按像素")]),
+      boolean("enableMask", "启用遮罩"), boolean("enableSoftEdge", "启用边缘羽化"), select("softEdgeMode", "羽化模式", [option("pixel", "按像素"), option("percentage", "按比例")]),
       number("softEdgeWidthX", "水平羽化宽度", { min: 0, tweenable: true }), number("softEdgeWidthY", "垂直羽化宽度", { min: 0, tweenable: true }), number("horizontalSoftRange", "水平羽化范围", { min: 0, max: 100, step: 0.01, tweenable: true }), number("verticalSoftRange", "垂直羽化范围", { min: 0, max: 100, step: 0.01, tweenable: true }),
       boolean("reverseMaskArea", "反转遮罩区域"), select("fillType", "填充方式", [option("unused", "不使用"), option("horizontal", "水平"), option("vertical", "垂直"), option("radial90", "90° 环绕"), option("radial180", "180° 环绕"), option("radial360", "360° 环绕")]),
-      select("fillHorizontalType", "水平填充方向", [option("left", "从左"), option("right", "从右")]), select("fillVerticalType", "垂直填充方向", [option("bottom", "从底部"), option("top", "从顶部")]),
+      select("fillHorizontalType", "水平填充方向", [option("left", "从左"), option("right", "从右")]), select("fillVerticalType", "垂直填充方向", [option("top", "从顶部"), option("bottom", "从底部")]),
       select("fillRadial90Type", "90° 径向起点", [option("bottomLeft", "左下"), option("topLeft", "左上"), option("topRight", "右上"), option("bottomRight", "右下")]), select("fillRadialType", "径向起点", [option("bottom", "底部"), option("left", "左侧"), option("top", "顶部"), option("right", "右侧")]),
       number("fillAmount", "填充量", { min: 0, max: 1, step: 0.01, tweenable: true }),
     ],
-    createProperties: () => ({ imageSource: "staticReference", imageId: 100001, imageColor: color("#ffffff"), imageType: "basic", enableMask: false, enableSoftEdge: false, softEdgeMode: "pixel", softEdgeWidthX: null, softEdgeWidthY: null, horizontalSoftRange: null, verticalSoftRange: null, reverseMaskArea: false, fillType: "unused", fillHorizontalType: null, fillVerticalType: null, fillRadial90Type: null, fillRadialType: null, fillAmount: null }),
+    createProperties: () => ({ imageSource: "staticReference", imageId: 100001, imageColor: color("#ffffff"), imageType: "basic", enableMask: false, enableSoftEdge: false, softEdgeMode: "pixel", softEdgeWidthX: null, softEdgeWidthY: null, horizontalSoftRange: null, verticalSoftRange: null, reverseMaskArea: false, fillType: "unused", fillHorizontalType: "left", fillVerticalType: "top", fillRadial90Type: "bottomLeft", fillRadialType: "bottom", fillAmount: null }),
   },
   text: {
     type: "text", label: "文本框", icon: "T", description: "显示普通文本", runtimeClass: "ClientUITextBoxControl", defaultName: "TextBox", defaultWidth: 360, defaultHeight: 90, fields: textFields,
