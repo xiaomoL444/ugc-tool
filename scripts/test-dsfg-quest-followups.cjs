@@ -334,7 +334,8 @@ test("Template binds input to immediate updates and change to explicit validatio
 });
 
 test("Template enforces the add limit and supports Enter with its default action prevented", () => {
-  const section = findElements(descriptor.template.ast, (node) => attr(node, "class") === "next-quest-add")[0];
+  const section = findElements(descriptor.template.ast, (node) => attr(node, "class") === "next-quest-add")
+    .find(node => findElements(node, child => child.tag === "input").length);
   assert.ok(section);
   const controls = findElements(section, (node) => node.tag === "input" || node.tag === "button");
   assert.equal(controls.length, 2);

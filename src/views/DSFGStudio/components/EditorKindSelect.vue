@@ -1,9 +1,9 @@
 <script setup lang="ts">
-const props = defineProps<{ modelValue: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" }>();
-const emit = defineEmits<{ "update:modelValue": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets"] }>();
+const props = defineProps<{ modelValue: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>();
+const emit = defineEmits<{ "update:modelValue": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
 function change(event: Event) {
   const value = (event.target as HTMLSelectElement).value;
-  if (value === "Dialogue" || value === "Quest" || value === "WalkTalk" || value === "EntityPresets") emit("update:modelValue", value);
+  if (value === "Dialogue" || value === "Quest" || value === "WalkTalk" || value === "EntityPresets" || value === "Scene") emit("update:modelValue", value);
   // 切换可能需要等待保存；以父组件确认后的状态为准。
   (event.target as HTMLSelectElement).value = props.modelValue;
 }
@@ -16,7 +16,8 @@ function change(event: Event) {
       <option value="Dialogue">对话</option>
       <option value="Quest">任务</option>
       <option value="WalkTalk">边走边说</option>
-      <option value="EntityPresets">预设实体</option>
+      <option value="Scene">场景</option>
+      <option value="EntityPresets">预设设置</option>
     </select>
   </label>
 </template>

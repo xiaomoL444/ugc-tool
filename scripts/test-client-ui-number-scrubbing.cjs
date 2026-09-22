@@ -60,7 +60,19 @@ async function main() {
   let passed = 0;
   async function test(name, run) { const api = fixture(); try { await run(api); passed++; console.log(`PASS ${name}`); } finally { api.close(); } }
 
+  await test("Default dragging never enters pointer lock or consumes coordinate-reset mouse movements", api => {
+    assert.equal(api.props.pointerLock, false);
+    api.startScrub(event("pointerdown"));
+    api.dispatch("pointermove", {clientX:1004});
+    assert.equal(api.lockRequests, 0); assert.equal(api.props.modelValue, 4);
+    api.dispatch("mousemove", {movementX:0});
+    api.dispatch("mousemove", {movementX:800});
+    assert.equal(api.props.modelValue, 4);
+    api.dispatch("pointermove", {clientX:1007}); assert.equal(api.props.modelValue,7);
+    api.dispatch("pointerup"); assert.deepEqual(api.changes,[7]);
+  });
   await test("Pointer-lock handover never adds the browser's coordinate-reset jump to the starting value", api => {
+    api.props.pointerLock = true;
     api.startScrub(event("pointerdown"));
     api.dispatch("pointermove", { clientX: 1004 });
     assert.equal(api.props.modelValue, 4); assert.equal(api.lockRequests, 1);
@@ -75,6 +87,7 @@ async function main() {
   });
 
   await test("Established locked dragging retains negative values, large movements, and precision/acceleration modifiers", api => {
+    api.props.pointerLock = true;
     api.startScrub(event("pointerdown")); api.dispatch("pointermove", { clientX: 1004 });
     api.lock(); api.dispatch("mousemove", { movementX: 0 });
     api.dispatch("mousemove", { movementX: 10, shiftKey: true }); assert.equal(api.props.modelValue, 5);
@@ -98,6 +111,7 @@ async function main() {
   });
 
   await test("A lock granted after pointer release is released without changing the value", async api => {
+    api.props.pointerLock = true;
     api.startScrub(event("pointerdown")); api.dispatch("pointermove", { clientX: 1004 }); api.dispatch("pointerup");
     api.lock(); await Promise.resolve(); await Promise.resolve();
     assert.equal(api.document.pointerLockElement, null);
@@ -105,6 +119,7 @@ async function main() {
   });
 
   await test("Lost mouseup is recovered on the next locked movement without applying its delta", api => {
+    api.props.pointerLock = true;
     api.startScrub(event("pointerdown")); api.dispatch("pointermove", { clientX: 1004 }); api.lock();
     api.dispatch("mousemove", { movementX: 0 }); api.dispatch("mousemove", { movementX: 10, buttons: 0 });
     assert.equal(api.props.modelValue, 4); assert.equal(api.scrubbing.value, false); assert.equal(api.document.pointerLockElement, null);

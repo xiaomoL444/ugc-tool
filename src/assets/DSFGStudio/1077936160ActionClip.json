@@ -36,6 +36,42 @@
             "value" : [ 
             ]
          }
+      }, 
+      { 
+         "key" : "guidParams", 
+         "param_type" : "GuidList", 
+         "value" : { 
+            "param_type" : "GuidList", 
+            "value" : [ 
+            ]
+         }
+      }, 
+      { 
+         "key" : "configParams", 
+         "param_type" : "ConfigReferenceList", 
+         "value" : { 
+            "param_type" : "ConfigReferenceList", 
+            "value" : [ 
+            ]
+         }
+      }, 
+      { 
+         "key" : "prefabParams", 
+         "param_type" : "EntityReferenceList", 
+         "value" : { 
+            "param_type" : "EntityReferenceList", 
+            "value" : [ 
+            ]
+         }
+      }, 
+      { 
+         "key" : "floatParams", 
+         "param_type" : "FloatList", 
+         "value" : { 
+            "param_type" : "FloatList", 
+            "value" : [ 
+            ]
+         }
       }
    ]
 }

@@ -25,11 +25,11 @@ const items = ref([
 const sourceTags = { 4: "冰元素", 39: "受击", 2: "火元素", 23: "护盾", 999: "新标签原文" };
 const messages = {
   "zh-CN": { effectPlayer: {
-    names: { 10001: "冰霜冲击", 20002: "烈焰护盾" },
+    data: { 10001: "冰霜冲击", 20002: "烈焰护盾" },
     tags: { 4: "冰元素", 39: "受击", 2: "火元素", 23: "护盾" },
   } },
   "en-US": { effectPlayer: {
-    names: { 10001: "Frost Impact", 20002: "Flame Shield" },
+    data: { 10001: "Frost Impact", 20002: "Flame Shield" },
     tags: { 4: "Cryo", 39: "Hit", 2: "Pyro", 23: "Shield" },
   } },
 };
@@ -59,7 +59,7 @@ for (const locale of ["zh-CN", "en-US", "zh-CN"]) {
   assert.deepEqual(search(" "), ["10001", "20002", "30003"]);
 }
 assert.equal(builds, 1, "Typing and display language changes do not rebuild the index");
-i18n.global.setLocaleMessage("fr-FR", { effectPlayer: { names: { 10001: "Impact de givre" } } });
+i18n.global.setLocaleMessage("fr-FR", { effectPlayer: { data: { 10001: "Impact de givre" } } });
 assert.deepEqual(search("givre"), ["10001"], "Newly loaded locales are indexed automatically");
 assert.equal(builds, 2);
 items.value.push({ id: "40004", title: "新增原始特效", tagList: [] });
@@ -80,8 +80,8 @@ for (const [id, text] of index.value) {
     assert.ok(migratedIndex.get(id).includes(term), `Migrated data retains search term ${term}`);
   }
 }
-assert.equal(effectNameKey(items.value[0]), "effectPlayer.names.10001");
-assert.equal(effectNameKey(migratedItems[0]), "effectPlayer.names.10001");
+assert.equal(effectNameKey(items.value[0]), "effectPlayer.data.10001");
+assert.equal(effectNameKey(migratedItems[0]), "effectPlayer.data.10001");
 assert.equal(effectTagKey(4, "冰元素"), "effectPlayer.tags.4");
 assert.equal(effectTagKey(4, tagKeys[4]), "effectPlayer.tags.4");
 
@@ -91,9 +91,9 @@ const customItem = {
   sourceTitle: "白色烟尘", sourceName: "DustSource", tagList: [7],
 };
 const customMessages = {
-  "zh-CN": { effectPlayer: { names: { custom: "白色烟尘" }, aliases: { internal: "别名" },
+  "zh-CN": { effectPlayer: { data: { custom: "白色烟尘" }, aliases: { internal: "别名" },
     tags: { custom: "烟雾" }, category: { 属性: "属性" } } },
-  "en-US": { effectPlayer: { names: { custom: "Dust Cloud", 5: "Unrelated ID entry" }, aliases: { internal: "Dust Alias" },
+  "en-US": { effectPlayer: { data: { custom: "Dust Cloud", 5: "Unrelated ID entry" }, aliases: { internal: "Dust Alias" },
     tags: { custom: "Smoke", 7: "Unrelated tag entry" }, category: { 属性: "Attribute" } } },
 };
 const customI18n = createI18n({ legacy: false, locale: "en-US", fallbackLocale: false, messages: customMessages });
@@ -105,4 +105,16 @@ for (const term of ["dust cloud", "dust alias", "smoke", "白色烟尘", "dustso
   assert.ok(customIndex.includes(term), `Actual resource keys and original text are searchable: ${term}`);
 }
 assert.ok(!customIndex.includes("unrelated"), "Searching follows the data's actual key instead of stale ID-derived translations");
+// Standard nameI18nKey takes priority, including when old index fields remain.
+const standardItem = { ...customItem, nameI18nKey: "effectPlayer.data.canonical" };
+assert.equal(effectNameKey(standardItem), "effectPlayer.data.canonical");
+assert.equal(effectNameKey({ id: "8", name: "effectPlayer.names.8" }), "effectPlayer.data.8");
+const standardIndex = buildEffectSearchIndex([standardItem], {}, [
+  { effectPlayer: { data: { canonical: "標準名" } } },
+  { effectPlayer: { data: { canonical: "標準エフェクト" } } },
+  { effectPlayer: { data: { canonical: "Стандартный эффект" } } },
+]);
+for (const term of ["標準名", "標準エフェクト", "стандартный эффект"]) {
+  assert.ok(standardIndex.get("5").includes(term), "Standard names in every loaded language are searchable");
+}
 console.log("PASS multilingual effect search, legacy/keyed data, custom resource keys, source names/tags, IDs, and reactive index updates");

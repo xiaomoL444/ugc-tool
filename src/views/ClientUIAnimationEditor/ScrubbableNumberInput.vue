@@ -32,6 +32,8 @@ const props = withDefaults(defineProps<{
   max?: number;
   step?: number;
   scrubSpeed?: number;
+  /** 显式启用才锁定鼠标；默认避免浏览器切换坐标时的起拖跳值。 */
+  pointerLock?: boolean;
   disabled?: boolean;
   allowEmpty?: boolean;
   /** 仅影响显示；是否写入关键帧由父级编辑器决定。 */
@@ -39,6 +41,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   modelValue: "",
   step: 1,
+  pointerLock: false,
   disabled: false,
   allowEmpty: false,
   animated: false,
@@ -60,9 +63,9 @@ watch(() => props.modelValue, (value) => {
   if (!editing.value && !scrubbing.value) draft.value = formatValue(value);
 });
 
-function formatValue(value: number | string | null | undefined) {
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return value;
+function formatValue(value: number | string | null | undefined, precise = false) {
+  if (typeof value === "number" && Number.isFinite(value)) return precise ? String(value) : String(Number(value.toFixed(3)));
+  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return precise ? value : String(Number(Number(value).toFixed(3)));
   return "";
 }
 
@@ -91,7 +94,7 @@ function beginEditing() {
   if (props.disabled) return;
   stopScrub?.();
   editing.value = true;
-  draft.value = formatValue(props.modelValue);
+  draft.value = formatValue(props.modelValue, true);
   nextTick(() => {
     inputElement.value?.focus();
     inputElement.value?.select();
@@ -107,7 +110,7 @@ function finishEditing() {
   } else {
     const parsed = Number(raw);
     const value = Number.isFinite(parsed) ? clampValue(parsed) : numericValue();
-    draft.value = String(value);
+    draft.value = formatValue(value);
     emit("update:modelValue", value);
     emit("change", value);
   }
@@ -175,7 +178,7 @@ function startScrub(event: PointerEvent) {
     accumulated = result.accumulated;
     if (result.value === lastValue) return;
     lastValue = result.value;
-    draft.value = String(lastValue);
+    draft.value = formatValue(lastValue);
     emit("update:modelValue", lastValue);
   };
 
@@ -194,6 +197,7 @@ function startScrub(event: PointerEvent) {
   };
 
   const lockPointer = () => {
+    if (!props.pointerLock) return;
     if (event.pointerType !== "mouse" || !element.requestPointerLock || document.pointerLockElement || pointerLockRequest) return;
     try {
       pointerLockRequest = requestInputPointerLock(element)

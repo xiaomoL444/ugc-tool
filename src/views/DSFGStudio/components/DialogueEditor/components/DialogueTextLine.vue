@@ -1,22 +1,24 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 import type { TextPreviewLine } from "../utils/dialogueTextPreview";
 import type { DialogueTextEdit, DialogueTextField } from "../utils/dialogueTextEditing";
+import { normalizeDialogueInput, sanitizeDialogueInput, preventDialogueLineBreak } from "../utils/dialogueTextInput";
 import { getDialogueStyles } from "../config/dialogueStyleRegistry";
-const props = defineProps<{ line: TextPreviewLine; index: number; canMoveUp: boolean; canMoveDown: boolean; movable: boolean; repeatSpeaker?: boolean }>();
+const props = defineProps<{ line: TextPreviewLine; speakerAlias?: string; index: number; canMoveUp: boolean; canMoveDown: boolean; movable: boolean; repeatSpeaker?: boolean }>();
+const avatarLabel = computed(() => props.speakerAlias || props.line.speaker.trim().slice(0, 1) || "旁");
 const emit = defineEmits<{
   edit: [edit: DialogueTextEdit]; move: [direction: number]; insert: []; configure: []; addDialogue: []; remove: [];
 }>();
 const field = (name: DialogueTextField) => computed({
   get: () => props.line[name],
-  set: (value: string) => emit("edit", { nodeId: props.line.nodeId, field: name, value }),
+  set: (value: string) => emit("edit", { nodeId: props.line.nodeId, field: name, value: name === "content" ? normalizeDialogueInput(value) : value }),
 });
 const speaker = field("speaker");
 const subtitle = field("subtitle");
 const content = field("content");
 const style = field("style");
-const dialogueStyles = getDialogueStyles();
-const knownStyle = computed(() => dialogueStyles.some((item) => item.id === style.value));
+const dialogueStyles = inject<Ref<ReturnType<typeof getDialogueStyles>>>("dialogueStyleOptions", computed(() => getDialogueStyles()));
+const knownStyle = computed(() => dialogueStyles.value.some((item) => item.id === style.value));
 const textarea = ref<HTMLTextAreaElement>();
 function resize() {
   if (!textarea.value) return;
@@ -38,6 +40,7 @@ watch(() => props.line.content, () => nextTick(resize));
 const hue = computed(() => [...props.line.speaker].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) % 360, 210));
 function keydown(event: KeyboardEvent) {
   if (event.isComposing || event.keyCode === 229) return;
+  if (event.key === "Enter" && (event.target as HTMLElement)?.tagName === "TEXTAREA") event.preventDefault();
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); emit("insert"); }
   if (event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) {
     event.preventDefault();
@@ -55,15 +58,15 @@ function keydown(event: KeyboardEvent) {
     <div class="line-body">
       <template v-if="line.hasDialogue">
         <div class="line-identity">
-          <span class="speaker-avatar" aria-hidden="true">{{ line.speaker.trim().slice(0, 1) || '旁' }}</span>
+          <span class="speaker-avatar" :class="{ 'has-alias': speakerAlias }" :title="avatarLabel">{{ avatarLabel }}</span>
           <input v-model="speaker" class="speaker-input" aria-label="说话人" placeholder="旁白 / 说话人" />
           <input v-model="subtitle" class="subtitle-input" aria-label="副标题 Subtitle" title="副标题（Subtitle）" placeholder="副标题（可选）" />
           <select v-model="style" class="style-input" aria-label="对话样式" :title="`对话样式：${style}`">
             <option v-if="!knownStyle" :value="style">{{ style || '未设置' }}</option>
-            <option v-for="item in dialogueStyles" :key="item.id" :value="item.id" :title="item.label">{{ item.id }}</option>
+            <option v-for="item in dialogueStyles" :key="item.id" :value="item.id" :title="item.label">{{ item.label }}（{{ item.id }}）</option>
           </select>
         </div>
-        <textarea ref="textarea" v-model="content" rows="1" aria-label="台词" placeholder="在这里写下对话…" @input="resize" />
+        <textarea ref="textarea" v-model="content" rows="1" aria-label="台词" placeholder="输入对话，换行请写 \n" @beforeinput="preventDialogueLineBreak" @input="sanitizeDialogueInput($event); resize()" />
       </template>
       <button v-else class="add-dialogue" type="button" @click="emit('addDialogue')">＋ 为此段添加台词</button>
       <div v-if="line.clipCount > 0" class="line-clip-summary">
@@ -87,9 +90,10 @@ function keydown(event: KeyboardEvent) {
 .line-grip { font-size: 20px; cursor: grab; opacity: .35; user-select: none; touch-action: none; }
 .script-line:hover .line-grip { opacity: 1; }
 .line-body { position: relative; min-width: 0; padding-bottom: 4px; }
-.line-identity { display: grid; grid-template-columns: 22px minmax(40px, .8fr) minmax(45px, 1fr) minmax(84px, 1.15fr); align-items: center; gap: 4px; margin-bottom: 3px; }
+.line-identity { display: grid; grid-template-columns: auto minmax(40px, .8fr) minmax(45px, 1fr) minmax(84px, 1.15fr); align-items: center; gap: 4px; margin-bottom: 3px; }
 .repeat-speaker:not(:focus-within) .line-identity { display: none; }
 .speaker-avatar { display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; border: 1px solid hsl(var(--speaker-hue) 46% 80%); background: hsl(var(--speaker-hue) 65% 94%); border-radius: 50%; color: hsl(var(--speaker-hue) 38% 44%); font-size: 11px; }
+.speaker-avatar.has-alias { width: auto; min-width: 22px; max-width: 96px; height: auto; min-height: 22px; padding: 2px 6px; box-sizing: border-box; border-radius: 12px; line-height: 1.4; text-align: center; overflow-wrap: anywhere; }
 input, textarea, select { box-sizing: border-box; font: inherit; border: 1px solid transparent; border-radius: 4px; outline: none; background: transparent; }
 input:hover, textarea:hover, select:hover { border-color: #e5eaf1; }
 input:focus, textarea:focus, select:focus { border-color: #b7cce8; background: #fff; }

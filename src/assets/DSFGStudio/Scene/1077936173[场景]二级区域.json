@@ -1,0 +1,39 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[场景]二级区域", 
+   "value" : [ 
+      { 
+         "key" : "id", 
+         "param_type" : "Int32", 
+         "value" : { 
+            "param_type" : "Int32", 
+            "value" : "0"
+         }
+      }, 
+      { 
+         "key" : "name", 
+         "param_type" : "String", 
+         "value" : { 
+            "param_type" : "String", 
+            "value" : ""
+         }
+      }, 
+      { 
+         "key" : "mainAreaId", 
+         "param_type" : "Int32", 
+         "value" : { 
+            "param_type" : "Int32", 
+            "value" : "0"
+         }
+      }, 
+      { 
+         "key" : "bgm", 
+         "param_type" : "Int32", 
+         "value" : { 
+            "param_type" : "Int32", 
+            "value" : "0"
+         }
+      }
+   ]
+}

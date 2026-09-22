@@ -3,7 +3,9 @@ import type { DialogueNode } from "../types/DialogueNode";
 
 export const DIALOGUE_OUTLET_ID = "next";
 
-export type GroupOutletKind = "Dialogue" | "Select";
+export const FOCUS_PUSH_OUTLET_ID = "focus-push";
+
+export type GroupOutletKind = "Dialogue" | "Select" | "FocusPush";
 
 /** Timeline 中的流程 Clip 解析出的一个可连接出口。 */
 export interface GroupOutlet {
@@ -58,6 +60,18 @@ export function resolveGroupOutlets(node: DialogueNode): GroupOutletState {
     });
   }
 
+  // 强制跳过独立于玩家输入/选项推进，可以与任一种出口并存。
+  if (node.focusPush && node.focusPush.outputMode !== "Shared") {
+    outlets.push({ id: FOCUS_PUSH_OUTLET_ID, kind: "FocusPush", label: "Focus Push（强制跳过）" });
+  }
+
+  if (node.focusPush?.outputMode === "Shared" &&
+      (!Number.isInteger(node.focusPush.sharedOutletIndex) ||
+       node.focusPush.sharedOutletIndex < 0 ||
+       node.focusPush.sharedOutletIndex >= outlets.length)) {
+    warnings.push("Focus Push 共用出口不可用，请选择现有的玩家按下或选项出口。");
+  }
+
   if (requestingClips.length > 1) {
     warnings.push(
       `${requestingClips.join(" 与 ")} 同时请求流程出口，请只保留一种推进方式。`,
@@ -66,7 +80,7 @@ export function resolveGroupOutlets(node: DialogueNode): GroupOutletState {
 
   if (!outlets.length) {
     warnings.push(
-      "当前 Group 没有出口；请将 Dialogue 设为“玩家按下”，或添加带选项的 Select Clip。",
+      "当前 Group 没有出口；请将 Dialogue 设为“玩家按下”，或添加带选项的 Select Clip / 独立出口的 Focus Push Clip。",
     );
   }
 

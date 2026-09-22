@@ -34,6 +34,23 @@ async function main() {
       return { project: c.project, ids: [a.nodeId, b.nodeId, c.nodeId] };
     }
     const lineIds = (project) => preview(project).blocks.filter((block) => block.lines.length).map((block) => block.lines.map((line) => line.nodeId));
+    test('Editing a condition preserves outlet identities, connections and source project through save/reload', () => {
+      const { project, ids } = sequence();
+      const branch = createConditionBranchNode('conditions');
+      project.dialogue.conditionBranches[branch.id] = branch;
+      project.graph.nodes.push({ id: 'condition-canvas', type: 'condition', data: { conditionBranchNodeId: branch.id }, position: { x: 0, y: 0 } });
+      project.graph.edges.push({ id: 'condition-edge', source: 'condition-canvas', sourceHandle: branch.outputs[0].id, target: ids[0] });
+      const before = structuredClone(project);
+      const condition = '({1:ps.积分} >= 60 && ({1:lv.阶段} == 2 || {1:as.已完成} == false))';
+      const result = act(project, { type: 'edit-condition', nodeId: branch.id, outletId: branch.outputs[0].id, condition });
+      assert.deepEqual(project, before);
+      assert.deepEqual(result.project.graph, project.graph);
+      assert.deepEqual(clone(result.project.dialogue.nodes), clone(project.dialogue.nodes));
+      assert.equal(result.project.dialogue.conditionBranches[branch.id].outputs[0].condition, condition);
+      assert.deepEqual(result.project.dialogue.conditionBranches[branch.id].outputs[1], branch.outputs[1]);
+      assert.equal(decode(encode(result.project)).dialogue.conditionBranches[branch.id].outputs[0].condition, condition);
+      assert.equal(act(project, { type: 'edit-condition', nodeId: branch.id, outletId: 'missing', condition }), undefined);
+    });
     test('Create starts an empty document; subsequent groups are detached and survive serialization', () => {
       const original = empty(); const before = clone(original);
       const a = act(original, { type: 'create' });

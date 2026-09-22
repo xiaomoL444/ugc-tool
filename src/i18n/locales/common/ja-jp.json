@@ -1,0 +1,14 @@
+{
+  "app.language": "言語",
+  "app.navigation": "ナビゲーション",
+  "app.openNavigation": "ナビゲーションを開く",
+  "app.testTools": "テストツール",
+  "app.onlineTools": "オンラインツール",
+  "app.home": "ホーム",
+  "app.defaultTitle": "XiaomoL444 のツール集",
+  "app.effectPlayerTitle": "エフェクトプレイヤー",
+  "app.effectPlayerDescription": "星々の幻境のバージョン 7.0 より前のエフェクトを閲覧し、画像・アニメーション・音声をプレビューできます。",
+  "common.copySuccess": "{text} をコピーしました",
+  "common.copyFailed": "コピーに失敗しました：{error}",
+  "common.storageUnderDevelopment": "ストレージ設定は開発中です。"
+}

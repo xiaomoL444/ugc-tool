@@ -84,6 +84,26 @@ assert.equal(catalogs.getLocaleMessage("en-US").effectPlayer.names, undefined);
 assert.equal(catalogs.getLocaleMessage("zh-CN").effectPlayer.category, undefined, "Category names are supplied only by OSS");
 assert.equal(catalogs.getLocaleMessage("en-US").effectPlayer.category, undefined);
 
+// Every supported language must provide both player UIs and shared controls locally.
+for (const module of ["common", "effectPlayer", "soundEffectPlayer"]) {
+  const base = require(`../src/i18n/locales/${module}/en-us.json`);
+  const parameters = (text) => [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]))].sort();
+  for (const { value: locale } of supportedLocales) {
+    const catalog = require(`../src/i18n/locales/${module}/${locale.toLowerCase()}.json`);
+    assert.deepEqual(Object.keys(catalog).sort(), Object.keys(base).sort(), `${locale}: ${module} key coverage`);
+    catalogs.locale.value = locale;
+    for (const [key, message] of Object.entries(catalog)) {
+      assert.ok(message.trim(), `${locale}: ${key} is nonempty`);
+      assert.deepEqual(parameters(message), parameters(base[key]), `${locale}: ${key} parameters`);
+      const params = Object.fromEntries(parameters(message).map((name) => [name, 2]));
+      assert.notEqual(catalogs.t(key, params, 2), key, `${locale}: ${key} is registered and compiles`);
+    }
+    if (module === "effectPlayer") {
+      assert.ok(Object.keys(catalog).every((key) => !/^effectPlayer\.(data|names|tags|category)\./.test(key)), "Asset names belong only in OSS");
+    }
+  }
+}
+
 // Exercise browser preference behavior without reading or writing real browser storage.
 const savedDescriptors = Object.fromEntries(["document", "localStorage", "navigator"].map((key) => [key, Object.getOwnPropertyDescriptor(global, key)]));
 const memory = new Map([[localeStorageKey, "en-US"]]);

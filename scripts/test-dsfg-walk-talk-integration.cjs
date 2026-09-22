@@ -110,10 +110,10 @@ async function main() {
       for (const name of ["a", "../escape", "..", "", "x/y", "x\\y", "bad:name"]) { h.newName.value = name; await h.createFile(); }
       assert.deepEqual([...h.data], before); assert.equal(h.selectedFile.value, "a.json");
     });
-    await test("deep edits auto-save the full draft, including unfinished autoContinue input", async () => {
-      const h = await open(); h.project.value.entries[0].autoContinue = "-";
+    await test("deep edits auto-save the full draft, including unfinished continueDelay input", async () => {
+      const h = await open(); h.project.value.entries[0].continueDelay = "-";
       await h.flush();
-      assert.equal(model.decodeWalkTalkProject(h.data.get(aPath)).entries[0].autoContinue, "-");
+      assert.equal(model.decodeWalkTalkProject(h.data.get(aPath)).entries[0].continueDelay, "-");
       assert.equal(h.saveStatus.value, "已自动保存");
     });
     await test("switch flushes old content before reading new file and retains immutable workspace paths", async () => {
@@ -155,23 +155,23 @@ async function main() {
     });
     await test("structure settings cancel without mutation and apply only valid IDs", async () => {
       const h = await open(); h.openSettings(); h.settingsDraft.value.sequence = "9";
-      assert.equal(h.project.value.structIds.sequence, "1077936168");
+      assert.equal(h.project.value.structIds.sequence, "1077936171");
       h.settingsDraft.value.dialogue = "9"; h.applySettings(); assert.equal(h.settingsOpen.value, true);
       h.settingsDraft.value.dialogue = "10"; h.applySettings();
       assert.deepEqual(plain(h.project.value.structIds), { sequence: "9", dialogue: "10" }); assert.equal(h.settingsOpen.value, false);
       await h.flush(); assert.equal(model.decodeWalkTalkProject(h.data.get(aPath)).structIds.sequence, "9");
     });
-    await test("Ctrl+S downloads editor data while variable export uses the real seven-field library mapping", async () => {
-      const h = await open(); h.project.value.entries[0].autoContinue = "7.25";
+    await test("Ctrl+S downloads editor data while variable export uses the real six-field library mapping", async () => {
+      const h = await open(); h.project.value.entries[0].continueDelay = "7.25";
       let prevented = 0;
       const event = { ctrlKey: true, metaKey: false, key: "s", repeat: false, preventDefault: () => prevented++ };
       h.saveShortcut(event); assert.equal(prevented, 1); assert.equal(h.downloads[0][1], "a.json");
-      assert.equal(JSON.parse(h.downloads[0][0]).entries[0].autoContinue, "7.25");
+      assert.equal(JSON.parse(h.downloads[0][0]).entries[0].continueDelay, "7.25");
       h.exportVariables(); assert.equal(h.downloads[1][1], "a-边走边说.json");
       const variable = JSON.parse(h.downloads[1][0]);
-      assert.equal(variable.value[0].value.value[0].value.value[6].value, "7.25");
+      assert.equal(variable.value[0].value.value[0].value.value[4].value, "7.25");
       h.saveShortcut({ ...event, repeat: true }); h.saveShortcut({ ...event, ctrlKey: false }); assert.equal(h.downloads.length, 2);
-      h.project.value.entries[0].autoContinue = "bad"; h.exportVariables(); assert.equal(h.downloads.length, 2); assert.ok(h.errors.at(-1).includes("autoContinue"));
+      h.project.value.entries[0].continueDelay = "bad"; h.exportVariables(); assert.equal(h.downloads.length, 2); assert.ok(h.errors.at(-1).includes("continueDelay"));
     });
     await test("busy operations block leave and stale unmounted reads cannot replace the document", async () => {
       const gate = deferred(); const h = harness({ storage: { async readFile() { return gate.promise; } } });

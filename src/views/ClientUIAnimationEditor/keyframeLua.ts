@@ -5,9 +5,13 @@ import { getGroupAlphaColorFields, getTweenableField, getTweenGroupNodes, getTwe
 import type { ColorRGBA, UIKeyframe, UIKeyframeTrack, UITweenTrack, UITweenValue, UINode } from "./types";
 import type { TimelineDataImportMode } from "./luaTweenImporter";
 import type { TweenSequenceLuaExportResult } from "./luaTweenExporter";
+import { TWEEN_TIMELINE_LIB_VERSION } from "./luaTweenExporter";
+import { normalizeTimelineEvents } from "./timelineEvents";
+import type { UITimelineEvent } from "./types";
 
 export const KEYFRAME_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@8";
 export interface KeyframeTimelineLuaExportOptions {
+  events?: UITimelineEvent[];
   projectName: string;
   rootNodeId: string;
   nodes: UINode[];
@@ -15,6 +19,7 @@ export interface KeyframeTimelineLuaExportOptions {
   sequenceDuration?: number;
 }
 export interface KeyframeTimelineImportOptions {
+  existingEvents?: UITimelineEvent[];
   source: string;
   rootNodeId: string;
   nodes: UINode[];
@@ -23,6 +28,8 @@ export interface KeyframeTimelineImportOptions {
   sequenceDuration: number;
 }
 export interface KeyframeTimelineImportResult {
+  events: UITimelineEvent[];
+  importedEvents: UITimelineEvent[];
   tracks: UIKeyframeTrack[];
   importedTracks: UIKeyframeTrack[];
   duration: number;
@@ -149,6 +156,7 @@ export function buildKeyframeTimelineDataLua(options: KeyframeTimelineLuaExportO
     "-- ColorRGBA 通道均为 0–255；需要 TweenTimelineLib v8 或更高版本。",
     ...(tracks.some(track => track.fieldKey === "visible") ? ["-- 显隐需要 TweenTimelineLib v8.2+；visible=true/false 在关键帧时间通过 InsertCallback + SetVisible 切换。"] : []),
     "", "local TweenTimelineData = {", `    schema = ${luaString(KEYFRAME_TIMELINE_SCHEMA)},`,
+    `    libVersion = ${luaString(TWEEN_TIMELINE_LIB_VERSION)},`,
   ];
   const rows: string[] = [];
   for (const track of tracks) {
@@ -177,8 +185,15 @@ export function buildKeyframeTimelineDataLua(options: KeyframeTimelineLuaExportO
     }
     rows.push("        } },");
   }
-  lines.push(`    duration = ${luaNumber(duration)},`, "    tracks = {", ...rows, "    },", "}", "", "return TweenTimelineData", "");
-  return { code: lines.join("\n"), fileName: [options.projectName, tree.root.name, "TweenTimelineData"].filter(Boolean).map(filePart).join("-") + ".lua", warnings, trackCount: tracks.length, tweenCount, targetCount: targets.size };
+  const eventRows: string[] = [];
+  for (const event of normalizeTimelineEvents(options.events, options.nodes)) {
+    const path = event.nodeId === null ? "" : tree.relativePath(tree.byId.get(event.nodeId)!);
+    if (path === null) continue;
+    duration = Math.max(duration, event.time);
+    eventRows.push(`        { time = ${luaNumber(event.time)}, name = ${luaString(event.name)}, target = ${luaString(path)}, params = ${luaString(event.params)} },`);
+  }
+  lines.push(`    duration = ${luaNumber(duration)},`, "    tracks = {", ...rows, "    },", ...(eventRows.length ? ["    -- 事件在相同时间按列表顺序触发；使用 Create(root, Data, { onEvent = function(event, target) ... end }) 接收。", "    events = {", ...eventRows, "    },"] : []), "}", "", "return TweenTimelineData", "");
+  return { code: lines.join("\n"), fileName: [options.projectName, tree.root.name, "TweenTimelineData"].filter(Boolean).map(filePart).join("-") + ".lua", warnings, trackCount: tracks.length, eventCount: eventRows.length, tweenCount, targetCount: targets.size };
 }
 
 /** 验证成功后才返回可提交快照；任何错误保留现有时间轴，不执行 Lua。 */
@@ -187,7 +202,7 @@ export function prepareKeyframeTimelineImport(options: KeyframeTimelineImportOpt
   const errors: string[] = [];
   const warnings: string[] = [];
   let schema: string | null = null;
-  const failure = (): KeyframeTimelineImportResult => ({ tracks: existingTracks, importedTracks: [], duration: options.sequenceDuration, replacedCount: 0, schema, errors, warnings });
+  const failure = (): KeyframeTimelineImportResult => ({ tracks: existingTracks, importedTracks: [], events: options.existingEvents ?? [], importedEvents: [], duration: options.sequenceDuration, replacedCount: 0, schema, errors, warnings });
   try {
     const data: unknown = parseLuaData(options.source);
     if (!record(data) || typeof data.schema !== "string" || !/^ClientUIAnimationEditor\.TweenTimeline@[3-8]$/.test(data.schema)) throw new Error("仅支持 TweenTimeline Data @3–@8；请选择 Data，而不是运行库。");
@@ -206,13 +221,20 @@ export function prepareKeyframeTimelineImport(options: KeyframeTimelineImportOpt
       usedIds.add(result);
       return result;
     };
+    for (const event of options.existingEvents ?? []) usedIds.add(event.id);
+    if (data.events !== undefined && (!Array.isArray(data.events) || data.events.length > 10000)) throw new Error("Data.events 必须为事件列表（最多 10000 个）");
+    const importedEvents = normalizeTimelineEvents((data.events as unknown[] ?? []).map(value => {
+      if (!record(value) || typeof value.target !== "string") throw new Error("事件必须包含 time、name、target、params");
+      const nodeId = value.target === "" ? tree.root.id : tree.resolve(value.target).id;
+      return { id: id(), time: value.time, name: value.name, nodeId, params: value.params };
+    }), nodes);
     if (schema !== KEYFRAME_TIMELINE_SCHEMA) {
       const legacy = prepareTweenTimelineImport({ ...options, existingTracks: [], mode: "append" });
       if (legacy.errors.length) { errors.push(...legacy.errors); return failure(); }
       warnings.push(...legacy.warnings, "旧版 Clip 已无损转换为关键帧；空档使用保持插值，相接处不同首尾值保留为边界跳变。");
       imported = migrateTweenClipsToKeyframes(legacy.importedTracks).map((track) => ({ ...track, id: id(), keyframes: track.keyframes.map((frame) => ({ ...frame, id: id() })) }));
     } else {
-      if (!Array.isArray(data.tracks) || !data.tracks.length || data.tracks.length > MAX_TRACKS) throw new Error("Data.tracks 必须包含 1–10000 条关键帧轨道；空表不会清空现有动画。");
+      if (!Array.isArray(data.tracks) || !data.tracks.length && !importedEvents.length || data.tracks.length > MAX_TRACKS) throw new Error("Data 必须包含关键帧轨道或事件；空表不会清空现有动画。");
       let keyCount = 0;
       imported = [];
       for (let trackIndex = 0; trackIndex < data.tracks.length; trackIndex++) {
@@ -254,6 +276,7 @@ export function prepareKeyframeTimelineImport(options: KeyframeTimelineImportOpt
     }
     const scope = new Set(getTweenGroupNodes(tree.root.id, nodes).map((node) => node.id));
     const retained = mode === "replace" ? existingTracks.filter((track) => !scope.has(track.nodeId)) : existingTracks;
+    const events = [...(options.existingEvents ?? []).filter(e => mode !== "replace" || (e.nodeId === null ? tree.root.parentId !== null : !scope.has(e.nodeId))), ...importedEvents];
     // 同字段不同时刻追加进同一轨道；同一时刻无法同时保留两个值，因此原子拒绝。
     const merged = new Map<string, UIKeyframeTrack>();
     const merge = (track: UIKeyframeTrack) => {
@@ -278,8 +301,8 @@ export function prepareKeyframeTimelineImport(options: KeyframeTimelineImportOpt
     imported = [...importedByLane.values()];
     const endTime = tracks.reduce((end, track) => track.keyframes.reduce((maximum, frame) => Math.max(maximum, frame.time), end), 0);
     if (endTime > dataDuration + KEYFRAME_TIME_EPSILON) warnings.push("动画超出 Data.duration，序列时长已扩展以完整保留关键帧。");
-    const duration = Math.max(0.5, dataDuration, endTime, mode === "append" ? options.sequenceDuration : 0);
-    return { tracks, importedTracks: imported, duration, replacedCount: existingTracks.length - retained.length, schema, errors, warnings };
+    const duration = Math.max(0.5, dataDuration, endTime, ...events.map(e => e.time), mode === "append" ? options.sequenceDuration : 0);
+    return { tracks, importedTracks: imported, events, importedEvents, duration, replacedCount: existingTracks.length - retained.length, schema, errors, warnings };
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
     return failure();

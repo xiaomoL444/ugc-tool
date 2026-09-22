@@ -9,12 +9,16 @@ export interface DialogueNode {
   dialogue?: DialogueClip;
   /** 可选的固定 Select Line；一个 Group 最多一个 Select Clip。 */
   select?: SelectClip;
+  /** 固定单 Clip，时间到达后强制推进；目标由节点图连接决定。 */
+  focusPush?: FocusPushClip;
   lines: PerformanceLine[];
   timeline: TimelineSettings;
   next?: string[];
 }
 
 export interface TimelineSettings {
+  /** 编辑器显示范围（秒）；未设置时自动计算，不影响演出时长。 */
+  displayDuration?: number;
   /** 包含固定 Dialogue Line 在内的最大纵向 Line 数。 */
   maxLines: number;
   /** Timeline 的基础结束时间；其他 Clip 可以把实际结束时间继续向后推。 */
@@ -54,6 +58,14 @@ export interface DialogueClip {
   nodeGraphEvent: string[];
 }
 
+export interface FocusPushClip {
+  id: string;
+  startTime: number;
+  outputMode: "Self" | "Shared";
+  /** 共用模式下，现有出口的零基序号。 */
+  sharedOutletIndex: number;
+}
+
 export interface SelectClip {
   id: string;
   style: SelectStyleId;
@@ -80,6 +92,7 @@ export interface PerformanceLine {
 
 export type BuiltInPerformanceLineType =
   | "Camera"
+  | "PublicEvent"
   | "Animation"
   | "Audio"
   | "Behavior"

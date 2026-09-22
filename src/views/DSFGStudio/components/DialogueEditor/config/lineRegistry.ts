@@ -19,20 +19,11 @@ export function getLineDefinitions() {
 
 registerLineDefinition({
   type: "Camera",
-  label: "Camera",
+  label: "相机",
   clipLabel: "镜头",
   removable: false,
   defaultComponentTemplateIds: ["camera.shot"],
   allowedComponentTemplateIds: ["camera.shot", "base.target", "custom.data"],
-});
-
-registerLineDefinition({
-  type: "Animation",
-  label: "Animation",
-  clipLabel: "动画",
-  removable: true,
-  defaultComponentTemplateIds: ["animation.play"],
-  allowedComponentTemplateIds: ["animation.play", "base.target", "custom.data"],
 });
 
 registerLineDefinition({
@@ -45,19 +36,19 @@ registerLineDefinition({
 });
 
 registerLineDefinition({
-  type: "Behavior",
-  label: "Behavior",
-  clipLabel: "行为",
-  removable: true,
-  defaultComponentTemplateIds: ["behavior.trigger"],
-  allowedComponentTemplateIds: ["behavior.trigger", "base.target", "custom.data"],
-});
-
-registerLineDefinition({
   type: "Custom",
-  label: "Custom",
+  label: "自定义事件",
   clipLabel: "Clip",
   removable: true,
   defaultComponentTemplateIds: ["custom.data"],
   allowedComponentTemplateIds: [],
+});
+
+registerLineDefinition({
+  type: "PublicEvent",
+  label: "公共事件",
+  clipLabel: "公共事件",
+  removable: true,
+  defaultComponentTemplateIds: ["public.event"],
+  allowedComponentTemplateIds: ["public.event"],
 });

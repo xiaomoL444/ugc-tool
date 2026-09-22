@@ -1,5 +1,5 @@
-import dialogueDefinition from "@/assets/DSFGStudio/WalkTalk/1077936129对话节点.json";
-import sequenceSample from "@/assets/DSFGStudio/WalkTalk/NOLOC_测试子结构体1077936131.json";
+import dialogueDefinition from "@/assets/DSFGStudio/WalkTalk/1077936168[消息]边走边说对话.json";
+import sequenceSample from "@/assets/DSFGStudio/WalkTalk/NOLOC_测试边走边说变量.json";
 import { DEFAULT_WALK_TALK_STYLE } from "./walkTalkStyles";
 
 export interface WalkTalkStructIds { sequence: string; dialogue: string }
@@ -11,12 +11,13 @@ export interface WalkTalkEntry {
   subtitle: string;
   content: string;
   continueDelay: string;
-  prams: string;
-  autoContinue: string;
+  params: string;
+  /** 旧工程备份字段，不参与新版变量导出。 */
+  legacyAutoContinue?: string;
 }
 export interface WalkTalkProject {
   kind: "DSFGWalkTalk";
-  schemaVersion: 1;
+  schemaVersion: 2;
   structIds: WalkTalkStructIds;
   entries: WalkTalkEntry[];
 }
@@ -25,11 +26,11 @@ export const DEFAULT_WALK_TALK_STRUCT_IDS: WalkTalkStructIds = {
   sequence: sequenceSample.structId,
   dialogue: sequenceSample.value[0].value.structId,
 };
-export const WALK_TALK_FIELDS = ["style", "talker", "subtitle", "content", "continueDelay", "prams", "autoContinue"] as const;
+export const WALK_TALK_FIELDS = ["style", "talker", "subtitle", "content", "continueDelay", "params"] as const;
 const defaults = Object.fromEntries(dialogueDefinition.value.map(field => [field.key, field.value.value]));
 
 export function createWalkTalkProject(): WalkTalkProject {
-  return { kind: "DSFGWalkTalk", schemaVersion: 1, structIds: { ...DEFAULT_WALK_TALK_STRUCT_IDS }, entries: [] };
+  return { kind: "DSFGWalkTalk", schemaVersion: 2, structIds: { ...DEFAULT_WALK_TALK_STRUCT_IDS }, entries: [] };
 }
 export function addWalkTalkEntry(project: WalkTalkProject, afterId?: string): WalkTalkEntry {
   if (project.entries.length >= WALK_TALK_LIMIT) throw new Error("每份边走边说列表最多 100 条台词。");
@@ -80,7 +81,7 @@ export function validateWalkTalkStructIds(ids: WalkTalkStructIds): string[] {
   return errors;
 }
 export function validateWalkTalkProject(project: WalkTalkProject, forExport = false): string[] {
-  if (!isRecord(project) || project.kind !== "DSFGWalkTalk" || project.schemaVersion !== 1) return ["不是支持的边走边说编辑器文件（DSFGWalkTalk v1）。"];
+  if (!isRecord(project) || project.kind !== "DSFGWalkTalk" || project.schemaVersion !== 2) return ["不是支持的边走边说编辑器文件（DSFGWalkTalk v2）。"];
   const errors = validateWalkTalkStructIds(project.structIds);
   if (!Array.isArray(project.entries)) return [...errors, "台词必须是顺序列表。"];
   if (project.entries.length > WALK_TALK_LIMIT) errors.push("每份边走边说列表最多 100 条台词。");
@@ -94,8 +95,8 @@ export function validateWalkTalkProject(project: WalkTalkProject, forExport = fa
       if (typeof entry[key] !== "string") { errors.push(`${label}的 ${key} 必须是文本。`); continue; }
       if (!forExport) continue;
       try {
-        if (key === "continueDelay" || key === "autoContinue") parseWalkTalkFloat(entry[key]);
-        if (key === "prams") parseWalkTalkParams(entry[key]);
+        if (key === "continueDelay") parseWalkTalkFloat(entry[key]);
+        if (key === "params") parseWalkTalkParams(entry[key]);
       } catch (error) { errors.push(`${label}的 ${key}：${error instanceof Error ? error.message : String(error)}`); }
     }
   });
@@ -105,6 +106,22 @@ export function encodeWalkTalkProject(project: WalkTalkProject): string { return
 export function decodeWalkTalkProject(raw: string): WalkTalkProject {
   let project: WalkTalkProject;
   try { project = JSON.parse(raw); } catch { throw new Error("边走边说文件不是有效的 JSON。"); }
+  // v1 使用旧对话节点；迁移默认 ID，保留用户自定义 ID 与旧时间草稿。
+  if (isRecord(project) && project.kind === "DSFGWalkTalk" && Number(project.schemaVersion) === 1) {
+    if (isRecord(project.structIds) && project.structIds.sequence === "1077936168" && project.structIds.dialogue === "1077936129") {
+      project.structIds = { ...DEFAULT_WALK_TALK_STRUCT_IDS };
+    }
+    if (Array.isArray(project.entries)) {
+      project.entries = project.entries.map(entry => {
+        if (!isRecord(entry)) return entry;
+        const { prams, autoContinue, ...rest } = entry;
+        return { ...rest, params: entry.params ?? prams,
+          ...(typeof autoContinue === "string" ? { legacyAutoContinue: autoContinue } : {}),
+        } as unknown as WalkTalkEntry;
+      });
+    }
+    project.schemaVersion = 2;
+  }
   const errors = validateWalkTalkProject(project);
   if (errors.length) throw new Error(errors.join("；"));
   return project;

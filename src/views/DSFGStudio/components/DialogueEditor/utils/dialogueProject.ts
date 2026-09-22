@@ -2,6 +2,7 @@ import { Position, type Edge, type Node } from "@vue-flow/core";
 import type {
   ClipComponent,
   DialogueClip,
+  FocusPushClip,
   DialogueNode,
   PerformanceClip,
   PerformanceLine,
@@ -27,6 +28,7 @@ import { DEFAULT_DIALOGUE_STYLE_ID } from "../config/dialogueStyleRegistry";
 import { DEFAULT_SELECT_STYLE_ID, DEFAULT_SELECT_ICON_ID } from "../config/selectStyleRegistry";
 import {
   DEFAULT_CONTINUE_DELAY_TIME,
+  isInstantPerformanceClip,
   DEFAULT_TIMELINE_DURATION,
 } from "./groupTimeline";
 import {
@@ -59,6 +61,13 @@ export function createDialogueClip(): DialogueClip {
   };
 }
 
+export function createFocusPushClip(startTime = 0): FocusPushClip {
+  return {
+    id: createId("focus-push"), startTime: nonNegativeNumber(startTime, 0),
+    outputMode: "Self", sharedOutletIndex: 0,
+  };
+}
+
 export function createSelectOption(): SelectOption {
   return {
     id: createId("option"),
@@ -88,7 +97,7 @@ export function createPerformanceClip(
     type,
     name: `新建${definition?.clipLabel ?? " Clip"}`,
     startTime: Math.max(0, startTime),
-    duration: 1,
+    duration: isInstantPerformanceClip({ type }) ? 0 : 1,
     components: (definition?.defaultComponentTemplateIds ?? []).map(
       createClipComponent,
     ),
@@ -219,10 +228,19 @@ function normalizeDialogueNode(id: string, value: unknown): DialogueNode {
     duration: optionalNonNegativeNumber(source.duration),
     dialogue,
     select,
+    focusPush: isRecord(source.focusPush)
+      ? {
+          id: typeof source.focusPush.id === "string" && source.focusPush.id
+            ? source.focusPush.id : createId("focus-push"),
+          startTime: nonNegativeNumber(source.focusPush.startTime, 0),
+          outputMode: source.focusPush.outputMode === "Shared" ? "Shared" : "Self",
+          sharedOutletIndex: Math.floor(nonNegativeNumber(source.focusPush.sharedOutletIndex, 0)),
+        }
+      : undefined,
     lines,
     timeline: {
       maxLines: Math.max(
-        lines.length + 2,
+        lines.length + 3,
         positiveInteger(
           timelineSource.maxLines,
           DEFAULT_MAX_LINES,
@@ -232,6 +250,9 @@ function normalizeDialogueNode(id: string, value: unknown): DialogueNode {
         0.1,
         nonNegativeNumber(timelineSource.duration, legacyTimelineEnd),
       ),
+      ...(typeof timelineSource.displayDuration === "number" && Number.isFinite(timelineSource.displayDuration) && timelineSource.displayDuration > 0
+        ? { displayDuration: timelineSource.displayDuration }
+        : {}),
     },
     next: Array.isArray(source.next)
       ? source.next.filter((item): item is string => typeof item === "string")
@@ -404,7 +425,7 @@ function normalizePerformanceClip(
         ? source.name
         : "未命名 Clip",
     startTime: nonNegativeNumber(source.startTime, 0),
-    duration: Math.max(0.1, nonNegativeNumber(source.duration, 1)),
+    duration: isInstantPerformanceClip({ type }) ? 0 : Math.max(type === "PublicEvent" ? 0 : 0.1, nonNegativeNumber(source.duration, 1)),
     components,
   };
 }

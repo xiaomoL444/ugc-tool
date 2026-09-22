@@ -1,22 +1,20 @@
-import { VariableValue, VariableWorkspace, type StructDefinition, type QxqyStructNode } from "miliastra-variable";
+import { VariableValue, VariableWorkspace, type StructDefinition } from "miliastra-variable";
 import chapterDefinition from "@/assets/DSFGStudio/Quest/1077936165[任务]章节.json";
 import mainDefinition from "@/assets/DSFGStudio/Quest/1077936166[任务]主任务.json";
 import subDefinition from "@/assets/DSFGStudio/Quest/1077936145[任务]子任务.json";
 import configurationDefinition from "@/assets/DSFGStudio/Quest/1077936169[任务]任务配置数据.json";
 import subDictionaryDefinition from "@/assets/DSFGStudio/Quest/1077936170[任务]子任务字典.json";
-import slotDefinition from "@/assets/DSFGStudio/Quest/1077936164PositionSlot.json";
 import { DEFAULT_QUEST_STRUCT_IDS, QUEST_STRUCT_ID_FIELDS, validateQuestProject } from "./questProject";
 import type { QuestProject, QuestStructIds } from "./types";
 
 export { QUEST_STRUCT_ID_FIELDS } from "./questProject";
 
-const definitions: Record<keyof QuestStructIds, StructDefinition> = {
+const definitions: Record<Exclude<keyof QuestStructIds, "positionSlot">, StructDefinition> = {
   chapter: chapterDefinition as StructDefinition,
   mainQuest: mainDefinition as StructDefinition,
   subQuest: subDefinition as StructDefinition,
   configuration: configurationDefinition as StructDefinition,
   subQuestDictionary: subDictionaryDefinition as StructDefinition,
-  positionSlot: slotDefinition as StructDefinition,
 };
 
 function remapIds(value: unknown, replacements: ReadonlyMap<string, string>): unknown {
@@ -37,7 +35,7 @@ function idReplacements(ids: QuestStructIds) {
 export function createQuestStructWorkspace(ids: QuestStructIds): VariableWorkspace {
   const replacements = idReplacements(ids);
   const remapped = Object.fromEntries(QUEST_STRUCT_ID_FIELDS.map(({ key }) => [
-    ids[key], remapIds(definitions[key], replacements) as StructDefinition,
+    ids[key], remapIds(definitions[key as Exclude<keyof QuestStructIds, "positionSlot">], replacements) as StructDefinition,
   ]));
   // 配置定义中的示例条目只说明类型；不能混入实际任务或过时的内嵌样例。
   for (const field of remapped[ids.configuration].value) {
@@ -47,22 +45,6 @@ export function createQuestStructWorkspace(ids: QuestStructIds): VariableWorkspa
   const subDictionary = remapped[ids.subQuestDictionary].value.find((field) => field.key === "子任务字典");
   if (!subDictionary) throw new Error("子任务字典结构体缺少子任务字典字段。");
   (subDictionary.value.value as { value: unknown[] }).value = [];
-  // 新子任务定义和实际变量都有 10 个调查点字段；独立 PositionSlot 仅命名了前 8 个。
-  // 仅在任务导出的私有注册表中补齐尾部字段，保留源类型/顺序/默认值，不猜测业务含义。
-  const point = remapped[ids.subQuest].value.find((field) => field.key === "任务调查点预设点");
-  if (!point) throw new Error("子任务结构体缺少调查点字段。");
-  const embedded = point.value.value as QxqyStructNode;
-  const slot = remapped[ids.positionSlot];
-  if (embedded.structId !== ids.positionSlot || !Array.isArray(embedded.value)
-    || embedded.value.length < slot.value.length
-    || slot.value.some((field, index) => field.param_type !== embedded.value[index].param_type)) {
-    throw new Error("子任务内嵌调查点与 PositionSlot 定义不匹配，请更新结构体定义。");
-  }
-  slot.value = embedded.value.map((value, index) => ({
-    key: slot.value[index]?.key ?? `__sourceField${index + 1}`,
-    param_type: value.param_type,
-    value,
-  }));
   return new VariableWorkspace(remapped);
 }
 
@@ -82,9 +64,6 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
   const mains = configuration.value["主任务"] as VariableValue;
   const subs = configuration.value["子任务"] as VariableValue;
   const warnings: string[] = [];
-  if (project.subQuests.length && Object.keys(workspace.createDefault(ids.positionSlot).value).length > slotDefinition.value.length) {
-    warnings.push("调查点已完整保留新版子任务结构体的字段；独立 PositionSlot 尚未命名的尾部字段按源默认值导出，暂不可编辑。");
-  }
   const subIds = new Set(project.subQuests.map((sub) => sub.id));
   for (const chapter of [...project.chapters].sort((a, b) => a.id - b.id)) {
     const value = workspace.createDefault(ids.chapter);
@@ -108,11 +87,8 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
     value.value["title"].setValue(sub.title);
     value.value["desc"].setValue(sub.description);
     value.value["任务单位状态"].setValue(sub.unitState);
-    const point = value.value["任务调查点预设点"] as VariableValue;
-    for (const { key } of slotDefinition.value) {
-      const parameter = sub.investigationPoint[key];
-      (point.value[key] as VariableValue).setValue(typeof parameter === "boolean" ? parameter ? "True" : "False" : String(parameter));
-    }
+    value.value["pos"].setValue(sub.investigationPoint);
+    value.value["belondSceneId"].setValue(String(sub.belondSceneId));
     value.value["调查点范围"].setValue(String(sub.investigationRange));
     value.value["隐藏任务"].setValue(sub.hidden ? "True" : "False");
     value.value["后续任务"].setValue(sub.nextQuestIds.map((id) => String(id ?? -1)));

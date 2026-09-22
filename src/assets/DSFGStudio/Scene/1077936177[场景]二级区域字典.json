@@ -1,0 +1,22 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[场景]二级区域字典", 
+   "value" : [ 
+      { 
+         "key" : "二级区域字典", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "Struct", 
+               "value" : [ 
+               ], 
+               "value_structId" : "1077936173"
+            }
+         }
+      }
+   ]
+}

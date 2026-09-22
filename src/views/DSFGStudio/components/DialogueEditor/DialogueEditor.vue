@@ -9,6 +9,7 @@ import SplitterPanel from "primevue/splitterpanel";
 import {
   computed,
   inject,
+  provide,
   nextTick,
   onBeforeMount,
   onBeforeUnmount,
@@ -43,6 +44,7 @@ import { layoutDialogueGraph, type GraphNodeSize } from "./utils/dialogueGraphLa
 import { applyDialogueTextEdit, applyDialogueOptionIconEdit, type DialogueTextEdit } from "./utils/dialogueTextEditing";
 import EditorKindSelect from "../EditorKindSelect.vue";
 import { useEntityPresets } from "../EntityPresetEditor/useEntityPresets";
+import { useStylePresets } from "../EntityPresetEditor/stylePresets";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
 import { resolveTextPreviewGraphNodeId, type TextPreviewNavigationTarget } from "./utils/dialogueTextNavigation";
 import type {
@@ -68,9 +70,11 @@ import {
   resolveGroupOutlets,
 } from "./utils/groupOutlets";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" }>(), { editorKind: "Dialogue" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets"] }>();
-const { presets: entityPresets, error: entityPresetsError, retry: retryEntityPresets } = useEntityPresets();
+withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>(), { editorKind: "Dialogue" });
+const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
+const { availablePresets: entityPresets, error: entityPresetsError, retry: retryEntityPresets } = useEntityPresets();
+const dialogueStylePresets = useStylePresets("dialogueStyles");
+provide("dialogueStyleOptions", dialogueStylePresets.options);
 
 const {
   onConnect, onNodesChange, getSelectedNodes, getSelectedEdges, nodesSelectionActive,
@@ -603,6 +607,7 @@ onBeforeUnmount(() => {
 
             </div>
 
+            <p v-if="dialogueStylePresets.error.value" role="alert">{{ dialogueStylePresets.error.value }} <button type="button" @click="dialogueStylePresets.retry().catch(() => undefined)">重试对话类型预设</button></p>
             <DialogueTextPreview v-if="editorView === 'text'" :key="selectedDialogueFile" :project="dialogueProject" :entity-presets="entityPresets" :presets-error="entityPresetsError" @retry-presets="retryEntityPresets().catch(() => undefined)" @navigate="NavigateToPreviewNode"
               @edit="EditDialogueText" @option="EditDialogueOption" @option-icon="EditDialogueOptionIcon" @replace="dialogueProject = $event" />
 
@@ -649,4 +654,11 @@ onBeforeUnmount(() => {
 :deep(.dnd-flow .vue-flow__handle:hover) {
   filter: brightness(1.2) drop-shadow(0 0 3px rgba(72, 138, 235, 0.6));
 }
+
+:deep(.dnd-flow .vue-flow) { background: #f7f9fd; }
+:deep(.dnd-flow .vue-flow__edge-path) { stroke: #94a7bf; stroke-width: 1.5; }
+:deep(.dnd-flow .vue-flow__edge.selected .vue-flow__edge-path),
+:deep(.dnd-flow .vue-flow__edge:hover .vue-flow__edge-path) { stroke: #488aeb; stroke-width: 2; }
+:deep(.dnd-flow .vue-flow__connection-path) { stroke: #488aeb; stroke-width: 2; }
+:deep(.dnd-flow .vue-flow__node:focus-visible) { outline: 2px solid #488aeb; outline-offset: 4px; border-radius: 10px; }
 </style>

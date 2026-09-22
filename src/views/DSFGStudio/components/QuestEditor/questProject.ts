@@ -1,10 +1,8 @@
-import { CAMERA_SLOT_PROPERTIES } from "../DialogueEditor/config/cameraClip";
-import { createClipPropertyValues } from "../DialogueEditor/utils/clipProperties";
 import type { QuestChapter, QuestMain, QuestProject, QuestStructIds, QuestSub } from "./types";
 
 export const DEFAULT_QUEST_MAIN_STYLE = "Mainline";
 export const DEFAULT_QUEST_SUB_FIELDS = {
-  failureQuestId: -1, finishMainQuest: false, questProgress: 0,
+  failureQuestId: -1, finishMainQuest: false, questProgress: 0, belondSceneId: 0,
 } as const;
 
 export const DEFAULT_QUEST_STRUCT_IDS: QuestStructIds = {
@@ -20,7 +18,6 @@ export const QUEST_STRUCT_ID_FIELDS: ReadonlyArray<{
   { key: "mainQuest", label: "主任务", description: "任务配置数据中主任务字典的值" },
   { key: "subQuestDictionary", label: "子任务字典", description: "子任务分桶结构体，内含完整任务 ID 到子任务的字典" },
   { key: "subQuest", label: "子任务", description: "内层子任务字典的值，每桶最多 100 项" },
-  { key: "positionSlot", label: "PositionSlot", description: "子任务调查点的位置参数" },
 ];
 
 export function createQuestProject(): QuestProject {
@@ -30,10 +27,11 @@ export function createQuestProject(): QuestProject {
   };
 }
 
-function allocateId(items: Array<{ id: number }>, limit: number, label: string): number {
+function allocateId(items: Array<{ id: number }>, limit: number, label: string, maxId = limit): number {
   if (items.length >= limit) throw new Error(`${label}最多支持 ${limit} 个。`);
   const used = new Set(items.map((item) => item.id));
-  for (let id = 0; id < limit; id++) if (!used.has(id)) return id;
+  // 0 不再分配；保留旧工程已存在的 ID 和引用，不做隐式重编号。
+  for (let id = 1; id <= maxId; id++) if (!used.has(id)) return id;
   throw new Error(`${label}没有可用的 ID。`);
 }
 
@@ -42,7 +40,7 @@ export function createQuestChapter(project: QuestProject): QuestChapter {
   if (chapter.id === project.unassignedChapterId) {
     // 正数未归属标记同样不能被普通章节占用。
     const used = new Set([...project.chapters.map((item) => item.id), project.unassignedChapterId]);
-    let id = 0;
+    let id = 1;
     while (used.has(id)) id++;
     chapter.id = id;
   }
@@ -66,8 +64,9 @@ export function createQuestSub(project: QuestProject, mainQuestId: number): Ques
     throw new Error(`主任务 ${mainQuestId} 不存在。`);
   }
   const sub: QuestSub = {
-    id: allocateId(project.subQuests, 10000, "子任务"), mainQuestId, title: "新子任务",
-    description: "", unitState: "0", investigationPoint: createClipPropertyValues(CAMERA_SLOT_PROPERTIES),
+    // 分桶规则仍为 floor(id / 100)，因此不能分配会落入第 101 桶的 10000。
+    id: allocateId(project.subQuests, 10000, "子任务", 9999), mainQuestId, title: "新子任务",
+    description: "", unitState: "0", investigationPoint: "0,0,0",
     investigationRange: -1, hidden: false, nextQuestIds: [],
     ...DEFAULT_QUEST_SUB_FIELDS,
   };
@@ -121,6 +120,10 @@ export function decodeQuestProject(raw: string): QuestProject {
     }
     if (Array.isArray(project.subQuests)) for (const sub of project.subQuests) {
       if (!record(sub)) continue;
+      if (record(sub.investigationPoint) && typeof sub.investigationPoint.vector3 === "string") {
+        sub.legacyInvestigationPoint = sub.investigationPoint;
+        sub.investigationPoint = sub.investigationPoint.vector3;
+      }
       if (!Object.prototype.hasOwnProperty.call(sub, "nextQuestIds")) sub.nextQuestIds = [];
       for (const key of Object.keys(DEFAULT_QUEST_SUB_FIELDS) as Array<keyof typeof DEFAULT_QUEST_SUB_FIELDS>) {
         if (!Object.prototype.hasOwnProperty.call(sub, key)) Object.assign(sub, { [key]: DEFAULT_QUEST_SUB_FIELDS[key] });
@@ -147,7 +150,7 @@ const numberPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 function vector3(value: unknown): boolean {
   if (typeof value !== "string") return false;
   const parts = value.split(",").map((part) => part.trim());
-  return parts.length === 3 && parts.every((part) => numberPattern.test(part) && Number.isFinite(Number(part)));
+  return parts.length === 3 && parts.every((part) => numberPattern.test(part) && Number.isFinite(Math.fround(Number(part))));
 }
 
 /** 默认严格校验导出值；草稿导入仅放宽数值文本，仍检查文档类型、ID 和父引用。 */
@@ -208,14 +211,8 @@ export function validateQuestProject(project: QuestProject, options: QuestValida
     if (!Array.isArray(sub.nextQuestIds) || sub.nextQuestIds.length > 100 || sub.nextQuestIds.some((id) => id !== null && !int32(id))) {
       errors.push(`${label}后续任务必须是最多 100 项的 Int32 整数或空值列表。`);
     }
-    const slot = sub.investigationPoint;
-    if (!record(slot)) { errors.push(`${label}调查点必须是 PositionSlot 参数对象。`); return; }
-    if (slot.space !== 0 && slot.space !== 1) errors.push(`${label}坐标空间只能是 Local（0）或 World（1）。`);
-    if (!["Vector3", "Guid", "Entity"].includes(String(slot.pointType))) errors.push(`${label}点位类型必须是 Vector3、Guid 或 Entity。`);
-    for (const key of ["vector3", "offset"]) if (typeof slot[key] !== "string" || (!options.allowDraftValues && !vector3(slot[key]))) errors.push(`${label} ${key} 必须是三个逗号分隔的有限数值。`);
-    if (typeof slot.guid !== "string" || (!options.allowDraftValues && !integerText(slot.guid))) errors.push(`${label} GUID 必须是整数文本。`);
-    for (const key of ["entity", "attachmentPoint"]) if (typeof slot[key] !== "string") errors.push(`${label} ${key} 必须是文本。`);
-    if (typeof slot.requiresClientPos !== "boolean") errors.push(`${label} requiresClientPos 必须是布尔值。`);
+    if (!int32(sub.belondSceneId)) errors.push(`${label}归属场景必须是 Int32 整数。`);
+    if (typeof sub.investigationPoint !== "string" || (!options.allowDraftValues && !vector3(sub.investigationPoint))) errors.push(`${label}调查点必须是三个逗号分隔的有限数值。`);
   });
   return errors;
 }

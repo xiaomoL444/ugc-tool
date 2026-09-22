@@ -1,5 +1,7 @@
 export interface EffectItem {
   id: string;
+  /** Preferred full resource key; old title/name keys are normalized by the client. */
+  nameI18nKey?: string;
   title?: string;
   name?: string;
   /** Original names remain searchable when title/name contain translation keys. */

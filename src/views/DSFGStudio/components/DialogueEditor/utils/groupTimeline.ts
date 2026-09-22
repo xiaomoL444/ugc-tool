@@ -2,11 +2,28 @@ import type {
   DialogueNode,
   DialogueClip,
   SelectClip,
+  PerformanceClip,
 } from "../types/DialogueNode";
 
 export const DEFAULT_TIMELINE_DURATION = 2;
 export const DEFAULT_CONTINUE_DELAY_TIME = 0.5;
 export const MIN_CLIP_DURATION = 0.1;
+
+export function getGroupTimelineDisplayDuration(node: DialogueNode) {
+  const end = getGroupTimelineEnd(node);
+  const display = node.timeline.displayDuration;
+  return typeof display === "number" && Number.isFinite(display) && display > 0
+    ? display
+    : Math.max(10, Math.ceil(end + 2));
+}
+
+export function isInstantPerformanceClip(clip: { type?: string }) {
+  return clip.type === "Custom";
+}
+
+export function getPerformanceClipDuration(clip: PerformanceClip) {
+  return isInstantPerformanceClip(clip) ? 0 : clip.duration;
+}
 
 export type FlowClip = DialogueClip | SelectClip;
 
@@ -30,9 +47,11 @@ export function getGroupTimelineEnd(node: DialogueNode) {
     );
   }
 
+  if (node.focusPush) end = Math.max(end, node.focusPush.startTime);
+
   for (const line of node.lines) {
     for (const clip of line.clips) {
-      end = Math.max(end, clip.startTime + clip.duration);
+      end = Math.max(end, clip.startTime + getPerformanceClipDuration(clip));
     }
   }
 

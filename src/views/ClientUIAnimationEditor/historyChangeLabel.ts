@@ -191,6 +191,11 @@ export function describeHistoryChange(beforeSource: string, afterSource: string)
     for (const animation of nextAnimations) {
       const previous = oldAnimationMap.get(animation.id)!;
       if (previous.name !== animation.name) return `重命名动画「${previous.name}」为「${animation.name}」`;
+      if (JSON.stringify(previous.events ?? []) !== JSON.stringify(animation.events ?? [])) {
+        const oldEvents = identifiedValues(previous.events), nextEvents = identifiedValues(animation.events);
+        const action = nextEvents.length > oldEvents.length ? "添加事件" : nextEvents.length < oldEvents.length ? "删除事件" : "修改事件时间、参数或顺序";
+        return `「${animation.name}」· ${action}`;
+      }
       const label = keyframeChange(previous, animation, nodeMap);
       if (label) return `「${animation.name}」· ${label}`;
       if (previous.duration !== animation.duration) return `调整序列时长 ·「${animation.name}」`;

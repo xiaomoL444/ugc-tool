@@ -4,7 +4,8 @@
       <span class="kf-title" :title="animationName"><EditorIcon name="timeline" :size="16" /><span class="kf-animation-name">{{ animationName || '关键帧时间轴' }}</span></span>
       <button aria-label="回到起点" title="回到起点" @click="emit('rewind')"><EditorIcon name="skip-back" :size="15" /></button>
       <button :aria-label="playing ? '暂停时间轴' : '播放时间轴'" :title="playing ? '暂停 · 空格' : '播放 · 空格'" @click="emit('toggle-play')"><EditorIcon :name="playing ? 'pause' : 'play'" :size="15" /></button>
-      <output>{{ formatTime(currentTime) }} s</output>
+      <output>{{ formatTime(currentTime) }} s · {{ Math.round(currentTime * fps) }} 帧</output>
+      <label class="kf-duration">帧率<ScrubbableNumberInput :model-value="fps" :min="1" :max="240" :step="1" :scrub-speed="1" aria-label="时间轴帧率" @update:model-value="changeFrameRate" /><span>帧/秒</span></label>
       <button class="kf-snap" :class="{ active: snapEnabled }" :aria-pressed="snapEnabled" aria-label="关键帧吸附" @click="emit('toggle-snap')"><EditorIcon name="magnet" :size="14" />吸附</button>
       <label class="kf-duration">序列时长<ScrubbableNumberInput :model-value="duration" :min="lastKeyTime || 0.01" :step="0.01" :scrub-speed="0.01" aria-label="关键帧序列时长" @update:model-value="changeDuration" /><span>s</span></label>
       <span class="kf-toolbar-hint">双击空白添加关键帧 · 拖动菱形调整时间</span>
@@ -15,25 +16,34 @@
           <div class="kf-row kf-ruler-row">
             <div class="kf-name kf-ruler-name">控件 / 属性轨道</div>
             <div class="kf-lane"><div ref="ruler" class="kf-track-content kf-ruler" role="slider" tabindex="0" aria-label="关键帧播放进度" :aria-valuemin="0" :aria-valuemax="safeDuration" :aria-valuenow="currentTime" @pointerdown="startSeek" @keydown="handleRulerKey">
-              <span v-for="tick in ticks" :key="tick" class="kf-tick" :style="{ left: percent(tick) }">{{ formatTime(tick) }}</span>
+              <span v-for="tick in ticks" :key="tick" class="kf-tick" :style="{ left: percent(tick) }">{{ Math.round(tick * fps) }}f</span>
             </div></div>
           </div>
+          <slot name="events" />
           <div v-for="row in rows" :key="row.id" class="kf-row" :class="{ 'is-node': row.kind === 'node', 'is-selected': row.node.id === selectedNodeId }">
             <div v-if="row.kind === 'node'" class="kf-name kf-node-name" :style="{ paddingLeft: `${10 + row.depth * 12}px` }">
               <button class="kf-collapse" :aria-label="`${collapsed.has(row.node.id) ? '展开' : '折叠'} ${row.node.name}`" @click.stop="toggleCollapsed(row.node.id)">{{ collapsed.has(row.node.id) ? '▸' : '▾' }}</button>
               <button class="kf-node-select" :title="row.node.name" @click="emit('select-node', row.node.id)"><EditorIcon :name="row.node.type" :size="13" /><span>{{ row.node.name }}</span></button>
               <button class="kf-add-track" :aria-label="`为 ${row.node.name} 添加属性轨道`" title="添加可动画属性" @click.stop="emit('select-node', row.node.id); emit('add-track', row.node.id)"><EditorIcon name="plus" :size="13" /></button>
             </div>
-            <div v-else class="kf-name kf-property-name" :class="{ 'selected-track': selection?.track.id === row.track.id }" :style="{ paddingLeft: `${28 + row.depth * 12}px` }">
-              <button :title="row.track.fieldKey" @click="emit('select-node', row.node.id)">{{ fieldLabel(row.node, row.track) }}</button>
+            <div v-else class="kf-name kf-property-name" :class="{ 'selected-track': row.track.keyframes.some(key => key.id === selectedKeyframeId) }" :style="{ paddingLeft: `${28 + row.depth * 12}px` }" @click.stop="emit('select-track', row.track.id)">
+              <button :title="row.track.fieldKey" :aria-label="`选择 ${row.node.name} / ${fieldLabel(row.node, row.track)} 轨道`" @click.stop="emit('select-track', row.track.id)">{{ fieldLabel(row.node, row.track) }}</button>
+              <div class="kf-inline-value" @pointerdown.stop @click.stop @dblclick.stop>
+                <template v-if="getTweenableField(row.node.type, row.track.fieldKey)?.valueKind === 'color'">
+                  <input type="color" :aria-label="`${fieldLabel(row.node, row.track)} 当前颜色`" :value="trackColorHex(row.track)" @input="changeTrackColor(row.track, ($event.target as HTMLInputElement).value)" />
+                  <ScrubbableNumberInput :model-value="trackColor(row.track).a" :min="0" :max="1" :step="0.01" :scrub-speed="0.01" :animated="true" :aria-label="`${fieldLabel(row.node, row.track)} 当前透明度`" @update:model-value="$event !== null && emit('edit-track-value', row.track.id, { ...trackColor(row.track), a: $event })" />
+                </template>
+                <select v-else-if="getTweenableField(row.node.type, row.track.fieldKey)?.valueKind === 'boolean'" :value="String(trackValue(row.track))" :aria-label="`${fieldLabel(row.node, row.track)} 当前值`" @change="emit('edit-track-value', row.track.id, ($event.target as HTMLSelectElement).value === 'true')"><option value="null" disabled>未设置</option><option value="true">显示</option><option value="false">隐藏</option></select>
+                <ScrubbableNumberInput v-else :model-value="trackNumber(row.track)" :animated="true" :step="getTweenableField(row.node.type, row.track.fieldKey)?.step ?? 0.01" :scrub-speed="getTweenableField(row.node.type, row.track.fieldKey)?.scrubSpeed ?? 0.1" :min="getTweenableField(row.node.type, row.track.fieldKey)?.min" :max="getTweenableField(row.node.type, row.track.fieldKey)?.max" :aria-label="`${fieldLabel(row.node, row.track)} 当前值`" @update:model-value="$event !== null && emit('edit-track-value', row.track.id, $event)" />
+              </div>
               <button class="kf-set-key" :aria-label="`为 ${fieldLabel(row.node, row.track)} 在播放头添加关键帧`" title="在当前时间添加 / 更新关键帧" @click.stop="addKey(row.track, currentTime)">◇</button>
             </div>
             <div class="kf-lane" :class="{ 'kf-node-lane': row.kind === 'node' }">
-              <div class="kf-track-content" @pointerdown.self="startSeek" @dblclick.self="row.kind === 'track' && addKey(row.track, pointerTime($event.currentTarget as HTMLElement, $event.clientX))" @contextmenu.prevent.stop="row.kind === 'track' && openMenu($event, row.track)">
+              <div class="kf-track-content" @pointerdown.self="startRowSeek($event, row)" @dblclick.self="row.kind === 'track' && addKey(row.track, pointerTime($event.currentTarget as HTMLElement, $event.clientX))" @contextmenu.prevent.stop="row.kind === 'track' && openMenu($event, row.track)">
                 <span v-for="tick in ticks" :key="tick" class="kf-gridline" :style="{ left: percent(tick) }" />
                 <template v-if="row.kind === 'track'">
                   <span v-for="segment in segments(row.track)" :key="segment.id" class="kf-segment" :class="{ 'is-step': segment.step }" :style="{ left: percent(segment.start), width: percent(segment.end - segment.start) }" />
-                  <button v-for="key in sortedKeys(row.track)" :key="key.id" class="kf-key" :class="{ selected: key.id === selectedKeyframeId, 'is-step': key.interpolation === 'step' }" :style="{ left: percent(key.time) }" :aria-label="`${fieldLabel(row.node, row.track)} · ${formatTime(key.time)} 秒关键帧`" :title="`${formatTime(key.time)}s · ${key.relative ? '增量 ' : ''}${formatValue(key.value)} · ${key.interpolation === 'step' ? '阶跃' : key.easeType}`" @pointerdown.stop="startKeyDrag($event, row.track, key)" @click.stop="selectKey(row.track, key)" @dblclick.stop @contextmenu.prevent.stop="openMenu($event, row.track, key)"><span /></button>
+                  <button v-for="key in sortedKeys(row.track)" :key="key.id" class="kf-key" :class="{ selected: key.id === selection?.key.id, 'is-step': key.interpolation === 'step' }" :style="{ left: percent(key.time) }" :aria-label="`${fieldLabel(row.node, row.track)} · ${formatTime(key.time)} 秒关键帧`" :title="`${formatTime(key.time)}s · ${key.relative ? '增量 ' : ''}${formatValue(key.value)} · ${key.interpolation === 'step' ? '阶跃' : key.easeType}`" @pointerdown.stop="startKeyDrag($event, row.track, key)" @click.stop="selectKey(row.track, key)" @dblclick.stop @contextmenu.prevent.stop="openMenu($event, row.track, key)"><span /></button>
                 </template>
               </div>
             </div>
@@ -56,7 +66,7 @@
           <button v-if="isRelativeTweenField(selection.track.fieldKey)" class="kf-relative is-animated" data-animated="true" :class="{ active: selection.key.relative }" :aria-pressed="!!selection.key.relative" @click="patchSelected({ relative: !selection.key.relative })">{{ selection.key.relative ? '✓ ' : '' }}相对前帧增量</button>
           <template v-if="selection.field?.valueKind !== 'boolean'">
             <label class="kf-field">到下一帧<select class="is-animated" data-animated="true" :value="selection.key.interpolation" aria-label="关键帧插值方式" @change="changeInterpolation"><option value="tween">补间</option><option value="step">阶跃（保持当前值）</option></select></label>
-            <label class="kf-field">缓动<select class="is-animated" data-animated="true" :value="selection.key.easeType" :disabled="selection.key.interpolation === 'step'" aria-label="关键帧缓动" @change="changeEase"><option v-for="ease in tweenEaseOptions" :key="ease.value" :value="ease.value">{{ ease.label }}</option></select></label>
+            <div class="kf-field">缓动<EasePicker :key="selection.key.id" :model-value="selection.key.easeType" :disabled="selection.key.interpolation === 'step'" @update:model-value="changeEase" /></div>
             <p>缓动与补间作用于当前帧 → 下一帧。最后一帧之后保持该帧值。</p>
           </template>
           <p v-else>到达此帧立即切换显隐，之后保持该状态。第一帧之前保留初始可见性；隐藏父控件时子级随之隐藏。</p>
@@ -78,16 +88,20 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import EditorIcon from "./EditorIcon.vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import ColorRGBAField from "./ColorRGBAField.vue";
-import { getTweenableField, isRelativeTweenField, isTweenEaseType, tweenEaseOptions } from "./tweenRegistry";
+import EasePicker from "./EasePicker.vue";
+import { getTweenableField, isRelativeTweenField, isTweenEaseType } from "./tweenRegistry";
 import type { ColorRGBA, UIKeyframe, UIKeyframeTrack, UINode, UITweenValue } from "./types";
 
-const props = defineProps<{ nodes: UINode[]; tracks: UIKeyframeTrack[]; selectedNodeId: string | null; selectedKeyframeId: string | null; currentTime: number; duration: number; playing: boolean; snapEnabled: boolean; animationName?: string }>();
+const props = defineProps<{ nodes: UINode[]; tracks: UIKeyframeTrack[]; selectedNodeId: string | null; selectedKeyframeId: string | null; currentTime: number; duration: number; playing: boolean; snapEnabled: boolean; animationName?: string; frameRate?: number; trackValues?: Record<string, UITweenValue> }>();
 const emit = defineEmits<{
   (event: "select-node", nodeId: string): void;
+  (event: "select-track", trackId: string): void;
   (event: "add-track", nodeId: string): void;
   (event: "select-keyframe", trackId: string, keyId: string): void;
   (event: "seek", time: number): void;
   (event: "update-duration", value: number): void;
+  (event: "update-frame-rate", value: number): void;
+  (event: "edit-track-value", trackId: string, value: UITweenValue): void;
   (event: "toggle-play" | "toggle-snap" | "rewind" | "begin-edit" | "end-edit"): void;
   (event: "upsert-keyframe", trackId: string, time: number): void;
   (event: "move-keyframe", trackId: string, keyId: string, time: number): void;
@@ -106,11 +120,19 @@ let stopDrag: (() => void) | null = null;
 let pasteRevision = 0;
 const EPS = 0.000001;
 const safeDuration = computed(() => Number.isFinite(props.duration) && props.duration > 0 ? props.duration : 1);
-const ticks = computed(() => Array.from({ length: 11 }, (_, index) => safeDuration.value * index / 10));
+const fps = computed(() => Number.isFinite(props.frameRate) ? Math.max(1, Math.min(240, Math.round(props.frameRate!))) : 30);
+const ticks = computed(() => {
+  const total = Math.floor(safeDuration.value * fps.value);
+  const step = Math.max(1, Math.ceil(total / 10));
+  return Array.from({ length: Math.floor(total / step) + 1 }, (_, index) => index * step / fps.value);
+});
+function changeFrameRate(value: number | null) { if (value !== null && Number.isFinite(value)) emit("update-frame-rate", Math.max(1, Math.min(240, Math.round(value)))); }
+function frameTime(time: number) { return clampTime(Math.round(time * fps.value) / fps.value); }
 const lastKeyTime = computed(() => props.tracks.reduce((latest, track) => track.keyframes.reduce((end, key) => Math.max(end, key.time), latest), 0));
 const selection = computed(() => {
   for (const track of props.tracks) {
-    const key = track.keyframes.find((item) => item.id === props.selectedKeyframeId);
+    if (!track.keyframes.some(item => item.id === props.selectedKeyframeId)) continue;
+    const key = [...track.keyframes].filter(item => item.time <= props.currentTime + EPS).sort((a, b) => b.time - a.time)[0];
     const node = props.nodes.find((item) => item.id === track.nodeId);
     if (key && node) return { track, key, node, field: getTweenableField(node.type, track.fieldKey) };
   }
@@ -130,6 +152,11 @@ const rows = computed<TimelineRow[]>(() => props.nodes.flatMap((node) => {
   return result;
 }));
 function formatTime(time: number) { return Number(time.toFixed(3)).toString(); }
+function trackValue(track: UIKeyframeTrack): UITweenValue { return props.trackValues?.[track.id] ?? null; }
+function trackNumber(track: UIKeyframeTrack) { const value = trackValue(track); return typeof value === 'number' ? value : null; }
+function trackColor(track: UIKeyframeTrack): ColorRGBA { const value = trackValue(track); return value && typeof value === 'object' ? value : { r: 255, g: 255, b: 255, a: 1 }; }
+function trackColorHex(track: UIKeyframeTrack) { const color = trackColor(track); return '#' + [color.r, color.g, color.b].map(value => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')).join(''); }
+function changeTrackColor(track: UIKeyframeTrack, hex: string) { if (!/^#[0-9a-f]{6}$/i.test(hex)) return; emit('edit-track-value', track.id, { ...trackColor(track), r: parseInt(hex.slice(1,3),16), g: parseInt(hex.slice(3,5),16), b: parseInt(hex.slice(5,7),16) }); }
 function percent(time: number) { return `${Math.max(0, Math.min(100, time / safeDuration.value * 100))}%`; }
 function clampTime(time: number) { return Math.round(Math.max(0, Math.min(safeDuration.value, time)) * 1e6) / 1e6; }
 function sortedKeys(track: UIKeyframeTrack) { return [...track.keyframes].sort((a, b) => a.time - b.time); }
@@ -138,10 +165,10 @@ function formatValue(value: UITweenValue) { return value === null ? "未设置" 
 function segments(track: UIKeyframeTrack) { const keys = sortedKeys(track); return keys.slice(0, -1).map((key, index) => ({ id: key.id, start: key.time, end: keys[index + 1].time, step: key.interpolation === "step" })); }
 function toggleCollapsed(id: string) { const next = new Set(collapsed.value); next.has(id) ? next.delete(id) : next.add(id); collapsed.value = next; }
 function selectKey(track: UIKeyframeTrack, key: UIKeyframe) { emit("select-node", track.nodeId); emit("select-keyframe", track.id, key.id); }
-function pointerTime(element: HTMLElement | null, x: number) { if (!element) return props.currentTime; const rect = element.getBoundingClientRect(); return clampTime((x - rect.left) / Math.max(1, rect.width) * safeDuration.value); }
+function pointerTime(element: HTMLElement | null, x: number) { if (!element) return props.currentTime; const rect = element.getBoundingClientRect(); return frameTime((x - rect.left) / Math.max(1, rect.width) * safeDuration.value); }
 function occupied(track: UIKeyframeTrack, time: number, excluded?: string) { return track.keyframes.some((key) => key.id !== excluded && Math.abs(key.time - time) <= EPS); }
 function snapTime(raw: number, track: UIKeyframeTrack, keyId?: string, width = ruler.value?.clientWidth ?? 600, playhead = props.currentTime) {
-  const clamped = clampTime(raw);
+  const clamped = frameTime(raw);
   if (!props.snapEnabled) return clamped;
   const targets = [0, safeDuration.value, playhead, ...ticks.value, ...props.tracks.flatMap((item) => item.keyframes.filter((key) => key.id !== keyId).map((key) => key.time))];
   const threshold = safeDuration.value * 9 / Math.max(1, width);
@@ -156,6 +183,11 @@ function dragPointer(event: PointerEvent, move: (event: PointerEvent) => void, e
   const cleanup = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onEnd); window.removeEventListener("pointercancel", onEnd); window.removeEventListener("blur", cleanup); if (stopDrag !== cleanup) return; stopDrag = null; if (edit) emit("end-edit"); };
   stopDrag = cleanup;
   window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onEnd); window.addEventListener("pointercancel", onEnd); window.addEventListener("blur", cleanup);
+}
+function startRowSeek(event: PointerEvent, row: TimelineRow) {
+  if (event.button !== 0) return;
+  startSeek(event);
+  if (row.kind === 'track') emit('select-track', row.track.id);
 }
 function startSeek(event: PointerEvent, source?: HTMLElement | null) {
   if (event.button !== 0) return;
@@ -190,7 +222,7 @@ function changeKeyTime(value: number | null) {
   notice.value = ""; emit("move-keyframe", selected.track.id, selected.key.id, time);
 }
 function patchSelected(patch: Partial<UIKeyframe>) { const selected = selection.value; if (selected) emit("update-keyframe", selected.track.id, selected.key.id, patch); }
-function changeEase(event: Event) { const value = (event.target as HTMLSelectElement).value; if (isTweenEaseType(value)) patchSelected({ easeType: value }); }
+function changeEase(event: Event | string) { const value = typeof event === "string" ? event : (event.target as HTMLSelectElement).value; if (isTweenEaseType(value)) patchSelected({ easeType: value }); }
 function changeInterpolation(event: Event) { const value = (event.target as HTMLSelectElement).value; if (value === "tween" || value === "step") patchSelected({ interpolation: value }); }
 function addKey(track: UIKeyframeTrack, time: number) { menu.value = null; notice.value = ""; emit("upsert-keyframe", track.id, clampTime(time)); }
 function removeSelectedKey() { const selected = selection.value; if (selected) emit("remove-keyframe", selected.track.id, selected.key.id); }
@@ -224,7 +256,7 @@ function handleKeyDown(event: KeyboardEvent) {
   if (key === "delete" || key === "backspace") { if (!selection.value) return; event.preventDefault(); event.stopPropagation(); if (!event.repeat) removeSelectedKey(); }
   if ((event.ctrlKey || event.metaKey) && (key === "c" || key === "v")) { event.preventDefault(); event.stopPropagation(); if (!event.repeat) { if (key === "c") copyKey(); else void pasteKey(); } }
 }
-function handleRulerKey(event: KeyboardEvent) { let time: number; if (event.key === "Home") time = 0; else if (event.key === "End") time = safeDuration.value; else if (event.key === "ArrowLeft" || event.key === "ArrowRight") time = props.currentTime + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 0.1 : 0.01); else return; event.preventDefault(); emit("seek", clampTime(time)); }
+function handleRulerKey(event: KeyboardEvent) { let time: number; if (event.key === "Home") time = 0; else if (event.key === "End") time = safeDuration.value; else if (event.key === "ArrowLeft" || event.key === "ArrowRight") time = (Math.round(props.currentTime * fps.value) + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 10 : 1)) / fps.value; else return; event.preventDefault(); emit("seek", clampTime(time)); }
 function outsideMenu(event: PointerEvent) { if (!(event.target as HTMLElement | null)?.closest(".kf-context-menu")) menu.value = null; }
 watch(() => props.tracks, () => { if (clipboard.value && !props.tracks.some((track) => track.id === clipboard.value?.trackId)) { clipboard.value = null; pasteRevision += 1; } if (menu.value && !props.tracks.some((track) => track.id === menu.value?.trackId)) menu.value = null; });
 onMounted(() => window.addEventListener("pointerdown", outsideMenu));
@@ -258,6 +290,9 @@ onBeforeUnmount(() => { pasteRevision += 1; stopDrag?.(); window.removeEventList
 .kf-name .kf-collapse { padding: 1px 2px; width: 11px; flex: 0 0 11px; color: #8f9db1; }
 .kf-name .kf-add-track { margin-left: auto; flex: 0 0 23px; color: #9bb9db; }
 .kf-property-name { background: #1e2732; font-size: 10px; }
+.kf-inline-value { display: flex; flex: 0 0 68px; width: 68px; min-width: 0; gap: 2px; }
+.kf-inline-value :deep(input), .kf-inline-value select { box-sizing: border-box; width: 100%; min-width: 0; height: 23px; padding: 2px 3px; font-size: 10px; color: #efc4cc; background: #3b2d37; border: 1px solid #66414d; border-radius: 3px; }
+.kf-inline-value input[type=color] { flex: 0 0 23px; width: 23px; padding: 1px; cursor: pointer; }
 .kf-property-name.selected-track { color: #bdddff; background: #26354a; }
 .kf-property-name > button:first-child { flex: 1; justify-content: flex-start; }
 .kf-property-name .kf-set-key { flex: 0 0 24px; color: #edc879; font-size: 19px; line-height: 20px; padding: 0; }

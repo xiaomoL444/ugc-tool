@@ -137,4 +137,18 @@ savedTarget.SetVisible = defaultSetVisible
 local large = lib.create(root, dofile('large.lua'), 987654)
 assert(#large.controls == 800, "400 elements per target must load and instantiate")
 large:destroy()
+local selfRoot = target("selected primitive")
+function selfRoot:FindChild(path) error("empty path must resolve directly to the root") end
+local selfCollection = lib.create(selfRoot, dofile('self.lua'), 987654)
+assert(#selfCollection.controls == 3 and selfCollection.controls[1].parent == selfRoot, 'selected primitive generates images on itself')
+assert(not selfRoot.visible and selfRoot.canControllerFocus, 'root primitive restores exported visibility and focus')
+selfCollection:destroy()
+assert(#selfRoot.children == 0, 'root primitive cleanup preserves its container')
+local nonContainerRoot = target("selected image")
+nonContainerRoot.kind = "ClientUIImageControl"
+function nonContainerRoot:FindChild(path) return paths[path] end
+local descendantCollection = lib.create(nonContainerRoot, data, 987654)
+assert(#descendantCollection.controls == 6, 'any base control can resolve descendant primitive containers')
+descendantCollection:destroy()
+assert(not pcall(lib.create, nonContainerRoot, dofile('self.lua'), 987654), 'image targets must still be containers')
 print("PASS Lua 5.3 runtime: compact types/modes, legacy compatibility, paths, layout, SetImage, alpha, stacking, preflight, rollback, replacement, cleanup and 800 images")

@@ -241,8 +241,18 @@ export interface UIKeyframeTrack {
 
 /** One named animation of the shared control hierarchy. */
 export interface UIAnimation {
+  events?: UITimelineEvent[];
   id: string;
   name: string;
   duration: number;
   keyframeTracks: UIKeyframeTrack[];
+}
+
+export interface UITimelineEvent {
+  id: string;
+  time: number;
+  name: string;
+  /** null means the animation/export root. */
+  nodeId: string | null;
+  params: string;
 }

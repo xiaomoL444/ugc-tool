@@ -5,6 +5,9 @@ import zhCNEffectPlayer from "./locales/effectPlayer/zh-cn.json";
 import enUSEffectPlayer from "./locales/effectPlayer/en-us.json";
 import zhCNSoundEffectPlayer from "./locales/soundEffectPlayer/zh-cn.json";
 import enUSSoundEffectPlayer from "./locales/soundEffectPlayer/en-us.json";
+import zhTWSoundEffectPlayer from "./locales/soundEffectPlayer/zh-tw.json";
+import jaJPSoundEffectPlayer from "./locales/soundEffectPlayer/ja-jp.json";
+import ruRUSoundEffectPlayer from "./locales/soundEffectPlayer/ru-ru.json";
 import zhCNHomePage from "./locales/homePage/zh-cn.json";
 import enUSHomePage from "./locales/homePage/en-us.json";
 import zhTWHomePage from "./locales/homePage/zh-tw.json";
@@ -15,6 +18,13 @@ import type { AppLocale } from "./preferences";
 import { createOss } from "../utils/oss";
 import { RemoteI18nLoader } from "./remote";
 import type { MessageTree } from "./remote";
+
+import zhTWCommon from "./locales/common/zh-tw.json";
+import zhTWEffectPlayer from "./locales/effectPlayer/zh-tw.json";
+import jaJPCommon from "./locales/common/ja-jp.json";
+import jaJPEffectPlayer from "./locales/effectPlayer/ja-jp.json";
+import ruRUCommon from "./locales/common/ru-ru.json";
+import ruRUEffectPlayer from "./locales/effectPlayer/ru-ru.json";
 
 export { supportedLocales, isAppLocale } from "./preferences";
 export type { AppLocale } from "./preferences";
@@ -34,10 +44,9 @@ export function createAppI18n(locale: AppLocale = defaultLocale) {
     messages: {
       "zh-CN": { ...zhCNCommon, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer, ...zhCNHomePage },
       "en-US": { ...enUSCommon, ...enUSEffectPlayer, ...enUSSoundEffectPlayer, ...enUSHomePage },
-      // Other modules' catalogs for these languages are still pending.
-      "zh-TW": { ...zhTWHomePage },
-      "ja-JP": { ...jaJPHomePage },
-      "ru-RU": { ...ruRUHomePage },
+      "zh-TW": { ...zhTWCommon, ...zhTWEffectPlayer, ...zhTWSoundEffectPlayer, ...zhTWHomePage },
+      "ja-JP": { ...jaJPCommon, ...jaJPEffectPlayer, ...jaJPSoundEffectPlayer, ...jaJPHomePage },
+      "ru-RU": { ...ruRUCommon, ...ruRUEffectPlayer, ...ruRUSoundEffectPlayer, ...ruRUHomePage },
     },
   });
 }

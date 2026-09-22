@@ -41,7 +41,11 @@
                      "value" : "0,0,0"
                   }, 
                   { 
-                     "param_type" : "Float", 
+                     "param_type" : "Vector3", 
+                     "value" : "0,0,0"
+                  },
+                  {
+                     "param_type" : "Float",
                      "value" : "0.00"
                   }
                ]

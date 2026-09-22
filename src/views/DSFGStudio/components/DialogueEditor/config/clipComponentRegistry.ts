@@ -131,3 +131,18 @@ registerClipComponentTemplate({
     { key: "value", label: "值", type: "text", defaultValue: "" },
   ],
 });
+
+registerClipComponentTemplate({
+  id: "public.event",
+  name: "公共事件",
+  properties: [
+    { key: "value", label: "事件名", type: "string", defaultValue: "" },
+    { key: "presetId", label: "预设", type: "string", defaultValue: "" },
+    { key: "parameters", label: "参数", type: "struct-list", defaultValue: [], properties: [
+      { key: "id", label: "ID", type: "string", defaultValue: "" },
+      { key: "name", label: "名称", type: "string", defaultValue: "" },
+      { key: "type", label: "类型", type: "string", defaultValue: "String" },
+      { key: "value", label: "值", type: "string", defaultValue: "" },
+    ] },
+  ],
+});

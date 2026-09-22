@@ -2,7 +2,7 @@ import type { EffectItem } from "./types/EffectData";
 import { messageSearchText } from "../../i18n/messageText";
 import { effectNameKey, effectTagKey, isEffectResourceKey } from "./resourceKeys";
 
-type SearchableEffect = Pick<EffectItem, "id" | "title" | "name" | "sourceTitle" | "sourceName" | "tagList">;
+type SearchableEffect = Pick<EffectItem, "id" | "title" | "name" | "sourceTitle" | "sourceName" | "tagList" | "nameI18nKey">;
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)

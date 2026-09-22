@@ -21,6 +21,24 @@ async function main() {
   const { useEntityPresets } = require(path.join(base, 'useEntityPresets.ts'));
   let count = 0;
   async function test(name, check) { await check(); count++; console.log(`PASS ${name}`); }
+  await test('Preset settings contains the entity section and retains the existing editor route and save guard', () => {
+    const { parse, compileScript, compileTemplate, compileStyle } = require('@vue/compiler-sfc');
+    const filename = path.join(base, 'EntityPresetEditor.vue');
+    const source = fs.readFileSync(filename, 'utf8');
+    const { descriptor, errors } = parse(source, { filename });
+    assert.deepEqual(errors, []);
+    const script = compileScript(descriptor, { id: 'preset-settings' });
+    assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'preset-settings', compilerOptions: { bindingMetadata: script.bindings } }).errors, []);
+    for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename, id: 'preset-settings', scoped: true }).errors, []);
+    assert.match(source, /<h2>预设设置<\/h2>/);
+    assert.match(source, /<section[^>]*aria-labelledby="entity-presets-title"/);
+    assert.match(source, /<h3 id="entity-presets-title">预设实体<\/h3>/);
+    assert.match(source, /prepareToLeave: flush/);
+    const selector = fs.readFileSync(path.join(base, '../EditorKindSelect.vue'), 'utf8');
+    assert.match(selector, /<option value="EntityPresets">预设设置<\/option>/);
+    const preview = fs.readFileSync(path.join(base, '../DialogueEditor/DialogueTextPreview.vue'), 'utf8');
+    assert.ok(preview.includes('编辑内容 → 预设设置 → 预设实体'));
+  });
   await test('People have independent IDs; empty subtitle and same-name variants survive roundtrip', () => {
     const a = { ...createEntityPreset(), talker: 'A' };
     const b = { ...createEntityPreset(), talker: 'A', subtitle: '旅行者' };
@@ -34,6 +52,18 @@ async function main() {
       { kind: 'DSFGEntityPresets', schemaVersion: 1, presets: [{ id: 'a', talker: 'A', subtitle: '' }, { id: 'a', talker: 'B', subtitle: '' }] }]) {
       assert.throws(() => decode(JSON.stringify(data)));
     }
+  });
+  await test('Entity aliases migrate old files and preserve explicit values without replacing Talker', () => {
+    const old = { id: 'old', talker: '原说话人', subtitle: '' };
+    assert.equal(decode(encode([old]))[0].name, '原说话人');
+    const named = { ...old, name: '网页代号' };
+    assert.deepEqual(decode(encode([named])), [named]);
+    assert.equal(decode(encode([{ ...named, name: '' }]))[0].name, '');
+    assert.throws(() => decode(encode([{ ...named, name: 123 }])));
+    const { systemPresetConfig } = require(path.join(base, 'systemPresetConfig.ts'));
+    assert.deepEqual(systemPresetConfig.entities.presets.find(item => item.id === 'system-player-self'), {
+      id: 'system-player-self', name: '玩家自身', talker: '{1:ps.NICKNAME}', subtitle: '',
+    });
   });
   const files = new Map();
   let fail = false;

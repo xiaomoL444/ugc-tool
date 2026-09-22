@@ -173,15 +173,15 @@ onMounted(refreshHandles);
 
 <style scoped>
 .condition-branch-node {
-  --dsfg-handle-fill: #c69bf2;
-  --dsfg-handle-ring: #352746;
+  --dsfg-handle-fill: #9d79c5;
+  --dsfg-handle-ring: #fff;
   width: 300px;
   overflow: visible;
-  color: #f4effb;
-  background: #26222e;
-  border: 1px solid #665678;
+  color: #475569;
+  background: #fff;
+  border: 1px solid #d8cbe9;
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(24, 12, 34, 0.3);
+  box-shadow: 0 8px 24px rgba(62, 45, 87, 0.10);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease,
@@ -189,15 +189,15 @@ onMounted(refreshHandles);
 }
 
 .condition-branch-node:hover {
-  border-color: #9074aa;
+  border-color: #b5a0d0;
 }
 
 .condition-branch-node.selected {
-  border-color: #c095ea;
+  border-color: #9770c5;
   box-shadow:
-    0 0 0 2px rgba(192, 149, 234, 0.22),
-    0 10px 28px rgba(24, 12, 34, 0.38);
-  transform: translateY(-1px);
+    0 0 0 2px rgba(151, 112, 197, 0.20),
+    0 10px 28px rgba(62, 45, 87, 0.14);
+
 }
 
 .condition-header {
@@ -206,7 +206,7 @@ onMounted(refreshHandles);
   justify-content: space-between;
   min-height: 34px;
   padding: 0 8px 0 11px;
-  background: linear-gradient(90deg, #66439b, #8b60bd);
+  background: #ece3fa;
   border-radius: 9px 9px 0 0;
 }
 
@@ -218,16 +218,16 @@ onMounted(refreshHandles);
 
 .add-output-button {
   padding: 4px 7px;
-  color: #f7efff;
-  background: rgba(28, 14, 43, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #79569e;
+  background: #ffffffb3;
+  border: 1px solid #d8cbe9;
   border-radius: 5px;
   font-size: 10px;
   cursor: pointer;
 }
 
 .add-output-button:hover {
-  background: rgba(28, 14, 43, 0.42);
+  background: #fff;
 }
 
 .condition-title-row {
@@ -241,7 +241,7 @@ onMounted(refreshHandles);
   min-width: 0;
   flex: 1;
   padding: 0;
-  color: #f1eafa;
+  color: #475569;
   background: transparent;
   border: 0;
   outline: 0;
@@ -251,7 +251,7 @@ onMounted(refreshHandles);
 }
 
 .condition-title-row > span {
-  color: #a99bb7;
+  color: #7b6d8f;
   font-size: 9px;
   white-space: nowrap;
 }
@@ -261,19 +261,19 @@ onMounted(refreshHandles);
   flex-direction: column;
   gap: 6px;
   margin: 4px 0 0;
-  color: #afa2bc;
+  color: #7b6d8f;
   font-size: 10px;
 }
 
 .condition-field > span {
   display: flex;
   justify-content: space-between;
-  color: #d9c9e8;
+  color: #736085;
   font-weight: 600;
 }
 
 .condition-field small {
-  color: #887b95;
+  color: #8b809a;
   font-weight: 400;
 }
 
@@ -282,9 +282,9 @@ onMounted(refreshHandles);
   width: 100%;
   min-width: 0;
   padding: 6px;
-  color: #f1eafa;
-  background: #26212e;
-  border: 1px solid #51465e;
+  color: #475569;
+  background: #fff;
+  border: 1px solid #d8cbe9;
   border-radius: 4px;
   resize: none;
   font: inherit;
@@ -293,16 +293,16 @@ onMounted(refreshHandles);
 }
 
 .condition-field textarea:focus {
-  outline: 1px solid #c095ea;
+  outline: 1px solid #9770c5;
 }
 
 .condition-field textarea::placeholder {
-  color: #887b95;
+  color: #8b809a;
 }
 
 .condition-ports {
   overflow: visible;
-  border-top: 1px solid #4b4057;
+  border-top: 1px solid #e1d8ed;
   border-radius: 0 0 9px 9px;
 }
 
@@ -313,8 +313,8 @@ onMounted(refreshHandles);
   align-items: center;
   min-height: 32px;
   padding: 8px 7px 8px 11px;
-  background: #2d2836;
-  border-bottom: 1px solid #413849;
+  background: #faf8fd;
+  border-bottom: 1px solid #e8e1f0;
 }
 
 .condition-port-row:last-child {
@@ -323,7 +323,7 @@ onMounted(refreshHandles);
 }
 
 .condition-input-label {
-  color: #a99bb7;
+  color: #7b6d8f;
   font-size: 10px;
 }
 
@@ -336,7 +336,7 @@ onMounted(refreshHandles);
   width: 100%;
   min-width: 0;
   padding: 4px 6px;
-  color: #e3d5f0;
+  color: #635076;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -348,24 +348,24 @@ onMounted(refreshHandles);
 
 .condition-output-name:hover,
 .condition-output-name:focus {
-  background: #211d28;
-  border-color: #5d4d6d;
+  background: #fff;
+  border-color: #b5a0d0;
 }
 
 .connected-dot {
   display: block;
   width: 5px;
   height: 5px;
-  background: #6ce0a7;
+  background: #3b9973;
   border-radius: 50%;
-  box-shadow: 0 0 5px rgba(108, 224, 167, 0.55);
+  box-shadow: 0 0 5px rgba(59, 153, 115, 0.15);
 }
 
 .delete-output-button {
   width: 22px;
   height: 22px;
   padding: 0;
-  color: #8f819c;
+  color: #8b809a;
   background: transparent;
   border: 0;
   border-radius: 4px;
@@ -374,8 +374,8 @@ onMounted(refreshHandles);
 }
 
 .delete-output-button:hover {
-  color: #ffd2df;
-  background: rgba(174, 70, 100, 0.23);
+  color: #b45367;
+  background: #fcecf1;
 }
 
 .condition-input-handle,
@@ -385,12 +385,18 @@ onMounted(refreshHandles);
 
 .no-outputs {
   grid-template-columns: 48px 1fr;
-  color: #b59a76;
-  background: rgba(102, 70, 32, 0.23);
+  color: #94651c;
+  background: #fff8e8;
   font-size: 9px;
 }
 
 .no-outputs > span:last-child {
   text-align: right;
 }
+
+.condition-header { color: #79569e; border-bottom: 1px solid #d8cbe9; }
+.condition-branch-node button { font-family: inherit; }
+.condition-branch-node button:focus-visible, .condition-name:focus-visible, .condition-output-name:focus-visible { outline: 2px solid #9770c5; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .condition-branch-node { transition: none; } }
+
 </style>

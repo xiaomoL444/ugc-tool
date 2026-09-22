@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { toast } from "vue-sonner";
 import { addWalkTalkEntry, moveWalkTalkEntry, removeWalkTalkEntry, WALK_TALK_LIMIT, type WalkTalkProject } from "./walkTalkProject";
-import { WALK_TALK_STYLE_OPTIONS } from "./walkTalkStyles";
+import { useStylePresets } from "../EntityPresetEditor/stylePresets";
+const { options: WALK_TALK_STYLE_OPTIONS, error: styleError, retry: retryStyles } = useStylePresets("walkTalkStyles");
 
 const props = defineProps<{ project: WalkTalkProject }>();
 function add(afterId?: string) {
@@ -20,6 +21,7 @@ function remove(id: string, index: number) {
       <button type="button" class="primary" :disabled="project.entries.length >= WALK_TALK_LIMIT" @click="add()">＋ 添加台词</button>
     </header>
     <div class="dialogue-list">
+      <p v-if="styleError" role="alert">{{ styleError }} <button type="button" @click="retryStyles().catch(() => undefined)">重试类型预设</button></p>
       <article v-for="(entry, index) in project.entries" :key="entry.id" class="dialogue-card" :aria-label="`第 ${index + 1} 条台词`">
         <header class="card-header">
           <span class="order">{{ String(index + 1).padStart(2, '0') }}</span>
@@ -35,18 +37,17 @@ function remove(id: string, index: number) {
             <label>副标题 <code>subtitle</code><input v-model="entry.subtitle" :aria-label="`第 ${index + 1} 条副标题`" placeholder="可留空" /></label>
             <label>样式 <code>style</code><select v-model="entry.style" :aria-label="`第 ${index + 1} 条样式`">
               <option v-if="!WALK_TALK_STYLE_OPTIONS.some(option => option.value === entry.style)" :value="entry.style" disabled>{{ entry.style ? `${entry.style}（旧值）` : '未设置（旧值）' }}</option>
-              <option v-for="option in WALK_TALK_STYLE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+              <option v-for="option in WALK_TALK_STYLE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}（{{ option.value }}）</option>
             </select></label>
           </div>
           <div class="content-fields">
             <label>台词内容 <code>content</code><textarea v-model="entry.content" :aria-label="`第 ${index + 1} 条内容`" rows="5" placeholder="填写台词内容…" /></label>
             <div class="timing-fields">
               <label>推进延迟（秒） <code>continueDelay</code><input v-model="entry.continueDelay" inputmode="decimal" :aria-label="`第 ${index + 1} 条推进延迟`" /></label>
-              <label>自动推进时间（秒） <code>autoContinue</code><input v-model="entry.autoContinue" inputmode="decimal" :aria-label="`第 ${index + 1} 条自动推进时间`" /></label>
             </div>
           </div>
         </div>
-        <details class="params"><summary>整数参数 <code>prams · Int32List</code></summary><label>按顺序填写，使用逗号、空格或换行分隔，最多 100 项。<textarea v-model="entry.prams" :aria-label="`第 ${index + 1} 条整数参数`" rows="2" placeholder="例如：0, 1, 100" /></label></details>
+        <details class="params"><summary>整数参数 <code>params · Int32List</code></summary><label>按顺序填写，使用逗号、空格或换行分隔，最多 100 项。<textarea v-model="entry.params" :aria-label="`第 ${index + 1} 条整数参数`" rows="2" placeholder="例如：0, 1, 100" /></label></details>
       </article>
       <div v-if="!project.entries.length" class="list-empty"><h3>从第一句台词开始</h3><p>这是顺序列表，不使用节点、连线或 Timeline。</p><button class="primary" type="button" @click="add()">＋ 添加第一句台词</button></div>
     </div>
@@ -79,7 +80,7 @@ textarea { resize: vertical; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 1px; }
 .speaker-fields { display: flex; flex-direction: column; gap: 11px; }
 .content-fields > label textarea { min-height: 138px; }
-.timing-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+.timing-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 8px; }
 .params { margin: 0 14px 14px; padding: 10px; border-radius: 5px; background: #f8fafc; }
 .params summary { cursor: pointer; color: #63788f; font-size: 12px; }
 .params label { margin-top: 10px; font-size: 11px; }

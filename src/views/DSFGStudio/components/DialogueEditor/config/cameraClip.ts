@@ -17,7 +17,7 @@ export const CAMERA_SLOT_PROPERTIES: ClipPropertyDefinition[] = [
     visibleWhen: { key: "pointType", values: ["Guid"] } },
   { key: "entity", label: "实体", type: "string", defaultValue: "",
     visibleWhen: { key: "pointType", values: ["Entity"] } },
-  { key: "attachmentPoint", label: "挂接点", type: "string", defaultValue: "",
+  { key: "attachmentPoint", label: "挂接点", type: "string", defaultValue: "GI_RootNode",
     visibleWhen: { key: "pointType", values: ["Guid", "Entity"] } },
   { key: "offset", label: "偏移", type: "vector3", defaultValue: "0,0,0", step: 0.01,
     visibleWhen: { key: "pointType", values: ["Guid", "Entity"] } },
@@ -25,12 +25,14 @@ export const CAMERA_SLOT_PROPERTIES: ClipPropertyDefinition[] = [
     visibleWhen: { key: "pointType", values: ["Guid", "Entity"] } },
 ];
 
-const CAMERA_ORBIT_SLOT_PROPERTIES = CAMERA_SLOT_PROPERTIES.map(property =>
-  property.key === "vector3" ? { ...property, visibleWhen: undefined } : property,
+// Only camera-position slots hide coordinate space for literal Vector3 points.
+const CAMERA_POSITION_SLOT_PROPERTIES = CAMERA_SLOT_PROPERTIES.map(property =>
+  property.key === "space" ? { ...property, visibleWhen: { key: "pointType", values: ["Guid", "Entity"] } } : property,
 );
 
 /** 视点额外支持以旋转值确定目标位置，仍写入 PositionSlot.vector3。 */
 export const CAMERA_VIEWPOINT_SLOT_PROPERTIES: ClipPropertyDefinition[] = CAMERA_SLOT_PROPERTIES.map(property => {
+  if (property.key === "space") return { ...property, visibleWhen: { key: "pointType", values: ["Guid", "Entity", "Rot"] } };
   if (property.key === "pointType") return { ...property, options: [...(property.options ?? []), { label: "Rot（旋转）", value: "Rot" }] };
   if (property.key === "vector3") return { ...property, visibleWhen: { key: "pointType", values: ["Vector3", "Rot"] } };
   return property;
@@ -50,14 +52,15 @@ function slotProperty(properties = CAMERA_SLOT_PROPERTIES): ClipPropertyDefiniti
 export const CAMERA_POSITION_PROPERTIES: ClipPropertyDefinition[] = [
   { key: "type", label: "相机位置类型", type: "select", defaultValue: "Fixed",
     options: ["Fixed", "Linear", "Follow", "Orbit"].map((value) => ({ label: value, value })) },
-  { ...slotProperty(), defaultValue: [{}], minItems: 1, maxItems: 1,
-    propertiesWhen: { key: "type", cases: { Orbit: CAMERA_ORBIT_SLOT_PROPERTIES } },
+  { ...slotProperty(CAMERA_POSITION_SLOT_PROPERTIES), defaultValue: [{}], minItems: 1, maxItems: 1,
     itemLimitsWhen: { key: "type", cases: {
       Fixed: { min: 1, max: 1 }, Follow: { min: 1, max: 1 }, Orbit: { min: 1, max: 1 }, Linear: { min: 1, max: 2 },
     } }, description: "Fixed、Follow、Orbit 使用 1 个 Slot；Linear 可使用 1～2 个。切换为单 Slot 类型时保留第一个点位。" },
   { key: "snapToTarget", label: "立即抵达目标", type: "boolean", defaultValue: false,
     visibleWhen: { key: "type", values: ["Follow"] } },
-  { key: "orbitRot", label: "环绕旋转", type: "vector3", defaultValue: "0,0,0", step: 0.1,
+  { key: "orbitRotStart", label: "初始环绕角度", type: "vector3", defaultValue: "0,0,0", step: 0.1,
+    visibleWhen: { key: "type", values: ["Orbit"] } },
+  { key: "orbitRotEnd", label: "结束环绕角度", type: "vector3", defaultValue: "0,0,0", step: 0.1,
     visibleWhen: { key: "type", values: ["Orbit"] } },
   // CameraClip 内嵌默认是 0，而独立 PositionData 导出文件的示例值为 2。
   { key: "orbitRadius", label: "环绕半径", type: "number", defaultValue: 0, step: 0.01,

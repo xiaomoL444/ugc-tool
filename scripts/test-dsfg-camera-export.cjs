@@ -96,7 +96,7 @@ async function main() {
     });
     const parameters = () => ({
       cameraName: "镜头 A",
-      positionData: { type: "自定义位置模式", slot: [slot(), slot({ entity: "第二个目标", guid: "2" })], snapToTarget: true, orbitRot: "10,-20,30", orbitRadius: 2.75 },
+      positionData: { type: "自定义位置模式", slot: [slot(), slot({ entity: "第二个目标", guid: "2" })], snapToTarget: true, orbitRotStart: "10,-20,30", orbitRotEnd: "40,50,-60", orbitRadius: 2.75 },
       rotationData: { type: "自定义旋转模式", slot: [slot({ pointType: "look-at", space: 0 })], snapToTarget: false },
     });
 
@@ -127,7 +127,7 @@ async function main() {
       const first = createClipComponent("camera.shot");
       const second = createClipComponent("camera.shot");
       assert.deepEqual(first.properties, expected);
-      assert.deepEqual(createClipPropertyValues(CAMERA_SLOT_PROPERTIES), { ...plain(workspace.createDefault(ids.cameraSlot)), pointType: "Vector3" });
+      assert.deepEqual(createClipPropertyValues(CAMERA_SLOT_PROPERTIES), { ...plain(workspace.createDefault(ids.cameraSlot)), pointType: "Vector3", attachmentPoint: "GI_RootNode" });
       first.properties.positionData.slot.push(createClipPropertyValues(CAMERA_SLOT_PROPERTIES));
       first.properties.rotationData.type = "changed";
       assert.deepEqual(second.properties, expected);
@@ -144,7 +144,7 @@ async function main() {
       let restored = decoded.dialogue.nodes.group.lines[0].clips[0].components[0];
       assert.equal(restored.cameraViewpointEnabled, false);
       assert.deepEqual(restored.properties.rotationData, component.properties.rotationData);
-      let output = table(exported(decoded).parsed.value.CameraMovementDate)[0].value;
+      let output = table(exported(decoded).parsed.value.CameraMovementData)[0].value;
       assert.equal(output.positionData.value.type.value, 'Fixed');
       assert.equal(output.positionData.value.slot.itemCount, 1);
       assert.equal(output.rotationData.value.type.value, '');
@@ -152,12 +152,12 @@ async function main() {
       assert.equal(output.rotationData.value.snapToTarget.value, 'False');
       restored.cameraViewpointEnabled = true;
       decoded = decodeDialogueProject(encodeDialogueProject(decoded));
-      output = table(exported(decoded).parsed.value.CameraMovementDate)[0].value;
+      output = table(exported(decoded).parsed.value.CameraMovementData)[0].value;
       assert.equal(output.rotationData.value.type.value, 'LookAt');
       assert.equal(output.rotationData.value.slot.itemCount, 1);
       assert.equal(output.rotationData.value.snapToTarget.value, 'True');
       delete component.cameraViewpointEnabled;
-      output = table(exported(decodeDialogueProject(encodeDialogueProject(project([clip])))).parsed.value.CameraMovementDate)[0].value;
+      output = table(exported(decodeDialogueProject(encodeDialogueProject(project([clip])))).parsed.value.CameraMovementData)[0].value;
       assert.equal(output.rotationData.value.type.value, 'LookAt');
     });
 
@@ -184,7 +184,18 @@ async function main() {
       assert.equal(name.type, "string");
       assert.equal(name.defaultValue, "Default");
       for (const properties of [CAMERA_POSITION_PROPERTIES, CAMERA_ROTATION_PROPERTIES]) {
-        assert.equal(properties.find((property) => property.key === "slot").properties, properties === CAMERA_POSITION_PROPERTIES ? CAMERA_SLOT_PROPERTIES : CAMERA_VIEWPOINT_SLOT_PROPERTIES);
+        const fields = properties.find((property) => property.key === "slot").properties;
+        if (properties === CAMERA_POSITION_PROPERTIES) {
+          assert.deepEqual(fields.map(field => field.key), CAMERA_SLOT_PROPERTIES.map(field => field.key));
+          assert.deepEqual(fields.find(field => field.key === 'space').visibleWhen, { key: 'pointType', values: ['Guid', 'Entity'] });
+          const orbitFields = getClipNestedProperties(properties.find(field => field.key === 'slot'), { type: 'Orbit' });
+          assert.deepEqual(orbitFields.find(field => field.key === 'space').visibleWhen, { key: 'pointType', values: ['Guid', 'Entity'] });
+          assert.equal(space.visibleWhen, undefined);
+        } else {
+          assert.equal(fields, CAMERA_VIEWPOINT_SLOT_PROPERTIES);
+          assert.deepEqual(fields.find(field => field.key === 'space').visibleWhen, { key: 'pointType', values: ['Guid', 'Entity', 'Rot'] });
+          assert.equal(isClipPropertyVisible(fields.find(field => field.key === 'space'), { pointType: 'Vector3' }), false);
+        }
       }
       for (const selected of space.options) {
         const properties = createClipPropertyValues(CAMERA_SLOT_PROPERTIES);
@@ -195,7 +206,7 @@ async function main() {
         assert.equal(restored.space, selected.value);
         assert.equal(typeof restored.space, "number");
         const { parsed } = exported(decoded);
-        assert.equal(table(parsed.value.CameraMovementDate)[0].value.positionData.value.slot.value[0].value.space.value, String(selected.value));
+        assert.equal(table(parsed.value.CameraMovementData)[0].value.positionData.value.slot.value[0].value.space.value, String(selected.value));
       }
     });
 
@@ -207,7 +218,7 @@ async function main() {
       const decoded = decodeDialogueProject(encodeDialogueProject(project([camera({ rotationData: { type: 'Fixed', slot: [target], snapToTarget: false } })])));
       const restored = decoded.dialogue.nodes.group.lines[0].clips[0].components[0].properties.rotationData.slot[0];
       assert.deepEqual(restored, target);
-      const output = table(exported(decoded).parsed.value.CameraMovementDate)[0].value.rotationData.value.slot.value[0].value;
+      const output = table(exported(decoded).parsed.value.CameraMovementData)[0].value.rotationData.value.slot.value[0].value;
       assert.equal(output.pointType.value, 'Rot');
       assert.equal(output.vector3.value, '10,20,-30');
       assert.deepEqual(Object.keys(output), CAMERA_SLOT_PROPERTIES.map(field => field.key));
@@ -258,7 +269,7 @@ async function main() {
         ['Fixed', ['type', 'slot'], 1],
         ['Linear', ['type', 'slot'], 2],
         ['Follow', ['type', 'slot', 'snapToTarget'], 1],
-        ['Orbit', ['type', 'slot', 'orbitRot', 'orbitRadius'], 1],
+        ['Orbit', ['type', 'slot', 'orbitRotStart', 'orbitRotEnd', 'orbitRadius'], 1],
       ]) {
         const value = createClipPropertyValues(CAMERA_POSITION_PROPERTIES, { type, slot: [] });
         assert.equal(value.slot.length, 1);
@@ -266,7 +277,7 @@ async function main() {
         assert.deepEqual(getClipListLimits(slotDefinition, value), { min: 1, max });
         const slotFields = getClipNestedProperties(slotDefinition, value);
         for (const pointType of ['Vector3', 'Guid', 'Entity']) {
-          assert.equal(isClipPropertyVisible(slotFields.find(field => field.key === 'vector3'), { pointType }), type === 'Orbit' || pointType === 'Vector3', `${type}/${pointType}: Vector3 visibility`);
+          assert.equal(isClipPropertyVisible(slotFields.find(field => field.key === 'vector3'), { pointType }), pointType === 'Vector3', `${type}/${pointType}: Vector3 visibility`);
           assert.equal(isClipPropertyVisible(slotFields.find(field => field.key === 'offset'), { pointType }), pointType !== 'Vector3', `${type}/${pointType}: offset visibility`);
         }
       }
@@ -292,19 +303,19 @@ async function main() {
         assert.equal(restored.positionData.type, 'Fixed');
         assert.equal(restored.positionData.slot.length, 1);
         const { parsed } = exported(decoded);
-        assert.equal(table(parsed.value.CameraMovementDate)[0].value.rotationData.value.slot.itemCount, updated.slot.length);
+        assert.equal(table(parsed.value.CameraMovementData)[0].value.rotationData.value.slot.itemCount, updated.slot.length);
       }
       assert.equal(original.slot.length, 2);
       assert.equal(createClipPropertyValues(CAMERA_ROTATION_PROPERTIES, { ...original, type: 'Fixed' }).slot.length, 2, 'Reading older files must preserve extra targets');
     });
 
     test("Changing from Linear to single-Slot modes retains the first target and all hidden settings", () => {
-      const original = createClipPropertyValues(CAMERA_POSITION_PROPERTIES, { type: 'Linear', slot: [slot({ entity: 'first' }), slot({ entity: 'second' })], snapToTarget: true, orbitRot: '10,20,30', orbitRadius: 6 });
+      const original = createClipPropertyValues(CAMERA_POSITION_PROPERTIES, { type: 'Linear', slot: [slot({ entity: 'first' }), slot({ entity: 'second' })], snapToTarget: true, orbitRotStart: '10,20,30', orbitRadius: 6 });
       for (const type of ['Follow', 'Orbit', 'Fixed']) {
         const updated = updateClipStructField(CAMERA_POSITION_PROPERTIES, original, 'type', type);
         assert.deepEqual(updated.slot, [original.slot[0]]);
         assert.equal(updated.snapToTarget, true);
-        assert.equal(updated.orbitRot, '10,20,30');
+        assert.equal(updated.orbitRotStart, '10,20,30');
         assert.equal(updated.orbitRadius, 6);
         assert.equal(original.slot.length, 2);
         const roundtrip = decodeDialogueProject(encodeDialogueProject(project([camera({ positionData: updated })])));
@@ -330,7 +341,7 @@ async function main() {
         const restoredSlot = restored.dialogue.nodes.group.lines[0].clips[0].components[0].properties.positionData.slot[0];
         assert.deepEqual(restoredSlot, { ...original, pointType });
         const { parsed } = exported(restored);
-        const value = table(parsed.value.CameraMovementDate)[0].value.positionData.value.slot.value[0].value;
+        const value = table(parsed.value.CameraMovementData)[0].value.positionData.value.slot.value[0].value;
         assert.deepEqual(Object.keys(value), CAMERA_SLOT_PROPERTIES.map((property) => property.key));
         assert.equal(value.pointType.value, pointType);
         assert.equal(value.vector3.value, "-160,900,0.125");
@@ -353,7 +364,7 @@ async function main() {
         assert.equal(properties.positionData.slot[0].space, 9);
         assert.equal(properties.rotationData.type, saved);
         const { parsed } = exported(restored);
-        const value = table(parsed.value.CameraMovementDate)[0].value;
+        const value = table(parsed.value.CameraMovementData)[0].value;
         assert.equal(value.cameraName.value, saved);
         assert.equal(value.positionData.value.type.value, saved);
         assert.equal(value.positionData.value.slot.value[0].value.pointType.value, saved);
@@ -389,7 +400,7 @@ async function main() {
         assert.deepEqual(properties, { ...legacy, ...defaults });
         assert.equal(properties.cameraName, "Default");
         const { parsed } = exported(decoded);
-        const value = table(parsed.value.CameraMovementDate)[0];
+        const value = table(parsed.value.CameraMovementData)[0];
         assert.equal(value.value.cameraName.value, "Default");
         assert.equal(value.value.positionData.value.type.value, "Fixed");
         assert.equal(value.value.positionData.value.slot.itemCount, 1);
@@ -411,7 +422,7 @@ async function main() {
       assert.equal(properties.positionData.type, "Fixed");
       assert.equal(properties.positionData.snapToTarget, false);
       assert.equal(properties.positionData.orbitRadius, 0);
-      assert.equal(properties.positionData.orbitRot, "0,0,0");
+      assert.equal(properties.positionData.orbitRotStart, "0,0,0");
       assert.deepEqual(properties.positionData.slot.map((item) => item.entity), ["third", "first", "second"]);
       assert.equal(properties.positionData.slot[0].customKey, "keep");
       assert.equal(properties.positionData.slot[0].guid, "0");
@@ -423,36 +434,53 @@ async function main() {
       assert.equal(properties.rotationData.slot[0].attachmentPoint, "Head");
       assert.equal(properties.rotationData.slot[0].requiresClientPos, false);
       const { parsed } = exported(decoded);
-      const slots = table(parsed.value.CameraMovementDate)[0].value.positionData.value.slot.value;
+      const slots = table(parsed.value.CameraMovementData)[0].value.positionData.value.slot.value;
       assert.deepEqual(slots.map((item) => item.value.entity.value), ["third", "first", "second"]);
       assert.deepEqual(decodeDialogueProject(encodeDialogueProject(decoded)).dialogue.nodes.group.lines[0].clips[0].components[0].properties, properties);
+    });
+
+    test("Legacy Orbit drafts retain position and old angle without guessing new start/end angles", () => {
+      const source = project([camera({ positionData: { type: 'Orbit', slot: [slot({ vector3: '11,22,33' })], orbitRot: '44,55,66' } })]);
+      const restored = decodeDialogueProject(encodeDialogueProject(source));
+      const data = restored.dialogue.nodes.group.lines[0].clips[0].components[0].properties.positionData;
+      assert.equal(data.slot[0].vector3, '11,22,33');
+      assert.equal(data.orbitRot, '44,55,66');
+      assert.equal(data.orbitRotStart, '0,0,0');
+      assert.equal(data.orbitRotEnd, '0,0,0');
+      const output = table(exported(restored).parsed.value.CameraMovementData)[0].value.positionData.value;
+      assert.equal(output.orbitRot, undefined);
+      assert.equal(output.slot.value[0].value.vector3.value, '11,22,33');
     });
 
     test("CameraClip embedded defaults and source field order", () => {
       const source = project();
       const { parsed, workspace } = exported(source);
-      const value = table(parsed.value.CameraMovementDate)[0];
+      const value = table(parsed.value.CameraMovementData)[0];
       assert.deepEqual(Object.keys(value.value), ["duration", "positionData", "rotationData", "cameraName"]);
       assert.equal(value.value.duration.value, "1.25");
       assert.equal(value.value.cameraName.value, "");
       assert.equal(value.value.positionData.value.orbitRadius.value, "0.00");
+      assert.deepEqual(Object.keys(value.value.positionData.value), ["type", "slot", "snapToTarget", "orbitRotStart", "orbitRotEnd", "orbitRadius"]);
+      assert.equal(value.value.positionData.value.orbitRotEnd.value, "0,0,0");
       assert.equal(value.value.positionData.value.slot.itemCount, 0);
       assert.equal(value.value.rotationData.value.slot.itemCount, 0);
       const standalone = workspace.createDefault(source.exportSettings.qxqyStructIds.cameraPosition);
       assert.equal(standalone.value.orbitRadius.value, "2.00");
       assert.equal(standalone.value.slot.itemCount, 1);
-      assert.equal(parsed.value.CameraMovementDate.toParamNode().value.key_type, "Int32");
+      assert.equal(parsed.value.CameraMovementData.toParamNode().value.key_type, "Int32");
     });
 
     test("Nested position, rotation and ordered target slots preserve values", () => {
       const { parsed } = exported(project([camera(parameters())]));
-      const value = table(parsed.value.CameraMovementDate)[0];
+      const value = table(parsed.value.CameraMovementData)[0];
       const position = value.value.positionData.value;
       const rotation = value.value.rotationData.value;
       assert.equal(value.value.cameraName.value, "镜头 A");
       assert.equal(position.type.value, "自定义位置模式");
       assert.equal(position.snapToTarget.value, "True");
-      assert.equal(position.orbitRot.value, "10,-20,30");
+      assert.equal(position.orbitRotStart.value, "10,-20,30");
+      assert.equal(position.orbitRotEnd.value, "40,50,-60");
+      assert.equal(position.orbitRot, undefined);
       assert.equal(position.orbitRadius.value, "2.75");
       assert.equal(position.slot.itemCount, 2);
       assert.deepEqual(Object.keys(position.slot.value[0].value), ["space", "pointType", "vector3", "guid", "entity", "attachmentPoint", "offset", "requiresClientPos"]);
@@ -478,11 +506,11 @@ async function main() {
       assert.deepEqual(actions[1].value.intParams.value, ["0"]);
       assert.equal(actions[1].value.intParams.toParamNode().param_type, "Int32List");
       assert.equal(actions[1].value.duration.value, "1.25");
-      assert.equal(Object.hasOwn(table(parsed.value.CameraMovementDate)[0].value, "delay"), false);
+      assert.equal(Object.hasOwn(table(parsed.value.CameraMovementData)[0].value, "delay"), false);
       const selection = table(parsed.value.DialogueSelectData)[0];
       assert.deepEqual(selection.value.content.value, ["选项 A", "选项 B"]);
       assert.deepEqual(selection.value.icons.value, ["123", "456"]);
-      assert.equal(table(parsed.value.DialogueDate)[0].value.continueDelay.value, "-1.00");
+      assert.equal(table(parsed.value.DialogueData)[0].value.continueDelay.value, "-1.00");
     });
 
     test("Custom IDs replace root, nested structs, lists and dictionary definitions", () => {
@@ -502,7 +530,7 @@ async function main() {
       walk(result.value);
       for (const actual of actualIds) assert.ok(Object.values(source.exportSettings.qxqyStructIds).includes(actual));
       for (const original of Object.values(defaults)) assert.equal(actualIds.has(original), false);
-      const cameraValue = table(parsed.value.CameraMovementDate)[0];
+      const cameraValue = table(parsed.value.CameraMovementData)[0];
       assert.equal(cameraValue.value.positionData.structId, source.exportSettings.qxqyStructIds.cameraPosition);
       assert.equal(cameraValue.value.rotationData.structId, source.exportSettings.qxqyStructIds.cameraRotation);
       assert.equal(cameraValue.value.positionData.value.slot.value[0].structId, source.exportSettings.qxqyStructIds.cameraSlot);
@@ -523,7 +551,7 @@ async function main() {
         const properties = parameters();
         properties[field].slot = Array.from({ length: 100 }, (_, index) => slot({ entity: String(index) }));
         const { parsed } = exported(project([camera(properties)]));
-        assert.equal(table(parsed.value.CameraMovementDate)[0].value[field].value.slot.itemCount, 100);
+        assert.equal(table(parsed.value.CameraMovementData)[0].value[field].value.slot.itemCount, 100);
         properties[field].slot.push(slot());
         assert.throws(() => exportQxqyPerformance(project([camera(properties)])), /101 项.*最多支持 100 项/);
       });
@@ -540,8 +568,8 @@ async function main() {
     test("110 camera clips use 100/10 table chunks and retain global indices", () => {
       const source = project(Array.from({ length: 110 }, (_, index) => ({ ...camera({ cameraName: String(index) }, index), startTime: index / 10 })));
       const { parsed } = exported(source);
-      const chunks = parsed.value.CameraMovementDate.value;
-      assert.equal(parsed.value.CameraMovementDate.toParamNode().value.key_type, "Int32");
+      const chunks = parsed.value.CameraMovementData.value;
+      assert.equal(parsed.value.CameraMovementData.toParamNode().value.key_type, "Int32");
       assert.ok(chunks.every(chunk => chunk.key.toParamNode().param_type === "Int32"));
       assert.deepEqual(chunks.map((entry) => [entry.key.value, entry.value.itemCount]), [["0", 100], ["1", 10]]);
       assert.equal(chunks[1].value.value[9].value.cameraName.value, "109");
@@ -555,7 +583,7 @@ async function main() {
       clip.components[0].enabled = false;
       clip.components.push({ id: "legacy", templateId: "custom.data", name: "Legacy", enabled: true, properties: { start_pos: "999,999,999", blendDuration: 12 } });
       const { parsed } = exported(project([clip]));
-      const value = table(parsed.value.CameraMovementDate)[0];
+      const value = table(parsed.value.CameraMovementData)[0];
       assert.equal(value.value.cameraName.value, "");
       assert.equal(value.value.positionData.value.slot.itemCount, 0);
       assert.equal(Object.hasOwn(value.value, "start_pos"), false);
@@ -563,7 +591,7 @@ async function main() {
 
     test("Dialogue style, speaker, contents, delay and integer parameters remain unchanged", () => {
       const { parsed } = exported(project());
-      const dialogue = table(parsed.value.DialogueDate)[0].value;
+      const dialogue = table(parsed.value.DialogueData)[0].value;
       assert.equal(dialogue.style.value, "Default_UI");
       assert.equal(dialogue.talker.value, "测试角色");
       assert.equal(dialogue.content.value, "测试台词");

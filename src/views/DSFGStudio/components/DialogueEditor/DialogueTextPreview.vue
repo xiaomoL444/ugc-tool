@@ -8,6 +8,7 @@ import { applyDialogueTextAction, type DialogueTextAction } from "./utils/dialog
 import { canUndoDialogueDeletion, captureDialogueDeletion } from "./utils/dialogueDeletionUndo";
 import DialogueTextLine from "./components/DialogueTextLine.vue";
 import DialogueOptionText from "./components/DialogueOptionText.vue";
+import VisualConditionEditor from "./components/VisualConditionEditor.vue";
 import SelectOptionIcon from "./components/SelectOptionIcon.vue";
 import { DEFAULT_SELECT_ICON_ID } from "./config/selectStyleRegistry";
 import type { EntityPreset } from "../EntityPresetEditor/entityPresets";
@@ -24,6 +25,16 @@ const emit = defineEmits<{
 }>();
 const preview = computed(() => buildDialogueTextPreview(props.project));
 const namedPresets = computed(() => props.entityPresets.filter(preset => preset.talker.trim()));
+const speakerAliases = computed(() => {
+  const aliases = new Map<string, string>();
+  // Presets arrive system-first; use the first nonempty alias for an exact Talker match.
+  for (const preset of props.entityPresets) {
+    if (preset.talker.trim() && preset.name.trim() && !aliases.has(preset.talker)) {
+      aliases.set(preset.talker, preset.name);
+    }
+  }
+  return aliases;
+});
 const deletedDialogue = ref<ReturnType<typeof captureDialogueDeletion>>();
 watch(() => props.project, project => {
   if (deletedDialogue.value && !canUndoDialogueDeletion(deletedDialogue.value, project)) deletedDialogue.value = undefined;
@@ -322,7 +333,7 @@ onBeforeUnmount(() => {
               <div v-for="(line, index) in placed.block.lines" :key="line.nodeId" :data-dialogue-id="line.nodeId" :class="{ 'line-drop-target': dropLine === line.nodeId }"
                 @pointerdown="startLineDrag($event, line.nodeId)" @pointermove="dragLine"
                 @pointerup="endLineDrag(true)" @pointercancel="endLineDrag()" @lostpointercapture="endLineDrag()">
-                <DialogueTextLine v-if="line.hasDialogue" :line="line" :index="index" :movable="movable(line.nodeId) && placed.block.lines.length > 1" :repeat-speaker="!shouldShowDialogueSpeaker(placed.block.lines, index)"
+                <DialogueTextLine v-if="line.hasDialogue" :line="line" :speaker-alias="speakerAliases.get(line.speaker)" :index="index" :movable="movable(line.nodeId) && placed.block.lines.length > 1" :repeat-speaker="!shouldShowDialogueSpeaker(placed.block.lines, index)"
                   :can-move-up="canMove(placed.block, index, -1)" :can-move-down="canMove(placed.block, index, 1)"
                   @edit="emit('edit', $event)" @move="moveLine(placed.block, index, $event)" @insert="insertLine(line.nodeId)"
                   @remove="act({ type: 'delete', nodeId: line.nodeId })"
@@ -335,7 +346,8 @@ onBeforeUnmount(() => {
                 <span class="text-outlet-number">{{ index + 1 }}</span>
                 <div><div class="option-heading"><small>{{ outlet.label }}</small><SelectOptionIcon v-if="outlet.kind === 'select'" :model-value="outlet.icon ?? DEFAULT_SELECT_ICON_ID" :label="`选项 ${index + 1} 图标`" @update:model-value="emit('optionIcon', tailId(placed.block), outlet.id.slice('select:'.length), $event)" /></div>
                   <DialogueOptionText v-if="outlet.kind === 'select'" :model-value="outlet.text" @update:model-value="editOption(placed.block, outlet.id, $event)" />
-                  <p v-else-if="outlet.kind === 'condition'">{{ outlet.text || '（未填写表达式）' }} <button type="button" @click="navigateToBlock(placed.block, undefined, true)">配置 ↗</button></p>
+                  <VisualConditionEditor v-else-if="outlet.kind === 'condition'" :model-value="outlet.text" :label="outlet.label"
+                    @update:model-value="act({ type: 'edit-condition', nodeId: tailId(placed.block), outletId: outlet.id, condition: $event })" />
                   <button class="outlet-focus" type="button" @click.stop="selectBlock(placed.id); chosenOutletId = outlet.id">{{ outlet.connected ? '已连接' : '未连接' }} · 从此出口添加</button>
                 </div>
                 <button v-if="outlet.connected" type="button" title="前往此分支" @click="focusBlock(outletTarget(placed.id, index))">↗</button>
@@ -365,9 +377,9 @@ onBeforeUnmount(() => {
         <div class="panel-section">
           <span class="panel-eyebrow">添加对话</span>
           <button type="button" class="panel-add-button" :disabled="!activeOutletId" @click="append('dialogue')"><strong>＋ 默认对话</strong><small>{{ activeBlock.kind === 'dialogue' ? '追加到当前集合末尾' : '在所选出口后创建对话集合' }}</small></button>
-          <button v-for="preset in namedPresets" :key="preset.id" type="button" class="panel-add-button" :disabled="!activeOutletId" @click="append('dialogue', preset)"><strong>＋ {{ preset.talker }}</strong><small>{{ preset.subtitle || '无副标题' }} · 空白对话</small></button>
+          <button v-for="preset in namedPresets" :key="preset.id" type="button" class="panel-add-button" :title="`Talker：${preset.talker}`" :disabled="!activeOutletId" @click="append('dialogue', preset)"><strong>＋ {{ preset.name.trim() || preset.talker }}</strong><small>{{ preset.subtitle || '无副标题' }} · 空白对话</small></button>
           <p v-if="presetsError" class="panel-hint" role="alert">{{ presetsError }} <button type="button" @click="emit('retryPresets')">重试</button></p>
-          <p v-else-if="!namedPresets.length" class="panel-hint">在「编辑内容 → 预设实体」保存人物，即可从这里添加。</p>
+          <p v-else-if="!namedPresets.length" class="panel-hint">在「编辑内容 → 预设设置 → 预设实体」保存人物，即可从这里添加。</p>
         </div>
         <div class="panel-section">
           <span class="panel-eyebrow">创建后续节点</span>

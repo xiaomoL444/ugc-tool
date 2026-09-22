@@ -14,8 +14,8 @@ import WalkTalkPanel from "./WalkTalkPanel.vue";
 import { createWalkTalkProject, decodeWalkTalkProject, encodeWalkTalkProject, validateWalkTalkStructIds, type WalkTalkProject, type WalkTalkStructIds } from "./walkTalkProject";
 import { exportWalkTalk } from "./walkTalkExporter";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" }>(), { editorKind: "WalkTalk" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets"] }>();
+withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>(), { editorKind: "WalkTalk" });
+const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
 const storage = inject<StorageClass>("storage")!;
 const workspace = inject<Ref<string>>("selectedWorkspaceId")!;
 const directory = `/${workspace.value}/WalkTalkEditor`;

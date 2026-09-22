@@ -11,6 +11,7 @@ import {
 } from "./tweenRegistry";
 import { TWEEN_CLIP_TIME_EPSILON, tweenClipsOverlap } from "./timelineClipLayout";
 import { buildKeyframeRuntimeLuaLines } from "./keyframeLuaRuntime";
+import { buildEventRuntimeLuaLines } from "./eventLuaRuntime";
 import type {
   ColorRGBA,
   TweenEaseType,
@@ -20,6 +21,7 @@ import type {
 } from "./types";
 
 export interface TweenSequenceLuaExportResult {
+  eventCount?: number;
   code: string;
   fileName: string;
   warnings: string[];
@@ -57,7 +59,7 @@ const SCALE_RELATIVE_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimel
 const MULTI_CLIP_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@6";
 const LAYOUT_RELATIVE_TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@7";
 const TWEEN_TIMELINE_SCHEMA = "ClientUIAnimationEditor.TweenTimeline@8";
-export const TWEEN_TIMELINE_LIB_VERSION = TWEEN_TIMELINE_SCHEMA.slice(TWEEN_TIMELINE_SCHEMA.lastIndexOf("@") + 1) + ".2";
+export const TWEEN_TIMELINE_LIB_VERSION = TWEEN_TIMELINE_SCHEMA.slice(TWEEN_TIMELINE_SCHEMA.lastIndexOf("@") + 1) + ".3";
 
 export interface TweenTimelineLibLuaExportResult {
   code: string;
@@ -130,6 +132,7 @@ export function buildTweenTimelineLibLua(): TweenTimelineLibLuaExportResult {
     "",
     "local TweenTimelineLib = {}",
     `TweenTimelineLib.Schema = ${luaString(TWEEN_TIMELINE_SCHEMA)}`,
+    `TweenTimelineLib.Version = ${luaString(TWEEN_TIMELINE_LIB_VERSION)}`,
     "",
     "local Ease = {",
     ...tweenEaseOptions.map(
@@ -223,9 +226,54 @@ export function buildTweenTimelineLibLua(): TweenTimelineLibLuaExportResult {
     "    return Color.FromRGBA(target[3], target[4], target[5], math.floor(target[6] * alpha / 255 + 0.5))",
     "end",
     "",
+    ...buildEventRuntimeLuaLines(),
     ...buildKeyframeRuntimeLuaLines(),
-    "function TweenTimelineLib.Create(root, data)",
-    '    if type(data) == "table" and data.schema == "ClientUIAnimationEditor.TweenTimeline@8" then return CreateKeyframes(root, data) end',
+    ...`
+-- Compare numeric components: 8.10 is newer than 8.2, while 8.2.0 equals 8.2.
+local function VersionParts(value)
+    if type(value) ~= "string" or not value:match("^%d[%d%.]*$")
+        or value:sub(-1) == "." or value:find("..", 1, true) then return nil end
+    local parts = {}
+    for part in value:gmatch("%d+") do
+        local number = tonumber(part)
+        if not IsNumber(number) then return nil end
+        parts[#parts + 1] = number
+    end
+    return parts
+end
+
+local function IsNewerVersion(required, installed)
+    for index = 1, math.max(#required, #installed) do
+        local left, right = required[index] or 0, installed[index] or 0
+        if left ~= right then return left > right end
+    end
+    return false
+end
+
+local function CheckDataVersion(data)
+    if type(data) ~= "table" then return true end -- existing format validation follows
+    local schemaVersion = type(data.schema) == "string" and data.schema:match("^ClientUIAnimationEditor%.TweenTimeline@(%d+)$") or nil
+    local installed = VersionParts(TweenTimelineLib.Version)
+    local required = data.libVersion ~= nil and VersionParts(data.libVersion) or nil
+    if data.libVersion ~= nil and required == nil then
+        printerr("[TweenTimeline] Data 的 libVersion 无效，请重新导出 Data。")
+        return false
+    end
+    local schemaParts = schemaVersion and VersionParts(schemaVersion) or nil
+    if (schemaParts and IsNewerVersion(schemaParts, installed))
+        or (required and IsNewerVersion(required, installed)) then
+        printerr("[TweenTimeline] 版本不匹配：Data 格式 " .. tostring(data.schema)
+            .. "，需要运行库 v" .. tostring(data.libVersion or schemaVersion)
+            .. "，当前 Lib v" .. TweenTimelineLib.Version
+            .. "。请在动画编辑器中选择「导出TweenTimeline运行库」，重新下载并导入/替换 Lib/TweenTimelineLib.lua。")
+        return false
+    end
+    return true
+end
+`.trim().split("\n"),
+    "function TweenTimelineLib.Create(root, data, options)",
+    "    if not CheckDataVersion(data) then return game.TweenSequence() end",
+    '    if type(data) == "table" and data.schema == "ClientUIAnimationEditor.TweenTimeline@8" then return CreateKeyframes(root, data, options) end',
     "    local sequence = game.TweenSequence()",
     "    if root == nil then",
     "        printerr(\"[TweenTimeline] 根控件不能为空\")",

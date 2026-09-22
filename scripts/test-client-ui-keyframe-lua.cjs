@@ -35,6 +35,43 @@ try {
   const withoutIds = (tracks) => tracks.map(({ nodeId, fieldKey, keyframes }) => ({ nodeId, fieldKey, keyframes: keyframes.map(({ id, relative, incomingRelative, ...rest }) => ({ ...rest, relative: Boolean(relative), ...(rest.incomingValue === undefined ? {} : { incomingRelative: Boolean(incomingRelative) }) })) }));
   let passed = 0;
   function test(name, check) { check(); passed++; console.log(`PASS ${name}`); }
+  test("Events-only Data round trips parameters, scoped targets and stable same-time order", () => {
+    const events = [
+      { id: "e1", time: 0, name: "Start", nodeId: null, params: "" },
+      { id: "e2", time: 1, name: "音效", nodeId: "text", params: '引号"和\\换行\n' },
+      { id: "e3", time: 1, name: "Next", nodeId: "text", params: "" },
+      { id: "e4", time: 2, name: "Outside", nodeId: "external", params: "" },
+    ];
+    const output = exportData([], { rootNodeId: "group", events });
+    assert.equal(output.eventCount, 3); assert.equal(output.trackCount, 0);
+    const data = parseLuaData(output.code);
+    assert.deepEqual(data.events.map(e => e.target), ["", "文本", "文本"]);
+    const imported = importData(output.code, { rootNodeId: "group" });
+    assert.deepEqual(imported.errors, []);
+    assert.deepEqual(imported.events.map(e => e.name), ['Start', '音效', 'Next']);
+    assert.equal(imported.events[0].nodeId, 'group');
+    assert.deepEqual(imported.events[1].params, events[1].params);
+    assert.equal(imported.events[1].time, imported.events[2].time);
+    const replaced = importData(output.code, { rootNodeId: "group", mode: "replace", existingEvents: events });
+    assert.deepEqual(replaced.errors, []);
+    assert.ok(replaced.events.some(e => e.id === "e4"));
+    assert.ok(!replaced.events.some(e => e.id === "e2"));
+    const invalid = importData(dataSource([], { events: [{time: 1, name: 'Bad', target: 'missing', params: ""}] }));
+    assert.ok(invalid.errors.length); assert.deepEqual(invalid.events, []);
+  });
+  test("Data records required Lib version and runtime checks it before keyframe or Clip creation", () => {
+    const data = parseLuaData(exportData([track("version")]).code);
+    assert.equal(data.libVersion, TWEEN_TIMELINE_LIB_VERSION);
+    const runtime = buildTweenTimelineLibLua().code;
+    assert.ok(runtime.includes(`TweenTimelineLib.Version = "${TWEEN_TIMELINE_LIB_VERSION}"`));
+    const create = runtime.slice(runtime.indexOf('function TweenTimelineLib.Create(root, data, options)'));
+    assert.ok(create.indexOf('CheckDataVersion(data)') < create.indexOf('CreateKeyframes(root, data, options)'));
+    assert.ok(create.indexOf('CheckDataVersion(data)') < create.indexOf('local sequence = game.TweenSequence()'));
+    assert.match(runtime, /data\.libVersion ~= nil/);
+    assert.match(runtime, /required\[index\] or 0, installed\[index\] or 0/);
+    assert.match(runtime, /版本不匹配/);
+    assert.match(runtime, /重新下载并导入\/替换 Lib\/TweenTimelineLib\.lua/);
+  });
   test("@8 exports nested reversible keyframes without legacy Clip columns", () => {
     const result = exportData([track("a")]);
     const data = parseLuaData(result.code);
@@ -225,11 +262,11 @@ try {
     assert.equal(evaluateKeyframeTrack(lane, 3, 100), 200);
   });
   test("Old Clip exports retain @3/5/7 while the shared runtime advertises @8", () => {
-    assert.equal(TWEEN_TIMELINE_LIB_VERSION, "8.2");
+    assert.equal(TWEEN_TIMELINE_LIB_VERSION, "8.3");
     const runtime = buildTweenTimelineLibLua().code;
     assert.match(runtime, /TweenTimelineLib.Schema = "ClientUIAnimationEditor.TweenTimeline@8"/);
     for (let version = 3; version <= 8; version++) assert.ok(runtime.includes("ClientUIAnimationEditor.TweenTimeline@" + version));
-    assert.match(runtime, /if type\(data\) == "table" and data.schema == "ClientUIAnimationEditor.TweenTimeline@8" then return CreateKeyframes\(root, data\) end/);
+    assert.match(runtime, /if type\(data\) == "table" and data.schema == "ClientUIAnimationEditor.TweenTimeline@8" then return CreateKeyframes\(root, data, options\) end/);
   });
   test("@8 runtime snapshots before constructing Tweens, handles step/last keys, and registers cleanup", () => {
     const runtime = buildTweenTimelineLibLua().code;
@@ -342,6 +379,7 @@ for version = 3,7 do
 end
 ${fs.readFileSync(path.join(__dirname, "fixtures/timeline-rotation-runtime.lua"), "utf8")}
 ${fs.readFileSync(path.join(__dirname, "fixtures/timeline-visibility-runtime.lua"), "utf8")}
+${fs.readFileSync(path.join(__dirname, "fixtures/timeline-events-runtime.lua"), "utf8")}
 local count = #logs
 local before = root.anchoredPositionX
 local invalid = Lib.Create(root, {schema=Lib.Schema,duration=2,tracks={ {"","anchoredPositionX",{{0,10,false,"Linear","tween"},{0,20,false,"Linear","step"}}} }})

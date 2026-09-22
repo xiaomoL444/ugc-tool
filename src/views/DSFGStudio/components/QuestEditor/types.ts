@@ -15,7 +15,9 @@ export interface QuestSub {
   title: string;
   description: string;
   unitState: string;
-  investigationPoint: Record<string, unknown>;
+  investigationPoint: string;
+  legacyInvestigationPoint?: Record<string, unknown>;
+  belondSceneId: number;
   investigationRange: number;
   hidden: boolean;
   nextQuestIds: Array<number | null>;

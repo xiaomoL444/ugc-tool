@@ -48,7 +48,7 @@ async function main() {
   function evaluateStyle(node, bindings) {
     const expression = directive(node, "bind", "style")?.exp?.content;
     assert.ok(expression, "Clip must bind its time-based position");
-    return JSON.parse(JSON.stringify(vm.runInNewContext(`(${expression})`, { labelWidth: 118, pixelsPerSecond: 80, ...bindings }, { timeout: 1000 })));
+    return JSON.parse(JSON.stringify(vm.runInNewContext(`(${expression})`, { labelWidth: 118, pixelsPerSecond: 80, isInstantPerformanceClip: clip => clip.type === "Custom", ...bindings }, { timeout: 1000 })));
   }
   const css = compileStyle({ filename, id: "timeline-appearance-test", source: descriptor.styles.map((style) => style.content).join("\n") });
   function declarations(selector) {
@@ -95,7 +95,7 @@ async function main() {
   }
 
   test("Performance Clips retain duration-based width and both resize boundaries", () => {
-    const clip = findAll(descriptor.template.ast, (node) => hasClass(node, "timeline-clip") && !hasClass(node, "dialogue-clip") && !hasClass(node, "select-clip"));
+    const clip = findAll(descriptor.template.ast, (node) => hasClass(node, "performance-clip"));
     assert.equal(clip.length, 1);
     assert.deepEqual(evaluateStyle(clip[0], { clip: { startTime: 2.9, duration: 1.25 } }), { left: "350px", width: "100px" });
     assert.deepEqual(evaluateStyle(clip[0], { clip: { startTime: 0, duration: 0 } }), { left: "118px", width: "8px" });
@@ -110,6 +110,31 @@ async function main() {
     assert.ok(declaration, `Missing ${name}`);
     return declaration.getText(scriptAst);
   }
+  test("Focus Push remains a draggable single Clip with a dedicated output parameter panel", () => {
+    const clip = elementWithClass("focus-push-clip");
+    assert.deepEqual(evaluateStyle(clip, { node: { focusPush: { startTime: 2.5 } } }), { left: "318px" });
+    assert.equal(directive(clip, "on", "pointerdown")?.exp?.content, "startDrag($event, node.focusPush)");
+    assert.ok(descriptor.template.content.includes('v-if="selectedClip.kind !== \'focusPush\'"'));
+    const node = { timeline: { duration: 2 }, lines: [] };
+    const selectedId = { value: "" };
+    const run = ts.transpileModule(functionText("addFocusPushClip"), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+    let count = 0;
+    vm.runInNewContext(run + "; addFocusPushClip(); addFocusPushClip();", {
+      props: { node }, selectedId,
+      getGroupTimelineEnd: () => 2,
+      createFocusPushClip: startTime => ({ id: "focus-" + ++count, startTime }),
+    });
+    assert.equal(count, 1);
+    assert.deepEqual({ ...node.focusPush }, { id: "focus-1", startTime: 2 });
+    assert.equal(selectedId.value, "focus-1");
+    vm.runInNewContext(ts.transpileModule(functionText("deleteSelectedClip"), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText + "; deleteSelectedClip();", {
+      props: { node }, selectedId, selectedClip: { value: { kind: "focusPush", clip: node.focusPush } },
+      editorOpen: { value: true }, hoveredClip: { value: undefined },
+    });
+    assert.equal(node.focusPush, undefined);
+    assert.equal(selectedId.value, "");
+  });
+
   test("Delay input and drag bounds continue using business duration, not viewport width", () => {
     for (const name of ["updateContinueDelay", "startContinueDelayDrag", "clipDisplayDuration"]) {
       const code = functionText(name);
@@ -134,10 +159,30 @@ async function main() {
     module._compile(compiled.outputText, sourcePath);
   };
   try {
-    const { createDialogueNode, createSelectClip, createPerformanceClip, createEmptyDialogueProject } = require(path.join(editor, "utils/dialogueProject.ts"));
-    const { getGroupTimelineEnd, getFlowClipDuration } = require(path.join(editor, "utils/groupTimeline.ts"));
+    const { createDialogueNode, createSelectClip, createPerformanceClip, createEmptyDialogueProject, normalizeDialogueProject } = require(path.join(editor, "utils/dialogueProject.ts"));
+    const { getGroupTimelineEnd, getFlowClipDuration, getGroupTimelineDisplayDuration } = require(path.join(editor, "utils/groupTimeline.ts"));
     const { exportQxqyPerformance } = require(path.join(editor, "utils/qxqyPerformanceExporter.ts"));
     const { createQxqyStructWorkspace } = require(path.join(editor, "utils/qxqyStructWorkspace.ts"));
+    test("Display duration adjusts the viewport without changing business duration and clears to auto", () => {
+      const group = createDialogueNode("display");
+      assert.equal(getGroupTimelineDisplayDuration(group), 10);
+      group.timeline.displayDuration = 30.5;
+      assert.equal(getGroupTimelineDisplayDuration(group), 30.5);
+      assert.equal(getGroupTimelineEnd(group), 2);
+      group.timeline.displayDuration = 1;
+      const project = createEmptyDialogueProject();
+      project.dialogue.nodes[group.id] = group;
+      assert.equal(normalizeDialogueProject(JSON.parse(JSON.stringify(project))).dialogue.nodes[group.id].timeline.displayDuration, 1);
+      assert.equal(getGroupTimelineDisplayDuration(group), 1);
+      const input = { value: "", valueAsNumber: NaN };
+      vm.runInNewContext(ts.transpileModule(functionText("updateDisplayDuration"), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText + "; updateDisplayDuration({ target: input });", { props: { node: group }, input, timelineScrollRef: { value: undefined } });
+      assert.equal(group.timeline.displayDuration, undefined);
+      assert.equal(getGroupTimelineDisplayDuration(group), 10);
+      for (const invalid of [NaN, Infinity, -1, 0]) {
+        group.timeline.displayDuration = invalid;
+        assert.equal(getGroupTimelineDisplayDuration(group), 10);
+      }
+    });
     test("New Group and flow Clip defaults remain 2 seconds and 0.5 seconds of delay", () => {
       const group = createDialogueNode("defaults");
       group.select = createSelectClip();
@@ -171,6 +216,7 @@ async function main() {
       const project = createEmptyDialogueProject();
       const group = createDialogueNode("group");
       group.dialogue.advanceMode = "None";
+      group.timeline.displayDuration = 120;
       group.select = createSelectClip();
       group.select.startTime = 2.9;
       project.dialogue.nodes[group.id] = group;
@@ -186,7 +232,7 @@ async function main() {
       assert.equal(actions.find((action) => action.value.actionType.value === "NOLOC_DIALOG").value.duration.value, "3.40");
       assert.equal(actions.find((action) => action.value.actionType.value === "NOLOC_DIALOG_SELECT").value.duration.value, "0.50");
       assert.deepEqual(exportedGroup.Timer.value.map((item) => item.value.value), ["0.00", "2.90"]);
-      assert.equal(table(decoded.value.DialogueDate)[0].value.continueDelay.value, "-1.00");
+      assert.equal(table(decoded.value.DialogueData)[0].value.continueDelay.value, "-1.00");
       assert.equal(JSON.stringify(project), before);
     });
   } finally {

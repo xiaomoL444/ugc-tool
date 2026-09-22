@@ -21,6 +21,7 @@
         <div class="storage-fields">
         <p class="storage-development" role="status">{{ t('common.storageUnderDevelopment') }}</p>
         <p>{{ labels.description }}</p>
+        <p><a class="storage-companion-link" href="https://github.com/xiaomoL444/ugc-tool-desktop/" target="_blank" rel="noopener noreferrer">{{ labels.companionLink }}</a></p>
         <label>{{ labels.location }}
           <select v-model="draft.mode" :disabled="syncBusy || syncLocked">
             <option value="browser">{{ labels.browser }}</option>
@@ -84,6 +85,7 @@ const labels = computed(() => locale.value.startsWith("zh") ? {
   browser: "浏览器存档", disk: "电脑存档", settings: "存储设置", close: "关闭",
   sync: "迁移 / 双向同步存档", synced: "同步操作后已暂停编辑器读写，请刷新页面读取存档。", reload: "刷新并读取存档",
   description: "选择 UGC Tools 的存档位置。电脑模式需要运行本地存档助手。", location: "存档位置",
+  companionLink: "本地存档助手（GitHub）",
   step1: "在 C# 程序中选择存档目录。", step2: "将当前网站来源加入程序的“允许的网站”：",
   step3: "启动服务，复制配对码并粘贴到下方。若浏览器询问本地网络访问，请允许。",
   copy: "复制", address: "本地服务地址", token: "配对码", test: "测试连接", connected: "连接成功，可以使用电脑存档。",
@@ -94,6 +96,7 @@ const labels = computed(() => locale.value.startsWith("zh") ? {
   browser: "Browser saves", disk: "Desktop saves", settings: "Storage settings", close: "Close",
   sync: "Migrate / sync saves", synced: "Editor storage is paused after sync. Reload to read the saves.", reload: "Reload saves",
   description: "Choose where UGC Tools saves your work. Desktop mode requires the local save companion.", location: "Save location",
+  companionLink: "Local save companion (GitHub)",
   step1: "Choose a save folder in the C# companion.", step2: "Add this website origin to the companion's allowed websites:",
   step3: "Start the service, copy its pairing code and paste it below. Allow local network access if your browser asks.",
   copy: "Copy", address: "Local service address", token: "Pairing code", test: "Test connection", connected: "Connected. Desktop storage is ready.",
@@ -157,6 +160,7 @@ async function applySettings() {
 .storage-dialog button, .storage-alert button { border: 1px solid #cbd2e3; border-radius: 8px; padding: 7px 12px; background: #f5f6fb; color: #35476b; cursor: pointer; font: inherit; }
 .storage-dialog button:disabled { opacity: .55; cursor: wait; }
 .storage-dialog li { margin: 8px 0; }
+.storage-companion-link { color: #6554c0; text-decoration: underline; text-underline-offset: 3px; }
 .storage-dialog code { overflow-wrap: anywhere; user-select: all; }
 .storage-dialog .storage-copy { padding: 2px 6px; margin-left: 6px; }
 .storage-note { padding: 12px; background: #f2f4fb; border-radius: 8px; }

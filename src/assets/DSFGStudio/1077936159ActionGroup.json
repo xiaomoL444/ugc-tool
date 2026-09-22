@@ -46,6 +46,22 @@
                                           "param_type" : "Int32List", 
                                           "value" : [ 
                                           ]
+                                       },
+                                       {
+                                          "param_type" : "GuidList",
+                                          "value" : []
+                                       },
+                                       {
+                                          "param_type" : "ConfigReferenceList",
+                                          "value" : []
+                                       },
+                                       {
+                                          "param_type" : "EntityReferenceList",
+                                          "value" : []
+                                       },
+                                       {
+                                          "param_type" : "FloatList",
+                                          "value" : []
                                        }
                                     ]
                                  }

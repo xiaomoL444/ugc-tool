@@ -4,6 +4,7 @@ import { PRIMITIVE_PROJECT_SCHEMA, PRIMITIVE_PROJECT_VERSION } from "./primitive
 export function buildPrimitiveImageLibLua() {
   return { fileName: "PrimitiveImageLib.lua", code: `-- 独立图元图片运行库 v3；兼容 v1/v2 Data，不依赖动画或 Tween 运行库。
 -- local collection = PrimitiveImageLib.create(rootControl, data, imagePrefabIndex)
+-- Data 中 path="" 表示 rootControl 自身；其他路径相对于 rootControl 查找。
 -- collection:destroy() 仅销毁本库创建的图片。相同 root 再次 create 会替换之前的集合。
 -- imagePrefabIndex 是图片控件模板索引，不是图片素材 ID 或运行时控件 ID。
 local PrimitiveImageLib = {}
@@ -79,7 +80,7 @@ function Runtime.create(parent, row, imagePrefabIndex, controls, index, compact)
 end
 
 local function Prepare(root, data, imagePrefabIndex)
-    if root == nil or not root.alive or typeof(root) ~= "ClientUIContainerControl" then error("请传入有效的根容器控件") end
+    if root == nil or not root.alive or type(root.FindChild) ~= "function" then error("请传入有效的根控件") end
     if not Number(imagePrefabIndex) or imagePrefabIndex < 1 or imagePrefabIndex % 1 ~= 0 then error("请传入图片控件模板索引") end
     if type(data) ~= "table" or not Array(data.groups) or #data.groups == 0 then error("无效的图元项目 Data") end
     local compact = data.v == 2 or data.v == PrimitiveImageLib.Version
@@ -91,9 +92,10 @@ local function Prepare(root, data, imagePrefabIndex)
     end
     local targets, used = {}, {}
     for _, group in ipairs(data.groups) do
-        if type(group) ~= "table" or type(group.path) ~= "string" or group.path == "" or not Array(group.elements) or #group.elements == 0 then error("无效的图元容器数据") end
+        if type(group) ~= "table" or type(group.path) ~= "string" or not Array(group.elements) or #group.elements == 0 then error("无效的图元容器数据") end
         if (group.visible ~= nil and type(group.visible) ~= "boolean") or (group.focus ~= nil and type(group.focus) ~= "boolean") then error("无效的图元容器显示状态") end
-        local target = root:FindChild(group.path)
+        local target = root
+        if group.path ~= "" then target = root:FindChild(group.path) end
         if target == nil or not target.alive or typeof(target) ~= "ClientUIContainerControl" then error("未找到图元容器：" .. group.path) end
         if used[target] then error("图元容器路径重复：" .. group.path) end
         used[target] = true

@@ -14,6 +14,7 @@ import {
 import {
   getFlowClipDuration,
   getGroupTimelineEnd,
+  getPerformanceClipDuration,
 } from "./utils/groupTimeline";
 
 const props = withDefaults(defineProps<{
@@ -76,7 +77,7 @@ const previewSegments = computed(() => {
       (Math.max(
         "continueDelayTime" in clip
           ? getFlowClipDuration(props.node, clip)
-          : toSeconds(clip.duration),
+          : toSeconds(getPerformanceClipDuration(clip)),
         0.25,
       ) /
         total) *
@@ -121,7 +122,12 @@ const previewSegments = computed(() => {
           <template v-if="index === 0">入口</template>
         </span>
         <span class="group-output-label" :title="outlet.label">
-          {{ outlet.label }}
+          <span class="group-output-text">{{ outlet.label }}</span>
+          <span
+            v-if="node.focusPush?.outputMode === 'Shared' && node.focusPush.sharedOutletIndex === index"
+            class="shared-focus-badge"
+            title="Focus Push 到达触发时间后会强制使用此出口"
+          >强制共用</span>
         </span>
         <Handle
           :id="outlet.id"
@@ -183,19 +189,18 @@ const previewSegments = computed(() => {
 
 <style scoped>
 .group-node {
-  --dsfg-handle-fill: #88b5ff;
-  --dsfg-handle-ring: #202630;
+  --dsfg-handle-fill: #488aeb;
+  --dsfg-handle-ring: #fff;
   width: 250px;
   overflow: visible;
-  color: #e9eef7;
-  background: #202630;
-  border: 1px solid #465264;
+  color: #334155;
+  background: #fff;
+  border: 1px solid #cbd7e6;
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 8px 24px rgba(38, 59, 90, 0.10);
   transition:
     border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.15s ease;
+    box-shadow 0.15s ease;
 }
 
 .group-header {
@@ -209,21 +214,21 @@ const previewSegments = computed(() => {
 }
 
 .group-warning {
-  color: #ffe2a4;
+  color: #94651c;
   font-size: 10px;
   font-weight: 700;
 }
 
 .group-node:hover {
-  border-color: #6e83a0;
+  border-color: #94b8e8;
 }
 
 .group-node.selected {
-  border-color: #71a5ff;
+  border-color: #488aeb;
   box-shadow:
-    0 0 0 2px rgba(113, 165, 255, 0.24),
-    0 10px 28px rgba(0, 0, 0, 0.35);
-  transform: translateY(-1px);
+    0 0 0 2px rgba(72, 138, 235, 0.20),
+    0 10px 28px rgba(38, 59, 90, 0.14);
+
 }
 
 .group-header {
@@ -232,7 +237,7 @@ const previewSegments = computed(() => {
   justify-content: space-between;
   min-height: 32px;
   padding: 0 11px;
-  background: linear-gradient(90deg, #315d9f, #477bc4);
+  background: #e2edfc;
 }
 
 .group-kind {
@@ -254,7 +259,7 @@ const previewSegments = computed(() => {
 
 .group-dialogue {
   overflow: hidden;
-  color: #e5edf8;
+  color: #334155;
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -264,7 +269,7 @@ const previewSegments = computed(() => {
   display: flex;
   gap: 10px;
   margin-top: 10px;
-  color: #cbd4e1;
+  color: #64748b;
   font-size: 11px;
 }
 
@@ -273,7 +278,7 @@ const previewSegments = computed(() => {
   height: 18px;
   margin-top: 9px;
   overflow: hidden;
-  background: #151a21;
+  background: #edf2fa;
   border-radius: 4px;
 }
 
@@ -285,21 +290,21 @@ const previewSegments = computed(() => {
 }
 
 .segment-1 {
-  background: #5791e6;
+  background: #94b8e8;
 }
 
 .segment-2 {
-  background: #8b70d9;
+  background: #b3a5df;
 }
 
 .segment-3 {
-  background: #4ca982;
+  background: #99cdbb;
 }
 
 .group-flow-ports {
   overflow: visible;
-  background: #252d39;
-  border-bottom: 1px solid #3a4657;
+  background: #f6f9fd;
+  border-bottom: 1px solid #dbe3ed;
 }
 
 .group-port-row {
@@ -309,8 +314,8 @@ const previewSegments = computed(() => {
   align-items: center;
   min-height: 28px;
   padding: 0 12px;
-  color: #b9c7da;
-  border-bottom: 1px solid #333e4d;
+  color: #64748b;
+  border-bottom: 1px solid #e5ebf3;
   font-size: 10px;
 }
 
@@ -319,26 +324,51 @@ const previewSegments = computed(() => {
 }
 
 .group-input-label {
-  color: #91a4bc;
+  color: #71839a;
 }
 
 .group-output-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 0;
   overflow: hidden;
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.group-output-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-focus-badge {
+  flex-shrink: 0;
+  padding: 2px 4px;
+  color: #94651c;
+  background: #fff8e8;
+  border: 1px solid #ead7ae;
+  border-radius: 4px;
+  font-size: 9px;
+  line-height: 1.2;
+}
+
 .group-port-row.outlet-dialogue .group-output-label {
-  color: #a8cbff;
+  color: #315b8e;
 }
 
 .group-port-row.outlet-select .group-output-label {
-  color: #d5b8f4;
+  color: #79569e;
 }
 
+.group-port-row.outlet-focuspush .group-output-label { color: #b98438; }
+.group-port-row.outlet-focuspush .group-output-handle { --dsfg-handle-fill: #b98438; }
+
 .group-port-row.outlet-select .group-output-handle {
-  --dsfg-handle-fill: #c79af0;
+  --dsfg-handle-fill: #9d79c5;
 }
 
 .group-input-handle,
@@ -347,12 +377,21 @@ const previewSegments = computed(() => {
 }
 
 .no-flow-output {
-  color: #f1bd73;
-  background: rgba(126, 75, 35, 0.24);
+  color: #94651c;
+  background: #fff8e8;
 }
 
 .no-flow-output > span:last-child {
   text-align: right;
 }
+
+
+.group-header { color: #315b8e; border-bottom: 1px solid #cdddf1; }
+.group-kind { letter-spacing: .04em; }
+.group-duration { padding: 2px 6px; background: #fff9; border-radius: 4px; font-size: 11px; }
+.group-dialogue { line-height: 1.65; }
+.group-dialogue.empty { color: #8090a6; }
+.group-stats span { padding: 2px 6px; background: #f1f5fa; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { .group-node { transition: none; } }
 
 </style>

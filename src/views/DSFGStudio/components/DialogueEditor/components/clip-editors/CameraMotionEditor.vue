@@ -7,7 +7,11 @@ import ClipPropertyEditor from "./ClipPropertyEditor.vue";
 const props = defineProps<{ kind: "position" | "rotation"; modelValue: unknown }>();
 const emit = defineEmits<{ "update:modelValue": [value: Record<string, unknown>] }>();
 const definitions = computed(() => props.kind === "position" ? CAMERA_POSITION_PROPERTIES : CAMERA_ROTATION_PROPERTIES);
-const slotFields = computed(() => getClipNestedProperties(definitions.value.find(field => field.key === "slot")!, value.value));
+const slotFields = computed(() => {
+  const fields = getClipNestedProperties(definitions.value.find(field => field.key === "slot")!, value.value);
+  // Presentation order only: point type on the left, coordinate space on the right.
+  return [...fields.filter(field => field.key === "pointType"), ...fields.filter(field => field.key !== "pointType")];
+});
 const value = computed(() => createClipPropertyValues(definitions.value, props.modelValue));
 const mode = computed(() => String(value.value.type));
 const slots = computed(() => value.value.slot as Record<string, unknown>[]);

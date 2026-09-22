@@ -1,6 +1,6 @@
 import { VariableWorkspace, type StructDefinition } from "miliastra-variable";
-import dialogueDefinition from "@/assets/DSFGStudio/WalkTalk/1077936129对话节点.json";
-import sequenceSample from "@/assets/DSFGStudio/WalkTalk/NOLOC_测试子结构体1077936131.json";
+import dialogueDefinition from "@/assets/DSFGStudio/WalkTalk/1077936168[消息]边走边说对话.json";
+import sequenceDefinition from "@/assets/DSFGStudio/WalkTalk/1077936171[消息]边走边说对话列表结构体.json";
 import {
   WALK_TALK_FIELDS, parseWalkTalkFloat, parseWalkTalkParams, validateWalkTalkProject, validateWalkTalkStructIds,
   type WalkTalkProject, type WalkTalkStructIds,
@@ -9,15 +9,8 @@ import {
 export function createWalkTalkStructWorkspace(ids: WalkTalkStructIds) {
   const errors = validateWalkTalkStructIds(ids);
   if (errors.length) throw new Error(errors.join("；"));
-  const list = sequenceSample.value[0];
-  if (sequenceSample.value.length !== 1 || list.param_type !== "StructList") throw new Error("边走边说样例必须只有一个结构体列表字段。");
-  // 外层样例不包含字段名；dialogues 仅为库内访问别名。输出仍是 ID + 有序值列表。
-  const outer: StructDefinition = {
-    type: "Struct", struct_ype: "basic", name: "边走边说",
-    value: [{ key: "dialogues", param_type: "StructList", value: {
-      param_type: "StructList", value: { structId: ids.dialogue, value: [] },
-    } }],
-  };
+  const outer = JSON.parse(JSON.stringify(sequenceDefinition)) as StructDefinition;
+  outer.value[0].value.value = { structId: ids.dialogue, value: [] };
   return new VariableWorkspace({
     [ids.sequence]: outer,
     [ids.dialogue]: JSON.parse(JSON.stringify(dialogueDefinition)) as StructDefinition,
@@ -32,10 +25,10 @@ export function exportWalkTalk(project: WalkTalkProject): { value: unknown; json
   for (const entry of project.entries) {
     const dialogue = workspace.createDefault(project.structIds.dialogue);
     for (const key of WALK_TALK_FIELDS) {
-      dialogue.value[key].setValue(key === "prams" ? parseWalkTalkParams(entry.prams)
-        : key === "continueDelay" || key === "autoContinue" ? parseWalkTalkFloat(entry[key]) : entry[key]);
+      dialogue.value[key].setValue(key === "params" ? parseWalkTalkParams(entry.params)
+        : key === "continueDelay" ? parseWalkTalkFloat(entry[key]) : entry[key]);
     }
-    root.value.dialogues.appendItem(dialogue);
+    root.value.datas.appendItem(dialogue);
   }
   if (root.issues.length) throw new Error(`边走边说结构体校验失败：${root.issues.map(issue => issue.message).join("；")}`);
   return { value: root.toQxqyValue(), json: root.serialize(2) };

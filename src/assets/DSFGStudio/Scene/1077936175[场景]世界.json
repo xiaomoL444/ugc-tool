@@ -1,0 +1,47 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[场景]世界", 
+   "value" : [ 
+      { 
+         "key" : "id", 
+         "param_type" : "Int32", 
+         "value" : { 
+            "param_type" : "Int32", 
+            "value" : "0"
+         }
+      }, 
+      { 
+         "key" : "name", 
+         "param_type" : "String", 
+         "value" : { 
+            "param_type" : "String", 
+            "value" : ""
+         }
+      }, 
+      { 
+         "key" : "contact", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "Vector3", 
+               "value" : [ 
+                  { 
+                     "key" : { 
+                        "param_type" : "Int32", 
+                        "value" : "1"
+                     }, 
+                     "value" : { 
+                        "param_type" : "Vector3", 
+                        "value" : "0,0,0"
+                     }
+                  }
+               ]
+            }
+         }
+      }
+   ]
+}

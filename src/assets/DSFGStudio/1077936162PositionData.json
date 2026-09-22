@@ -56,6 +56,14 @@
                            { 
                               "param_type" : "Bool", 
                               "value" : "False"
+                           }, 
+                           { 
+                              "param_type" : "Int32", 
+                              "value" : "0"
+                           }, 
+                           { 
+                              "param_type" : "Int32", 
+                              "value" : "0"
                            }
                         ]
                      }
@@ -73,7 +81,15 @@
          }
       }, 
       { 
-         "key" : "orbitRot", 
+         "key" : "orbitRotStart", 
+         "param_type" : "Vector3", 
+         "value" : { 
+            "param_type" : "Vector3", 
+            "value" : "0,0,0"
+         }
+      }, 
+      { 
+         "key" : "orbitRotEnd", 
          "param_type" : "Vector3", 
          "value" : { 
             "param_type" : "Vector3", 

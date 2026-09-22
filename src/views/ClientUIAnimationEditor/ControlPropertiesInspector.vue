@@ -1,11 +1,11 @@
 <template>
-  <details class="property-section control-properties-section" open>
-    <summary><h3><span>{{ definition.icon }}</span>{{ definition.label }}参数<i>{{ definition.editorOnly ? '自定义控件' : definition.runtimeClass }}</i></h3><slot name="actions"></slot></summary>
+  <details class="property-section control-properties-section" :class="{ 'image-mask-section': definition.type === 'image' }" open>
+    <summary><h3><span>{{ definition.icon }}</span>{{ definition.type === 'image' ? '遮罩设置' : definition.label + '参数' }}<i v-if="definition.type !== 'image'">{{ definition.editorOnly ? '自定义控件' : definition.runtimeClass }}</i></h3><slot name="actions"></slot></summary>
     <div class="property-content">
     <p v-if="definition.editorOnly" class="source-note">在图片资源面板统一管理原图、拟合与参数导出，此控件引用资源并选择显示方式。当前 GIA 导出仍为容器节点。</p>
-    <p v-else class="source-note">字段来自当前客户端 UI API；“运行时只读”仅表示 Lua 访问权限，编辑器中仍可填写。</p>
+    <p v-else-if="definition.type !== 'image'" class="source-note">字段来自当前客户端 UI API；“运行时只读”仅表示 Lua 访问权限，编辑器中仍可填写。</p>
 
-    <div v-for="field in definition.fields" :key="field.key" class="control-field" :class="[`kind-${field.kind}`, { 'is-animated-field': isAnimated(field) }]" :data-field="field.key" :data-animated="isAnimated(field) ? 'true' : undefined" :title="fieldTitle(field)">
+    <div v-for="field in visibleFields" :key="field.key" class="control-field" :class="[`kind-${field.kind}`, { 'is-animated-field': isAnimated(field) }]" :data-field="field.key" :data-animated="isAnimated(field) ? 'true' : undefined" :title="fieldTitle(field)">
       <div class="field-heading">
         <span>{{ field.label }}</span>
         <small v-if="field.tweenable" :class="{ 'animated-badge': isAnimated(field) }">{{ isAnimated(field) ? '◆ 已加入动画' : 'Tween' }}</small>
@@ -16,10 +16,12 @@
       <ColorRGBAField v-if="field.kind === 'color'" :label="field.label" :model-value="asColor(modelValue[field.key])" :animated="isAnimated(field)" @update:model-value="updateField(field.key, $event)" />
       <textarea v-else-if="field.kind === 'textarea'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" rows="4" @input="updateField(field.key, ($event.target as HTMLTextAreaElement).value)"></textarea>
       <input v-else-if="field.kind === 'text'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" @input="updateField(field.key, ($event.target as HTMLInputElement).value)" />
+      <div v-else-if="definition.type === 'image' && field.key === 'fillAmount'" class="mask-range"><input type="range" min="0" max="100" step="0.1" aria-label="填充进度滑块" :value="Number(modelValue.fillAmount ?? 1) * 100" @input="updateNumber('fillAmount', Number(($event.target as HTMLInputElement).value) / 100)" /><ScrubbableNumberInput :model-value="typeof modelValue.fillAmount === 'number' ? modelValue.fillAmount * 100 : null" :min="0" :max="100" :step="0.1" :animated="isAnimated(field)" aria-label="填充进度百分比" placeholder="未设置" @update:model-value="$event !== null && updateNumber('fillAmount', $event / 100)" /></div>
+      <div v-else-if="definition.type === 'image' && ['horizontalSoftRange', 'verticalSoftRange'].includes(field.key)" class="mask-range"><input type="range" min="0" max="100" step="0.01" :aria-label="`${field.label}滑块`" :value="modelValue[field.key] ?? 85" @input="updateNumber(field.key, Number(($event.target as HTMLInputElement).value))" /><ScrubbableNumberInput :model-value="numberValue(modelValue[field.key])" :min="0" :max="100" :step="0.01" :animated="isAnimated(field)" :allow-empty="!isAnimated(field)" :aria-label="field.label" placeholder="未设置" @update:model-value="updateNumber(field.key, $event)" /></div>
       <ScrubbableNumberInput v-else-if="field.kind === 'number'" :aria-label="field.label" :model-value="numberValue(modelValue[field.key])" :animated="isAnimated(field)" :min="field.min" :max="field.max" :step="field.step ?? 1" :allow-empty="!isAnimated(field)" placeholder="未设置" @update:model-value="updateNumber(field.key, $event)" />
-      <label v-else-if="field.kind === 'boolean'" class="boolean-control"><input :aria-label="field.label" :checked="Boolean(modelValue[field.key])" type="checkbox" @change="updateField(field.key, ($event.target as HTMLInputElement).checked)" /><i></i><span>{{ modelValue[field.key] ? '开启' : '关闭' }}</span></label>
+      <label v-else-if="field.kind === 'boolean'" class="boolean-control"><input :aria-label="field.label" :checked="booleanValue(field.key)" type="checkbox" role="switch" @change="updateField(field.key, ($event.target as HTMLInputElement).checked)" /><i></i><span>{{ booleanValue(field.key) ? '开启' : '关闭' }}</span></label>
       <select v-else-if="field.kind === 'nullableBoolean'" :aria-label="field.label" :value="nullableBooleanValue(modelValue[field.key])" @change="updateNullableBoolean(field.key, $event)"><option value="">未设置</option><option value="true">true</option><option value="false">false</option></select>
-      <select v-else-if="field.kind === 'select'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" @change="updateSelect(field.key, $event)"><option value="">未设置</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
+      <select v-else-if="field.kind === 'select'" :aria-label="field.label" :value="field.key === 'softEdgeMode' ? modelValue.softEdgeMode === 'percentage' ? 'percentage' : 'pixel' : stringValue(modelValue[field.key])" @change="updateSelect(field.key, $event)"><option v-if="field.key !== 'softEdgeMode'" value="">未设置</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
       </slot>
     </div>
     </div>
@@ -27,6 +29,8 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue';
+import { imageMaskFields } from './imageMaskFields';
 import ColorRGBAField from "./ColorRGBAField.vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import type { ControlDefinition, ControlPropertyField } from "./controlRegistry";
@@ -37,8 +41,20 @@ const emit = defineEmits<{ (event: "update:modelValue", value: Record<string, un
 
 function isAnimated(field: ControlPropertyField) { return Boolean(field.tweenable) && (field.kind === "number" || field.kind === "color") && props.animatedFields.includes(field.key); }
 function fieldTitle(field: ControlPropertyField) { return isAnimated(field) ? [field.description, "此属性已加入动画；修改会在当前时间记帧"].filter(Boolean).join("\n") : field.description; }
-function updateField(key: string, value: unknown) { emit("update:modelValue", { ...props.modelValue, [key]: value }); }
-function updateNumber(key: string, value: number | null) { updateField(key, value); }
+const visibleFields = computed(() => props.definition.type === 'image' ? imageMaskFields(props.definition.fields, props.modelValue) : props.definition.fields);
+const previousFill = ref('horizontal');
+watch(() => props.modelValue.fillType, value => { if (typeof value === 'string' && value !== 'unused') previousFill.value = value; }, {immediate:true});
+function booleanValue(key: string) { return key === '__fillEnabled' ? Boolean(props.modelValue.fillType && props.modelValue.fillType !== 'unused') : Boolean(props.modelValue[key]); }
+function updateField(key: string, value: unknown) {
+  if (key === '__fillEnabled') { key = 'fillType'; value = value ? previousFill.value : 'unused'; }
+  emit("update:modelValue", { ...props.modelValue, [key]: value });
+}
+function updateNumber(key: string, value: number | null) {
+  const field = props.definition.fields.find(field => field.key === key);
+  if (value !== null && typeof field?.min === 'number') value = Math.max(field.min, value);
+  if (value !== null && typeof field?.max === 'number') value = Math.min(field.max, value);
+  updateField(key, value);
+}
 function updateNullableBoolean(key: string, event: Event) { const raw = (event.target as HTMLSelectElement).value; updateField(key, raw === "" ? null : raw === "true"); }
 function updateSelect(key: string, event: Event) { const raw = (event.target as HTMLSelectElement).value; updateField(key, raw === "" ? null : raw); }
 function stringValue(value: unknown) { return typeof value === "string" ? value : ""; }
@@ -48,6 +64,15 @@ function asColor(value: unknown) { const color = value as Partial<ColorRGBA> | n
 </script>
 
 <style scoped>
+.image-mask-section .kind-boolean { display: flex; justify-content: space-between; align-items: center; }
+.image-mask-section .property-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 8px; }
+.image-mask-section .control-field { grid-column: 1 / -1; min-width: 0; }
+.image-mask-section .control-field[data-field=softEdgeWidthX], .image-mask-section .control-field[data-field=softEdgeWidthY] { grid-column: span 1; }
+.image-mask-section .kind-boolean .field-heading { margin: 0; }
+.image-mask-section .boolean-control > span { display: none; }
+.mask-range { display: flex; align-items: center; gap: 8px; }
+.mask-range > input { flex: 1; min-width: 0; accent-color: #547dff; }
+.mask-range > :deep(.scrubbable-number-input) { width: 76px; flex: 0 0 76px; }
 .property-section {
   margin: 6px 8px;
   padding: 0;

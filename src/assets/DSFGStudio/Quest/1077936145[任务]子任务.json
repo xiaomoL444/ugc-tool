@@ -3,16 +3,8 @@
    "struct_ype" : "basic", 
    "name" : "[任务]子任务", 
    "value" : [ 
-      {
-         "key" : "id",
-         "param_type" : "Int32",
-         "value" : {
-            "param_type" : "Int32",
-            "value" : "0"
-         }
-      },
       { 
-         "key" : "mainQuestId",
+         "key" : "id", 
          "param_type" : "Int32", 
          "value" : { 
             "param_type" : "Int32", 
@@ -20,7 +12,15 @@
          }
       }, 
       { 
-         "key" : "title",
+         "key" : "mainQuestId", 
+         "param_type" : "Int32", 
+         "value" : { 
+            "param_type" : "Int32", 
+            "value" : "0"
+         }
+      }, 
+      { 
+         "key" : "title", 
          "param_type" : "String", 
          "value" : { 
             "param_type" : "String", 
@@ -28,7 +28,7 @@
          }
       }, 
       { 
-         "key" : "desc",
+         "key" : "desc", 
          "param_type" : "String", 
          "value" : { 
             "param_type" : "String", 
@@ -44,56 +44,11 @@
          }
       }, 
       { 
-         "key" : "任务调查点预设点", 
-         "param_type" : "Struct", 
+         "key" : "pos", 
+         "param_type" : "Vector3", 
          "value" : { 
-            "param_type" : "Struct", 
-            "value" : { 
-               "structId" : "1077936164", 
-               "type" : "Struct", 
-               "value" : [ 
-                  { 
-                     "param_type" : "Int32", 
-                     "value" : "0"
-                  }, 
-                  { 
-                     "param_type" : "String", 
-                     "value" : ""
-                  }, 
-                  { 
-                     "param_type" : "Vector3", 
-                     "value" : "0,0,0"
-                  }, 
-                  { 
-                     "param_type" : "Guid", 
-                     "value" : "0"
-                  }, 
-                  { 
-                     "param_type" : "String", 
-                     "value" : ""
-                  }, 
-                  { 
-                     "param_type" : "String", 
-                     "value" : ""
-                  }, 
-                  { 
-                     "param_type" : "Vector3", 
-                     "value" : "0,0,0"
-                  }, 
-                  { 
-                     "param_type" : "Bool", 
-                     "value" : "False"
-                  }, 
-                  { 
-                     "param_type" : "Int32", 
-                     "value" : "0"
-                  }, 
-                  { 
-                     "param_type" : "Int32", 
-                     "value" : "0"
-                  }
-               ]
-            }
+            "param_type" : "Vector3", 
+            "value" : "0,0,0"
          }
       }, 
       { 
@@ -120,28 +75,36 @@
             "value" : [ 
             ]
          }
-      },
-      {
-         "key" : "失败回溯任务",
-         "param_type" : "Int32",
-         "value" : {
-            "param_type" : "Int32",
+      }, 
+      { 
+         "key" : "失败回溯任务", 
+         "param_type" : "Int32", 
+         "value" : { 
+            "param_type" : "Int32", 
             "value" : "-1"
          }
-      },
-      {
-         "key" : "finishMainQuest",
-         "param_type" : "Bool",
-         "value" : {
-            "param_type" : "Bool",
+      }, 
+      { 
+         "key" : "finishMainQuest", 
+         "param_type" : "Bool", 
+         "value" : { 
+            "param_type" : "Bool", 
             "value" : "False"
          }
-      },
-      {
-         "key" : "questProgress",
-         "param_type" : "Int32",
-         "value" : {
-            "param_type" : "Int32",
+      }, 
+      { 
+         "key" : "questProgress", 
+         "param_type" : "Int32", 
+         "value" : { 
+            "param_type" : "Int32", 
+            "value" : "0"
+         }
+      }, 
+      { 
+         "key" : "belondSceneId", 
+         "param_type" : "Int32", 
+         "value" : { 
+            "param_type" : "Int32", 
             "value" : "0"
          }
       }

@@ -1,3 +1,4 @@
+import { compilePublicEventArguments } from "./publicEventParameters";
 import {
   VariableValue,
   VariableWorkspace,
@@ -17,6 +18,9 @@ import type {
 } from "../types/FileStruct";
 import {
   CONDITION_BRANCH_ACTION_TYPE,
+  FOCUS_PUSH_ACTION_TYPE,
+  CUSTOM_TRIGGER_ACTION_TYPE,
+  PUBLIC_EVENT_ACTION_TYPE,
   getQxqyActionMapping,
   type QxqyActionMapping,
   type QxqyActionSource,
@@ -28,6 +32,7 @@ import {
 } from "./qxqyStructWorkspace";
 import {
   edgeMatchesOutlet,
+  FOCUS_PUSH_OUTLET_ID,
   getGroupOutletWarnings,
   resolveGroupOutlets,
 } from "./groupOutlets";
@@ -36,6 +41,7 @@ import { getFlowClipDuration } from "./groupTimeline";
 const MAX_STRUCT_LIST_ITEMS = 100;
 
 type SourceClip =
+  | { source: "FocusPush"; startTime: number; duration: number; node: DialogueNode; focusPush: true }
   | {
       source: "Dialogue";
       startTime: number;
@@ -89,10 +95,11 @@ export function exportQxqyPerformance(
   const groupOrder = resolveGroupOrder(project, warnings);
   const groupIndex = new Map(groupOrder.map((id, index) => [id, index]));
   const dataTables: Record<QxqyDataField, VariableValue[]> = {
-    DialogueDate: [],
+    DialogueData: [],
     DialogueSelectData: [],
-    CameraMovementDate: [],
+    CameraMovementData: [],
   };
+
 
   const actionGroups = groupOrder.map((nodeId) => {
     const node = getExportNode(project, nodeId)!;
@@ -114,10 +121,20 @@ export function exportQxqyPerformance(
         (warning) => `Group「${node.name}」：${warning}`,
       ),
     );
+    const focusPushIndex = node.focusPush?.outputMode === "Shared"
+      ? node.focusPush.sharedOutletIndex
+      : resolveGroupOutlets(node).outlets.findIndex(
+          (outlet) => outlet.id === FOCUS_PUSH_OUTLET_ID,
+        );
+    if (node.focusPush && (!Number.isInteger(focusPushIndex) ||
+        focusPushIndex < 0 || focusPushIndex >= nextGroups.length)) {
+      throw new Error(`Group「${node.name}」的 Focus Push 共用出口不可用，请重新选择出口。`);
+    }
     return compileActionGroup(
       workspace,
       node,
       nextGroups,
+      focusPushIndex,
       dataTables,
       warnings,
       structIds,
@@ -132,8 +149,8 @@ export function exportQxqyPerformance(
   );
   writeChunkedStructTable(
     workspace,
-    root.value.DialogueDate,
-    dataTables.DialogueDate,
+    root.value.DialogueData,
+    dataTables.DialogueData,
     structIds.dialogue,
   );
   writeChunkedStructTable(
@@ -144,8 +161,8 @@ export function exportQxqyPerformance(
   );
   writeChunkedStructTable(
     workspace,
-    root.value.CameraMovementDate,
-    dataTables.CameraMovementDate,
+    root.value.CameraMovementData,
+    dataTables.CameraMovementData,
     structIds.camera,
   );
 
@@ -185,6 +202,7 @@ function compileActionGroup(
   workspace: VariableWorkspace,
   node: DialogueNode,
   nextGroups: number[],
+  focusPushIndex: number,
   dataTables: Record<QxqyDataField, VariableValue[]>,
   warnings: string[],
   structIds: QxqyStructIds,
@@ -194,6 +212,39 @@ function compileActionGroup(
   const timedActions: TimedActionBucket[] = [];
 
   for (const sourceClip of sourceClips) {
+    if ("focusPush" in sourceClip) {
+      const actionClip = workspace.createDefault(structIds.actionClip);
+      actionClip.value.actionType.setValue(FOCUS_PUSH_ACTION_TYPE);
+      actionClip.value.duration.setValue("0.00");
+      actionClip.value.stringParams.setValue([
+        node.focusPush?.outputMode === "Shared" ? "NOLOC_Shared" : "NOLOC_Self",
+      ]);
+      // 保存 Focus Push 出口在 NextGroup 中的零基索引，目标由对应槽位解析。
+      actionClip.value.intParams.setValue([String(focusPushIndex)]);
+      appendTimedAction(timedActions, sourceClip.startTime, actionClip);
+      continue;
+    }
+    if ((sourceClip.source === "Custom" || sourceClip.source === "PublicEvent") && "clip" in sourceClip) {
+      const isPublicEvent = sourceClip.source === "PublicEvent";
+      const templateId = isPublicEvent ? "public.event" : "custom.data";
+      const config = sourceClip.clip.components.find(component => component.templateId === templateId && component.enabled);
+      const value = config?.properties.value ?? "";
+      if (typeof value !== "string") {
+        throw new Error(`Group「${node.name}」${sourceClip.source}「${sourceClip.clip.name}」的触发参数必须是字符串。`);
+      }
+      const actionClip = workspace.createDefault(structIds.actionClip);
+      actionClip.value.actionType.setValue(isPublicEvent ? PUBLIC_EVENT_ACTION_TYPE : CUSTOM_TRIGGER_ACTION_TYPE);
+      actionClip.value.duration.setValue(isPublicEvent ? formatFloat(sourceClip.duration) : "0.00");
+      if (isPublicEvent) {
+        const lists = compilePublicEventArguments(value, config?.properties.parameters);
+        for (const [field, values] of Object.entries(lists)) actionClip.value[field].setValue(values);
+      } else {
+        actionClip.value.stringParams.setValue([value]);
+        actionClip.value.intParams.setValue([]);
+      }
+      appendTimedAction(timedActions, sourceClip.startTime, actionClip);
+      continue;
+    }
     const mapping = getQxqyActionMapping(sourceClip.source as QxqyActionSource);
     if (!mapping) {
       warnings.push(
@@ -307,6 +358,13 @@ function collectSourceClips(node: DialogueNode): SourceClip[] {
     });
   }
 
+  if (node.focusPush) {
+    clips.push({
+      source: "FocusPush", startTime: node.focusPush.startTime, duration: 0,
+      node, focusPush: true, registrationOrder: registrationOrder++,
+    });
+  }
+
   for (const line of node.lines) {
     for (const clip of line.clips) {
       clips.push({
@@ -357,7 +415,7 @@ function createActionData(
 ) {
   const data = workspace.createDefault(structIds[mapping.dataStructKey]);
 
-  if (mapping.dataField === "DialogueDate" && "dialogue" in sourceClip) {
+  if (mapping.dataField === "DialogueData" && "dialogue" in sourceClip) {
     data.value.style.setValue(sourceClip.dialogue.style);
     data.value.talker.setValue(sourceClip.dialogue.speaker);
     data.value.subtitle.setValue(sourceClip.dialogue.subtitle);
@@ -367,9 +425,13 @@ function createActionData(
         ? formatFloat(sourceClip.dialogue.continueDelayTime)
         : "-1.00",
     );
-    data.value.prams.setValue(
-      sourceClip.dialogue.nodeGraphEvent.filter(isInt32String),
-    );
+    const params = sourceClip.dialogue.nodeGraphEvent;
+    if (params.length > MAX_STRUCT_LIST_ITEMS) throw new Error("对话入参最多 100 项。");
+    data.value.prams.setValue(params.map((value, index) => {
+      const text = value.trim().replace(/^\+/, "");
+      if (!isInt32String(text)) throw new Error(`对话「${sourceClip.dialogue.content}」的第 ${index + 1} 个入参必须是 Int32 整数。`);
+      return String(Number(text));
+    }));
     return data;
   }
 
@@ -385,7 +447,7 @@ function createActionData(
     return data;
   }
 
-  if (mapping.dataField === "CameraMovementDate" && "clip" in sourceClip) {
+  if (mapping.dataField === "CameraMovementData" && "clip" in sourceClip) {
     // 从 CameraClip 的内嵌默认值出发；它与独立 PositionData 的默认值不同。
     // 开始时间仅由 Timer 排程，新版 CameraClip 没有 delay 字段。
     writeCameraValue(

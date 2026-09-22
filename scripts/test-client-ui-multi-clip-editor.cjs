@@ -392,7 +392,7 @@ async function main() {
       const template = parsed.descriptor.template.content;
       assert.match(template, /<ContainerDirectionGuide\b[^>]*v-for="guide in renderContainerDirections"[^>]*:style="guide.style"/);
       assert.match(template, /<ScrubbableNumberInput\b[^>]*:model-value="selectedDirectionArrowLength"[^>]*@update:model-value="updateDirectionArrowLength"/);
-      assert.match(template, /v-if="selectedNode\.type === 'container'"/);
+      assert.match(template, /v-if="boneToolsEnabled && selectedNode\.type === 'container'"/);
     });
     await test("Two position Clips share one lane while different fields retain separate lanes", () => {
       const { api, first, second } = multiFixture();

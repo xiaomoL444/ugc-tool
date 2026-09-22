@@ -1,0 +1,14 @@
+{
+  "app.language": "Язык",
+  "app.navigation": "Навигация",
+  "app.openNavigation": "Открыть навигацию",
+  "app.testTools": "Тестовые инструменты",
+  "app.onlineTools": "Онлайн-инструменты",
+  "app.home": "Главная",
+  "app.defaultTitle": "Инструменты XiaomoL444",
+  "app.effectPlayerTitle": "Проигрыватель эффектов",
+  "app.effectPlayerDescription": "Просматривайте эффекты «Мириад миров» до версии 7.0: изображения, анимацию и звук.",
+  "common.copySuccess": "Скопировано: {text}",
+  "common.copyFailed": "Не удалось скопировать: {error}",
+  "common.storageUnderDevelopment": "Настройки хранилища ещё в разработке."
+}

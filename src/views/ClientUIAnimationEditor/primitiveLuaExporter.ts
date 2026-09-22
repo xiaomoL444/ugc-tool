@@ -16,7 +16,7 @@ export function buildPrimitiveProjectLua(options: {
   const byId = new Map(options.nodes.map(node => [node.id, node]));
   if (byId.size !== options.nodes.length) throw new Error("控件 ID 重复，无法确定导出层级。");
   const root = byId.get(options.rootNodeId);
-  if (root?.type !== "container") throw new Error("请先选择一个容器作为图元项目的导出根节点。");
+  if (!root) throw new Error("请先选择一个控件作为图元项目的导出根节点。");
   const resources = new Map(options.resources.map(asset => [asset.id, asset]));
   const siblings = new Map<string | null, Map<string, number>>();
   for (const node of options.nodes) {
@@ -35,7 +35,7 @@ export function buildPrimitiveProjectLua(options: {
     }
     if (current?.id !== root.id) continue;
     const resource = resources.get(node.properties.imageResourceId ?? "");
-    if (!resource?.fitData) { warnings.push(`「${chain.map(item => item.name).join('/')}」没有拟合结果，已跳过。`); continue; }
+    if (!resource?.fitData) { warnings.push(`「${chain.map(item => item.name).join('/') || root.name}」没有拟合结果，已跳过。`); continue; }
     for (const item of chain) {
       if (!item.name.trim() || /[\/\\\x00-\x1f\x7f]/.test(item.name) || item.name === "." || item.name === "..") {
         throw new Error(`控件「${item.name}」的名称不能用于路径，请移除斜杠、控制字符或空名称。`);
@@ -55,10 +55,11 @@ export function buildPrimitiveProjectLua(options: {
     }
     groups.push("  }},");
   }
-  if (!elementCount) throw new Error("所选容器下没有可导出的图元，请先在图片资源面板生成图元。");
+  if (!elementCount) throw new Error("所选控件及其子级没有可导出的图元，请先在图片资源面板生成图元。");
   const filePart = `${options.projectName}-${root.name}`.trim().replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_') || 'PrimitiveProject';
   const lines = [
     '-- PrimitiveImageLib v3: create(root,data,imagePrefabIndex); visible/focus default:true/false',
+    '-- path 为空时表示传入的 root 本身；请使用支持根图元的新版 PrimitiveImageLib。',
     '-- type,mode,x,y,w,h,rotation,r,g,b,a; type:0矩形/1椭圆/2三角形; mode:0Basic/1Stretch; RGBA:0–255',
     ...warnings.map(warning => `-- 提示：${warning.replace(/[\r\n]/g, ' ')}`),
     `return {v=${PRIMITIVE_PROJECT_VERSION},groups={`, ...groups, '}}', '',

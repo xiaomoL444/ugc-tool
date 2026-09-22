@@ -1,0 +1,19 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[消息]边走边说对话列表结构体", 
+   "value" : [ 
+      { 
+         "key" : "datas", 
+         "param_type" : "StructList", 
+         "value" : { 
+            "param_type" : "StructList", 
+            "value" : { 
+               "structId" : "1077936168", 
+               "value" : [ 
+               ]
+            }
+         }
+      }
+   ]
+}

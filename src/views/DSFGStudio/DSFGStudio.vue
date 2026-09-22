@@ -24,6 +24,8 @@ import DialogueEditor from "./components/DialogueEditor/DialogueEditor.vue";
 import QuestEditor from "./components/QuestEditor/QuestEditor.vue";
 import WalkTalkEditor from "./components/WalkTalkEditor/WalkTalkEditor.vue";
 import EntityPresetEditor from "./components/EntityPresetEditor/EntityPresetEditor.vue";
+import SceneEditor from "./components/SceneEditor/SceneEditor.vue";
+import { SCENE_FILE, createSceneProject, encodeSceneProject } from "./components/SceneEditor/sceneProject";
 
 const storage = inject<StorageClass>("storage")!.setProject(ProjectID); //储存区
 
@@ -31,6 +33,9 @@ const workspaceIds = ref<string[]>([]); //工作区的所有id
 const selectedWorkspaceId = ref(""); //选择的工作区
 const editorRef = ref<{ prepareToLeave: () => Promise<void> }>();
 const switchingEditor = ref(false);
+const creatingWorkspace = ref(false);
+const newWorkspaceName = ref("");
+const addingWorkspace = ref(false);
 provide("selectedWorkspaceId", selectedWorkspaceId);
 
 /**
@@ -44,7 +49,9 @@ async function RefreshWorkspace() {
  * 添加工作区
  */
 async function AddWorkspace(undoGroupId = "", isForce = false) {
-  let inputId = prompt("工作区名称：", "");
+  if (addingWorkspace.value) return;
+  const inputId = newWorkspaceName.value.trim();
+  if (/[<>:"/\\|?*\u0000-\u001f]/.test(inputId) || inputId === "." || inputId === "..") { toast.warning("工作区名称不能包含路径或特殊字符"); return; }
   // const name = `新建工作区${crypto.randomUUID()}`;
   if (workspaceIds.value.some((q) => q == inputId)) {
     toast.warning("已有相同名称的工作区，无法重复添加");
@@ -56,9 +63,14 @@ async function AddWorkspace(undoGroupId = "", isForce = false) {
   }
 
   const workspacePath = `/${inputId}`;
-  await storage.mkdir(workspacePath);
-
-  RefreshWorkspace();
+  addingWorkspace.value = true;
+  try {
+    if (!await storage.exists(workspacePath)) await storage.mkdir(workspacePath);
+    if (!await storage.exists(`${workspacePath}/${SCENE_FILE}`)) await storage.writeFile(`${workspacePath}/${SCENE_FILE}`, encodeSceneProject(createSceneProject()));
+    await RefreshWorkspace();
+    creatingWorkspace.value = false; newWorkspaceName.value = "";
+  } catch (error) { consola.error(error); toast.error("工作区初始化失败，请重试"); }
+  finally { addingWorkspace.value = false; }
 }
 /**
  * 删除工作区
@@ -115,7 +127,7 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
   finally { switchingEditor.value = false; }
 }
 
-async function ChangeEditorKind(kind: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets") {
+async function ChangeEditorKind(kind: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene") {
   if (switchingEditor.value || selectedFunction.value === kind) return;
   switchingEditor.value = true;
   try {
@@ -130,6 +142,7 @@ onBeforeMount(async () => {
   if ((await storage.getFolders("/")).length == 0) {
     consola.info("结构体编辑页面无存档，进行初始创建中");
     await storage.mkdir("/默认工作区");
+    await storage.writeFile(`/默认工作区/${SCENE_FILE}`, encodeSceneProject(createSceneProject()));
   }
   //加载完毕后触发一次刷新工作区
   await ChangeWorkspace((await storage.getFolders("/"))[0], "", true);
@@ -138,7 +151,7 @@ onBeforeMount(async () => {
   selectedFunction.value = "Dialogue";
 });
 
-const selectedFunction = ref<"Dialogue" | "Quest" | "WalkTalk" | "EntityPresets">("Dialogue");
+const selectedFunction = ref<"Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene">("Dialogue");
 function onSelectFunction() {}
 
 const functionViewMap: Record<string, Component> = {
@@ -146,6 +159,7 @@ const functionViewMap: Record<string, Component> = {
   Quest: QuestEditor,
   WalkTalk: WalkTalkEditor,
   EntityPresets: EntityPresetEditor,
+  Scene: SceneEditor,
 };
 </script>
 
@@ -153,9 +167,14 @@ const functionViewMap: Record<string, Component> = {
   <Splitter class="dsfg-typography" style="height: 100%; width: 100%" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor">
     <SplitterPanel :size="10">
       <SectionLayout title="工作区" class="top">
+        <form v-if="creatingWorkspace" class="workspace-create" @submit.prevent="AddWorkspace()">
+          <input v-model="newWorkspaceName" aria-label="工作区名称" placeholder="工作区名称" :disabled="addingWorkspace" />
+          <button type="submit" :disabled="addingWorkspace">创建</button>
+          <button type="button" :disabled="addingWorkspace" @click="creatingWorkspace = false">取消</button>
+        </form>
         <SelectableList
           @select="ChangeWorkspace"
-          @add="AddWorkspace"
+          @add="creatingWorkspace = true"
           @delete="DelectWorkspace"
           :values="workspaceIds"
           :selected-value="selectedWorkspaceId"
@@ -229,4 +248,7 @@ const functionViewMap: Record<string, Component> = {
 .right {
   right: -4px;
 }
+.workspace-create { display:flex; flex-wrap:wrap; gap:6px; padding:10px; }
+.workspace-create input { box-sizing:border-box; width:100%; min-width:0; padding:7px; border:1px solid #cbd7e6; border-radius:5px; }
+.workspace-create button { padding:6px 10px; border:1px solid #cbd7e6; border-radius:5px; background:#edf4fd; color:#315f98; cursor:pointer; }
 </style>

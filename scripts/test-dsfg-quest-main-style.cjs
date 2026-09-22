@@ -31,22 +31,20 @@ test("Actual QuestPanel main-style script and template compile", () => {
   assert.deepEqual(template.errors, []);
 });
 
-test("Main quest style is a free-text field bound directly to the selected main quest", () => {
-  const fields = find(descriptor.template.ast, (node) => attribute(node, "aria-label") === "主任务样式");
+test("Main quest style is a dropdown bound directly to the selected main quest", () => {
+  const fields = find(descriptor.template.ast, (node) => attribute(node, "aria-label") === "选择主任务样式预设");
   assert.equal(fields.length, 1);
   const { node } = fields[0];
-  assert.equal(node.tag, "input");
-  assert.ok([undefined, "text"].includes(attribute(node, "type")));
-  assert.equal(attribute(node, "placeholder"), "Mainline");
+  assert.equal(node.tag, "select");
   assert.equal(directive(node, "model").exp.content, "selectedMain.style");
   assert.equal(attribute(node, "readonly"), undefined);
   assert.equal(attribute(node, "disabled"), undefined);
-  assert.equal(find(descriptor.template.ast, (element) => element.tag === "select"
-    && directive(element, "model")?.exp?.content === "selectedMain.style").length, 0, "Styles must not be restricted to a hardcoded dropdown");
+  assert.equal(find(descriptor.template.ast, (element) => element.tag === "input"
+    && directive(element, "model")?.exp?.content === "selectedMain.style").length, 0, "Style editing must not offer a free-text input");
 });
 
-test("The style input belongs to the main quest inspector branch only", () => {
-  const field = find(descriptor.template.ast, (node) => attribute(node, "aria-label") === "主任务样式")[0];
+test("The style dropdown belongs to the main quest inspector branch only", () => {
+  const field = find(descriptor.template.ast, (node) => attribute(node, "aria-label") === "选择主任务样式预设")[0];
   assert.ok(field);
   assert.ok(field.ancestors.some((node) => node.type === 1 && node.tag === "template"
     && directive(node, "else-if")?.exp?.content === "selectedMain"));

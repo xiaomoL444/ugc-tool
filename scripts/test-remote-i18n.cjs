@@ -213,13 +213,13 @@ async function timeout() {
 
 async function reactiveSearch() {
   const literal = "Dust @ Gate {A} | Burst";
-  const { composer, loader } = setup([response(table({ "names.2": literal, "tags.4": "Remote Spark" })),
-    response(chineseTable({ "names.2": "远程白色烟尘" })), response(table({ "names.2": "Fresh Snow" })), response(chineseTable({})),
+  const { composer, loader } = setup([response(table({ "data.2": literal, "tags.4": "Remote Spark" })),
+    response(chineseTable({ "data.2": "远程白色烟尘" })), response(table({ "data.2": "Fresh Snow" })), response(chineseTable({})),
   ]);
   const items = [{ id: 2, title: "原始标题", name: "source_effect", tagList: [4] }];
-  const title = computed(() => composer.t("effectPlayer.names.2"));
+  const title = computed(() => composer.t("effectPlayer.data.2"));
   const index = computed(() => buildEffectSearchIndex(items, { 4: "原始标签" }, Object.values(composer.messages.value)));
-  assert.equal(title.value, "effectPlayer.names.2");
+  assert.equal(title.value, "effectPlayer.data.2");
   assert.equal(index.value.get("2").includes("dust"), false);
   assert.ok(index.value.get("2").includes("source_effect"));
   assert.ok(index.value.get("2").includes("原始标签"));
@@ -241,7 +241,7 @@ async function reactiveSearch() {
   assert.equal(index.value.get("2").includes("remote spark"), false);
   assert.ok(index.value.get("2").includes("原始标题"));
   await loader.load(chineseSource);
-  assert.equal(title.value, "effectPlayer.names.2", "Missing Chinese does not fall back to English");
+  assert.equal(title.value, "effectPlayer.data.2", "Missing Chinese does not fall back to English");
   assert.equal(index.value.get("2").includes("远程白色烟尘"), false, "Empty Chinese snapshots remove their old search entries");
   assert.ok(index.value.get("2").includes("fresh snow"), "Deleting Chinese search entries preserves loaded English names");
 }

@@ -1,0 +1,51 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const ts = require('typescript');
+const vue = require('vue');
+const { parse, compileScript, compileTemplate, compileStyle } = require('@vue/compiler-sfc');
+require.extensions['.ts'] = (m, f) => m._compile(ts.transpileModule(fs.readFileSync(f, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText, f);
+const root = path.resolve(__dirname, '../src/views/ClientUIAnimationEditor');
+const registry = require(path.join(root, 'tweenRegistry.ts'));
+const { easeCurvePath } = require(path.join(root, 'easeCurve.ts'));
+assert.equal(registry.tweenEaseOptions.length, 31);
+for (const { value } of registry.tweenEaseOptions) {
+  const curve = easeCurvePath(value);
+  assert.ok(!/NaN|Infinity/.test(curve));
+  assert.ok(curve.startsWith('M16.00,100.00'));
+  assert.ok(curve.endsWith('L144.00,28.00'));
+  assert.equal(curve.split(' ').length, 161);
+  const middle = Number(curve.split(' ')[80].split(',')[1]);
+  assert.ok(Math.abs(middle - (100 - registry.applyTweenEase(value, .5) * 72)) < .006);
+}
+assert.ok(easeCurvePath('OutBack').split(' ').some(p => Number(p.split(',')[1]) < 28));
+for (const file of ['EasePicker.vue', 'KeyframeTimeline.vue']) {
+  const filename = path.join(root, file);
+  const { descriptor, errors } = parse(fs.readFileSync(filename, 'utf8'));
+  assert.deepEqual(errors, []);
+  const script = compileScript(descriptor, { id: 'ease-test' });
+  assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'ease-test', compilerOptions: { bindingMetadata: script.bindings } }).errors, []);
+  for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename, id: 'ease-test', scoped: true }).errors, []);
+  if (file !== 'EasePicker.vue') continue;
+  const ast = ts.createSourceFile(filename + '.ts', descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const body = ast.statements.filter(s => !ts.isImportDeclaration(s)).map(s => s.getText(ast)).join('\n');
+  const props = vue.reactive({ modelValue: 'Linear', disabled: false });
+  const events = []; let shows = 0, closes = 0, focuses = 0;
+  const ctx = vm.createContext({ ...vue, ...registry, defineProps: () => props, defineEmits: () => (...args) => events.push(args), onBeforeUnmount: () => {} });
+  const scope = vue.effectScope();
+  scope.run(() => vm.runInContext(ts.transpileModule(body + '\nglobalThis.api={panel,trigger,opened,query,filtered,open,closed,choose}', { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, ctx));
+  const a = ctx.api;
+  a.panel.value = { showModal() { shows++; }, close() { closes++; } };
+  a.trigger.value = { focus() { focuses++; } };
+  a.open(); assert.equal(shows, 1); assert.equal(a.opened.value, true);
+  assert.equal(a.filtered.value.length, 31);
+  a.query.value = '回弹'; assert.equal(a.filtered.value.length, 3);
+  a.query.value = ' inoutsine '; assert.equal(a.filtered.value[0].value, 'InOutSine');
+  a.query.value = 'missing'; assert.equal(a.filtered.value.length, 0);
+  a.choose('OutBack'); assert.equal(events[0][0], 'update:modelValue'); assert.equal(events[0][1], 'OutBack'); assert.equal(closes, 1);
+  a.closed(); assert.equal(a.opened.value, false); assert.equal(focuses, 1);
+  props.disabled = true; a.open(); a.choose('Linear'); assert.equal(shows, 1); assert.equal(events.length, 1);
+  scope.stop();
+}
+console.log('PASS: all 31 curves, overshoot, SFC/style compilation, search, selection, modal focus restoration and disabled state');

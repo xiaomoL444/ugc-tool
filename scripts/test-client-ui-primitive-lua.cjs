@@ -41,7 +41,18 @@ try {
   assert.equal(data.groups[1].elements[0][2], 10, 'shared images must use each target control size');
   assert.equal(JSON.stringify(options), original, 'export never mutates document');
   assert.equal(parseLuaData(buildPrimitiveProjectLua({ ...options, rootNodeId: 'group' }).code).groups[0].path, '中"刘海');
-  assert.throws(() => buildPrimitiveProjectLua({ ...options, rootNodeId: 'hair' }), /选择一个容器/);
+  const selfResult = buildPrimitiveProjectLua({ ...options, rootNodeId: 'hair' });
+  const selfData = parseLuaData(selfResult.code);
+  assert.equal(selfResult.targetCount, 1);
+  assert.equal(selfData.groups[0].path, '', 'selected primitive exports itself as root');
+  assert.deepEqual(selfData.groups[0].elements, data.groups[0].elements);
+  const nestedNodes = [...nodes, node('nested', 'primitive', 'hair', { properties: { imageResourceId: 'hair' } })];
+  assert.deepEqual(parseLuaData(buildPrimitiveProjectLua({ ...options, rootNodeId: 'hair', nodes: nestedNodes }).code).groups.map(group => group.path), ['', 'nested']);
+  const nonContainerNodes = nodes.map(item => item.id === 'group' ? { ...item, type: 'image' } : item);
+  assert.equal(parseLuaData(buildPrimitiveProjectLua({ ...options, rootNodeId: 'group', nodes: nonContainerNodes }).code).groups[0].path, '中"刘海');
+  assert.throws(() => buildPrimitiveProjectLua({ ...options, rootNodeId: 'unknown' }), /选择一个控件/);
+  assert.throws(() => buildPrimitiveProjectLua({ ...options, rootNodeId: 'missing' }), /没有可导出/);
+  assert.equal(JSON.stringify(options), original, 'selected-root exports never mutate document');
   assert.throws(() => buildPrimitiveProjectLua({ ...options, resources: [] }), /没有可导出/);
   const duplicate = [...nodes, node('duplicate', 'container', 'root', { name: '头部' })];
   assert.throws(() => buildPrimitiveProjectLua({ ...options, nodes: duplicate }), /同级重名/);
@@ -53,6 +64,7 @@ try {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ugc-primitive-lua-'));
   fs.writeFileSync(path.join(directory, 'lib.lua'), buildPrimitiveImageLibLua().code);
   fs.writeFileSync(path.join(directory, 'data.lua'), result.code);
+  fs.writeFileSync(path.join(directory, 'self.lua'), selfResult.code);
   const legacy = { schema: 'UGCTools.PrimitiveProject@1', columns: ['imageId','imageType','x','y','width','height','rotation','r','g','b','a'], groups: data.groups.map(group => ({ ...group, elements: group.elements.map(row => [100001 + row[0], 'Basic', ...row.slice(2)]) })) };
   const lua = value => typeof value === 'string' ? JSON.stringify(value) : Array.isArray(value) ? `{${value.map(lua).join(',')}}` : value && typeof value === 'object' ? `{${Object.entries(value).map(([key, item]) => `${key}=${lua(item)}`).join(',')}}` : String(value);
   fs.writeFileSync(path.join(directory, 'legacy.lua'), `return ${lua(legacy)}`);

@@ -70,7 +70,7 @@
          }
       }, 
       { 
-         "key" : "DialogueDate", 
+         "key" : "DialogueData", 
          "param_type" : "Dict", 
          "value" : { 
             "param_type" : "Dict", 
@@ -194,7 +194,7 @@
          }
       }, 
       { 
-         "key" : "CameraMovementDate", 
+         "key" : "CameraMovementData", 
          "param_type" : "Dict", 
          "value" : { 
             "param_type" : "Dict", 

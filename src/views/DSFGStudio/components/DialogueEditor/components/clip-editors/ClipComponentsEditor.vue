@@ -104,7 +104,7 @@ function updateString(component: ClipComponent, key: string, event: Event) {
       </div>
 
       <ClipPropertyEditor
-        v-for="property in resolvedProperties(component)"
+        v-for="property in resolvedProperties(component).filter(property => component.templateId !== 'camera.shot' || property.key !== 'cameraName')"
         :key="property.key"
         :property="property"
         :model-value="component.properties[property.key]"
@@ -140,20 +140,20 @@ function updateString(component: ClipComponent, key: string, event: Event) {
 </template>
 
 <style scoped>
-.components-editor { margin-top: 12px; padding-top: 10px; border-top: 1px solid #354154; }
+.components-editor { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--timeline-border, #354154); }
 .components-editor > header, .component-heading, .enabled-toggle, .add-component, .custom-field > div { display: flex; align-items: center; }
 .components-editor > header, .component-heading { justify-content: space-between; }
-.components-editor > header span { color: #71839a; font-size: 10px; }
-.component-warning { color: #efc781; font-size: 11px; line-height: 1.5; }
-.component-card { margin-top: 8px; padding: 8px; background: #1d2531; border: 1px solid #3b485b; border-radius: 6px; }
-.component-card label:not(.enabled-toggle) { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; color: #98a8bc; font-size: 10px; }
-.enabled-toggle { gap: 6px; color: #d9e6f7; font-size: 11px; font-weight: 700; }
+.components-editor > header span { color: var(--timeline-subtle, #71839a); font-size: 10px; }
+.component-warning { color: var(--timeline-warning, #efc781); font-size: 11px; line-height: 1.5; }
+.component-card { margin-top: 8px; padding: 8px; background: var(--timeline-surface, #1d2531); border: 1px solid var(--timeline-border, #3b485b); border-radius: 6px; }
+.component-card label:not(.enabled-toggle) { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; color: var(--timeline-muted, #98a8bc); font-size: 10px; }
+.enabled-toggle { gap: 6px; color: var(--timeline-text, #d9e6f7); font-size: 11px; font-weight: 700; }
 .boolean-field { flex-direction: row !important; align-items: center; }
-input:not([type="checkbox"]), textarea, select { box-sizing: border-box; width: 100%; padding: 6px; color: #edf4ff; background: #141922; border: 1px solid #3b485b; border-radius: 4px; resize: none; }
-button { padding: 4px 7px; color: #b9c7da; background: #303a49; border: 1px solid #4a586c; border-radius: 4px; cursor: pointer; }
+input:not([type="checkbox"]), textarea, select { box-sizing: border-box; width: 100%; padding: 6px; color: var(--timeline-text, #edf4ff); background: var(--timeline-field, #141922); border: 1px solid var(--timeline-border, #3b485b); border-radius: 4px; resize: none; }
+button { padding: 4px 7px; color: var(--timeline-text, #b9c7da); background: var(--timeline-soft, #303a49); border: 1px solid var(--timeline-border, #4a586c); border-radius: 4px; cursor: pointer; }
 .add-property { width: 100%; margin-top: 8px; background: transparent; border-style: dashed; }
 .add-component { gap: 6px; margin-top: 9px; }
 .add-component select { flex: 1; }
-.custom-field span em { color: #72839a; font-size: 9px; font-style: normal; }
+.custom-field span em { color: var(--timeline-subtle, #72839a); font-size: 9px; font-style: normal; }
 .custom-field > div { gap: 4px; }
 </style>

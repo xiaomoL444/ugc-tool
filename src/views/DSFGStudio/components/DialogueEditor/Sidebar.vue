@@ -42,8 +42,9 @@ const { onDragStart } = useDragAndDrop()
 .node-item:hover { filter: brightness(1.06); }
 .group-node-item { color: #295a91; background: #e6effb; border-color: #9cbde5; }
 .condition-node-item {
-  color: #f2eaff;
-  background: linear-gradient(135deg, #6742a5, #8a5ec5);
-  border-color: #a982dc;
+  color: #79569e;
+  background: #ece3fa;
+  border-color: #c1a8df;
 }
+
 </style>

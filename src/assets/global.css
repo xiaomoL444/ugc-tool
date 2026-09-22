@@ -1,3 +1,20 @@
+/* Prevent accidental page-text selection while using editor controls. */
+html,
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Text editing must remain selectable even inside non-selectable panels. */
+input,
+textarea,
+[contenteditable="true"],
+[contenteditable=""],
+[contenteditable="plaintext-only"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .ElementBox {
   border: 2px solid #887BD7;
   /* 边框颜色和宽度 */

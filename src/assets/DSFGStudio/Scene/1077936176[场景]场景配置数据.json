@@ -1,0 +1,52 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[场景]场景配置数据", 
+   "value" : [ 
+      { 
+         "key" : "世界", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "Struct", 
+               "value" : [ 
+               ], 
+               "value_structId" : "1077936175"
+            }
+         }
+      }, 
+      { 
+         "key" : "一级区域", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "Struct", 
+               "value" : [ 
+               ], 
+               "value_structId" : "1077936174"
+            }
+         }
+      }, 
+      { 
+         "key" : "二级区域", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "Struct", 
+               "value" : [ 
+               ], 
+               "value_structId" : "1077936177"
+            }
+         }
+      }
+   ]
+}

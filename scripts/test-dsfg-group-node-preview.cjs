@@ -35,7 +35,7 @@ async function main() {
   const basic = await html(fixture());
   for (const removed of ["新建 Group", "Default_UI", "默认样式", "Lines", "已连接", "暂无演出", "group-title", "group-type", "timeline-empty"]) assert.ok(!basic.includes(removed), `Unexpected display: ${removed}`);
   assert.ok(!basic.includes("timeline-preview"), "Empty timeline container should not occupy space");
-  for (const retained of ["GROUP", "2.0s", "123456：新建台词", "0 演出", "0 选项", "玩家按下", 'data-position="left"', 'data-position="right"']) assert.ok(basic.includes(retained), `Missing retained display: ${retained}`);
+  for (const retained of ["普通事件节点", "2.0s", "123456：新建台词", "0 演出", "0 选项", "玩家按下", 'data-position="left"', 'data-position="right"']) assert.ok(basic.includes(retained), `Missing retained display: ${retained}`);
   const performance = fixture();
   performance.performanceClips = [{ id: "camera" }];
   performance.previewSegments = [{ id: "camera", left: "20%", width: "30%" }];
@@ -50,6 +50,11 @@ async function main() {
   select.outlets = [{ id: "a", kind: "Select", label: "选项 1" }, { id: "b", kind: "Select", label: "选项 2" }];
   const withSelect = await html(select);
   for (const retained of ["2 选项", "选项 1", "选项 2", 'data-handle="a"', 'data-handle="b"', "group-node selected"]) assert.ok(withSelect.includes(retained));
+  const focus = fixture();
+  focus.outlets.push({ id: "focus-push", kind: "FocusPush", label: "Focus Push（强制跳过）" });
+  const withFocus = await html(focus);
+  for (const retained of ["玩家按下", "Focus Push（强制跳过）", 'data-handle="dialogue"', 'data-handle="focus-push"', "outlet-focuspush"]) assert.ok(withFocus.includes(retained));
+  console.log("PASS Focus Push renders alongside the existing Dialogue outlet");
   console.log("PASS GroupNode script/template/styles compile");
   console.log("PASS Removed labels and empty preview are absent from rendered markup");
   console.log("PASS Dialogue, duration, counts and connection handles remain");

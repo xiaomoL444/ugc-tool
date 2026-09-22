@@ -12,29 +12,41 @@
         <button class="history-icon-button" aria-label="操作记录" title="操作记录 · 最近 100 个行为" :aria-expanded="historyPanelOpen" @click.stop="historyPanelOpen = !historyPanelOpen"><EditorIcon name="history" :size="16" /></button>
         <EditorHistoryPanel v-if="historyPanelOpen" :entries="editorHistory.entries.value" :index="editorHistory.index.value" :busy="editorHistory.busy.value" :can-undo="editorHistory.canUndo.value" :can-redo="editorHistory.canRedo.value" @undo="undoEditorOperation" @redo="redoEditorOperation" @close="historyPanelOpen = false" />
       </div>
-      <button class="tool-button" @click.stop="openProject">导入 JSON</button>
-      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="downloadProject">导出 JSON</button>
-      <button class="tool-button gia-import-button" title="导入 GIA，在当前工作区创建新的编辑文件" @click.stop="openGiaFile">导入 GIA</button>
-      <button class="tool-button" :disabled="psdImportBusy" title="导入 PSD 为新文件：文件夹转容器，图层转图片资源和图元控件" @click.stop="openPsdFile">{{ psdImportBusy ? psdImportProgress : '导入 PSD' }}</button>
-      <button class="tool-button" :disabled="!hasOpenDocument" title="导出当前控件树的基础参数为原生客户端 UI GIA" @click.stop="openGiaExport">导出 GIA</button>
+      <div class="import-wrap" @pointerdown.stop @keydown.esc.stop.prevent="importMenuOpen = false" @focusout="onImportMenuFocusOut">
+        <button class="tool-button" aria-label="导入文件" :aria-expanded="importMenuOpen" aria-controls="client-ui-import-menu" @click.stop="toggleImportMenu">{{ psdImportBusy ? psdImportProgress : '导入' }} <span aria-hidden="true">⌄</span></button>
+        <div v-if="importMenuOpen" id="client-ui-import-menu" class="import-menu">
+          <button @click.stop="openProject"><b>导入 JSON</b><small>工程文件</small></button>
+          <button @click.stop="openGiaFile"><b>导入 Gia</b><small>客户端控件容器</small></button>
+          <button :disabled="psdImportBusy" @click.stop="openPsdFile"><b>导入 PSD</b><small>{{ psdImportBusy ? psdImportProgress : 'Photoshop 图层文件' }}</small></button>
+          <button :disabled="spineImportBusy" @click.stop="openSpineFolder"><b>导入 Spine 动画文件夹</b><small>{{ spineImportBusy ? '正在读取 Spine…' : 'skeleton.json + 原始图片 · 无需 .spine · Spine 3.8' }}</small></button>
+        </div>
+      </div>
+      <div class="export-wrap" @pointerdown.stop @keydown.esc.stop.prevent="exportMenuOpen = false" @focusout="onExportMenuFocusOut">
+        <button class="tool-button" :disabled="!hasOpenDocument" aria-label="导出文件" :aria-expanded="exportMenuOpen" aria-controls="client-ui-export-menu" @click.stop="toggleExportMenu">导出 <span aria-hidden="true">⌄</span></button>
+        <div v-if="exportMenuOpen" id="client-ui-export-menu" class="export-menu">
+          <button :disabled="!hasOpenDocument" @click.stop="downloadProject"><b>导出 JSON</b><small>工程文件</small></button>
+          <button :disabled="!hasOpenDocument" title="导出当前控件树的基础参数为原生客户端 UI GIA" @click.stop="openGiaExport"><b>导出 Gia</b><small>容器控件</small></button>
+        </div>
+      </div>
       <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openControlTemplateLibrary">控件模板</button>
       <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openPrimitiveResourceLibrary">图片资源</button>
       <button class="tool-button" :disabled="!hasOpenDocument || !fittedPrimitiveNodes.length" :aria-pressed="allPrimitivesFitted" title="一键切换所有图元控件的显示；尚未拟合的图片继续显示原图" @click.stop="toggleAllPrimitivePreviews">{{ allPrimitivesFitted ? '全部显示原图' : '全部显示拟合' }}</button>
       <button class="archive-status" :class="{ 'has-error': archive?.error.value }" :title="archive?.error.value || archive?.status.value" @click.stop="workspacePanelOpen = true">{{ archive?.status.value || 'JSON 文件模式' }}</button>
       <div class="lua-export-wrap" @pointerdown.stop>
-        <button class="tool-button lua-export-button" aria-label="Lua 导入与导出" title="导入动画数据，或导出动画、图元数据及独立运行库" @click.stop="luaExportMenuOpen = !luaExportMenuOpen">Lua 工具 <span>⌄</span></button>
+        <button class="tool-button lua-export-button" aria-label="Lua 导入与导出" title="导入动画数据，或导出动画、图元数据及独立运行库" @click.stop="importMenuOpen = false; exportMenuOpen = false; luaExportMenuOpen = !luaExportMenuOpen">Lua 工具 <span>⌄</span></button>
         <span class="lua-lib-version" :title="`当前可导出的 TweenTimelineLib 版本：@${TWEEN_TIMELINE_LIB_VERSION}。不代表游戏项目中已安装的版本；更新时请重新导出运行库。`">Lib:v{{ TWEEN_TIMELINE_LIB_VERSION }}</span>
         <div v-if="luaExportMenuOpen" class="lua-export-menu">
           <button :disabled="!hasOpenDocument" @click.stop="openTimelineDataImport"><b>导入 Timeline Data</b><small>从 Data 还原控件的动画时间轴</small></button>
-          <button @click.stop="exportTweenTimelineLib"><b>导出运行库</b><small>TweenTimelineLib.lua · v{{ TWEEN_TIMELINE_LIB_VERSION }} · 放入 Lib</small></button>
+          <button @click.stop="exportTweenTimelineLib"><b>导出TweenTimeline运行库</b><small>TweenTimelineLib.lua · v{{ TWEEN_TIMELINE_LIB_VERSION }} · 放入 Lib</small></button>
           <button :disabled="!selectedNode" @click.stop="exportSelectedNodeTweenData"><b>导出 Timeline Data</b><small>{{ selectedNode ? `${activeAnimation.name} · 以 ${selectedNode.name} 为根控件` : '请先选择根控件' }}</small></button>
-          <button :disabled="selectedNode?.type !== 'container'" @click.stop="exportSelectedPrimitiveProject"><b>导出图元项目 Lua</b><small>{{ selectedNode?.type === 'container' ? `以 ${selectedNode.name} 为根容器 · 后代图元按路径生成` : '请先在层级树选择容器' }}</small></button>
+          <button :disabled="!selectedNode" @click.stop="exportSelectedPrimitiveProject"><b>导出图元项目 Lua</b><small>{{ selectedNode ? `以 ${selectedNode.name} 为根控件 · 导出自身及子级图元` : '请先选择根控件' }}</small></button>
           <button @click.stop="exportPrimitiveImageLib"><b>导出图元运行库</b><small>PrimitiveImageLib.lua · 独立生成图片集合</small></button>
         </div>
       </div>
       <input ref="fileInput" class="file-input" type="file" accept="application/json,.json" @change="loadProject" />
       <input ref="giaFileInput" class="file-input" type="file" accept=".gia,application/octet-stream" @change="loadGiaFile" />
       <input ref="psdFileInput" class="file-input" type="file" accept=".psd,image/vnd.adobe.photoshop" @change="loadPsdFile" />
+      <input ref="spineFileInput" class="file-input" type="file" webkitdirectory multiple @change="loadSpineFolder" />
       <span v-if="giaImportStatus" class="gia-import-status" :title="giaImportStatus">{{ giaImportStatus }}</span>
       <div class="toolbar-spacer"></div>
       <PreviewPresetSelect :groups="previewPresetGroups" :device-id="deviceMode" :preset-id="previewPresetId" :custom-label="customCanvasLabel" @select="selectPreviewPreset" />
@@ -52,7 +64,7 @@
           <div><h2>控件层级 <span class="heading-count">{{ nodes.length }}</span></h2></div>
           <button class="square-button" title="添加控件" aria-label="添加控件" :aria-expanded="addMenuOpen" @click.stop="addMenuOpen = !addMenuOpen"><EditorIcon name="plus" /></button>
           <div v-if="addMenuOpen" class="add-menu" @pointerdown.stop>
-            <button v-for="control in controlDefinitions" :key="control.type" @click="addNode(control.type)"><span>{{ control.icon }}</span><div><b>{{ control.label }}</b><small>{{ control.description }}</small></div></button>
+            <button v-for="control in addControlDefinitions" :key="control.type" @click="addNode(control.type)"><span>{{ control.icon }}</span><div><b>{{ control.label }}</b><small>{{ control.description }}</small></div></button>
           </div>
         </div>
         <div class="search-box"><EditorIcon name="search" :size="17" /><input v-model="search" placeholder="搜索控件" aria-label="搜索控件" /><button v-if="search" class="search-clear" aria-label="清空搜索" @click="search = ''">×</button></div>
@@ -65,19 +77,17 @@
           <div v-if="visibleTree.length === 0" class="empty-state">没有匹配的控件</div>
         </div>
         <div v-if="hierarchyDrag.active" class="hierarchy-drag-ghost" :style="hierarchyDragGhostStyle"><span>{{ nodeIcon(draggedHierarchyNode?.type ?? 'container') }}</span><b>{{ draggedHierarchyNode?.name }}</b><small>{{ hierarchyDrag.dropLabel }}</small></div>
-        <div class="hierarchy-actions"><button class="bone-create-toggle" :class="{ active: boneCreateMode }" :aria-pressed="boneCreateMode" :disabled="!hasOpenDocument" title="拖拽创建骨骼 · 单击骨骼切换父级 · Ctrl 点击控件归入当前骨骼 · Esc 退出" @click.stop="toggleBoneCreateMode">以骨骼模式添加</button><button class="add-control-button" @click.stop="addMenuOpen = true"><EditorIcon name="plus" :size="16" />添加控件</button><button aria-label="删除选中控件" :disabled="!selectedNode || selectedNode.id === rootContainer?.id" :title="selectedNode?.id === rootContainer?.id ? '根容器不可删除' : '删除选中控件'" @click="removeSelected"><EditorIcon name="trash" :size="16" /></button></div>
+        <div class="hierarchy-actions"><button v-if="boneToolsEnabled" class="bone-create-toggle" :class="{ active: boneCreateMode }" :aria-pressed="boneCreateMode" :disabled="!hasOpenDocument" title="拖拽创建骨骼 · 单击骨骼切换父级 · Ctrl 点击控件归入当前骨骼 · Esc 退出" @click.stop="toggleBoneCreateMode">以骨骼模式添加</button><button class="add-control-button" @click.stop="addMenuOpen = true"><EditorIcon name="plus" :size="16" />添加控件</button><button aria-label="删除选中控件" :disabled="!selectedNode || selectedNode.id === rootContainer?.id" :title="selectedNode?.id === rootContainer?.id ? '根容器不可删除' : '删除选中控件'" @click="removeSelected"><EditorIcon name="trash" :size="16" /></button></div>
       </aside>
 
       <main class="workspace-panel">
-        <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><button class="bone-visibility-toggle" :class="{ active: showContainerBones }" :aria-pressed="showContainerBones" :disabled="!hasOpenDocument" aria-label="显示骨骼" title="显示或隐藏所有容器的方向骨骼，不改变箭头长度" @click.stop="showContainerBones = !showContainerBones"><EditorIcon :name="showContainerBones ? 'eye' : 'eye-off'" :size="14" />显示骨骼</button><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ customCanvasLabel || currentPreset.ratio }}</span></div>
-        <div ref="viewportElement" class="viewport" :class="[{ 'is-panning': isPanning, 'is-creating-bones': boneCreateMode }, `tool-${canvasTool}`]" @wheel.prevent="handleCanvasWheel" @pointerdown.capture="captureBonePointer" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
-          <div class="ruler ruler-x"><span v-for="tick in rulerXTicks" :key="tick">{{ tick }}</span></div>
-          <div class="ruler ruler-y"><span v-for="tick in rulerYTicks" :key="tick">{{ tick }}</span></div>
+        <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><button class="bone-mode-toggle" :class="{ active: boneToolsEnabled }" :aria-pressed="boneToolsEnabled" :disabled="!hasOpenDocument" title="展开骨骼编辑工具" @click.stop="toggleBoneTools">以骨骼模式使用</button><button v-if="boneToolsEnabled" class="bone-visibility-toggle" :class="{ active: showContainerBones }" :aria-pressed="showContainerBones" :disabled="!hasOpenDocument" aria-label="显示骨骼" title="显示或隐藏所有容器的方向骨骼，不改变箭头长度" @click.stop="showContainerBones = !showContainerBones"><EditorIcon :name="showContainerBones ? 'eye' : 'eye-off'" :size="14" />显示骨骼</button><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ customCanvasLabel || currentPreset.ratio }}</span></div>
+        <div ref="viewportElement" class="viewport" :class="[{ 'is-panning': isPanning, 'is-creating-bones': boneCreateMode }, `tool-${canvasTool}`]" @pointermove="updateBoneHover" @pointerleave="clearBoneHover" @pointercancel="clearBoneHover" @wheel.prevent="handleCanvasWheel" @pointerdown.capture="captureBonePointer" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
           <div class="canvas-stage" :class="{ 'mobile-frame': isMobilePreview }" :style="stageStyle">
             <div class="device-preview-label">{{ currentDevice.label }} · {{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</div>
             <div class="safe-area"></div>
-            <div v-for="node in renderNodes" :key="node.id" class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked }]" :style="nodeStyle(node)" @pointerdown.stop="startCanvasPress($event)">
-              <SpriteImage v-if="node.type === 'image'" :asset="getImageAsset(node.properties.imageId)" :width="previewNode(node).width" :height="previewNode(node).height" :image-type="node.properties.imageType" :color="safeColor((previewNode(node) as UINodeOf<'image'>).properties.imageColor, editorTypeColors.image)" />
+            <div v-for="node in renderNodes" :key="node.id" class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked, 'bone-attach-hover': node.id === boneHoverTarget?.id }]" :style="nodeStyle(node)" @pointerdown.stop="startCanvasPress($event)">
+              <SpriteImage v-if="node.type === 'image'" :mask-properties="(previewNode(node) as UINodeOf<'image'>).properties" :asset="getImageAsset(node.properties.imageId)" :width="previewNode(node).width" :height="previewNode(node).height" :image-type="node.properties.imageType" :color="safeColor((previewNode(node) as UINodeOf<'image'>).properties.imageColor, editorTypeColors.image)" />
               <PrimitiveImage v-else-if="node.type === 'primitive'" :image-url="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.imageUrl ?? ''" :preview-mode="node.properties.previewMode" :fit-data="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.fitData" :width="previewNode(node).width" :height="previewNode(node).height" />
               <ControlTemplatePreview v-else-if="node.type === 'reference'" :asset="controlTemplateByIndex.get(node.properties.referencedPrefabIndex ?? -1) ?? null" :missing-index="node.properties.referencedPrefabIndex" :device-index="templateDeviceIndex" :width="previewNode(node).width" :height="previewNode(node).height" />
               <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
@@ -88,11 +98,13 @@
                 <i class="selection-pivot" :style="{ left: `${previewNode(node).pivotX * 100}%`, bottom: `${previewNode(node).pivotY * 100}%` }"></i>
               </template>
             </div>
+            <template v-if="boneToolsEnabled">
             <ContainerDirectionGuide v-for="guide in renderContainerDirections" :key="guide.id" :data-node-id="guide.id" :length="guide.length" :selected="guide.id === selectedId" :style="guide.style" />
+            </template>
             <ContainerDirectionGuide v-if="boneDraftGuide" class="bone-draft" :length="boneDraftGuide.length" :selected="true" :style="boneDraftGuide.style" />
           </div>
           <span v-if="boneRootPoint" class="bone-root-point" :style="boneRootPoint" title="根容器 Pivot" aria-label="根容器中心点"></span>
-          <div v-if="boneCreateMode" class="bone-create-hint" role="status">父级：{{ boneParent?.name }} · 拖拽创建 · 单击骨骼换父级 · Ctrl 点击控件归入 · Esc 退出</div>
+          <div v-if="boneCreateMode" class="bone-create-hint" role="status">父级：{{ boneParent?.name }} · {{ boneHoverTarget ? `待归入：${boneHoverTarget.name} · Ctrl 点击确认` : '拖拽创建 · 单击骨骼换父级 · Ctrl 点击控件归入' }} · Esc 退出</div>
           <div v-if="transformGizmo && selectedNode" class="transform-gizmo" :style="transformGizmo.style">
             <template v-if="canvasTool === 'combined'">
               <svg class="transform-gizmo-lines" width="1" height="1" aria-hidden="true"><line :x1="transformGizmo.top.x" :y1="transformGizmo.top.y" :x2="transformGizmo.rotationHandle.x" :y2="transformGizmo.rotationHandle.y" /></svg>
@@ -115,7 +127,7 @@
               <rect class="scale-uniform" x="-6" y="-6" width="12" height="12" rx="2" @pointerdown.stop="startCanvasScale($event, selectedNode)" />
             </svg>
           </div>
-          <button v-if="boneLengthHandle" class="bone-length-handle" :style="boneLengthHandle" aria-label="调整骨骼长度" :title="`拖动尖端调整骨骼长度 · ${selectedDirectionArrowLength} px`" @pointerdown.stop="startBoneLengthDrag"></button>
+          <button v-if="boneToolsEnabled && boneLengthHandle" class="bone-length-handle" :style="boneLengthHandle" aria-label="调整骨骼长度" :title="`拖动尖端调整骨骼长度 · ${selectedDirectionArrowLength} px`" @pointerdown.stop="startBoneLengthDrag"></button>
           <div class="viewport-status"><span>{{ currentDevice.label }}</span><span>{{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</span><span>X {{ cursorPosition.x }} &nbsp; Y {{ cursorPosition.y }}</span></div>
         </div>
         <div class="canvas-transform-toolbar" role="toolbar" aria-label="画布变换工具" @pointerdown.stop>
@@ -146,20 +158,24 @@
               <NumberField :model-value="inspectorNode!.height" :animated="hasAnimatedField('sizeDeltaY')" axis="H" :min="1" @update:model-value="updateGeometry('height', $event)" />
               <NumberField :model-value="inspectorNode!.scaleX" :animated="hasAnimatedField('localScaleX')" @update:model-value="updateAnimatedBaseValue('localScaleX', $event)" axis="X" label="缩放比例" :step="0.01" :scrub-speed="0.01" />
               <NumberField :model-value="inspectorNode!.scaleY" :animated="hasAnimatedField('localScaleY')" @update:model-value="updateAnimatedBaseValue('localScaleY', $event)" axis="Y" :step="0.01" :scrub-speed="0.01" />
-              <NumberField :model-value="inspectorNode!.rotation" :animated="hasAnimatedField('localRotationZ')" @update:model-value="updateAnimatedBaseValue('localRotationZ', $event)" class="full-width-number" axis="Z" label="旋转" />
+              <NumberField :model-value="normalizeRotationAngle(inspectorNode!.rotation)" :min="-180" :max="180" :animated="hasAnimatedField('localRotationZ')" @update:model-value="updateAnimatedBaseValue('localRotationZ', $event)" class="full-width-number" axis="Z" label="旋转" />
             </div>
             <details class="secondary-transform"><summary>更多变换（3D）</summary><div class="property-grid">
               <NumberField :model-value="inspectorNode!.scaleZ" :animated="hasAnimatedField('localScaleZ')" @update:model-value="updateAnimatedBaseValue('localScaleZ', $event)" axis="Z" label="缩放 Z" :step="0.01" :scrub-speed="0.01" /><span></span>
-              <NumberField :model-value="inspectorNode!.rotationX" :animated="hasAnimatedField('localRotationX')" @update:model-value="updateAnimatedBaseValue('localRotationX', $event)" axis="X" label="旋转 XY" />
-              <NumberField :model-value="inspectorNode!.rotationY" :animated="hasAnimatedField('localRotationY')" @update:model-value="updateAnimatedBaseValue('localRotationY', $event)" axis="Y" />
+              <NumberField :model-value="normalizeRotationAngle(inspectorNode!.rotationX)" :min="-180" :max="180" :animated="hasAnimatedField('localRotationX')" @update:model-value="updateAnimatedBaseValue('localRotationX', $event)" axis="X" label="旋转 XY" />
+              <NumberField :model-value="normalizeRotationAngle(inspectorNode!.rotationY)" :min="-180" :max="180" :animated="hasAnimatedField('localRotationY')" @update:model-value="updateAnimatedBaseValue('localRotationY', $event)" axis="Y" />
             </div></details>
             <div class="anchor-type-row">
               <label><span>锚点类型</span><select :value="currentAnchorPresetId" @change="onAnchorPresetSelect"><option value="custom">自定义</option><option v-for="preset in anchorPresets" :key="preset.id" :value="preset.id">{{ preset.label }}</option></select></label>
               <div class="anchor-picker-wrap">
-                <button class="anchor-preview-button" title="选择锚点预设" @pointerdown.stop @click.stop="anchorMenuOpen = !anchorMenuOpen"><AnchorVisual :values="inspectorNode!" /></button>
-                <div v-if="anchorMenuOpen" class="anchor-preset-popover" @pointerdown.stop>
-                  <button v-for="preset in anchorPresets" :key="preset.id" :title="preset.label" :class="{ active: preset.id === currentAnchorPresetId }" @click="applyAnchorPreset(preset.id)"><AnchorVisual :values="preset" /><span>{{ preset.label }}</span></button>
-                </div>
+                <button class="anchor-preview-button" title="选择锚点预设" :aria-expanded="anchorMenuOpen" @pointerdown.stop @click.stop="toggleAnchorPopover($event)"><AnchorVisual :values="inspectorNode!" /></button>
+                <Teleport to="body">
+                  <div v-if="anchorMenuOpen" class="anchor-popover-overlay" @pointerdown.self.stop="anchorMenuOpen = false" @click.stop @keydown.esc.stop="anchorMenuOpen = false">
+                    <div class="anchor-preset-popover" :style="anchorPopoverStyle" role="dialog" aria-label="锚点预设" @pointerdown.stop>
+                      <button v-for="preset in anchorPresets" :key="preset.id" :title="preset.label" :aria-label="preset.label" :class="{ active: preset.id === currentAnchorPresetId }" @click="applyAnchorPreset(preset.id)"><AnchorVisual :values="preset" /></button>
+                    </div>
+                  </div>
+                </Teleport>
               </div>
             </div>
             <div class="anchor-values">
@@ -170,7 +186,7 @@
           <PropertySection v-if="selectedNode.type === 'image'" title="图片设置" icon="▧" group="image">
             <ImageControlSettings :model-value="(inspectorNode as UINodeOf<'image'>).properties" :asset="selectedImageAsset" :animated="hasAnimatedField('imageColor')" @update:model-value="selectedProperties = $event" @select="selectImageAsset" @open-library="imageLibraryOpen = true" @reset-size="resetSelectedImageSize" />
           </PropertySection>
-          <ControlPropertiesInspector v-model="selectedProperties" :definition="selectedInspectorDefinition" :animated-fields="animatedPropertyFields">
+          <ControlPropertiesInspector :key="selectedId ?? ''" v-model="selectedProperties" :definition="selectedInspectorDefinition" :animated-fields="animatedPropertyFields">
             <template #field-imageResourceId>
               <div v-if="selectedNode?.type === 'primitive'" class="primitive-resource-reference">
                 <button class="template-reference-picker" aria-label="选择图元图片资源" @click.stop="openPrimitiveResourceLibrary">{{ selectedPrimitiveResource?.name ?? '未选择图片资源' }} <span>选择资源…</span></button>
@@ -192,7 +208,7 @@
             <label class="setting-switch"><span>锁定控件</span><input v-model="selectedNode.locked" type="checkbox" role="switch" /></label>
             <label class="setting-switch"><span>允许手柄聚焦</span><input v-model="selectedNode.canControllerFocus" type="checkbox" role="switch" /></label>
           </PropertySection>
-          <PropertySection v-if="selectedNode.type === 'container'" title="方向标识">
+          <PropertySection v-if="boneToolsEnabled && selectedNode.type === 'container'" title="方向标识">
             <label class="direction-length-field"><span>骨骼长度</span><ScrubbableNumberInput :model-value="selectedDirectionArrowLength" :min="0" :max="MAX_DIRECTION_ARROW_LENGTH" :step="1" :scrub-speed="1" aria-label="方向箭头长度" @update:model-value="updateDirectionArrowLength" /><i>px</i></label>
             <p class="direction-guide-note">拖动骨骼尖端调整长度 · 0 隐藏<br />仅为编辑辅助，不影响控件大小或 Lua 导出。</p>
           </PropertySection>
@@ -217,12 +233,16 @@
 
     <section ref="timelinePanel" class="timeline-panel keyframe-panel">
       <div class="timeline-resize-handle" role="separator" aria-label="调整时间轴高度" aria-orientation="horizontal" :aria-valuemin="MIN_TIMELINE_HEIGHT" :aria-valuemax="timelineMaximumHeight" :aria-valuenow="Math.round(resolvedTimelineHeight)" tabindex="0" title="上下拖动调整时间轴高度 · 双击恢复自动高度" @pointerdown.stop="startTimelineResize" @dblclick.stop="resetTimelineHeight" @keydown.up.prevent="nudgeTimelineHeight(16)" @keydown.down.prevent="nudgeTimelineHeight(-16)"><span></span></div>
-      <KeyframeTimeline :key="`${keyframeDocumentEpoch}:${activeAnimationId}`" :nodes="timelineNodes" :tracks="keyframeTracks" :selected-node-id="selectedId" :selected-keyframe-id="selectedKeyframeId" :current-time="currentTime" :duration="duration" :playing="playing" :snap-enabled="timelineSnapEnabled" :animation-name="activeAnimation.name"
-        @select-node="selectKeyframeNode" @add-track="openKeyframeFieldPicker" @select-keyframe="selectKeyframe"
+      <KeyframeTimeline :key="`${keyframeDocumentEpoch}:${activeAnimationId}`" :nodes="timelineNodes" :tracks="keyframeTracks" :selected-node-id="selectedId" :selected-keyframe-id="selectedKeyframeId" :current-time="currentTime" :duration="duration" :playing="playing" :snap-enabled="timelineSnapEnabled" :animation-name="activeAnimation.name" :frame-rate="frameRate" @update-frame-rate="frameRate = $event"
+        :track-values="timelineTrackValues" @edit-track-value="editTimelineTrackValue"
+        @select-node="selectKeyframeNode" @select-track="selectKeyframeTrack" @add-track="openKeyframeFieldPicker" @select-keyframe="selectKeyframe"
         @seek="seekKeyframeTime" @update-duration="updateKeyframeDuration" @toggle-play="togglePlayback" @toggle-snap="toggleTimelineSnapping" @rewind="rewindPlayback"
         @upsert-keyframe="insertKeyframeAtTime" @move-keyframe="moveKeyframe" @update-keyframe="updateKeyframe"
         @remove-keyframe="removeKeyframe" @remove-track="removeKeyframeTrack"
-        @begin-edit="editorHistory.begin('keyframe')" @end-edit="editorHistory.end('keyframe')" />
+        @begin-edit="editorHistory.begin('keyframe')" @end-edit="editorHistory.end('keyframe')">
+        <template #events><EventTimeline :events="activeAnimation.events ?? []" :nodes="nodes" :duration="duration" :current-time="currentTime" :snap-enabled="timelineSnapEnabled" :snap-times="keyframeTracks.flatMap(t => t.keyframes.map(k => k.time))" :logs="eventPreviewLog"
+          @change="updateTimelineEvents" @begin-edit="playing = false; editorHistory.begin('events')" @end-edit="editorHistory.end('events')" @select="playing = false" @clear-log="eventPreviewLog = []" /></template>
+      </KeyframeTimeline>
       <p v-if="timelineEditNotice" class="keyframe-notice" role="status">{{ timelineEditNotice }}</p>
     </section>
 
@@ -258,6 +278,17 @@
         </header>
         <div class="tween-field-picker-search"><EditorIcon name="search" :size="17" /><input v-model="tweenFieldSearch" autofocus aria-label="搜索动画参数" placeholder="搜索参数名称或字段名" /><button v-if="tweenFieldSearch" type="button" aria-label="清空参数搜索" @click="tweenFieldSearch = ''">×</button></div>
         <div class="tween-field-picker-content">
+          <section v-if="tweenFieldPickerCombos.length" class="tween-field-picker-group">
+            <header><div><b>组合添加</b><small>一次添加 X、Y 两条独立轨道，已有轨道保持不变</small></div></header>
+            <div class="tween-field-picker-grid">
+              <button v-for="combo in tweenFieldPickerCombos" :key="combo.label" @click="addKeyframeTrackPair(tweenFieldPickerNode, combo.fields)">
+                <span class="parameter-kind">XY</span><b>{{ combo.label }}</b>
+                <code>{{ combo.fields.join(' + ') }}</code>
+                <EditorIcon class="parameter-add" name="plus" :size="17" />
+                <small>添加缺少的轴 · 可分别编辑</small>
+              </button>
+            </div>
+          </section>
           <section v-for="group in tweenFieldPickerGroups" :key="group.key" class="tween-field-picker-group">
             <header><div><b>{{ group.title }}</b><small>{{ group.description }}</small></div><em>{{ group.fields.length }} 项</em></header>
             <div class="tween-field-picker-grid">
@@ -270,7 +301,7 @@
               </button>
             </div>
           </section>
-          <div v-if="tweenFieldPickerGroups.length === 0" class="tween-field-picker-empty"><EditorIcon :name="tweenFieldSearch ? 'search' : 'timeline'" :size="28" /><b>{{ tweenFieldSearch ? '没有匹配的参数' : '所有可用参数都已添加' }}</b><span>{{ tweenFieldSearch ? '试试其他名称，或清空搜索。' : '关闭窗口后可直接编辑已有轨道。' }}</span></div>
+          <div v-if="tweenFieldPickerGroups.length === 0 && tweenFieldPickerCombos.length === 0" class="tween-field-picker-empty"><EditorIcon :name="tweenFieldSearch ? 'search' : 'timeline'" :size="28" /><b>{{ tweenFieldSearch ? '没有匹配的参数' : '所有可用参数都已添加' }}</b><span>{{ tweenFieldSearch ? '试试其他名称，或清空搜索。' : '关闭窗口后可直接编辑已有轨道。' }}</span></div>
         </div>
         <footer><span>选择参数以创建动画轨道</span><button @click="closeTweenFieldPicker">完成</button></footer>
       </section>
@@ -298,9 +329,13 @@ import TimelineDataImportDialog from "./TimelineDataImportDialog.vue";
 import ContainerDirectionGuide from "./ContainerDirectionGuide.vue";
 import EditorHistoryPanel from "./EditorHistoryPanel.vue";
 import KeyframeTimeline from "./KeyframeTimeline.vue";
+import EventTimeline from "./EventTimeline.vue";
+import { normalizeTimelineEvents, crossedTimelineEvents } from "./timelineEvents";
+import type { UITimelineEvent } from "./types";
 import type { UIAnimation, UIKeyframe, UIKeyframeTrack } from "./types";
 import AnimationListPanel from "./AnimationListPanel.vue";
 import { normalizeAnimationCollection, uniqueAnimationName } from "./animationCollection";
+import { removeRetiredScaleTweenTracks } from "./timelineCompatibility";
 import { evaluateKeyframeTrack, resolveKeyframeTrack, migrateTweenClipsToKeyframes, normalizeKeyframeTracks } from "./keyframeTimeline";
 import { buildKeyframeTimelineDataLua, prepareKeyframeTimelineImport } from "./keyframeLua";
 import { createEditorHistory } from "./editorHistory";
@@ -394,6 +429,7 @@ function makeNode(type: ControlType, name: string, overrides: NodeOverrides<Cont
   const node = { id: createId(), parentId: null, name, type, active: true, x: DEFAULT_CANVAS_WIDTH / 2, y: DEFAULT_CANVAS_HEIGHT / 2, width: defaultWidth, height: defaultHeight, scaleX: 1, scaleY: 1, scaleZ: 1, rotationX: 0, rotationY: 0, rotation: 0, anchorMinX: 0.5, anchorMinY: 0.5, anchorMaxX: 0.5, anchorMaxY: 0.5, pivotX: 0.5, pivotY: 0.5, anchorOffsetX: 0, anchorOffsetY: 0, sizeDeltaX: defaultWidth, sizeDeltaY: defaultHeight, canControllerFocus: false, visible: true, locked: false, properties: { ...createControlProperties(type), ...propertyOverrides }, ...baseOverrides } as UINode;
   if (type === "container") node.editor = { directionArrowLength: normalizeDirectionArrowLength(editorOverrides?.directionArrowLength) };
   if (node.type === "primitive") node.properties = normalizePrimitiveProperties(node.properties);
+  if (node.type === "image" && node.properties.softEdgeMode !== "percentage") node.properties.softEdgeMode = "pixel";
   const anchorRefX = ((1 - node.pivotX) * node.anchorMinX + node.pivotX * node.anchorMaxX) * DEFAULT_CANVAS_WIDTH;
   const anchorRefY = ((1 - node.pivotY) * node.anchorMinY + node.pivotY * node.anchorMaxY) * DEFAULT_CANVAS_HEIGHT;
   if (!Number.isFinite(overrides.anchorOffsetX)) node.anchorOffsetX = node.x - anchorRefX;
@@ -465,9 +501,33 @@ const previewPresets: Record<DeviceMode, PreviewPreset[]> = {
   ],
 };
 const previewPresetGroups = deviceModes.map((device) => ({ id: device.id, label: device.label, presets: previewPresets[device.id] }));
-const projectName = ref("Untitled UI Animation"); const deviceMode = ref<DeviceMode>("pc"); const previewPresetId = ref("pc-16-9"); const canvasWidth = ref(1600); const canvasHeight = ref(900); const zoom = ref(0.55); const panX = ref(0); const panY = ref(0); const isPanning = ref(false); const selectedId = ref<string | null>(nodes.value[0].id); const search = ref(""); const collapsed = ref(new Set<string>()); const addMenuOpen = ref(false); const anchorMenuOpen = ref(false); const luaExportMenuOpen = ref(false); const tweenFieldPickerNodeId = ref<string | null>(null); const tweenFieldSearch = ref(""); const fileInput = ref<HTMLInputElement | null>(null); const giaFileInput = ref<HTMLInputElement | null>(null); const giaImportStatus = ref(""); const currentTime = ref(0); const duration = computed({ get: () => activeAnimation.value.duration, set: (value: number) => { activeAnimation.value.duration = value; } }); const frameRate = ref<30 | 60>(30); const playing = ref(false); const tweenTracks = ref<UITweenTrack[]>([]); const selectedTweenTrackId = ref<string | null>(null); const draggingTweenTrackId = ref<string | null>(null); const resizingTweenEdge = ref<"start" | "end" | null>(null); const timelineContent = ref<HTMLElement | null>(null); const timelineTrackNames = ref<HTMLElement | null>(null); const timelinePanel = ref<HTMLElement | null>(null); const editorElement = ref<HTMLElement | null>(null); const viewportElement = ref<HTMLElement | null>(null); const hierarchyTree = ref<HTMLElement | null>(null); const cursorPosition = ref({ x: 0, y: 0 }); const timelineHeight = ref<number | null>(null); const timelineResizing = ref(false); const timelineScrubbing = ref(false); const editorHeight = ref(0);
+const projectName = ref("Untitled UI Animation"); const deviceMode = ref<DeviceMode>("pc"); const previewPresetId = ref("pc-16-9"); const canvasWidth = ref(1600); const canvasHeight = ref(900); const zoom = ref(0.55); const panX = ref(0); const panY = ref(0); const isPanning = ref(false); const selectedId = ref<string | null>(nodes.value[0].id); const search = ref(""); const collapsed = ref(new Set<string>()); const addMenuOpen = ref(false); const anchorMenuOpen = ref(false); const importMenuOpen = ref(false); const exportMenuOpen = ref(false); const luaExportMenuOpen = ref(false); const tweenFieldPickerNodeId = ref<string | null>(null); const tweenFieldSearch = ref(""); const fileInput = ref<HTMLInputElement | null>(null); const giaFileInput = ref<HTMLInputElement | null>(null); const giaImportStatus = ref(""); const currentTime = ref(0); const duration = computed({ get: () => activeAnimation.value.duration, set: (value: number) => { activeAnimation.value.duration = value; } }); const frameRate = ref<number>(30); const playing = ref(false); const tweenTracks = ref<UITweenTrack[]>([]); const selectedTweenTrackId = ref<string | null>(null); const draggingTweenTrackId = ref<string | null>(null); const resizingTweenEdge = ref<"start" | "end" | null>(null); const timelineContent = ref<HTMLElement | null>(null); const timelineTrackNames = ref<HTMLElement | null>(null); const timelinePanel = ref<HTMLElement | null>(null); const editorElement = ref<HTMLElement | null>(null); const viewportElement = ref<HTMLElement | null>(null); const hierarchyTree = ref<HTMLElement | null>(null); const cursorPosition = ref({ x: 0, y: 0 }); const timelineHeight = ref<number | null>(null); const timelineResizing = ref(false); const timelineScrubbing = ref(false); const editorHeight = ref(0);
 const animations = ref<UIAnimation[]>([{ id: "animation-default", name: "默认动画", duration: 5, keyframeTracks: [] }]);
 const activeAnimationId = ref("animation-default");
+const eventPreviewLog = ref<string[]>([]);
+let eventPlaybackStarted = false;
+function updateTimelineEvents(events: UITimelineEvent[]) {
+  if (!hasOpenDocument.value) return;
+  playing.value = false;
+  activeAnimation.value.events = normalizeTimelineEvents(events, nodes.value);
+}
+function previewEvents(from: number, to: number, includeStart = false) {
+  const entries = crossedTimelineEvents(activeAnimation.value.events ?? [], from, to, includeStart);
+eventPreviewLog.value = [...eventPreviewLog.value, ...entries.map(e => `${e.time.toFixed(3)}s · ${e.name} · ${nodes.value.find(n => n.id === e.nodeId)?.name ?? '动画根控件'} · ${e.params}`)].slice(-50);
+}
+function advanceTimelinePlayback(delta: number) {
+  const length = duration.value;
+  if (!(length > 0) || !(delta >= 0)) return;
+  let from = currentTime.value, remaining = delta;
+  if (!eventPlaybackStarted) { previewEvents(from, from, true); eventPlaybackStarted = true; }
+  // Process every crossed interval, including endpoints and each new loop's zero.
+  while (remaining >= length - from) {
+    previewEvents(from, length); remaining -= length - from; from = 0;
+    previewEvents(0, 0, true);
+  }
+  previewEvents(from, from + remaining);
+  currentTime.value = from + remaining;
+}
 const activeAnimation = computed(() => animations.value.find(animation => animation.id === activeAnimationId.value) ?? animations.value[0]);
 const keyframeTracks = computed({ get: () => activeAnimation.value.keyframeTracks, set: (value: UIKeyframeTrack[]) => { activeAnimation.value.keyframeTracks = value; } });
 const animationNotice = ref("");
@@ -476,6 +536,7 @@ const selectedKeyframeId = ref<string | null>(null);
 const keyframeDocumentEpoch = ref(0);
 const workspacePanelOpen = ref(false);
 const timelineSnapEnabled = ref(true);
+const boneToolsEnabled = ref(false);
 const showContainerBones = ref(true);
 const historyPanelOpen = ref(false);
 const timelineSnapTime = ref<number | null>(null);
@@ -488,11 +549,11 @@ const timelineDataRootId = ref("");
 const timelineDataImportMode = ref<TimelineDataImportMode>("append");
 const timelineDataImportPreview = computed(() => !timelineDataImportOpen.value || !timelineDataSource.value.trim() ? null : prepareKeyframeTimelineImport({
   source: timelineDataSource.value, rootNodeId: timelineDataRootId.value, nodes: nodes.value,
-  existingTracks: keyframeTracks.value, mode: timelineDataImportMode.value, sequenceDuration: sequenceDurationValue(),
+  existingTracks: keyframeTracks.value, existingEvents: activeAnimation.value.events, mode: timelineDataImportMode.value, sequenceDuration: sequenceDurationValue(),
 }));
 const timelineDataImportSummary = computed(() => {
   const result = timelineDataImportPreview.value;
-  return result ? { schema: result.schema, importedCount: result.importedTracks.length, replacedCount: result.replacedCount, duration: result.duration, errors: result.errors, warnings: result.warnings } : null;
+return result ? { schema: result.schema, importedCount: result.importedTracks.length, eventCount: result.importedEvents.length, replacedCount: result.replacedCount, duration: result.duration, errors: result.errors, warnings: result.warnings } : null;
 });
 const timelineDataRootOptions = computed(() => {
   const byId = new Map(nodes.value.map((node) => [node.id, node]));
@@ -525,6 +586,7 @@ interface HierarchyDragState { nodeId: string | null; active: boolean; pointerX:
 const emptyHierarchyDrag = (): HierarchyDragState => ({ nodeId: null, active: false, pointerX: 0, pointerY: 0, dropTargetId: null, dropParentId: null, dropMode: null, dropLabel: "长按以开始拖动" });
 const hierarchyDrag = ref<HierarchyDragState>(emptyHierarchyDrag());
 const controlLabels = Object.fromEntries(controlDefinitions.map((definition) => [definition.type, definition.label])) as Record<ControlType, string>;
+const addControlDefinitions = [...controlDefinitions.filter(control => control.type !== "primitive"), ...controlDefinitions.filter(control => control.type === "primitive")];
 const currentDevice = computed(() => deviceModes.find((device) => device.id === deviceMode.value) ?? deviceModes[0]); const currentPreviewPresets = computed(() => previewPresets[deviceMode.value]); const currentPreset = computed(() => currentPreviewPresets.value.find((preset) => preset.id === previewPresetId.value) ?? currentPreviewPresets.value[0]); const isMobilePreview = computed(() => deviceMode.value === "mobile" || deviceMode.value === "controllerMobile");
 const customCanvasLabel = computed(() => currentPreset.value.width === canvasWidth.value && currentPreset.value.height === canvasHeight.value ? undefined : `${canvasWidth.value} × ${canvasHeight.value}`);
 interface Matrix2D { a: number; b: number; c: number; d: number }
@@ -539,6 +601,30 @@ const canvasTools = [
 type CanvasTool = typeof canvasTools[number]["id"];
 const canvasTool = ref<CanvasTool>("combined");
 const boneCreateMode = ref(false);
+const boneHoverPointer = ref<{ x: number; y: number } | null>(null);
+const boneHoverCtrl = ref(false);
+const boneHoverTarget = computed(() => {
+  const point = boneHoverPointer.value;
+  return boneCreateMode.value && boneHoverCtrl.value && !isPanning.value && point
+    ? boneAttachTargetAtPoint(point.x, point.y) : null;
+});
+function updateBoneHover(event: PointerEvent) {
+  boneHoverPointer.value = { x: event.clientX, y: event.clientY };
+  boneHoverCtrl.value = event.ctrlKey;
+}
+function clearBoneHover() { boneHoverPointer.value = null; boneHoverCtrl.value = false; }
+function updateBoneHoverKey(event: KeyboardEvent) { boneHoverCtrl.value = event.ctrlKey; }
+watch(boneCreateMode, clearBoneHover);
+onMounted(() => {
+  window.addEventListener("keydown", updateBoneHoverKey);
+  window.addEventListener("keyup", updateBoneHoverKey);
+  window.addEventListener("blur", clearBoneHover);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", updateBoneHoverKey);
+  window.removeEventListener("keyup", updateBoneHoverKey);
+  window.removeEventListener("blur", clearBoneHover);
+});
 const boneParentId = ref<string | null>(null);
 const boneParent = computed(() => nodes.value.find(node => node.id === boneParentId.value && node.type === "container") ?? rootContainer.value);
 const boneDraft = ref<{ start: BonePoint; end: BonePoint; parentId: string } | null>(null);
@@ -622,7 +708,7 @@ const tweenTrackConflicts = computed(() => {
 });
 const previewNodes = computed(() => keyframeTracks.value.length ? buildKeyframePreviewNodes(currentTime.value) : buildTweenPreviewNodes(currentTime.value));
 const inspectorNode = computed(() => selectedNode.value ? previewNode(selectedNode.value) : null);
-const animatedPropertyFields = computed(() => keyframeTracks.value.filter(track => track.nodeId === selectedId.value && track.keyframes.length).map(track => track.fieldKey));
+const animatedPropertyFields = computed(() => keyframeTracks.value.filter(track => track.nodeId === selectedId.value).map(track => track.fieldKey));
 const previewNodeMap = computed(() => new Map(previewNodes.value.map((node) => [node.id, node])));
 const automaticTimelineHeight = computed(() => Math.min(320, Math.max(210, 80 + (timelineNodes.value.length + keyframeTracks.value.length) * 33)));
 const timelineMaximumHeight = computed(() => editorHeight.value > 0 ? Math.max(MIN_TIMELINE_HEIGHT, editorHeight.value - EDITOR_TOOLBAR_HEIGHT - MIN_EDITOR_BODY_HEIGHT) : 520);
@@ -632,7 +718,7 @@ const selectedControlDefinition = computed(() => getControlDefinition(selectedNo
 const imageLibraryOpen = ref(false);
 const giaSource = shallowRef<GiaExportSource | null>(null);
 const giaExportOpen = ref(false), giaExportBusy = ref(false), giaExportError = ref(""), giaExportNotice = ref("");
-function openGiaExport() { primitiveResourceLibraryOpen.value = false; templateLibraryOpen.value = false; imageLibraryOpen.value = false; giaExportError.value = ""; giaExportNotice.value = ""; giaExportOpen.value = true; }
+function openGiaExport() { exportMenuOpen.value = false; primitiveResourceLibraryOpen.value = false; templateLibraryOpen.value = false; imageLibraryOpen.value = false; giaExportError.value = ""; giaExportNotice.value = ""; giaExportOpen.value = true; }
 function downloadGiaUI(options: { name: string; uiIndex: number }) {
   giaExportError.value = "";
   try {
@@ -751,6 +837,18 @@ function resetControlTemplateSize() {
 }
 const selectedInspectorDefinition = computed(() => selectedNode.value?.type === "image" ? { ...selectedControlDefinition.value, fields: selectedControlDefinition.value.fields.filter(field => !["imageSource", "imageId", "imageColor", "imageType"].includes(field.key)) } : selectedControlDefinition.value);
 const tweenFieldPickerNode = computed(() => nodes.value.find((node) => node.id === tweenFieldPickerNodeId.value) ?? null);
+const tweenFieldPickerCombos = computed(() => {
+  const node = tweenFieldPickerNode.value;
+  if (!node) return [];
+  const available = new Set(availableTweenFields(node).map(field => field.fieldKey));
+  const query = tweenFieldSearch.value.trim().toLowerCase();
+  return [
+    { label: "位置 XY", fields: ["anchoredPositionX", "anchoredPositionY"] },
+    { label: "大小 XY", fields: ["sizeDeltaX", "sizeDeltaY"] },
+  ].filter(combo => combo.fields.every(key => getTweenableField(node.type, key) && !tweenFieldConflict(node, key))
+    && combo.fields.some(key => available.has(key))
+    && (!query || `${combo.label} ${combo.fields.join(' ')}`.toLowerCase().includes(query)));
+});
 const selectedTweenPickerDefinition = computed(() => getControlDefinition(tweenFieldPickerNode.value?.type ?? "container"));
 const tweenFieldPickerGroups = computed(() => {
   const node = tweenFieldPickerNode.value;
@@ -797,12 +895,27 @@ const selectedAdditionalRuntimeTweenValues = computed(() => { const node = inspe
   { key: "localRotationX", value: node.rotationX }, { key: "localRotationY", value: node.rotationY }, { key: "localRotationZ", value: node.rotation },
 ]; });
 const currentAnchorPresetId = computed(() => { const node = inspectorNode.value; if (!node) return "custom"; return anchorPresets.find((preset) => preset.anchorMinX === node.anchorMinX && preset.anchorMinY === node.anchorMinY && preset.anchorMaxX === node.anchorMaxX && preset.anchorMaxY === node.anchorMaxY)?.id ?? "custom"; });
-const rulerXTicks = computed(() => Array.from({ length: 9 }, (_, index) => Number((index * canvasWidth.value / 8).toFixed(2)))); const rulerYTicks = computed(() => Array.from({ length: 7 }, (_, index) => Number((canvasHeight.value - index * canvasHeight.value / 6).toFixed(2)))); const timeTicks = computed(() => Array.from({ length: 11 }, (_, index) => duration.value * index / 10)); const stageStyle = computed<CSSProperties>(() => ({ width: `${canvasWidth.value}px`, height: `${canvasHeight.value}px`, left: `calc(50% + ${panX.value}px)`, top: `calc(50% + ${panY.value}px)`, transform: `translate(-50%, -50%) scale(${zoom.value})` }));
+const timeTicks = computed(() => Array.from({ length: 11 }, (_, index) => duration.value * index / 10)); const stageStyle = computed<CSSProperties>(() => ({ width: `${canvasWidth.value}px`, height: `${canvasHeight.value}px`, left: `calc(50% + ${panX.value}px)`, top: `calc(50% + ${panY.value}px)`, transform: `translate(-50%, -50%) scale(${zoom.value})` }));
 const visibleTree = computed(() => { const result: Array<{ node: UINode; depth: number }> = []; const query = search.value.trim().toLowerCase(); const visit = (parentId: string | null, depth: number) => nodes.value.filter((node) => node.parentId === parentId).forEach((node) => { if (!query || node.name.toLowerCase().includes(query)) result.push({ node, depth }); if (!collapsed.value.has(node.id)) visit(node.id, depth + 1); }); visit(null, 0); return result; });
 function nodeIcon(type: ControlType) { return controlRegistry[type].icon; } function hasChildren(id: string) { return nodes.value.some((node) => node.parentId === id); }
 function isVisibleInHierarchy(node: UINode) { const visited = new Set<string>(); let current: UINode | undefined = previewNode(node); while (current && !visited.has(current.id)) { if (!current.visible) return false; visited.add(current.id); current = current.parentId ? previewNodeMap.value.get(current.parentId) : undefined; } return true; }
 function isDescendant(id: string, possibleAncestor: string | null): boolean { let current = nodes.value.find((node) => node.id === id); while (current?.parentId) { if (current.parentId === possibleAncestor) return true; current = nodes.value.find((node) => node.id === current?.parentId); } return false; }
-function toggleCollapsed(id: string) { const next = new Set(collapsed.value); next.has(id) ? next.delete(id) : next.add(id); collapsed.value = next; } function closeMenus() { historyPanelOpen.value = false; addMenuOpen.value = false; anchorMenuOpen.value = false; luaExportMenuOpen.value = false; closeTweenFieldPicker(); closeTimelineContextMenu(); }
+const anchorPopoverStyle = ref<CSSProperties>({});
+function toggleAnchorPopover(event: MouseEvent) {
+  if (anchorMenuOpen.value) { anchorMenuOpen.value = false; return; }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const size = Math.max(0, Math.min(320, window.innerWidth - 16, window.innerHeight - 16));
+  anchorPopoverStyle.value = {
+    width: `${size}px`, height: `${size}px`,
+    left: `${Math.max(8, Math.min(rect.left - size - 10, window.innerWidth - size - 8))}px`,
+    top: `${Math.max(8, Math.min(rect.top - size / 2 + rect.height / 2, window.innerHeight - size - 8))}px`,
+  };
+  anchorMenuOpen.value = true;
+}
+function closeAnchorPopover() { anchorMenuOpen.value = false; }
+onMounted(() => window.addEventListener('resize', closeAnchorPopover));
+onBeforeUnmount(() => window.removeEventListener('resize', closeAnchorPopover));
+function toggleCollapsed(id: string) { const next = new Set(collapsed.value); next.has(id) ? next.delete(id) : next.add(id); collapsed.value = next; } function closeMenus() { importMenuOpen.value = false; exportMenuOpen.value = false; historyPanelOpen.value = false; addMenuOpen.value = false; anchorMenuOpen.value = false; luaExportMenuOpen.value = false; closeTweenFieldPicker(); closeTimelineContextMenu(); }
 function clampTimelineHeight(value: number) { return Math.min(timelineMaximumHeight.value, Math.max(MIN_TIMELINE_HEIGHT, Math.round(value))); }
 function resetTimelineHeight() { timelineHeight.value = null; }
 function nudgeTimelineHeight(delta: number) { timelineHeight.value = clampTimelineHeight(resolvedTimelineHeight.value + delta); }
@@ -847,6 +960,7 @@ function selectAnimation(id: string) {
   finishEditorHistoryInteraction();
   stopDocumentInteraction();
   activeAnimationId.value = id;
+  eventPreviewLog.value = []; eventPlaybackStarted = false;
   currentTime.value = 0;
   selectedKeyframeId.value = null;
   selectedTweenTrackId.value = null;
@@ -867,6 +981,7 @@ function duplicateAnimation() {
   animation.id = createTweenId();
   animation.name = uniqueAnimationName(animations.value, `${source.name.slice(0, 70)} 副本`);
   animation.keyframeTracks.forEach(track => { track.id = createTweenId(); track.keyframes.forEach(key => { key.id = createTweenId(); }); });
+  animation.events?.forEach(event => { event.id = createTweenId(); });
   animations.value.push(animation);
   selectAnimation(animation.id);
 }
@@ -889,12 +1004,20 @@ function keyframeConflictClips(): UITweenTrack[] {
   return keyframeTracks.value.map(track => ({ id: track.id, nodeId: track.nodeId, fieldKey: track.fieldKey, startTime: 0, duration: 1, initialValue: 0, endValue: 0, easeType: "Linear" }));
 }
 function hasAnimatedField(fieldKey: string, nodeId = selectedId.value) {
-  return keyframeTracks.value.some(track => track.nodeId === nodeId && track.fieldKey === fieldKey && track.keyframes.length > 0);
+  return keyframeTracks.value.some(track => track.nodeId === nodeId && track.fieldKey === fieldKey);
 }
 function keyframeBase(track: UIKeyframeTrack): UITweenValue {
   const node = nodes.value.find(item => item.id === track.nodeId);
   const field = node ? getTweenableField(node.type, track.fieldKey) : null;
   return node && field ? readTweenFieldValue(node, field) : null;
+}
+const timelineTrackValues = computed<Record<string, UITweenValue>>(() => Object.fromEntries(keyframeTracks.value.map(track => [track.id, evaluateKeyframeTrack(track, currentTime.value, keyframeBase(track))])));
+function editTimelineTrackValue(trackId: string, value: UITweenValue) {
+  const track = keyframeTracks.value.find(item => item.id === trackId);
+  const node = track && nodes.value.find(item => item.id === track.nodeId);
+  if (!track || !node || value === null) return;
+  selectedId.value = node.id;
+  writeAnimatedValue(node, track.fieldKey, value);
 }
 function keyframePreviousValue(track: UIKeyframeTrack, time: number): UITweenValue {
   const previous = resolveKeyframeTrack(track, keyframeBase(track)).filter(key => key.time < time - 0.000001 && key.value !== null).at(-1);
@@ -908,6 +1031,15 @@ function openKeyframeFieldPicker(id: string) {
   const node = nodes.value.find(item => item.id === id);
   if (node) openTweenFieldPicker(node);
 }
+function selectKeyframeTrack(trackId: string) {
+  const track = keyframeTracks.value.find(item => item.id === trackId);
+  if (!track) return;
+  selectedId.value = track.nodeId;
+  const keys = [...track.keyframes].sort((a, b) => a.time - b.time);
+  selectedKeyframeId.value = (keys.filter(key => key.time <= currentTime.value + 0.000001).at(-1) ?? keys[0])?.id ?? null;
+  selectedTweenTrackId.value = null;
+  playing.value = false;
+}
 function selectKeyframe(trackId: string, keyId: string) {
   const track = keyframeTracks.value.find(item => item.id === trackId);
   const key = track?.keyframes.find(item => item.id === keyId);
@@ -920,7 +1052,11 @@ function selectKeyframe(trackId: string, keyId: string) {
 function seekKeyframeTime(time: number) {
   if (!Number.isFinite(time)) return;
   playing.value = false;
+  eventPlaybackStarted = true; // Seeking never dispatches, including the destination marker.
   currentTime.value = Math.max(0, Math.min(duration.value, time));
+}
+function addKeyframeTrackPair(node: UINode, fields: string[]) {
+  for (const field of fields) addKeyframeTrack(node, field);
 }
 function addKeyframeTrack(node: UINode, fieldKey: string) {
   if (hasAnimatedField(fieldKey, node.id) || tweenFieldConflict(node, fieldKey)) return;
@@ -958,6 +1094,15 @@ function insertKeyframeAtTime(trackId: string, time: number) {
   selectKeyframe(track.id, key.id);
 }
 function writeAnimatedValue(node: UINode, fieldKey: string, value: UITweenValue) {
+  // Static scale is still editable (inspector, gizmo and reparent compensation),
+  // but these axes must never create/update a Tween or a keyframe.
+  if (fieldKey === "localScaleX" || fieldKey === "localScaleY") {
+    if (typeof value !== "number" || !Number.isFinite(value)) return;
+    node[fieldKey === "localScaleX" ? "scaleX" : "scaleY"] = value;
+    applyNodeLayout(node);
+    applyDescendantLayouts(node.id);
+    return;
+  }
   const field = getTweenableField(node.type, fieldKey);
   if (!field || value === null || (typeof value === "number" && !Number.isFinite(value))) return;
   const track = keyframeTracks.value.find(item => item.nodeId === node.id && item.fieldKey === fieldKey);
@@ -970,6 +1115,7 @@ function writeAnimatedValue(node: UINode, fieldKey: string, value: UITweenValue)
   playing.value = false;
   const time = roundTweenTime(currentTime.value);
   let key = track.keyframes.find(item => Math.abs(item.time - time) <= 0.000001);
+  const created = !key;
   if (!key) {
     insertKeyframeAtTime(track.id, time);
     key = track.keyframes.find(item => Math.abs(item.time - time) <= 0.000001);
@@ -980,8 +1126,15 @@ function writeAnimatedValue(node: UINode, fieldKey: string, value: UITweenValue)
   delete key.incomingValue;
   delete key.incomingRelative;
   selectedKeyframeId.value = key.id;
+  if (created) timelineEditNotice.value = `已在 ${time} 秒为「${node.name} / ${field.label}」自动添加关键帧。`;
+}
+function normalizeRotationAngle(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  if (value >= -180 && value <= 180) return value;
+  return roundLayout((((value + 180) % 360) + 360) % 360 - 180);
 }
 function updateAnimatedBaseValue(fieldKey: string, value: number | null) {
+  if (value !== null && /^localRotation[XYZ]$/.test(fieldKey)) value = Math.max(-180, Math.min(180, value));
   if (selectedNode.value && value !== null) writeAnimatedValue(selectedNode.value, fieldKey, value);
 }
 function tryKeyframeGeometry(field: "x" | "y" | "width" | "height", value: number) {
@@ -1099,7 +1252,7 @@ function removeKeyframeTrack(trackId: string) {
 }
 function updateKeyframeDuration(value: number) {
   if (!Number.isFinite(value)) return;
-  const last = Math.max(0.5, ...keyframeTracks.value.flatMap(track => track.keyframes.map(key => key.time)));
+  const last = Math.max(0.5, ...(activeAnimation.value.events ?? []).map(e => e.time), ...keyframeTracks.value.flatMap(track => track.keyframes.map(key => key.time)));
   duration.value = Math.max(value, last);
   currentTime.value = Math.min(currentTime.value, duration.value);
   timelineEditNotice.value = value < last ? "时长不能短于最后一个关键帧。" : "";
@@ -1412,7 +1565,7 @@ function timelineGuideStyle(time: number): CSSProperties {
     height: `max(100%, ${timelineRows.value.length * 33}px)`,
   };
 }
-function roundTweenTime(value: number) { return Number(value.toFixed(3)); }
+function roundTweenTime(value: number) { return Number(value.toFixed(6)); }
 function tweenTrackStyle(track: UITweenTrack): CSSProperties { const sequenceDuration = sequenceDurationValue(); const clipDuration = Math.min(sequenceDuration, Math.max(MIN_TWEEN_DURATION, track.duration)); const start = Math.min(Math.max(0, sequenceDuration - clipDuration), Math.max(0, track.startTime)); return { left: `${(start / sequenceDuration) * 100}%`, width: `${(clipDuration / sequenceDuration) * 100}%` }; }
 function tweenNumberValue(slot: TweenValueSlot) { const value = selectedTweenTrack.value?.[slot]; return typeof value === "number" && Number.isFinite(value) ? value : ""; }
 function updateTweenNumberValue(slot: TweenValueSlot, value: number | null) { const track = selectedTweenTrack.value; if (!track) return; track[slot] = value !== null && Number.isFinite(value) ? value : null; }
@@ -1514,7 +1667,7 @@ function startTweenTimingDrag(event: PointerEvent, row: TimelineTweenRow, mode: 
 let syncingTimelineScroll = false;
 function syncTimelineScroll(source: "names" | "content") { if (syncingTimelineScroll) return; const from = source === "names" ? timelineTrackNames.value : timelineContent.value; const to = source === "names" ? timelineContent.value : timelineTrackNames.value; if (!from || !to || Math.abs(to.scrollTop - from.scrollTop) < 1) return; syncingTimelineScroll = true; to.scrollTop = from.scrollTop; requestAnimationFrame(() => { syncingTimelineScroll = false; }); }
 function addNode(type: ControlType) { let root = rootContainer.value; if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); rebaseNodeLayout(root); } const parent = selectedNode.value ?? root; const count = nodes.value.filter((node) => node.type === type).length + 1; const node = makeNode(type, `${controlLabels[type]}_${count}`, { parentId: parent.id, x: parent.width / 2 + (count - 2) * 40, y: parent.height / 2 - (count - 2) * 30 }); rebaseNodeLayout(node); nodes.value.push(node); selectedId.value = node.id; addMenuOpen.value = false; }
-function removeSelected() { if (!selectedId.value || selectedId.value === rootContainer.value?.id) return; const remove = new Set<string>([selectedId.value]); let changed = true; while (changed) { changed = false; nodes.value.forEach((node) => { if (node.parentId && remove.has(node.parentId) && !remove.has(node.id)) { remove.add(node.id); changed = true; } }); } nodes.value = nodes.value.filter((node) => !remove.has(node.id)); tweenTracks.value = tweenTracks.value.filter((track) => !remove.has(track.nodeId)); animations.value.forEach(animation => { animation.keyframeTracks = animation.keyframeTracks.filter(track => !remove.has(track.nodeId)); }); selectedKeyframeId.value = null; selectedTweenTrackId.value = null; selectedId.value = rootContainer.value?.id ?? null; }
+function removeSelected() { if (!selectedId.value || selectedId.value === rootContainer.value?.id) return; const remove = new Set<string>([selectedId.value]); let changed = true; while (changed) { changed = false; nodes.value.forEach((node) => { if (node.parentId && remove.has(node.parentId) && !remove.has(node.id)) { remove.add(node.id); changed = true; } }); } nodes.value = nodes.value.filter((node) => !remove.has(node.id)); tweenTracks.value = tweenTracks.value.filter((track) => !remove.has(track.nodeId)); animations.value.forEach(animation => { animation.keyframeTracks = animation.keyframeTracks.filter(track => !remove.has(track.nodeId)); animation.events = animation.events?.filter(event => event.nodeId === null || !remove.has(event.nodeId)); }); selectedKeyframeId.value = null; selectedTweenTrackId.value = null; selectedId.value = rootContainer.value?.id ?? null; }
 function anchorVisualStyle(values: AnchorValues): CSSProperties { return { "--anchor-min-x": `${values.anchorMinX * 100}%`, "--anchor-min-y": `${values.anchorMinY * 100}%`, "--anchor-max-x": `${values.anchorMaxX * 100}%`, "--anchor-max-y": `${values.anchorMaxY * 100}%`, "--pivot-x": `${values.pivotX * 100}%`, "--pivot-y": `${values.pivotY * 100}%` } as CSSProperties; }
 function clamp01(value: number) { return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)); }
 function roundLayout(value: number) { return Number(value.toFixed(2)); }
@@ -1534,12 +1687,57 @@ function rebaseNodeLayout(node: UINode) { const reference = getAnchorReference(n
 function applyNodeLayout(node: UINode) { const reference = getAnchorReference(node); const parentSize = getLayoutParentSize(node); node.x = roundLayout(reference.x + node.anchorOffsetX); node.y = roundLayout(reference.y + node.anchorOffsetY); node.width = roundLayout(Math.max(1, (node.anchorMaxX - node.anchorMinX) * parentSize.width + node.sizeDeltaX)); node.height = roundLayout(Math.max(1, (node.anchorMaxY - node.anchorMinY) * parentSize.height + node.sizeDeltaY)); }
 function getHierarchyOrder() { const ordered: UINode[] = []; const visited = new Set<string>(); const visit = (node: UINode) => { if (visited.has(node.id)) return; visited.add(node.id); ordered.push(node); nodes.value.filter((child) => child.parentId === node.id).forEach(visit); }; nodes.value.filter((node) => node.parentId === null).forEach(visit); nodes.value.forEach(visit); return ordered; }
 function getCanvasRenderOrder() { const ordered: UINode[] = []; const visited = new Set<string>(); const visit = (node: UINode) => { if (visited.has(node.id)) return; visited.add(node.id); ordered.push(node); nodes.value.filter((child) => child.parentId === node.id).slice().reverse().forEach(visit); }; nodes.value.filter((node) => node.parentId === null).slice().reverse().forEach(visit); nodes.value.slice().reverse().forEach(visit); return ordered; }
-function reparentNode(node: UINode, requestedParentId: string | null) { const root = rootContainer.value; if (!root || node.id === root.id) return false; const nextParent = nodes.value.find((item) => item.id === (requestedParentId ?? root.id)); if (!nextParent || nextParent.id === node.id || isDescendant(nextParent.id, node.id)) return false; if (node.parentId === nextParent.id) return true; const currentWorld = worldTransforms.value.get(node.id) ?? { x: node.x, y: node.y, matrix: localMatrix(node) }; const parentWorld = worldTransforms.value.get(nextParent.id) ?? { x: nextParent.x, y: nextParent.y, matrix: localMatrix(nextParent) }; node.parentId = nextParent.id; const localOffset = inverseTransformVector(parentWorld.matrix, currentWorld.x - parentWorld.x, currentWorld.y - parentWorld.y); node.x = roundLayout(nextParent.pivotX * nextParent.width + localOffset.x); node.y = roundLayout(nextParent.pivotY * nextParent.height + localOffset.y); rebaseNodeLayout(node); return true; }
-function placeNodeRelative(node: UINode, target: UINode, mode: "before" | "after") { const root = rootContainer.value; if (!root || node.id === root.id || node.id === target.id) return false; const parentId = target.id === root.id ? root.id : target.parentId ?? root.id; const nextParent = nodes.value.find((item) => item.id === parentId); if (!nextParent || nextParent.id === node.id || isDescendant(nextParent.id, node.id) || !reparentNode(node, nextParent.id)) return false; const movingIndex = nodes.value.findIndex((item) => item.id === node.id); if (movingIndex < 0) return false; const [movingNode] = nodes.value.splice(movingIndex, 1); const targetIndex = nodes.value.findIndex((item) => item.id === target.id); const insertIndex = target.id === root.id ? targetIndex + 1 : targetIndex + (mode === "after" ? 1 : 0); nodes.value.splice(Math.max(0, insertIndex), 0, movingNode); return true; }
+function reparentNode(node: UINode, requestedParentId: string | null, usePreview = false) {
+  const root = rootContainer.value;
+  if (!root || node.id === root.id) return false;
+  const nextParent = nodes.value.find(item => item.id === (requestedParentId ?? root.id));
+  if (!nextParent || nextParent.id === node.id || isDescendant(nextParent.id, node.id)) return false;
+  if (node.parentId === nextParent.id) return true;
+  // Project repair uses setup poses; interactive drops preserve the currently displayed frame.
+  const pose = usePreview ? previewNode(node) : node;
+  const parentPose = usePreview ? previewNode(nextParent) : nextParent;
+  const worlds = usePreview ? previewWorldTransforms.value : worldTransforms.value;
+  const world = worlds.get(node.id), parentWorld = worlds.get(nextParent.id);
+  const local = world && parentWorld && boneAttachmentTransform(world, parentWorld);
+  if (!local || ![local.offset.x, local.offset.y, local.rotation, local.scaleX, local.scaleY].every(Number.isFinite)) {
+    timelineEditNotice.value = "无法保持控件外观：新父级含零缩放，或换父级会产生无法表示的斜切。此次层级拖拽已取消。";
+    return false;
+  }
+  const fields = {
+    anchoredPositionX: parentPose.pivotX * parentPose.width + local.offset.x
+      - ((1 - pose.pivotX) * pose.anchorMinX + pose.pivotX * pose.anchorMaxX) * parentPose.width,
+    anchoredPositionY: parentPose.pivotY * parentPose.height + local.offset.y
+      - ((1 - pose.pivotY) * pose.anchorMinY + pose.pivotY * pose.anchorMaxY) * parentPose.height,
+    sizeDeltaX: pose.width - (pose.anchorMaxX - pose.anchorMinX) * parentPose.width,
+    sizeDeltaY: pose.height - (pose.anchorMaxY - pose.anchorMinY) * parentPose.height,
+    localRotationZ: local.rotation, localScaleX: local.scaleX, localScaleY: local.scaleY,
+  };
+  if (usePreview && !keyframeTracks.value.length && tweenTracks.value.some(track => track.nodeId === node.id && track.fieldKey in fields)) {
+    timelineEditNotice.value = "此控件仍使用旧版 Clip 变换轨道，请先转换为关键帧后再调整父级；此次拖拽已取消。";
+    return false;
+  }
+  const oldWidth = node.width, oldHeight = node.height;
+  node.parentId = nextParent.id;
+  if (usePreview) playing.value = false;
+  // Preserve anchors, pivot, content and dimensions. Only compensate local transform/layout.
+  // Existing keyed fields are compensated at the current playhead, not overwritten by preview.
+  for (const [key, value] of Object.entries(fields)) {
+    if (usePreview && hasAnimatedField(key, node.id)) writeAnimatedValue(node, key, value);
+    else {
+      const field = getTweenableField(node.type, key)!;
+      (node as unknown as Record<string, unknown>)[field.modelKey] = value;
+    }
+  }
+  applyNodeLayout(node);
+  if (node.width !== oldWidth || node.height !== oldHeight) applyDescendantLayouts(node.id);
+  timelineEditNotice.value = "已调整父级，保持当前画布位置、大小和旋转；局部变换已补偿。";
+  return true;
+}
+function placeNodeRelative(node: UINode, target: UINode, mode: "before" | "after") { const root = rootContainer.value; if (!root || node.id === root.id || node.id === target.id) return false; const parentId = target.id === root.id ? root.id : target.parentId ?? root.id; const nextParent = nodes.value.find((item) => item.id === parentId); if (!nextParent || nextParent.id === node.id || isDescendant(nextParent.id, node.id) || !reparentNode(node, nextParent.id, true)) return false; const movingIndex = nodes.value.findIndex((item) => item.id === node.id); if (movingIndex < 0) return false; const [movingNode] = nodes.value.splice(movingIndex, 1); const targetIndex = nodes.value.findIndex((item) => item.id === target.id); const insertIndex = target.id === root.id ? targetIndex + 1 : targetIndex + (mode === "after" ? 1 : 0); nodes.value.splice(Math.max(0, insertIndex), 0, movingNode); return true; }
 function ensureSingleRootContainer() { let root = nodes.value.find((node) => node.type === "container" && node.parentId === null) ?? nodes.value.find((node) => node.type === "container"); if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); } if (root.parentId !== null) { const world = worldTransforms.value.get(root.id); root.parentId = null; root.x = roundLayout(world?.x ?? root.x); root.y = roundLayout(world?.y ?? root.y); rebaseNodeLayout(root); } nodes.value.filter((node) => node.id !== root.id && (!node.parentId || !nodes.value.some((parent) => parent.id === node.parentId))).forEach((node) => reparentNode(node, root.id)); }
 function updateHierarchyDropTarget(clientX: number, clientY: number, draggedNode: UINode) { hierarchyDrag.value.pointerX = clientX; hierarchyDrag.value.pointerY = clientY; const tree = hierarchyTree.value; const root = rootContainer.value; if (!tree || !root) return; const treeRect = tree.getBoundingClientRect(); if (clientX < treeRect.left || clientX > treeRect.right || clientY < treeRect.top || clientY > treeRect.bottom) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "移回层级区域后释放"; return; } const row = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>(".tree-row[data-node-id]"); const hoveredNode = row?.dataset.nodeId ? nodes.value.find((node) => node.id === row.dataset.nodeId) : null; if (!row || !hoveredNode) { hierarchyDrag.value.dropTargetId = root.id; hierarchyDrag.value.dropParentId = root.id; hierarchyDrag.value.dropMode = "inside"; hierarchyDrag.value.dropLabel = `放到根层级 ${root.name}`; return; } const rowRect = row.getBoundingClientRect(); const ratioY = (clientY - rowRect.top) / Math.max(1, rowRect.height); let mode: Exclude<HierarchyDropMode, null> = ratioY < 0.27 ? "before" : ratioY > 0.73 ? "after" : "inside"; if (hoveredNode.id === draggedNode.id) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能放到自身"; return; } if (mode === "inside") { if (isDescendant(hoveredNode.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能归属到自己的子级"; return; } hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = hoveredNode.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = `成为 ${hoveredNode.name} 的子级`; return; } const nextParent = hoveredNode.id === root.id ? root : nodes.value.find((node) => node.id === hoveredNode.parentId) ?? root; if (nextParent.id === draggedNode.id || isDescendant(nextParent.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能移动到自己的子级之间"; return; } if (hoveredNode.id === root.id) mode = "after"; hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = nextParent.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = hoveredNode.id === root.id ? "放到根层级顶部" : `移到 ${hoveredNode.name} ${mode === "before" ? "上方" : "下方"}`; }
 let cancelHierarchyPress: (() => void) | null = null;
-function startHierarchyPress(event: PointerEvent, node: UINode) { if (event.button !== 0 || boneCreateMode.value) return; selectedId.value = node.id; if (node.id === rootContainer.value?.id) return; cancelHierarchyPress?.(); const startX = event.clientX; const startY = event.clientY; let activated = false; let timer = window.setTimeout(() => { activated = true; hierarchyDrag.value = { nodeId: node.id, active: true, pointerX: startX, pointerY: startY, dropTargetId: null, dropParentId: node.parentId ?? rootContainer.value?.id ?? null, dropMode: null, dropLabel: `当前归属：${getLayoutParent(node)?.name ?? rootContainer.value?.name ?? "根容器"}` }; updateHierarchyDropTarget(startX, startY, node); }, 50); const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", cancel); cancelHierarchyPress = null; }; const move = (next: PointerEvent) => { if (!activated && Math.hypot(next.clientX - startX, next.clientY - startY) > 7) { cleanup(); return; } if (activated) { next.preventDefault(); updateHierarchyDropTarget(next.clientX, next.clientY, node); } }; const finish = (next: PointerEvent) => { if (activated) { updateHierarchyDropTarget(next.clientX, next.clientY, node); const targetId = hierarchyDrag.value.dropTargetId; const mode = hierarchyDrag.value.dropMode; const target = targetId ? nodes.value.find((item) => item.id === targetId) : null; const changed = target && mode === "inside" ? reparentNode(node, target.id) : target && (mode === "before" || mode === "after") ? placeNodeRelative(node, target, mode) : false; if (changed) { const expandId = mode === "inside" ? target?.id : hierarchyDrag.value.dropParentId; if (expandId) { const nextCollapsed = new Set(collapsed.value); nextCollapsed.delete(expandId); collapsed.value = nextCollapsed; } } } cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; const cancel = () => { cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; cancelHierarchyPress = cleanup; window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", cancel); }
+function startHierarchyPress(event: PointerEvent, node: UINode) { if (event.button !== 0 || boneCreateMode.value) return; selectedId.value = node.id; if (node.id === rootContainer.value?.id) return; cancelHierarchyPress?.(); const startX = event.clientX; const startY = event.clientY; let activated = false; let timer = window.setTimeout(() => { activated = true; hierarchyDrag.value = { nodeId: node.id, active: true, pointerX: startX, pointerY: startY, dropTargetId: null, dropParentId: node.parentId ?? rootContainer.value?.id ?? null, dropMode: null, dropLabel: `当前归属：${getLayoutParent(node)?.name ?? rootContainer.value?.name ?? "根容器"}` }; updateHierarchyDropTarget(startX, startY, node); }, 50); const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", cancel); cancelHierarchyPress = null; }; const move = (next: PointerEvent) => { if (!activated && Math.hypot(next.clientX - startX, next.clientY - startY) > 7) { cleanup(); return; } if (activated) { next.preventDefault(); updateHierarchyDropTarget(next.clientX, next.clientY, node); } }; const finish = (next: PointerEvent) => { if (activated) { updateHierarchyDropTarget(next.clientX, next.clientY, node); const targetId = hierarchyDrag.value.dropTargetId; const mode = hierarchyDrag.value.dropMode; const target = targetId ? nodes.value.find((item) => item.id === targetId) : null; const changed = target && mode === "inside" ? reparentNode(node, target.id, true) : target && (mode === "before" || mode === "after") ? placeNodeRelative(node, target, mode) : false; if (changed) { const expandId = mode === "inside" ? target?.id : hierarchyDrag.value.dropParentId; if (expandId) { const nextCollapsed = new Set(collapsed.value); nextCollapsed.delete(expandId); collapsed.value = nextCollapsed; } } } cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; const cancel = () => { cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; cancelHierarchyPress = cleanup; window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", cancel); }
 function applyDescendantLayouts(parentId: string) { nodes.value.filter((node) => node.parentId === parentId).forEach((child) => { applyNodeLayout(child); applyDescendantLayouts(child.id); }); }
 function propertyGroupLabel(group: PropertyGroup) {
   if (group === "control") return `${selectedControlDefinition.value.label}参数`;
@@ -1780,6 +1978,15 @@ function selectCanvasTool(tool: CanvasTool) {
   boneCreateMode.value = false;
   canvasTool.value = tool;
 }
+function toggleBoneTools() {
+  boneToolsEnabled.value = !boneToolsEnabled.value;
+  if (!boneToolsEnabled.value) {
+    stopCanvasNodeDrag?.();
+    boneCreateMode.value = false;
+    boneDraft.value = null;
+    clearBoneHover();
+  }
+}
 function toggleBoneCreateMode() {
   stopCanvasNodeDrag?.();
   boneCreateMode.value = !boneCreateMode.value;
@@ -1856,6 +2063,10 @@ function attachControlToBone(node: UINode) {
   timelineEditNotice.value = `已将 ${node.name} 挂到 ${parent.name} 下。`;
   return true;
 }
+function boneAttachTargetAtPoint(x: number, y: number) {
+  const parent = boneParent.value;
+  return parent ? canvasNodesAtPoint(x, y).find(node => node.id !== parent.id && node.id !== rootContainer.value?.id) ?? null : null;
+}
 function captureBonePointer(event: PointerEvent) {
   if (!boneCreateMode.value || event.button !== 0) return;
   event.stopPropagation();
@@ -1889,7 +2100,7 @@ function startBoneCreatePress(event: PointerEvent) {
     if (!boneCreateMode.value || !end) return;
     if (moved || exceedsThreshold(next)) { if (!ctrl) createBoneFromDrag(parent, start, end); return; }
     if (ctrl) {
-      const target = canvasNodesAtPoint(next.clientX, next.clientY).find(node => node.id !== parent.id && node.id !== rootContainer.value?.id);
+      const target = boneAttachTargetAtPoint(next.clientX, next.clientY);
       if (target) attachControlToBone(target);
     } else {
       const target = boneAtPoint(next.clientX, next.clientY);
@@ -2001,7 +2212,7 @@ function startCanvasRotation(event: PointerEvent, node: UINode) {
       // Accumulate short steps so crossing +/-180 degrees never jumps a full turn.
       const step = angle - previousAngle;
       totalAngle += Math.atan2(Math.sin(step), Math.cos(step));
-      if (totalAngle !== 0 || step !== 0) writeAnimatedValue(node, "localRotationZ", roundLayout(rotation + totalAngle * 180 / Math.PI));
+      if (totalAngle !== 0 || step !== 0) writeAnimatedValue(node, "localRotationZ", normalizeRotationAngle(roundLayout(rotation + totalAngle * 180 / Math.PI)));
     }
     previousAngle = angle;
   });
@@ -2103,8 +2314,8 @@ function switchDevice(mode: DeviceMode) { deviceMode.value = mode; previewPreset
 function applyPreviewPreset() { const preset = currentPreset.value; canvasWidth.value = preset.width; canvasHeight.value = preset.height; getHierarchyOrder().forEach(applyNodeLayout); nextTick(fitCanvas); }
 function fitCanvas() { const viewport = viewportElement.value; if (!viewport) return; const availableWidth = Math.max(200, viewport.clientWidth - 90); const availableHeight = Math.max(160, viewport.clientHeight - 80); zoom.value = Math.max(0.01, Math.min(1.5, availableWidth / canvasWidth.value, availableHeight / canvasHeight.value)); panX.value = 0; panY.value = 0; }
 function formatTime(seconds: number) { const frames = Math.round((seconds % 1) * frameRate.value); return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`; }
-function rewindPlayback() { playing.value = false; currentTime.value = 0; }
-function togglePlayback() { if (!playing.value && currentTime.value >= sequenceDurationValue()) currentTime.value = 0; playing.value = !playing.value; }
+function rewindPlayback() { eventPlaybackStarted = false; eventPreviewLog.value = []; playing.value = false; currentTime.value = 0; }
+function togglePlayback() { if (!playing.value && currentTime.value >= sequenceDurationValue()) { currentTime.value = 0; eventPlaybackStarted = false; } lastTime = 0; playing.value = !playing.value; }
 let timelineSpacePressed = false;
 function isTimelineTextEditing(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -2114,6 +2325,7 @@ function isTimelineTextEditing(target: EventTarget | null) {
   return input.tagName === "TEXTAREA" || !["button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "image", "hidden"].includes(input.type);
 }
 function handleTimelineKeyboardShortcut(event: KeyboardEvent) {
+  if ((event.target as Element | null)?.closest?.('.ease-panel')) return;
   if ((event.target as Element | null)?.closest?.('.image-library')) return;
   if (timelineContextMenu.value || timelineDataImportOpen.value) return;
   const editor = editorElement.value;
@@ -2126,6 +2338,7 @@ function handleTimelineKeyboardShortcut(event: KeyboardEvent) {
   togglePlayback();
 }
 function handleTimelineClipClipboardShortcut(event: KeyboardEvent) {
+  if ((event.target as Element | null)?.closest?.('.event-timeline')) return;
   if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing || event.defaultPrevented) return;
   const key = event.key?.toLowerCase();
   const copy = key === "c" || event.code === "KeyC";
@@ -2200,15 +2413,75 @@ function canCreateWorkspaceDocument() {
   workspacePanelOpen.value = true;
   return false;
 }
-function openGiaFile() { if (canCreateWorkspaceDocument()) giaFileInput.value?.click(); }
+function toggleExportMenu() {
+  const open = !exportMenuOpen.value;
+  closeMenus();
+  exportMenuOpen.value = open;
+}
+function onExportMenuFocusOut(event: FocusEvent) {
+  if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) exportMenuOpen.value = false;
+}
+function toggleImportMenu() {
+  const open = !importMenuOpen.value;
+  closeMenus();
+  importMenuOpen.value = open;
+}
+function onImportMenuFocusOut(event: FocusEvent) {
+  if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) importMenuOpen.value = false;
+}
+function openGiaFile() { importMenuOpen.value = false; if (canCreateWorkspaceDocument()) giaFileInput.value?.click(); }
 const psdFileInput = ref<HTMLInputElement | null>(null), psdImportBusy = ref(false), psdImportProgress = ref("正在解析 PSD…");
-function openPsdFile() { if (!psdImportBusy.value && canCreateWorkspaceDocument()) psdFileInput.value?.click(); }
+const spineFileInput = ref<HTMLInputElement | null>(null), spineImportBusy = ref(false);
+function openSpineFolder() {
+  importMenuOpen.value = false;
+  if (!spineImportBusy.value && canCreateWorkspaceDocument()) spineFileInput.value?.click();
+}
+async function loadSpineFolder(event: Event) {
+  const input = event.target as HTMLInputElement, files = Array.from(input.files ?? []); input.value = "";
+  if (!files.length || spineImportBusy.value) return;
+  spineImportBusy.value = true;
+  const targetCanvas = { deviceMode: deviceMode.value, previewPresetId: previewPresetId.value, canvasWidth: canvasWidth.value, canvasHeight: canvasHeight.value };
+  try {
+    const { importSpineFiles } = await import("./spineImporter");
+    const imported = await importSpineFiles(files, targetCanvas.canvasWidth, targetCanvas.canvasHeight);
+    const status = `Spine · ${imported.nodes.length - 1} 个骨骼/附件 · ${imported.animations.length} 个动画${imported.warnings.length ? ` · ${imported.warnings.join('；')}` : ''}`;
+    const serialized = JSON.stringify({
+      version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
+      name: imported.name, ...targetCanvas, nodes: imported.nodes,
+      primitiveResources: imported.resources, animations: imported.animations, activeAnimationId: imported.animations[0].id,
+      duration: imported.animations[0].duration, showContainerBones: true, giaImportStatus: status,
+    });
+    if (archive) await archive.createDocument(imported.name, async () => serialized);
+    else applyProjectData(serialized);
+    workspacePanelOpen.value = false;
+    if (imported.warnings.length) toast.warning(`Spine 已导入，注意：${imported.warnings.join('；')}`);
+    else toast.success("Spine 工程已导入。");
+  } catch (error) {
+    toast.error(`Spine 导入失败，当前工程未替换：${error instanceof Error ? error.message : '未知错误'}`);
+  } finally { spineImportBusy.value = false; }
+}
+function openPsdFile() { importMenuOpen.value = false; if (!psdImportBusy.value && canCreateWorkspaceDocument()) psdFileInput.value?.click(); }
 async function createPsdProject(file: File) {
+  const mode = deviceMode.value;
+  const presetId = previewPresetId.value;
+  const width = canvasWidth.value;
+  const height = canvasHeight.value;
   const { importPsdFile } = await import("./psdImporter");
   const imported = await importPsdFile(file, (done, total) => { psdImportProgress.value = `提取图层 ${done}/${total}`; });
+  // 根容器适配当前画布，图层按中心锚点平移，保留 PSD 原始尺寸和相对布局。
+  const root = imported.nodes.find(node => node.parentId === null);
+  if (root) {
+    root.x = width / 2; root.y = height / 2;
+    root.width = width; root.height = height;
+    for (const node of imported.nodes) {
+      if (node.parentId !== root.id) continue;
+      node.x += (width - imported.width) / 2;
+      node.y += (height - imported.height) / 2;
+    }
+  }
   return JSON.stringify({
     version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
-    name: file.name.replace(/\.psd$/i, ""), deviceMode: "pc", canvasWidth: imported.width, canvasHeight: imported.height,
+    name: file.name.replace(/\.psd$/i, ""), deviceMode: mode, previewPresetId: presetId, canvasWidth: width, canvasHeight: height,
     duration: 5, frameRate: 30, nodes: imported.nodes, primitiveResources: imported.resources, tweenTracks: [], showContainerBones: false,
     giaImportStatus: `PSD · ${imported.folders} 个文件夹 · ${imported.layers} 个图层 · ${imported.hidden} 个隐藏项${imported.warnings.length ? ` · ${imported.warnings.join("；")}` : ""}`,
   });
@@ -2314,6 +2587,7 @@ function serializeProject() {
 }
 async function saveProject() { if (archive) await runArchiveAction(() => archive.save()); else downloadProject(); }
 function downloadProject() {
+  exportMenuOpen.value = false;
   ensureSingleRootContainer();
   const url = URL.createObjectURL(new Blob([serializeProject()], { type: "application/json" }));
   const anchor = document.createElement("a");
@@ -2363,19 +2637,20 @@ function openTimelineDataImport() {
 function confirmTimelineDataImport() {
   if (!timelineDataImportOpen.value || !hasOpenDocument.value || archive?.busy.value) return;
   const result = timelineDataImportPreview.value;
-  if (!result || result.errors.length || !result.importedTracks.length) return;
+  if (!result || result.errors.length || !result.importedTracks.length && !result.importedEvents.length) return;
   const first = result.importedTracks[0];
   const mode = timelineDataImportMode.value;
   stopDocumentInteraction();
   keyframeTracks.value = result.tracks;
+  activeAnimation.value.events = result.events;
   tweenTracks.value = [];
   duration.value = result.duration;
   currentTime.value = 0;
-  selectedId.value = first.nodeId;
+  selectedId.value = first?.nodeId ?? timelineDataRootId.value;
   selectedTweenTrackId.value = null;
-  selectedKeyframeId.value = first.keyframes[0]?.id ?? null;
+  selectedKeyframeId.value = first?.keyframes[0]?.id ?? null;
   timelineDataSource.value = "";
-  timelineEditNotice.value = "已还原 " + result.importedTracks.length + " 条关键帧轨道" + (mode === "replace" ? "，替换了所选范围内的 " + result.replacedCount + " 条轨道。" : "，已追加到当前时间轴。");
+  timelineEditNotice.value = "已还原 " + result.importedTracks.length + " 条关键帧轨道、" + result.importedEvents.length + " 个事件" + (mode === "replace" ? "，替换了所选范围内的 " + result.replacedCount + " 条轨道。" : "，已追加到当前时间轴。");
 }
 function exportSelectedNodeTweenData() {
   try { exportSelectedNodeKeyframeData(); }
@@ -2392,9 +2667,10 @@ function exportSelectedNodeKeyframeData() {
     rootNodeId: rootNode.id,
     nodes: nodes.value,
     tracks: keyframeTracks.value,
+    events: activeAnimation.value.events,
     sequenceDuration: duration.value,
   });
-  if (!result.trackCount) {
+  if (!result.trackCount && !result.eventCount) {
     const detail = result.warnings.length ? `\n\n${result.warnings.join("\n")}` : "";
     window.alert(`控件「${rootNode.name}」及其子级目前没有可导出的 Tween。${detail}`);
     return;
@@ -2461,7 +2737,7 @@ function normalizeTweenTracks(value: unknown, timelineModelVersion = 0) {
   return result;
 }
 function migrateLegacyHierarchyLayout() { const legacyWorldPositions = new Map(nodes.value.map((node) => [node.id, { x: node.x, y: node.y }])); const migratedWorldTransforms = new Map<string, WorldTransform>(); getHierarchyOrder().forEach((node) => { const legacyWorld = legacyWorldPositions.get(node.id) ?? { x: node.x, y: node.y }; const local = localMatrix(node); const parent = getLayoutParent(node); const parentWorld = parent ? migratedWorldTransforms.get(parent.id) : null; if (!parent || !parentWorld) { node.x = legacyWorld.x; node.y = legacyWorld.y; migratedWorldTransforms.set(node.id, { x: node.x, y: node.y, matrix: local }); return; } const localOffset = inverseTransformVector(parentWorld.matrix, legacyWorld.x - parentWorld.x, legacyWorld.y - parentWorld.y); node.x = roundLayout(parent.pivotX * parent.width + localOffset.x); node.y = roundLayout(parent.pivotY * parent.height + localOffset.y); migratedWorldTransforms.set(node.id, { x: legacyWorld.x, y: legacyWorld.y, matrix: multiplyMatrix(parentWorld.matrix, local) }); }); }
-function openProject() { if (canCreateWorkspaceDocument()) fileInput.value?.click(); }
+function openProject() { importMenuOpen.value = false; if (canCreateWorkspaceDocument()) fileInput.value?.click(); }
 function applyProjectData(serialized: string, resetHistory = true) {
   historyApplyingProject = true;
   try {
@@ -2478,6 +2754,7 @@ function applyProjectDataContents(serialized: string) {
     throw new Error("这不是有效的 UI 动画工程文件");
   }
   const loadedTemplates = normalizeControlTemplates(data.controlTemplates);
+  const removedScaleTracks = removeRetiredScaleTweenTracks(data);
   const loadedPrimitiveResources = normalizePrimitiveResources(data.primitiveResources);
   const loadedGiaSource = normalizeGiaExportSource(data.giaSource);
   giaExportOpen.value = false;
@@ -2497,7 +2774,7 @@ function applyProjectDataContents(serialized: string) {
   showContainerBones.value = data.showContainerBones !== false;
   timelineSnapTime.value = null;
   timelineEditNotice.value = "";
-  frameRate.value = Number(data.frameRate) === 60 ? 60 : 30;
+  frameRate.value = Number.isFinite(Number(data.frameRate)) && Number(data.frameRate) > 0 ? Math.max(1, Math.min(240, Math.round(Number(data.frameRate)))) : 30;
   nodes.value = data.nodes.map((node: SavedNode) => normalizeNode(node));
   const migratedImages = migratePrimitiveResources(nodes.value, loadedPrimitiveResources);
   nodes.value = migratedImages.nodes;
@@ -2529,6 +2806,10 @@ function applyProjectDataContents(serialized: string) {
   selectedId.value = rootContainer.value?.id ?? null;
   search.value = "";
   collapsed.value = new Set();
+  if (removedScaleTracks) {
+    timelineEditNotice.value = `已移除 ${removedScaleTracks} 条游戏内无效的 localScaleX / localScaleY 动画轨道，静态缩放保持不变。`;
+    toast.warning(timelineEditNotice.value);
+  }
   nextTick(fitCanvas);
 }
 async function loadProject(event: Event) {
@@ -2550,6 +2831,7 @@ async function loadProject(event: Event) {
   } finally { input.value = ""; }
 }
 function stopDocumentInteraction() {
+  eventPreviewLog.value = []; eventPlaybackStarted = false;
   giaExportOpen.value = false;
   templateLibraryOpen.value = false;
   stopCanvasNodeDrag?.();
@@ -2782,6 +3064,7 @@ async function redoEditorOperation() {
   catch (error) { timelineEditNotice.value = `重做失败：${error instanceof Error ? error.message : String(error)}`; }
 }
 function handleEditorHistoryKeyboard(event: KeyboardEvent) {
+  if ((event.target as Element | null)?.closest?.('.ease-panel')) return;
   const key = event.key?.toLowerCase();
   const undo = key === "z" && !event.shiftKey;
   const redo = key === "y" || key === "z" && event.shiftKey;
@@ -2795,7 +3078,7 @@ function handleEditorHistoryKeyboard(event: KeyboardEvent) {
   if (undo) void undoEditorOperation(); else void redoEditorOperation();
 }
 function syncEditorHeight() { editorHeight.value = editorElement.value?.clientHeight ?? 0; if (timelineHeight.value !== null) timelineHeight.value = clampTimelineHeight(timelineHeight.value); }
-let frame = 0; let lastTime = 0; function animate(now: number) { if (playing.value) { if (!lastTime) lastTime = now; currentTime.value += (now - lastTime) / 1000; if (currentTime.value >= duration.value) currentTime.value = 0; } lastTime = now; frame = requestAnimationFrame(animate); } frame = requestAnimationFrame(animate); onMounted(() => { getHierarchyOrder().forEach(rebaseNodeLayout); ensureSingleRootContainer(); syncEditorHeight(); fitCanvas(); editorResizeObserver = new ResizeObserver(syncEditorHeight); if (editorElement.value) editorResizeObserver.observe(editorElement.value); window.addEventListener("resize", fitCanvas); window.addEventListener("keydown", handleTimelineKeyboardShortcut, true); window.addEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.addEventListener("keyup", handleTimelineKeyboardRelease, true); window.addEventListener("blur", resetTimelineKeyboardShortcut); }); onBeforeUnmount(() => { cancelHierarchyPress?.(); stopTweenClipDrag?.(); stopTimelineResize?.(); stopTimelineScrub?.(); editorResizeObserver?.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", fitCanvas); window.removeEventListener("keydown", handleTimelineKeyboardShortcut, true); window.removeEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.removeEventListener("keyup", handleTimelineKeyboardRelease, true); window.removeEventListener("blur", resetTimelineKeyboardShortcut); resetTimelineKeyboardShortcut(); });
+let frame = 0; let lastTime = 0; function animate(now: number) { if (playing.value) { if (!lastTime) lastTime = now; advanceTimelinePlayback((now - lastTime) / 1000); } lastTime = now; frame = requestAnimationFrame(animate); } frame = requestAnimationFrame(animate); onMounted(() => { getHierarchyOrder().forEach(rebaseNodeLayout); ensureSingleRootContainer(); syncEditorHeight(); fitCanvas(); editorResizeObserver = new ResizeObserver(syncEditorHeight); if (editorElement.value) editorResizeObserver.observe(editorElement.value); window.addEventListener("resize", fitCanvas); window.addEventListener("keydown", handleTimelineKeyboardShortcut, true); window.addEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.addEventListener("keyup", handleTimelineKeyboardRelease, true); window.addEventListener("blur", resetTimelineKeyboardShortcut); }); onBeforeUnmount(() => { cancelHierarchyPress?.(); stopTweenClipDrag?.(); stopTimelineResize?.(); stopTimelineScrub?.(); editorResizeObserver?.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", fitCanvas); window.removeEventListener("keydown", handleTimelineKeyboardShortcut, true); window.removeEventListener("keydown", handleTimelineClipClipboardShortcut, true); window.removeEventListener("keyup", handleTimelineKeyboardRelease, true); window.removeEventListener("blur", resetTimelineKeyboardShortcut); resetTimelineKeyboardShortcut(); });
 // 持久化源数据，不监听播放进度或 previewNodes，避免把动画中间值写回基础参数。
 // Stop before serialization, rather than debouncing only the subsequent disk write.
 // The history controller captures the final state when the last gesture ends.
@@ -3222,9 +3505,6 @@ button, select, input, textarea { font: inherit; }
 .selection-tag { position: absolute; left: -4px; top: -35px; background: #52cbd8; color: #09222a; padding: 5px 8px; font-size: 13px; font-weight: 700; white-space: nowrap; border-radius: 3px; }
 .resize-handle { cursor: nwse-resize; }
 
-.ruler { position: absolute; z-index: 3; color: #556277; font-size: 10px; pointer-events: none; }
-.ruler-x { left: 34px; right: 0; top: 0; height: 20px; display: flex; justify-content: space-between; border-bottom: 1px solid #2a3442aa; }
-.ruler-y { left: 0; top: 25px; bottom: 25px; width: 32px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; border-right: 1px solid #2a3442aa; padding-right: 4px; }
 .viewport-status { position: absolute; right: 9px; bottom: 8px; display: flex; gap: 12px; color: #bbc2cf; background: #121923d9; border: 1px solid #2a3545; border-radius: 5px; padding: 5px 8px; font-size: 10px; }
 .type-badge { padding: 4px 7px; border: 1px solid #364359; border-radius: 5px; color: #8d9bb1; font-size: 10px; }
 .inspector-scroll { overflow: auto; flex: 1; }
@@ -3269,8 +3549,9 @@ button, select, input, textarea { font: inherit; }
 .anchor-picker-wrap { position: relative; }
 .anchor-preview-button { width: 58px; height: 58px; padding: 6px; border: 1px solid #3c485a; border-radius: 6px; background: var(--input); cursor: pointer; }
 .anchor-preview-button:hover { border-color: #607bde; background: #182237; }
-.anchor-preset-popover { position: absolute; z-index: 50; right: 0; top: 66px; width: 236px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 8px; border: 1px solid #3b485e; border-radius: 8px; background: #2c313c; box-shadow: 0 14px 35px #000b; }
-.anchor-preset-popover > button { height: 61px; padding: 4px; border: 1px solid #343f51; border-radius: 5px; background: #202735; color: #7c8a9e; cursor: pointer; }
+.anchor-popover-overlay { position: fixed; inset: 0; z-index: 10000; }
+.anchor-preset-popover { position: fixed; box-sizing: border-box; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 12px; border: 1px solid #3b485e; border-radius: 8px; background: #2c313c; box-shadow: 0 14px 35px #000b; }
+.anchor-preset-popover > button { min-width: 0; min-height: 0; padding: 7px; border: 1px solid #343f51; border-radius: 5px; background: #202735; color: #7c8a9e; cursor: pointer; }
 .anchor-preset-popover > button:hover,
 .anchor-preset-popover > button.active { border-color: #607cff; background: #273451; color: #dce5f5; }
 .anchor-preset-popover > button > span:last-child { display: block; margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; }
@@ -3335,14 +3616,12 @@ button, select, input, textarea { font: inherit; }
   .workspace-hint { display: none; }
 }
 
-.gia-import-button {
-  color: #7edbe6;
-}
-
 .lua-export-button {
   color: #8ee0ad;
 }
 
+.export-wrap,
+.import-wrap,
 .lua-export-wrap {
   position: relative;
   display: flex;
@@ -3369,6 +3648,8 @@ button, select, input, textarea { font: inherit; }
   color: #6f997f;
 }
 
+.export-menu,
+.import-menu,
 .lua-export-menu {
   position: absolute;
   z-index: 80;
@@ -3382,6 +3663,8 @@ button, select, input, textarea { font: inherit; }
   box-shadow: 0 14px 34px #070b12b8;
 }
 
+.export-menu button,
+.import-menu button,
 .lua-export-menu button {
   width: 100%;
   padding: 9px 10px;
@@ -3393,12 +3676,26 @@ button, select, input, textarea { font: inherit; }
   cursor: pointer;
 }
 
+.export-menu button:hover,
+.import-menu button:hover,
 .lua-export-menu button:hover { background: #263449; }
+.export-menu button:disabled,
+.import-menu button:disabled,
 .lua-export-menu button:disabled { opacity: .4; cursor: not-allowed; }
+.export-menu button:disabled:hover,
+.import-menu button:disabled:hover,
 .lua-export-menu button:disabled:hover { background: transparent; }
+.export-menu b,
+.import-menu b,
 .lua-export-menu b,
+.export-menu small,
+.import-menu small,
 .lua-export-menu small { display: block; }
+.export-menu b,
+.import-menu b,
 .lua-export-menu b { font-size: 11px; }
+.export-menu small,
+.import-menu small,
 .lua-export-menu small { margin-top: 3px; color: #78869a; font-size: 10px; }
 
 .tool-button:disabled {
@@ -4570,10 +4867,10 @@ button { transition: background .12s, border-color .12s; }
 .workspace-label { display: flex; align-items: center; gap: 7px; color: #d4dbe8; font-size: 11px; white-space: nowrap; }
 .workspace-hint { color: #a2aab9; font-size: 10px; }
 .canvas-ratio { margin-left: auto; font-family: inherit; font-size: 10px; color: #a8b0be; }
-.workspace-tabs .bone-visibility-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: 25px; padding: 0 8px; border: 1px solid #515b6b; border-radius: 4px; color: #a7b1c2; }
-.workspace-tabs .bone-visibility-toggle.active { border-color: #4a8d9d; background: #2b444e; color: #9be4ee; }
-.workspace-tabs .bone-visibility-toggle:focus-visible { outline: 2px solid #5ce5ee; outline-offset: 2px; }
-.workspace-tabs .bone-visibility-toggle:disabled { opacity: .45; cursor: not-allowed; }
+.workspace-tabs .bone-mode-toggle, .workspace-tabs .bone-visibility-toggle { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; height: 25px; padding: 0 8px; white-space: nowrap; border: 1px solid #515b6b; border-radius: 4px; color: #a7b1c2; }
+.workspace-tabs .bone-mode-toggle.active, .workspace-tabs .bone-visibility-toggle.active { border-color: #4a8d9d; background: #2b444e; color: #9be4ee; }
+.workspace-tabs .bone-mode-toggle:focus-visible, .workspace-tabs .bone-visibility-toggle:focus-visible { outline: 2px solid #5ce5ee; outline-offset: 2px; }
+.workspace-tabs .bone-mode-toggle:disabled, .workspace-tabs .bone-visibility-toggle:disabled { opacity: .45; cursor: not-allowed; }
 .viewport { background-image: radial-gradient(#777d8940 .85px, transparent .85px); background-size: 16px 16px; }
 .canvas-stage {
   /* Fit the current device canvas height; aspect changes reveal or crop the sides. */
@@ -4583,11 +4880,9 @@ button { transition: background .12s, border-color .12s; }
 .canvas-stage.mobile-frame { box-shadow: 0 0 0 6px #303642, 0 0 0 7px #8299a6, 0 8px 32px #1c212740; }
 .device-preview-label { height: auto; top: -29px; padding: 0; background: transparent; border: 0; border-radius: 0; color: #d5dbe5; font-size: 18px; }
 .safe-area { border-color: #c4cad226; }
-.ruler { color: #bdc4d080; font-family: inherit; font-size: 9px; }
-.ruler-x { padding-top: 3px; background: #42465080; border-color: #979ead20; }
-.ruler-y { background: #42465080; border-color: #979ead20; }
 .viewport-status { background: #363c47dd; color: #c0c8d5; border-color: #5d657570; font-size: 10px; }
 .canvas-node.selected { outline: 2px solid #5ce5ee; outline-offset: 0; }
+.canvas-node.bone-attach-hover { outline: 3px solid #ffe394; outline-offset: 2px; box-shadow: 0 0 12px #ffd66b99; cursor: pointer; }
 .selection-tag { top: -29px; left: 0; padding: 3px 6px; background: #353e4bea; color: #a8f4fa; border-radius: 2px; font-size: 15px; font-weight: 400; }
 .selection-corner { position: absolute; width: 10px; height: 10px; border: 2px solid #434d58; border-radius: 50%; background: #eff6f7; pointer-events: none; }
 .corner-tl { top: -7px; left: -7px; }

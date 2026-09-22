@@ -13,6 +13,7 @@ export type DialogueTextAction =
   | { type: "delete-block"; blockId: string }
   | { type: "move"; nodeId: string; targetId: string }
   | { type: "add-option"; nodeId: string }
+  | { type: "edit-condition"; nodeId: string; outletId: string; condition: string }
   | { type: "append"; blockId: string; outletId: string; kind: "dialogue" | "select" | "condition"; preset?: Pick<EntityPreset, "talker" | "subtitle"> }
   | { type: "add-dialogue"; nodeId: string }
   | { type: "connect"; blockId: string; outletId: string; targetId: string };
@@ -65,7 +66,14 @@ export function applyDialogueTextAction(source: DialogueProject, action: Dialogu
   const connect = (from: string, handle: string, to: string) => connectGraph(graphId(from), handle, graphId(to));
   let focusId: string | undefined;
   let focusBlockId: string | undefined;
-  if (action.type === "create") {
+  if (action.type === "edit-condition") {
+    const branch = project.dialogue.conditionBranches[action.nodeId];
+    const output = branch?.outputs.find(item => item.id === action.outletId);
+    if (!output) return;
+    output.condition = action.condition;
+    focusId = action.nodeId;
+    focusBlockId = `condition:${action.nodeId}`;
+  } else if (action.type === "create") {
     focusId = addNode();
     const entry = preview.blocks.find((block) => block.kind === "entry");
     if (entry && !entry.outlets[0]?.connected) connectGraph(entry.nodeIds[0], "next", focusId);

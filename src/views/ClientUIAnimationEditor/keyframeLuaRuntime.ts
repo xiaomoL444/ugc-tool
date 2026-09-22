@@ -44,7 +44,7 @@ local function SetKeyframeField(control, field, value)
     end
 end
 
-local function CreateKeyframes(root, data)
+local function CreateKeyframes(root, data, options)
     local sequence = game.TweenSequence()
     local createdTweens, initials, originals = {}, {}, {}
     local function RestoreInitials()
@@ -53,6 +53,7 @@ local function CreateKeyframes(root, data)
     local ok, message = pcall(function()
         if root == nil then error("根控件不能为空") end
         if type(data.tracks) ~= "table" or not IsNumber(data.duration) or data.duration < 0 then error("无效的 @8 Data") end
+        local eventBatches = PrepareTimelineEvents(root, data, options)
         local controls, lanes, claimed = {}, {}, {}
         -- 先解析、检查所有轨道，快照所有基础属性和颜色；此阶段不写入控件。
         for trackIndex, row in ipairs(data.tracks) do
@@ -144,6 +145,10 @@ local function CreateKeyframes(root, data)
                     end
                 end
             end
+        end
+        for _, batch in ipairs(eventBatches) do
+            sequence:InsertCallback(batch.time, batch.fire)
+            lastTime = math.max(lastTime, batch.time)
         end
         sequence:InsertCallback(lastTime, function() end)
         RestoreInitials()

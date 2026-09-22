@@ -59,7 +59,7 @@ const selectStyles = getSelectStyles();
   display: flex;
   flex-direction: column;
   gap: 5px;
-  color: #98a8bc;
+  color: var(--timeline-muted, #98a8bc);
   font-size: 11px;
 }
 
@@ -68,16 +68,16 @@ const selectStyles = getSelectStyles();
   box-sizing: border-box;
   width: 100%;
   padding: 7px;
-  color: #edf4ff;
-  background: #141922;
-  border: 1px solid #3b485b;
+  color: var(--timeline-text, #edf4ff);
+  background: var(--timeline-field, #141922);
+  border: 1px solid var(--timeline-border, #3b485b);
   border-radius: 5px;
 }
 
 .select-hint {
   display: block;
   margin-top: 5px;
-  color: #738298;
+  color: var(--timeline-subtle, #738298);
   font-size: 10px;
   line-height: 1.45;
 }
@@ -90,15 +90,15 @@ const selectStyles = getSelectStyles();
 .options-heading {
   justify-content: space-between;
   margin-top: 12px;
-  color: #c6d3e4;
+  color: var(--timeline-text, #c6d3e4);
   font-size: 11px;
 }
 
 .options-heading button,
 .option-row button {
-  color: #dce6f4;
-  background: #303a49;
-  border: 1px solid #4a586c;
+  color: var(--timeline-text, #dce6f4);
+  background: var(--timeline-soft, #303a49);
+  border: 1px solid var(--timeline-border, #4a586c);
   border-radius: 4px;
   cursor: pointer;
 }
@@ -116,7 +116,7 @@ const selectStyles = getSelectStyles();
 }
 
 .option-row span {
-  color: #71839a;
+  color: var(--timeline-subtle, #71839a);
   font-size: 10px;
   text-align: center;
 }

@@ -199,24 +199,24 @@ function moveItem(index: number, offset: number) {
 </template>
 
 <style scoped>
-.clip-property { min-width: 0; margin-top: 8px; color: #a8b7cb; font-size: 10px; }
-code { color: #788ea9; font-family: inherit; font-size: 9px; overflow-wrap: anywhere; }
-input:not([type="checkbox"]), textarea, select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; color: #edf4ff; background: #141922; border: 1px solid #3b485b; border-radius: 4px; font: inherit; resize: vertical; }
-input:focus, textarea:focus, select:focus { outline: 1px solid #628bc1; outline-offset: 0; }
+.clip-property { min-width: 0; margin-top: 8px; color: var(--timeline-muted, #a8b7cb); font-size: 10px; }
+code { color: var(--timeline-subtle, #788ea9); font-family: inherit; font-size: 9px; overflow-wrap: anywhere; }
+input:not([type="checkbox"]), textarea, select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; color: var(--timeline-text, #edf4ff); background: var(--timeline-field, #141922); border: 1px solid var(--timeline-border, #3b485b); border-radius: 4px; font: inherit; resize: vertical; }
+input:focus, textarea:focus, select:focus { outline: 1px solid var(--timeline-accent, #628bc1); outline-offset: 0; }
 input[type="checkbox"] { margin: 0; }
-button { padding: 4px 7px; color: #b9c7da; background: #303a49; border: 1px solid #4a586c; border-radius: 4px; font: inherit; cursor: pointer; }
+button { padding: 4px 7px; color: var(--timeline-text, #b9c7da); background: var(--timeline-soft, #303a49); border: 1px solid var(--timeline-border, #4a586c); border-radius: 4px; font: inherit; cursor: pointer; }
 button:disabled { cursor: default; opacity: .4; }
 .scalar-field { display: flex; flex-direction: column; gap: 4px; }
 .boolean-field { display: flex; align-items: center; gap: 6px; }
 .scalar-field > span, .boolean-field > span { line-height: 1.5; }
-.struct-field, .list-field { border: 1px solid #39475b; border-radius: 4px; padding: 6px; background: #19212c; }
-summary { cursor: pointer; color: #c9d8ed; line-height: 1.6; overflow-wrap: anywhere; }
+.struct-field, .list-field { border: 1px solid var(--timeline-border, #39475b); border-radius: 4px; padding: 6px; background: var(--timeline-surface, #19212c); }
+summary { cursor: pointer; color: var(--timeline-text, #c9d8ed); line-height: 1.6; overflow-wrap: anywhere; }
 summary > code { margin-left: 4px; }
-.nested-fields { padding-left: 5px; border-left: 1px solid #39475b; }
-.field-description, .empty-list { margin: 5px 0; color: #8093ad; line-height: 1.6; font-size: 9px; }
-.list-heading { display: flex; align-items: center; justify-content: space-between; gap: 4px; color: #c9d8ed; }
-.list-heading small { color: #8093ad; white-space: nowrap; }
-.list-item { padding: 6px; margin-top: 7px; border: 1px solid #35455a; border-radius: 4px; background: #1e2836; }
+.nested-fields { padding-left: 5px; border-left: 1px solid var(--timeline-border, #39475b); }
+.field-description, .empty-list { margin: 5px 0; color: var(--timeline-subtle, #8093ad); line-height: 1.6; font-size: 9px; }
+.list-heading { display: flex; align-items: center; justify-content: space-between; gap: 4px; color: var(--timeline-text, #c9d8ed); }
+.list-heading small { color: var(--timeline-subtle, #8093ad); white-space: nowrap; }
+.list-item { padding: 6px; margin-top: 7px; border: 1px solid var(--timeline-border, #35455a); border-radius: 4px; background: var(--timeline-surface, #1e2836); }
 .list-item > summary { min-height: 22px; }
 .item-actions { float: right; display: inline-flex; gap: 3px; }
 .item-actions button { padding: 1px 6px; min-height: 21px; }
@@ -227,5 +227,5 @@ summary > code { margin-left: 4px; }
 .vector-axes label { display: flex; align-items: center; min-width: 0; gap: 3px; }
 .vector-axes input { padding: 6px 3px; appearance: textfield; -moz-appearance: textfield; }
 .vector-axes input::-webkit-inner-spin-button, .vector-axes input::-webkit-outer-spin-button { appearance: none; margin: 0; }
-.axis-x { color: #ed9a9a; }.axis-y { color: #9ddab1; }.axis-z { color: #8ebcf1; }
+.axis-x { color: var(--timeline-danger, #ed9a9a); }.axis-y { color: var(--timeline-success, #9ddab1); }.axis-z { color: var(--timeline-axis-blue, #8ebcf1); }
 </style>

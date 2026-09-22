@@ -1,6 +1,15 @@
 import type { PerformanceLineType } from "../types/DialogueNode";
 import type { QxqyStructIdKey } from "../types/FileStruct";
 
+/** 自定义触发字符串直接保存在 stringParams[0]。 */
+export const CUSTOM_TRIGGER_ACTION_TYPE = "NOLOC_TRIGGERCUSTOME";
+
+/** 公共事件字符串直接保存在 stringParams[0]。 */
+export const PUBLIC_EVENT_ACTION_TYPE = "NOLOC_TRIGGERPUBLIC";
+
+/** 强制跳过在 intParams[0] 保存出口对应的 NextGroup 零基索引。 */
+export const FOCUS_PUSH_ACTION_TYPE = "NOLOC_FOCUSPUSH";
+
 /** 分支直接在 ActionClip 中保存表达式，不引用独立的数据结构体表。 */
 export const CONDITION_BRANCH_ACTION_TYPE = "NOLOC_BRANCH";
 
@@ -10,9 +19,9 @@ export type QxqyActionSource =
   | PerformanceLineType;
 
 export type QxqyDataField =
-  | "DialogueDate"
+  | "DialogueData"
   | "DialogueSelectData"
-  | "CameraMovementDate";
+  | "CameraMovementData";
 
 export interface QxqyActionMapping {
   source: QxqyActionSource;
@@ -40,7 +49,7 @@ export function getQxqyActionMappings() {
 registerQxqyActionMapping({
   source: "Dialogue",
   actionType: "NOLOC_DIALOG",
-  dataField: "DialogueDate",
+  dataField: "DialogueData",
   dataStructKey: "dialogue",
   referenceParam: "intParams",
 });
@@ -56,7 +65,7 @@ registerQxqyActionMapping({
 registerQxqyActionMapping({
   source: "Camera",
   actionType: "NOLOC_CAMERA",
-  dataField: "CameraMovementDate",
+  dataField: "CameraMovementData",
   dataStructKey: "camera",
   referenceParam: "intParams",
 });

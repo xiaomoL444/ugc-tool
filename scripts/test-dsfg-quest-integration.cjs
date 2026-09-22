@@ -161,7 +161,7 @@ async function main() {
       assert.equal(attr(siblings[sectionIndex], "title"), sfc === quest ? "任务编辑区" : "对话文件");
     }
     const select = findElement(kindSelect.descriptor.template.ast, "select").node;
-    assert.deepEqual(select.children.filter((node) => node.type === 1).map((node) => attr(node, "value")), ["Dialogue", "Quest", "WalkTalk"]);
+    assert.deepEqual(select.children.filter((node) => node.type === 1).map((node) => attr(node, "value")), ["Dialogue", "Quest", "WalkTalk", "Scene", "EntityPresets"]);
     const emitted = [];
     const handler = execute(kindSelect, ["change"], { props: { modelValue: "Dialogue" }, emit: (...args) => emitted.push(args) });
     const event = { target: { value: "Quest" } };
@@ -481,15 +481,6 @@ async function main() {
     assert.deepEqual([...second.persisted.keys()], ["/Second/QuestEditor.json"]);
   });
 
-  await test("Local JSON download contains the current workspace data and a stable filename", () => {
-    const downloads = [];
-    const state = editorHarness(quest, ["downloadProject"], { bindings: { downloadTextFile: (...args) => downloads.push(args) } });
-    state.workspace.value = "changed";
-    state.project.value.title = "latest";
-    state.downloadProject();
-    assert.deepEqual(downloads, [['{"title":"latest"}', "original-任务.json", "application/json"]]);
-  });
-
   await test("Parent waits for saving before switching and blocks overlapping switches", async () => {
     const gate = deferred();
     const { context: state } = parentHarness({ editorRef: ref({ prepareToLeave: () => gate.promise }) });
@@ -576,7 +567,7 @@ async function main() {
     assert.equal(state.project.value, before); assert.equal(state.exporting.value, false); assert.equal(state.errors.length, 1);
   });
 
-  for (const sfc of [quest, dialogue]) {
+  for (const sfc of [dialogue]) {
     const label = sfc === quest ? "Quest" : "Dialogue";
     await test(`${label} Ctrl+S downloads locally and teardown removes exactly the registered shortcut`, async () => {
       const mounted = [], unmount = [], added = [], removed = [];

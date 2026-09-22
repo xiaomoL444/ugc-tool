@@ -12,8 +12,8 @@ import { createQuestProject, decodeQuestProject, encodeQuestProject, validateQue
 import { exportQuestVariables } from "./questExporter";
 import { createWorkspaceSaveQueue } from "./workspaceSaveQueue";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" }>(), { editorKind: "Quest" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets"] }>();
+withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>(), { editorKind: "Quest" });
+const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
 const storage = inject<StorageClass>("storage")!;
 const workspace = inject<Ref<string>>("selectedWorkspaceId")!;
 // 工作区切换会重建 Panel；所有异步保存固定使用原工作区路径。
@@ -114,10 +114,6 @@ async function loadProject(legacyFile?: string) {
     }
   } finally { if (active()) busy.value = false; }
 }
-function downloadProject() {
-  if (!project.value) { toast.warning("工作区任务尚未加载"); return; }
-  downloadTextFile(encodeQuestProject(project.value), `${downloadBaseName}-任务.json`, "application/json");
-}
 async function exportVariables() {
   if (!project.value || exporting.value || disposed) return;
   const exportName = downloadBaseName;
@@ -147,23 +143,16 @@ function applySettings() {
   project.value.unassignedChapterId = candidate.unassignedChapterId;
   settingsOpen.value = false;
 }
-function saveShortcut(event: KeyboardEvent) {
-  if (event.repeat || (!event.ctrlKey && !event.metaKey) || event.key.toLowerCase() !== "s") return;
-  event.preventDefault();
-  downloadProject();
-}
-async function changeEditor(kind: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets") {
+async function changeEditor(kind: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene") {
   try { await saveQueue.flush(); emit("update:editorKind", kind); }
   catch { /* 保存失败时留在任务编辑器，防止丢失未保存内容。 */ }
 }
 onMounted(() => {
   void loadProject();
-  window.addEventListener("keydown", saveShortcut);
 });
 onBeforeUnmount(() => {
   disposed = true; requestId++;
   void saveQueue.flush().catch(() => undefined);
-  window.removeEventListener("keydown", saveShortcut);
 });
 </script>
 
@@ -173,9 +162,8 @@ onBeforeUnmount(() => {
       <SectionLayout title="任务编辑区">
         <div class="quest-workspace" :class="{ 'is-busy': busy }" :aria-busy="busy">
           <header class="quest-file-toolbar">
-            <span>{{ workspaceId }} · 工作区任务</span><small>{{ saveStatus }}</small>
+            <span>{{ workspaceId }} <span class="workspace-label">/ 工作区任务</span></span><small role="status" :class="{ 'save-error': saveStatus === '保存失败' }">{{ saveStatus }}</small>
             <button type="button" :disabled="!project || busy" @click="openSettings">结构体 ID 设置</button>
-            <button type="button" :disabled="!project || busy" @click="downloadProject">下载编辑器 JSON · Ctrl+S</button>
             <button type="button" class="primary" :disabled="!project || busy || exporting" @click="exportVariables">{{ exporting ? '导出中…' : '导出千星任务' }}</button>
           </header>
           <QuestPanel v-if="project" :project="project" :inert="busy" />
@@ -218,9 +206,13 @@ onBeforeUnmount(() => {
 .quest-editor > .editor-kind-select { flex: 0 0 auto; }
 .quest-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; height: 100%; color: #34445b; }
 .quest-workspace.is-busy { pointer-events: none; opacity: .7; }
-.quest-file-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px; background: #eef3f9; border-bottom: 1px solid #d5deea; }
+.quest-file-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 16px; background: #fff; border-bottom: 1px solid #d5deea; }
 .quest-file-toolbar > span { font-weight: 600; font-size: 12px; overflow-wrap: anywhere; }
-.quest-file-toolbar > small { margin-right: auto; color: #7f8ba0; font-size: 11px; }
+.quest-file-toolbar > small { margin-right: auto; color: #52806b; background: #edf6f0; padding: 4px 8px; border-radius: 20px; font-size: 11px; }
+.quest-file-toolbar > small.save-error { color: #b45309; background: #fff4e5; }
+.workspace-label { color: #8793a6; font-weight: 400; }
+.quest-editor :deep(.Section > .panel) { padding: 0; }
+.quest-editor :deep(.Section > .MainBox .title) { background: #f8faff; color: #425673; font-size: 14px; font-weight: 600; border-bottom: 1px solid #e0e6ef; height: 36px; }
 button { padding: 6px 10px; border: 1px solid #b7c8de; border-radius: 5px; background: white; color: #325a89; cursor: pointer; font-size: 12px; }
 button:disabled { opacity: .45; cursor: default; }
 .primary { color: white; background: #2877c7; border-color: #2877c7; }

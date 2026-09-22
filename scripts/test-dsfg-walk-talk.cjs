@@ -22,8 +22,8 @@ async function main() {
     const model = require(path.join(directory, "walkTalkProject.ts"));
     const styles = require(path.join(directory, "walkTalkStyles.ts"));
     const { exportWalkTalk, createWalkTalkStructWorkspace } = require(path.join(directory, "walkTalkExporter.ts"));
-    const definition = asset("1077936129对话节点.json");
-    const sample = asset("NOLOC_测试子结构体1077936131.json");
+    const definition = asset("1077936168[消息]边走边说对话.json");
+    const sample = asset("NOLOC_测试边走边说变量.json");
     const originalAssets = JSON.stringify([definition, sample]);
     let passed = 0;
     const test = (name, check) => { check(); passed++; console.log(`PASS ${name}`); };
@@ -44,16 +44,16 @@ async function main() {
 
     test("empty sequence uses the actual sample ID, not its filename, without sample dialogue rows", () => {
       const project = source(0), output = exported(project);
-      assert.deepEqual(project.structIds, { sequence: "1077936168", dialogue: "1077936129" });
+      assert.deepEqual(project.structIds, { sequence: "1077936171", dialogue: "1077936168" });
       assert.equal(output.type, "Struct"); assert.equal(output.structId, sample.structId);
-      assert.deepEqual(output.value, [{ param_type: "StructList", value: { structId: "1077936129", value: [] } }]);
+      assert.deepEqual(output.value, [{ param_type: "StructList", value: { structId: "1077936168", value: [] } }]);
     });
-    test("new dialogue has all seven fields and exact source timing defaults", () => {
+    test("new dialogue has all six fields and exact source timing defaults", () => {
       const project = source();
       assert.deepEqual(model.WALK_TALK_FIELDS, definition.value.map(field => field.key));
-      assert.equal(project.entries[0].continueDelay, "0.50");
-      assert.equal(project.entries[0].autoContinue, "10.00");
-      assert.equal(project.entries[0].prams, "");
+      assert.equal(project.entries[0].continueDelay, "0.00");
+      assert.equal(project.entries[0].autoContinue, undefined);
+      assert.equal(project.entries[0].params, "");
       assert.equal(project.entries[0].style, "Default");
       const expected = JSON.parse(JSON.stringify(sample.value[0].value.value[0].value));
       expected.value[0].value = "Default";
@@ -80,10 +80,10 @@ async function main() {
     });
     test("styles, Unicode, multiline text, floats and integer lists populate the ordered fields", () => {
       const project = source();
-      Object.assign(project.entries[0], { style: "Default_UI", talker: "派蒙", subtitle: "向导", content: "边走边说\n第二行 ✨", continueDelay: "1.25", autoContinue: "3.75", prams: "0, -1，100;100\n2147483647 -2147483648" });
+      Object.assign(project.entries[0], { style: "Default_UI", talker: "派蒙", subtitle: "向导", content: "边走边说\n第二行 ✨", continueDelay: "1.25", params: "0, -1，100;100\n2147483647 -2147483648" });
       const fields = items(exported(project))[0].value;
-      assert.deepEqual(fields.map(field => field.param_type), ["String", "String", "String", "String", "Float", "Int32List", "Float"]);
-      assert.deepEqual(fields.map(field => field.value), ["Default_UI", "派蒙", "向导", "边走边说\n第二行 ✨", "1.25", ["0", "-1", "100", "100", "2147483647", "-2147483648"], "3.75"]);
+      assert.deepEqual(fields.map(field => field.param_type), ["String", "String", "String", "String", "Float", "Int32List"]);
+      assert.deepEqual(fields.map(field => field.value), ["Default_UI", "派蒙", "向导", "边走边说\n第二行 ✨", "1.25", ["0", "-1", "100", "100", "2147483647", "-2147483648"]]);
     });
     test("insert, move and delete export visible order while keeping stable editor identities", () => {
       const project = source(3);
@@ -117,7 +117,7 @@ async function main() {
     test("each file owns separate rows and ID configuration", () => {
       const a = source(), b = source();
       a.structIds.sequence = "1"; a.entries[0].content = "edited";
-      assert.equal(b.structIds.sequence, "1077936168"); assert.equal(b.entries[0].content, "");
+      assert.equal(b.structIds.sequence, "1077936171"); assert.equal(b.entries[0].content, "");
       assert.notEqual(a.entries[0].id, b.entries[0].id);
     });
     test("100 dialogue rows export, a 101st cannot be created or imported", () => {
@@ -130,13 +130,13 @@ async function main() {
       assert.throws(() => model.decodeWalkTalkProject(JSON.stringify(project)), /100/);
     });
     test("unfinished numeric input survives draft save and reload but blocks variable export", () => {
-      const project = source(); Object.assign(project.entries[0], { continueDelay: "-", autoContinue: "", prams: "1, not-finished" });
+      const project = source(); Object.assign(project.entries[0], { continueDelay: "-", params: "1, not-finished" });
       const saved = model.encodeWalkTalkProject(project);
       assert.deepEqual(model.decodeWalkTalkProject(saved), project);
-      assert.throws(() => exported(project), /continueDelay.*autoContinue/);
+      assert.throws(() => exported(project), /continueDelay.*params/);
       assert.equal(model.encodeWalkTalkProject(project), saved);
     });
-    for (const field of ["continueDelay", "autoContinue"]) {
+    for (const field of ["continueDelay"]) {
       test(`${field} rejects blank, nonnumeric and nonfinite values`, () => {
         const project = source();
         for (const text of ["", " ", "NaN", "Infinity", "-Infinity", "1e999", "0x10", "1.2.3", "2s"]) {
@@ -161,11 +161,38 @@ async function main() {
       assert.throws(() => model.decodeWalkTalkProject("{"), /JSON/);
       const project = source(2); project.entries[1].id = project.entries[0].id;
       assert.throws(() => model.decodeWalkTalkProject(JSON.stringify(project)), /重复/);
-      project.entries[1].id = "second"; project.entries[0].autoContinue = 10;
-      assert.throws(() => model.decodeWalkTalkProject(JSON.stringify(project)), /autoContinue/);
+      project.entries[1].id = "second"; project.entries[0].continueDelay = 10;
+      assert.throws(() => model.decodeWalkTalkProject(JSON.stringify(project)), /continueDelay/);
+    });
+    test("v1 migration updates default IDs and params, preserving legacy drafts and custom IDs", () => {
+      for (const custom of [false, true]) {
+        const legacy = { kind: "DSFGWalkTalk", schemaVersion: 1,
+          structIds: custom ? { sequence: "900", dialogue: "901" } : { sequence: "1077936168", dialogue: "1077936129" },
+          entries: [{ id: "legacy", style: "Default", talker: "派蒙", subtitle: "", content: "旧台词", continueDelay: "0.50", prams: "1, 2", autoContinue: "10.00" }],
+        };
+        const migrated = model.decodeWalkTalkProject(JSON.stringify(legacy));
+        assert.equal(migrated.schemaVersion, 2);
+        assert.deepEqual(migrated.structIds, custom ? legacy.structIds : model.DEFAULT_WALK_TALK_STRUCT_IDS);
+        assert.equal(migrated.entries[0].params, "1, 2");
+        assert.equal(migrated.entries[0].legacyAutoContinue, "10.00");
+        assert.equal(migrated.entries[0].prams, undefined);
+        assert.equal(migrated.entries[0].autoContinue, undefined);
+        assert.deepEqual(model.decodeWalkTalkProject(model.encodeWalkTalkProject(migrated)), migrated);
+        const fields = items(exported(migrated))[0].value;
+        assert.equal(fields.length, 6);
+        assert.deepEqual(fields[5].value, ["1", "2"]);
+        assert.ok(!JSON.stringify(exported(migrated)).includes("legacyAutoContinue"));
+      }
+    });
+    test("new wrapper uses the actual datas field and supplied variable shape", () => {
+      const project = source(2);
+      project.entries.forEach(entry => { entry.style = ""; });
+      assert.deepEqual(exported(project), sample);
+      const parsed = createWalkTalkStructWorkspace(project.structIds).createDefault(project.structIds.sequence);
+      assert.equal(parsed.value.datas.itemCount, 0);
     });
     test("export does not mutate draft data or the checked-in source schemas/sample", () => {
-      const project = source(2); project.entries[0].prams = "0，+001 2";
+      const project = source(2); project.entries[0].params = "0，+001 2";
       const before = model.encodeWalkTalkProject(project);
       exported(project); exported(project);
       assert.equal(model.encodeWalkTalkProject(project), before);
