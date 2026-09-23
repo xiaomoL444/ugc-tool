@@ -375,6 +375,11 @@ function updateColumns() {
   min-width: min(240px, 100%);
 }
 
+.toolbar-row input {
+  flex: 1;
+  min-width: 0;
+}
+
 .search-label {
   text-align: left;
 }
