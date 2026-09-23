@@ -22,6 +22,9 @@
             height: (200 * pixelHeight) / pixelWidth + 'px',
             width: '200px',
           }" ref="canvas" :width="pixelWidth" :height="pixelHeight"></canvas>
+          <div v-if="sourceImageSize" style="margin-top: 4px; font-size: 12px; opacity: 0.72">
+            原图尺寸：{{ sourceImageSize }}
+          </div>
         </div>
 
         <ActionButton v-on:update:selected="selectFile" style="height: 50px; font-size: 20px">选择文件</ActionButton>
@@ -48,6 +51,10 @@
           <input class="input" type="number" v-model="structId" />
         </FormItemRow>
         <ActionButton v-on:update:selected="downloadJson" style="height: 50px; font-size: 20px">下载JSON</ActionButton>
+        <ActionButton v-on:update:selected="downloadLua" style="height: 50px; font-size: 20px">下载千星奇域 Lua</ActionButton>
+        <div style="font-size: 12px; opacity: 0.72">
+          Lua 会读取 ImagePrefebID、CenterOffsetX、CenterOffsetY 和 PixelSize；偏移默认 0，像素大小默认 1。
+        </div>
       </div>
     </SectionLayout>
     <SectionLayout title="分段输出" style="flex: 6">
@@ -104,14 +111,26 @@ import FormItemRow from "@/components/Layout/form-item-row.vue";
 import { Clipboard } from "@/utils/clipboard";
 import PanelLayout from "@/components/Layout/PanelLayout.vue";
 import { NCollapse, NCollapseItem, NEllipsis, NSwitch } from "naive-ui";
-import { downloadJsonFile } from "@/utils/download";
+import { downloadJsonFile, downloadTextFile } from "@/utils/download";
+
+type PixelColor = [number, number, number, number];
+
+interface PixelBlock {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: PixelColor;
+}
 
 const canvas = ref<HTMLCanvasElement>();
 const imgUrl = ref("");
+const sourceImageSize = ref("");
 const pixelHeight = ref(20); //像素画高
 const pixelWidth = ref(20); //像素画宽
 const maxPixelWidth = ref(40); //每行最大像素画宽
 const pixels = ref<string[][]>([]);
+const pixelColors = ref<PixelColor[][]>([]);
 
 const isUse4bit = ref(false);
 const isUseAlpha = ref(true);
@@ -144,10 +163,12 @@ function onFileChange(e: Event) {
   const file = target.files?.[0];
   if (!file) return;
 
+  sourceImageSize.value = "";
   imgUrl.value = URL.createObjectURL(file);
 
   const img = new Image();
   img.onload = () => {
+    sourceImageSize.value = `${img.naturalWidth} × ${img.naturalHeight} px`;
     imgFile.value = img;
     drawToPixelCanvas(img);
   };
@@ -183,6 +204,13 @@ function drawToPixelCanvas(img: HTMLImageElement) {
   // 读取像素数据
   const imageData = ctx.getImageData(0, 0, pixelWidth.value, pixelHeight.value);
   const data = imageData.data;
+
+  pixelColors.value = Array.from({ length: pixelHeight.value }, (_, y) =>
+    Array.from({ length: pixelWidth.value }, (_, x) => {
+      const index = (y * pixelWidth.value + x) * 4;
+      return [data[index], data[index + 1], data[index + 2], data[index + 3]] as PixelColor;
+    }),
+  );
 
   const result = [];
 
@@ -306,6 +334,107 @@ function downloadJson() {
     ],
   };
   downloadJsonFile(json, `${structId.value}.json`);
+}
+
+function sameColor(a: PixelColor, b: PixelColor) {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
+
+function mergePixels(rows: PixelColor[][]): PixelBlock[] {
+  const blocks: PixelBlock[] = [];
+  let previousRuns = new Map<string, PixelBlock>();
+
+  rows.forEach((row, y) => {
+    const currentRuns = new Map<string, PixelBlock>();
+    let x = 0;
+
+    while (x < row.length) {
+      const color = row[x];
+      let width = 1;
+      while (x + width < row.length && sameColor(row[x + width], color)) width++;
+
+      if (color[3] > 0) {
+        const key = `${x}:${width}:${color.join(":")}`;
+        const previous = previousRuns.get(key);
+        if (previous) {
+          previous.height++;
+          currentRuns.set(key, previous);
+        } else {
+          const block = { x, y, width, height: 1, color };
+          blocks.push(block);
+          currentRuns.set(key, block);
+        }
+      }
+      x += width;
+    }
+
+    previousRuns = currentRuns;
+  });
+
+  return blocks;
+}
+
+function buildLua(blocks: PixelBlock[], width: number, height: number) {
+  const data = blocks
+    .map(({ x, y, width, height, color }) =>
+      `  {${x},${y},${width},${height},${color.join(",")}},`,
+    )
+    .join("\n");
+
+  return `-- 由 UGC Tools 图片转像素画生成
+local W, H = ${width}, ${height}
+local PIXELS = {
+${data}
+}
+local controls = {}
+
+function OnStart()
+  local prefabId, parent = script:GetParam("ImagePrefebID"), script.object
+  local OX, OY = script:GetParam("CenterOffsetX"), script:GetParam("CenterOffsetY")
+  local pixelSize = script:GetParam("PixelSize")
+  if type(pixelSize) ~= "number" or pixelSize <= 0 then pixelSize = 1 end
+  if type(OX) ~= "number" then OX = 0 end
+  if type(OY) ~= "number" then OY = 0 end
+  if type(prefabId) ~= "number" or prefabId <= 0 or not parent or not parent.alive then
+    printerr("PixelArt: ImagePrefebID 或脚本容器无效")
+    return
+  end
+
+  for i = 1, #PIXELS do
+    local p = PIXELS[i]
+    local control = game.InstantiateClientUIControl(prefabId, parent)
+    if control then
+      controls[#controls + 1] = control
+      control:SetAnchorMin(0.5, 0.5)
+      control:SetAnchorMax(0.5, 0.5)
+      control:SetPivot(0.5, 0.5)
+      control:SetSizeDelta(p[3] * pixelSize, p[4] * pixelSize)
+      control:SetAnchoredPosition((p[1] + p[3] / 2 - W / 2 - OX) * pixelSize, (H / 2 - p[2] - p[4] / 2 - OY) * pixelSize)
+      control.imageType = Enum.ImageType.Stretch
+      control.imageColor = Color.FromRGBA(p[5], p[6], p[7], p[8])
+    end
+  end
+end
+
+function OnDestroy()
+  for i = #controls, 1, -1 do
+    local control = controls[i]
+    if control and control.alive then game.DestroyClientUIControl(control) end
+  end
+  controls = {}
+end
+`;
+}
+
+function downloadLua() {
+  if (!pixelColors.value.length) return;
+  const height = pixelColors.value.length;
+  const width = pixelColors.value[0]?.length ?? 0;
+  downloadTextFile(
+    buildLua(mergePixels(pixelColors.value), width, height),
+    `pixel-art-${width}x${height}.lua`,
+    "text/x-lua;charset=utf-8",
+  );
 }
 </script>
 

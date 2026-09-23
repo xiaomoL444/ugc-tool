@@ -1,17 +1,17 @@
 <template>
   <Splitter style="height: 100%; width: 100%">
     <SplitterPanel :size="70">
-      <SectionLayout title="选择音效 ">
+      <SectionLayout :title="t('soundEffectPlayer.ui.selectSound')">
         <Splitter style="height: 100%; width: 100%" layout="vertical">
           <SplitterPanel :size="4">
             <div class="search-bar">
-              <div class="search-label">搜索（名称或 id）：</div>
-              <input v-model="search" type="search" autocomplete="off" placeholder="输入关键词，回车跳到第一项"
+              <div class="search-label">{{ t('soundEffectPlayer.ui.searchLabel') }}</div>
+              <input v-model="search" type="search" autocomplete="off" :placeholder="t('soundEffectPlayer.ui.searchPlaceholder')"
                 @keydown.enter="jumpToFirstSearchResult" />
-              <span class="search-count">{{ keys.length }} 项</span>
+              <span class="search-count">{{ t('soundEffectPlayer.ui.resultCount', { count: keys.length }) }}</span>
               <button type="button" class="expand-all-button" :disabled="filteredCategories.length === 0"
                 @click="toggleAllCategories">
-                {{ allVisibleCategoriesExpanded ? "全部收起" : "全部展开" }}
+                {{ t(allVisibleCategoriesExpanded ? 'soundEffectPlayer.ui.collapseAll' : 'soundEffectPlayer.ui.expandAll') }}
               </button>
             </div>
           </SplitterPanel>
@@ -27,7 +27,7 @@
                 </button>
               </div>
 
-              <VVirtualList v-if="libraryRows.length" ref="libraryListRef" :items="libraryRows" :item-size="105"
+              <VVirtualList v-if="libraryRows.length" ref="libraryListRef" :items="libraryRows" :item-size="72"
                 :padding-top="10" class="sound-virtual-list">
                 <template #default="{ item }: { item: SoundRow }">
                   <div class="sound-row" :class="[
@@ -35,55 +35,56 @@
                     { 'group-first': item.isFirst, 'group-last': item.isLast },
                   ]">
                     <span v-if="item.isFirst" class="sound-group-label">{{ categoryName(item.category) }}</span>
-                    <ListButton v-for="id in item.data" :key="id" :is-selected="id == selectedId"
+                    <ListButton v-for="id in item.data" :key="id" class="sound-card" :is-selected="id == selectedId"
                       v-on:update:selected="SelectSound(id)">
                       <div class="item">
                         <div class="title">
                           <NEllipsis> {{ dataJson[id]?.name }} </NEllipsis>
                         </div>
                         <div class="subtitle">
-                          id:{{ id }} / {{ dataJson[id]?.duration }}s
+                          {{ t('soundEffectPlayer.ui.soundDetails', { id, duration: dataJson[id]?.duration }) }}
                         </div>
                       </div>
                     </ListButton>
                   </div>
                 </template>
               </VVirtualList>
-              <div v-else-if="filteredCategories.length" class="collapsed-hint">选择一个分类，或点击“全部展开”</div>
-              <div v-if="filteredCategories.length === 0" class="empty-result">没有找到匹配的音效</div>
+              <div v-else-if="filteredCategories.length" class="collapsed-hint">{{ t('soundEffectPlayer.ui.collapsedHint') }}</div>
+              <div v-if="filteredCategories.length === 0" class="empty-result">{{ t('soundEffectPlayer.ui.empty') }}</div>
             </div>
           </SplitterPanel>
         </Splitter>
       </SectionLayout>
     </SplitterPanel>
     <SplitterPanel :size="30">
-      <SectionLayout title="播放器">
+      <SectionLayout :title="t('soundEffectPlayer.ui.player')">
         <div class="player">
-          <span>音效名称：{{ dataJson[selectedId]?.name }}</span><span> 音效id：{{ selectedId }}</span>
+          <span>{{ t('soundEffectPlayer.ui.soundName', { name: dataJson[selectedId]?.name ?? t('soundEffectPlayer.ui.notSelected') }) }}</span>
+          <span>{{ t('soundEffectPlayer.ui.soundId', { id: selectedId || t('soundEffectPlayer.ui.notSelected') }) }}</span>
           <ActionButton v-on:update:selected="togglePlay">{{
-            playing ? "暂停" : "播放"
+            t(playing ? 'soundEffectPlayer.ui.pause' : 'soundEffectPlayer.ui.play')
           }}</ActionButton>
-          <ActionButton v-on:update:selected="prevTrack">上一首</ActionButton>
-          <ActionButton v-on:update:selected="nextTrack">下一首</ActionButton>
+          <ActionButton v-on:update:selected="prevTrack">{{ t('soundEffectPlayer.ui.previous') }}</ActionButton>
+          <ActionButton v-on:update:selected="nextTrack">{{ t('soundEffectPlayer.ui.next') }}</ActionButton>
 
           <!-- 时间进度 -->
           <div>
             <span v-if="!loading">{{ formatTime(currentTime) }}/{{ formatTime(duration) }}</span>
-            <span v-else>{{ formatTime(currentTime) }}/加载中...</span>
+            <span v-else>{{ formatTime(currentTime) }}/{{ t('soundEffectPlayer.ui.loading') }}</span>
             <input type="range" :max="duration" step="0.1" v-model.number="currentTime" @input="seek" />
           </div>
 
           <!-- 播放速度 -->
           <div>
-            <label>速度: {{ speed }}x</label>
+            <label>{{ t('soundEffectPlayer.ui.speed', { speed }) }}</label>
             <input type="range" min="0.5" max="2" step="0.1" v-model.number="speed" @input="changePlaybackRate" />
           </div>
 
           <!-- 音量 0~200% -->
           <div>
-            <label>音量: {{ Math.round(volume * 100) }}%</label>
+            <label>{{ t('soundEffectPlayer.ui.volume', { volume: Math.round(volume * 100) }) }}</label>
             <div v-if="volume > 1.0">
-              (实际编辑器内音量不可大于100%，此处只为放大预览用)
+              {{ t('soundEffectPlayer.ui.volumeHint') }}
             </div>
             <input type="range" min="0" max="1" step="0.01" v-model.number="volume" @input="changeVolume" />
           </div>
@@ -99,10 +100,10 @@
               <input type="checkbox" v-model="loopEnabled" @change="toggleLoop" />
               <span class="slider"></span>
             </label>
-            <div>是否开启循环播放</div>
+            <div>{{ t('soundEffectPlayer.ui.loop') }}</div>
           </div>
           <div v-if="loopEnabled" style="margin-top: 10px; display: flex; flex-direction: row">
-            <div>循环间隔时间(s)</div>
+            <div>{{ t('soundEffectPlayer.ui.loopInterval') }}</div>
             <input type="number" v-model="interval" />
           </div>
 
@@ -119,9 +120,14 @@
 @import "./styles/iosCheckBoc.css";
 
 .item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   text-align: left;
   width: 100%;
-  margin: 10px 6px;
+  min-width: 0;
+  margin: 0 6px;
 }
 
 .search-bar {
@@ -241,10 +247,10 @@
   --category-background: rgba(106, 90, 205, 0.04);
   box-sizing: border-box;
   position: relative;
-  display: flex;
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
-  height: 105px;
+  height: 72px;
   padding: 0 5px 5px;
   border-right: 2px solid var(--category-color);
   border-left: 2px solid var(--category-color);
@@ -328,23 +334,29 @@
 }
 
 .item .title {
+  width: 100%;
+  min-width: 0;
   font-size: 1.2rem;
+  line-height: 1.2;
+}
+
+.sound-card {
+  min-width: 0;
 }
 
 .item .subtitle {
-  width: 10rem;
-  word-wrap: break-word;
-  /* 老方法 */
-  overflow-wrap: break-word;
-  /* 新方法 */
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 
   border-radius: 10px;
   border: 1px solid #cdcdcd;
 
-  padding: 10px;
-  margin-top: 0.5rem;
+  padding: 3px 8px;
 
   font-size: 0.8rem;
+  line-height: 1.2;
 
   display: flex;
   background-color: #f0f1f5cc;
@@ -378,10 +390,16 @@ import { toast } from "vue-sonner";
 import ActionButton from "@/components/button/ActionButton.vue";
 import { NEllipsis } from "naive-ui";
 import { createOss } from "@/utils/oss";
+import { loadOssTranslations } from "@/i18n";
+import { createCachedText } from "@/i18n/cachedText";
+import { useI18n } from "vue-i18n";
 
 const oss = createOss("SoundEffectPlayer");
+const composer = useI18n({ useScope: "global" });
+const { t } = composer;
+const resourceText = createCachedText(composer);
 
-const selectedId = ref("未选择"); //选择的音效id
+const selectedId = ref(""); //选择的音效id
 
 const search = ref("");
 
@@ -394,7 +412,7 @@ const interval = ref(0);
 
 const expandedCategories = ref<string[]>([]);
 const libraryListRef = ref<VVirtualListInst | null>(null);
-const itemsPerRow = 4;
+const itemsPerRow = 3;
 
 interface SoundRow {
   key: string;
@@ -420,18 +438,14 @@ function makeRows(category: number, ids: string[]): SoundRow[] {
   return rows;
 }
 
-const categoryNames: Record<number, string> = {
-  1: "环境",
-  2: "生物叫声",
-  3: "角色动作",
-  4: "战斗",
-  5: "场景物件",
-  6: "界面",
-  7: "载具与物理",
-};
+const categoryNames = computed<Record<number, string>>(() => Object.fromEntries(
+  soundData.value.category.map((category) => [category.id, resourceText(category.nameI18nKey)]),
+));
 
 function categoryName(category: number) {
-  return categoryNames[category] ?? (category === 0 ? "未分类" : `分类 ${category}`);
+  return categoryNames.value[category] ?? (category === 0
+    ? t('soundEffectPlayer.ui.uncategorized')
+    : t('soundEffectPlayer.ui.categoryFallback', { id: category }));
 }
 
 const orderedCategories = computed(() => {
@@ -495,10 +509,20 @@ const libraryRows = computed<SoundRow[]>(() => {
   return result;
 });
 
-const dataJson = ref<SoundEffectData>({});
+const soundData = ref<SoundEffectData>({ data: [], category: [] });
+// 播放和选择仍按稳定 ID 查询；显示及搜索名称随语言和远程词库更新。
+const dataJson = computed(() => Object.fromEntries(
+  soundData.value.data.map((item) => [item.id, { ...item, name: resourceText(item.nameI18nKey) }]),
+));
 
 onMounted(async () => {
-  dataJson.value = await oss.json("data.json");
+  try {
+    soundData.value = await oss.json<SoundEffectData>("data.json");
+    void loadOssTranslations("SoundEffectPlayer", "soundEffectPlayer");
+  } catch (error) {
+    console.error("音效数据加载失败", error);
+    toast.error(t('soundEffectPlayer.ui.loadFailed'));
+  }
 });
 
 watch([search, orderedCategories], () => {
@@ -588,7 +612,7 @@ function togglePlay() {
 function start() {
   if (!audioRef.value) return;
   audioRef.value.play().catch(() => {
-    toast.warning(`播放失败`);
+    toast.warning(t('soundEffectPlayer.ui.playFailed'));
   });
   playing.value = true;
 }

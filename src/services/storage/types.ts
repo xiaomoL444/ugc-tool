@@ -43,5 +43,12 @@ export interface StorageProvider {
   exists(path: string): Promise<boolean>;
   mv(oldPath: string, newPath: string): Promise<void>;
   rename(path:string,name:string):Promise<void>;
-  onChange?(cb: (e: FileChangeEvent) => void): void;
+  onChange?(cb: (e: FileChangeEvent) => void): void | (() => void);
+  dispose?(): void;
+}
+
+export interface StorageSnapshot { data: string; revision: string }
+export interface SyncStorageProvider extends StorageProvider {
+  readSnapshot(path: string): Promise<StorageSnapshot | null>;
+  writeFileIfUnchanged(path: string, data: string, expectedRevision: string | null): Promise<void>;
 }

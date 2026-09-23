@@ -5,16 +5,16 @@
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M4 5h16l-6 7v6l-4 2v-8L4 5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
         </svg>
-        分类筛选
+        {{ t('effectPlayer.filter.open') }}
         <span v-if="modelValue.length" class="selection-badge">{{ modelValue.length }}</span>
       </button>
-      <span v-if="!modelValue.length" class="filter-hint">按属性、类型、颜色等分类筛选特效</span>
-      <span v-else class="filter-hint">已选 {{ selectedGroups.length }} 个分类 · {{ modelValue.length }} 个标签</span>
+      <span v-if="!modelValue.length" class="filter-hint">{{ t('effectPlayer.filter.hint') }}</span>
+      <span v-else class="filter-hint">{{ t('effectPlayer.filter.selectionSummary', { groups: selectedGroups.length, tags: modelValue.length }) }}</span>
       <button v-if="modelValue.length" class="clear-selection" type="button" @click="emit('update:modelValue', [])">
-        全部清除
+        {{ t('effectPlayer.filter.clear') }}
       </button>
     </div>
-    <div v-if="modelValue.length" class="selected-groups" aria-label="已选筛选条件">
+    <div v-if="modelValue.length" class="selected-groups" :aria-label="t('effectPlayer.filter.selected')">
       <div v-for="group in selectedGroups" :key="group.id" class="selected-group">
         <span class="selected-group-name">{{ group.name }}</span>
         <button
@@ -22,7 +22,7 @@
           :key="tag.id"
           class="selected-tag"
           type="button"
-          :aria-label="`移除${group.name}：${tag.name}`"
+          :aria-label="t('effectPlayer.filter.removeTag', { group: group.name, tag: tag.name })"
           @click="emit('update:modelValue', modelValue.filter((id) => id !== tag.id))"
         >
           {{ tag.name }} <span aria-hidden="true">×</span>
@@ -32,29 +32,29 @@
   </div>
 
   <Teleport to="body">
-    <dialog ref="dialog" class="filter-dialog" aria-labelledby="effect-filter-title" @click.self="closeFilter">
-      <div class="filter-panel">
+    <dialog ref="dialog" class="filter-dialog" aria-labelledby="effect-filter-title" @click.self="closeFilter" @close="isOpen = false">
+      <div v-if="isOpen" class="filter-panel">
         <header class="filter-header">
-          <h2 id="effect-filter-title">筛选条件</h2>
-          <button class="filter-close" type="button" aria-label="关闭筛选" autofocus @click="closeFilter">×</button>
+          <h2 id="effect-filter-title">{{ t('effectPlayer.filter.title') }}</h2>
+          <button class="filter-close" type="button" :aria-label="t('effectPlayer.filter.close')" autofocus @click="closeFilter">×</button>
         </header>
-        <p class="filter-description">同一分类内满足任一标签，跨分类需同时满足。</p>
+        <p class="filter-description">{{ t('effectPlayer.filter.description') }}</p>
         <div class="filter-groups">
           <details v-for="group in groups" :key="group.id" class="filter-group" open>
             <summary>
               <span>{{ group.name }}</span>
-              <span v-if="selectedCount(group)" class="group-selected-count">已选 {{ selectedCount(group) }}</span>
+              <span v-if="selectedCount(group)" class="group-selected-count">{{ t('effectPlayer.filter.selectedCount', { count: selectedCount(group) }) }}</span>
             </summary>
             <div class="group-tags">
               <button
                 class="filter-chip select-all"
                 :class="{ active: isGroupSelected(group) }"
                 type="button"
-                :aria-label="`${group.name}全选`"
+                :aria-label="t('effectPlayer.filter.selectGroup', { group: group.name })"
                 :aria-pressed="isGroupSelected(group)"
                 @click="toggleGroup(group)"
               >
-                全选 <span class="chip-count">{{ counts.groupCounts.get(group.id) ?? 0 }}</span>
+                {{ t('effectPlayer.filter.selectAll') }} <span class="chip-count">{{ counts.groupCounts.get(group.id) ?? 0 }}</span>
               </button>
               <button
                 v-for="tag in group.tags"
@@ -72,12 +72,14 @@
         </div>
         <footer class="filter-footer">
           <div class="filter-result" aria-live="polite">
-            匹配 <strong>{{ previewCount }}</strong> 个特效
-            <span v-if="draftTagIds.length"> · 已选 {{ draftTagIds.length }} 个标签</span>
+            <I18nT keypath="effectPlayer.filter.matchCount" :plural="previewCount" scope="global">
+              <template #count><strong>{{ previewCount }}</strong></template>
+            </I18nT>
+            <span v-if="draftTagIds.length"> · {{ t('effectPlayer.filter.selectedTagCount', { count: draftTagIds.length }, draftTagIds.length) }}</span>
           </div>
           <div class="filter-actions">
-            <button class="filter-reset" type="button" @click="draftTagIds = []">全部清除</button>
-            <button class="filter-apply" type="button" @click="applyFilter">确认筛选</button>
+            <button class="filter-reset" type="button" @click="draftTagIds = []">{{ t('effectPlayer.filter.clear') }}</button>
+            <button class="filter-apply" type="button" @click="applyFilter">{{ t('effectPlayer.filter.apply') }}</button>
           </div>
         </footer>
       </div>
@@ -86,11 +88,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
+import { Translation as I18nT, useI18n } from "vue-i18n";
 import { countEffectTags, matchesEffectTagGroups } from "./tagFilters";
 import type { EffectTagGroup } from "./tagFilters";
 import type { EffectItem } from "./types/EffectData";
 
+const { t } = useI18n({ useScope: "global" });
 const props = defineProps<{
   modelValue: number[];
   groups: EffectTagGroup[];
@@ -98,6 +102,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ (event: "update:modelValue", value: number[]): void }>();
 const dialog = ref<HTMLDialogElement | null>(null);
+const isOpen = ref(false);
 const draftTagIds = ref<number[]>([]);
 const selectedGroups = computed(() => props.groups
   .map((group) => ({ ...group, tags: group.tags.filter((tag) => props.modelValue.includes(tag.id)) }))
@@ -128,8 +133,10 @@ function toggleGroup(group: EffectTagGroup) {
     : [...remaining, ...group.tags.map((tag) => tag.id)];
 }
 
-function openFilter() {
+async function openFilter() {
   draftTagIds.value = [...props.modelValue];
+  isOpen.value = true;
+  await nextTick();
   dialog.value?.showModal();
 }
 

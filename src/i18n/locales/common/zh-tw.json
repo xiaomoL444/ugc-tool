@@ -1,0 +1,14 @@
+{
+  "app.language": "語言",
+  "app.navigation": "導覽",
+  "app.openNavigation": "開啟導覽",
+  "app.testTools": "測試工具",
+  "app.onlineTools": "線上工具",
+  "app.home": "標題頁",
+  "app.defaultTitle": "曉末L444的工具集",
+  "app.effectPlayerTitle": "特效播放器",
+  "app.effectPlayerDescription": "可瀏覽千星奇域 7.0 版本之前的特效，預覽圖片、動畫與音效。",
+  "common.copySuccess": "已複製 {text}",
+  "common.copyFailed": "複製失敗：{error}",
+  "common.storageUnderDevelopment": "儲存設定功能尚在開發中。"
+}

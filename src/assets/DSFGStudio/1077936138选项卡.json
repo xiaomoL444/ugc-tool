@@ -1,0 +1,42 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[对话]选项卡", 
+   "value" : [ 
+      { 
+         "key" : "style", 
+         "param_type" : "String", 
+         "value" : { 
+            "param_type" : "String", 
+            "value" : ""
+         }
+      }, 
+      { 
+         "key" : "content", 
+         "param_type" : "StringList", 
+         "value" : { 
+            "param_type" : "StringList", 
+            "value" : [ 
+            ]
+         }
+      }, 
+      { 
+         "key" : "icons", 
+         "param_type" : "Int32List", 
+         "value" : { 
+            "param_type" : "Int32List", 
+            "value" : [ 
+            ]
+         }
+      }, 
+      { 
+         "key" : "params", 
+         "param_type" : "Int32List", 
+         "value" : { 
+            "param_type" : "Int32List", 
+            "value" : [ 
+            ]
+         }
+      }
+   ]
+}

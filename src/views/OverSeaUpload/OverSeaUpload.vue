@@ -927,7 +927,7 @@ function resolveHoyoverseMediaUrl(
     raw: string,
     server: ServerValue,
     objectKey?: string,
-) {
+): string {
     const candidate = raw.trim();
     if (!candidate) {
         return objectKey

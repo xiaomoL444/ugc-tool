@@ -1,7 +1,14 @@
 import { Node, Position, useVueFlow } from "@vue-flow/core";
 import { ref, watch } from "vue";
-import { DialogueNode } from "./types/DialogueNode";
-let id = 0;
+import type { FlowNodeData } from "./types/FileStruct";
+
+export const DIALOGUE_NODE_GRID_SIZE = 20;
+
+function snapToDialogueGrid(value: number) {
+  return (
+    Math.round(value / DIALOGUE_NODE_GRID_SIZE) * DIALOGUE_NODE_GRID_SIZE
+  );
+}
 
 /**
  * @returns {string} - A unique id.
@@ -23,7 +30,10 @@ const state = {
   isDragging: ref(false),
 };
 
-export default function useDragAndDrop() {
+export default function useDragAndDrop(
+  onCreateDialogueNode?: (nodeId: string) => void,
+  onCreateConditionBranchNode?: (nodeId: string) => void,
+) {
   const { draggedType, isDragOver, isDragging } = state;
 
   const { addNodes, screenToFlowCoordinate, onNodesInitialized, updateNode } =
@@ -86,13 +96,34 @@ export default function useDragAndDrop() {
 
     const nodeId = getId();
     if (!draggedType.value) return;
-    const newNode: Node = {
+    const nodeType = draggedType.value === "customer" ? "custom" : draggedType.value;
+    const dialogueNodeId =
+      nodeType === "entry" ||
+      nodeType === "output" ||
+      nodeType === "condition"
+        ? undefined
+        : nodeId;
+    const conditionBranchNodeId =
+      nodeType === "condition" ? nodeId : undefined;
+
+    if (dialogueNodeId) {
+      onCreateDialogueNode?.(dialogueNodeId);
+    }
+    if (conditionBranchNodeId) {
+      onCreateConditionBranchNode?.(conditionBranchNodeId);
+    }
+
+    const newNode: Node<FlowNodeData> = {
       id: nodeId,
-      type: draggedType.value,
+      type: nodeType,
       position,
-      data: {} as DialogueNode,
-      sourcePosition: Position.Top,
-      targetPosition: Position.Bottom,
+      data: dialogueNodeId
+        ? { dialogueNodeId }
+        : conditionBranchNodeId
+          ? { conditionBranchNodeId }
+          : {},
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
     };
 
     /**
@@ -103,8 +134,12 @@ export default function useDragAndDrop() {
     const { off } = onNodesInitialized(() => {
       updateNode(nodeId, (node) => ({
         position: {
-          x: node.position.x - node.dimensions.width / 2,
-          y: node.position.y - node.dimensions.height / 2,
+          x: snapToDialogueGrid(
+            node.position.x - node.dimensions.width / 2,
+          ),
+          y: snapToDialogueGrid(
+            node.position.y - node.dimensions.height / 2,
+          ),
         },
       }));
 

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "namespace": "effectPlayer",
+  "locale": "en-US",
+  "format": "text",
+  "translations": {
+    "names.2": "White Dust Cloud",
+    "names.4": null,
+    "category.1": "Attribute",
+    "category.2": "Usage",
+    "category.3": "Type",
+    "category.4": "Pattern",
+    "category.5": "Shape",
+    "category.6": "Behavior",
+    "category.7": "Color",
+    "category.8": "Scope",
+    "category.9": "Playback",
+    "category.10": "Trait",
+    "tags.1": "Anemo",
+    "tags.2": "Pyro",
+    "tags.89": "White"
+  }
+}

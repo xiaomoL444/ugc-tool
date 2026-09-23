@@ -2,13 +2,15 @@
 
 import { consola } from "consola";
 import { BrowserStorage } from "./browserStorage";
+import { DesktopStorage, readStorageSettings } from "./desktopStorage";
 import { FileChangeEvent, StorageProvider } from "./types";
 
 export class StorageClass {
   private static instance: StorageClass;
 
-  private providers: StorageProvider[] = [];
   private activeProvider!: StorageProvider;
+  private syncPaused = false;
+  private readonly pendingOperations = new Set<Promise<unknown>>();
 
   private projectId: string = ""; //项目id
 
@@ -16,10 +18,22 @@ export class StorageClass {
   private changeCallbacks: Set<(e: FileChangeEvent) => void> = new Set();
 
   private constructor() {
-    // 按顺序添加 Provider
-    this.providers = [
-      new BrowserStorage(), // 兜底
-    ];
+    const settings = readStorageSettings();
+    this.activeProvider = settings.mode === "desktop"
+      ? new DesktopStorage(settings) : new BrowserStorage();
+  }
+
+  public get provider(): StorageProvider { return this.activeProvider; }
+
+  public async pauseForSync(): Promise<() => void> {
+    if (this.syncPaused) throw new Error("同步已锁定当前页面，请刷新页面后继续。");
+    this.syncPaused = true;
+    const results = await Promise.allSettled([...this.pendingOperations]);
+    if (results.some(result => result.status === "rejected")) {
+      this.syncPaused = false;
+      throw new Error("当前编辑器仍有保存失败的操作，请先保存或导出，再执行同步。");
+    }
+    return () => { this.syncPaused = false; };
   }
   //设置项目与工作区区域
   setProject(projectId: string): this {
@@ -37,17 +51,9 @@ export class StorageClass {
 
   // 初始化，选择可用 Provider
   public async init() {
-    for (const p of this.providers) {
-      consola.info(`加载储存${p.storageName}中...`);
-      await p.init();
-      if (await p.isAvailable()) {
-        this.activeProvider = p;
-        consola.info(`加载${p.storageName}成功`);
-        return;
-      }
-      consola.warn(`加载${p.storageName}失败`);
-    }
-    throw new Error("No storage provider available");
+    await this.activeProvider.init();
+    this.activeProvider.onChange?.((event) => this.emitChange(event));
+    consola.info(`加载${this.activeProvider.storageName}成功`);
   }
 
   public assemblyPath(path: string): string {
@@ -58,14 +64,14 @@ export class StorageClass {
     filePath = this.assemblyPath(filePath);
     consola.trace(filePath)
     consola.trace(newName)
-    return this.withProviderRetry(
+    return this.withProvider(
       async (provider) => await provider.rename(filePath, newName),
     );
   }
 
   public async exists(path: string): Promise<boolean> {
     path = this.assemblyPath(path);
-    return this.withProviderRetry(
+    return this.withProvider(
       async (provider) => await provider.exists(path),
     );
   }
@@ -74,7 +80,7 @@ export class StorageClass {
   public async getFolders(path: string): Promise<string[]> {
     path = this.assemblyPath(path);
     return (
-      this.withProviderRetry(
+      this.withProvider(
         async (provider) => await provider.getFolders(path),
       ) ?? []
     );
@@ -83,7 +89,7 @@ export class StorageClass {
   // 获取文件
   public async getFiles(path: string): Promise<string[]> {
     path = this.assemblyPath(path);
-    return this.withProviderRetry(
+    return this.withProvider(
       async (provider) => await provider.getFiles(path),
     );
   }
@@ -91,7 +97,7 @@ export class StorageClass {
   // 创建目录
   public async mkdir(path: string): Promise<void> {
     path = this.assemblyPath(path);
-    return this.withProviderRetry(
+    return this.withProvider(
       async (provider) => await provider.mkdir(path),
     );
   }
@@ -99,7 +105,7 @@ export class StorageClass {
   // 写文件
   public async writeFile(path: string, data: string): Promise<void> {
     path = this.assemblyPath(path);
-    return this.withProviderRetry(
+    return this.withProvider(
       async (provider) => await provider.writeFile(path, data),
     );
   }
@@ -107,7 +113,7 @@ export class StorageClass {
   // 读文件
   public async readFile(path: string): Promise<string> {
     path = this.assemblyPath(path);
-    return this.withProviderRetry(
+    return this.withProvider(
       async (provider) => await provider.readFile(path),
     );
   }
@@ -115,7 +121,7 @@ export class StorageClass {
   // 读取目录
   public async readdir(path: string): Promise<string[]> {
     path = this.assemblyPath(path);
-    return this.withProviderRetry(
+    return this.withProvider(
       async (provider) => await provider.readdir(path),
     );
   }
@@ -129,16 +135,14 @@ export class StorageClass {
     };
   }
 
-  private async withProviderRetry<T>(
+  private async withProvider<T>(
     fn: (provider: StorageProvider) => Promise<T>,
   ) {
-    try {
-      return await fn(this.activeProvider);
-    } catch (err) {
-      consola.warn("Active provider failed, switching...", err);
-      await this.switchProvider();
-      return fn(this.activeProvider);
-    }
+    if (this.syncPaused) throw new StorageSyncPausedError();
+    const operation = fn(this.activeProvider);
+    this.pendingOperations.add(operation);
+    try { return await operation; }
+    finally { this.pendingOperations.delete(operation); }
   }
 
   // StorageClass 内部调用
@@ -152,14 +156,7 @@ export class StorageClass {
     }
   }
   public async switchProvider() {
-    for (const p of this.providers) {
-      if (p !== this.activeProvider && (await p.isAvailable())) {
-        this.activeProvider = p;
-        if (p.onChange) p.onChange((e) => this.emitChange(e));
-        return;
-      }
-    }
-    throw new Error("No other storage provider available");
+    throw new Error("请通过存储设置切换存档位置，保存设置后重新加载页面。");
   }
 
   //自定义函数
@@ -170,7 +167,7 @@ export class StorageClass {
    */
   public async trash(path: string): Promise<string> {
     path = this.assemblyPath(path);
-    return this.withProviderRetry(async (provider) => {
+    return this.withProvider(async (provider) => {
       const uuid = crypto.randomUUID();
       const trashPath = `/RecyleBin/${uuid}/`;
       await provider.mv(path, trashPath);
@@ -179,7 +176,7 @@ export class StorageClass {
   }
   public async restore(trashPath: string, originalPath: string): Promise<void> {
     originalPath = this.assemblyPath(originalPath);
-    return this.withProviderRetry(async (provider) => {
+    return this.withProvider(async (provider) => {
       const files = await provider.readdir(trashPath);
       consola.trace(originalPath);
       await Promise.all(
@@ -190,4 +187,8 @@ export class StorageClass {
       return;
     });
   }
+}
+
+export class StorageSyncPausedError extends Error {
+  constructor() { super("存档同步期间已暂停编辑器读写，请在同步完成后刷新页面。"); }
 }

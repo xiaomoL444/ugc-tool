@@ -1,0 +1,20 @@
+// GO_BINARY can point to a Go installation; Go >= 1.25.4 is required.
+const fs = require('node:fs');
+const path = require('node:path');
+const cp = require('node:child_process');
+const root = path.resolve(__dirname, '..');
+const go = process.env.GO_BINARY || 'go';
+const cwd = path.join(root, 'vendor/primitive-fitting/wasm');
+const assets = path.join(root, 'public/primitive-wasm');
+const env = { ...process.env, GOOS: 'js', GOARCH: 'wasm' };
+const staged = path.join(assets, 'primitive.next.wasm');
+cp.execFileSync(go, ['build', '-trimpath', '-ldflags=-s -w', '-o', staged, '.'], { cwd, env, stdio: 'inherit' });
+const goroot = cp.execFileSync(go, ['env', 'GOROOT'], { encoding: 'utf8' }).trim();
+const bridge = ['lib/wasm/wasm_exec.js', 'misc/wasm/wasm_exec.js'].map(p => path.join(goroot,p)).find(p => fs.existsSync(p));
+if (!bridge) throw new Error('Cannot locate the matching Go WASM bridge');
+fs.copyFileSync(bridge, path.join(assets, 'wasm_exec.js'));
+fs.copyFileSync(path.join(goroot, 'LICENSE'), path.join(assets, 'Go-LICENSE'));
+fs.renameSync(staged, path.join(assets, 'primitive.wasm'));
+const workerPath = path.join(assets, 'fit_worker.js');
+fs.writeFileSync(workerPath, fs.readFileSync(workerPath, 'utf8').replace(/\.\/wasm_exec\.js(?:\?v=[^"']*)?/g, './wasm_exec.js?v=alpha-edge-1').replace(/\.\/primitive\.wasm(?:\?v=[^"']*)?/g, './primitive.wasm?v=alpha-edge-1'));
+console.log('Built primitive.wasm with its matching runtime and cache version.');

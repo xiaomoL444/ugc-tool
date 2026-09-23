@@ -1,0 +1,131 @@
+{
+  "type": "Struct",
+  "struct_ype": "basic",
+  "name": "[任务]任务配置数据",
+  "value": [
+    {
+      "key": "章节",
+      "param_type": "Dict",
+      "value": {
+        "param_type": "Dict",
+        "value": {
+          "type": "Dict",
+          "key_type": "Int32",
+          "value_type": "Struct",
+          "value": [
+            {
+              "key": {
+                "param_type": "Int32",
+                "value": "0"
+              },
+              "value": {
+                "param_type": "Struct",
+                "value": {
+                  "structId": "1077936165",
+                  "type": "Struct",
+                  "value": [
+                    {
+                      "param_type": "Int32",
+                      "value": "0"
+                    },
+                    {
+                      "param_type": "String",
+                      "value": ""
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "value_structId": "1077936165"
+        }
+      }
+    },
+    {
+      "key": "主任务",
+      "param_type": "Dict",
+      "value": {
+        "param_type": "Dict",
+        "value": {
+          "type": "Dict",
+          "key_type": "Int32",
+          "value_type": "Struct",
+          "value": [
+            {
+              "key": {
+                "param_type": "Int32",
+                "value": "0"
+              },
+              "value": {
+                "param_type": "Struct",
+                "value": {
+                  "structId": "1077936166",
+                  "type": "Struct",
+                  "value": [
+                    {
+                      "param_type": "Int32",
+                      "value": "0"
+                    },
+                    {
+                      "param_type": "Int32",
+                      "value": "0"
+                    },
+                    {
+                      "param_type": "String",
+                      "value": ""
+                    },
+                    {
+                      "param_type": "String",
+                      "value": "Mainline"
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "value_structId": "1077936166"
+        }
+      }
+    },
+    {
+      "key": "子任务",
+      "param_type": "Dict",
+      "value": {
+        "param_type": "Dict",
+        "value": {
+          "type": "Dict",
+          "key_type": "Int32",
+          "value_type": "Struct",
+          "value": [
+            {
+              "key": {
+                "param_type": "Int32",
+                "value": "0"
+              },
+              "value": {
+                "param_type": "Struct",
+                "value": {
+                  "structId": "1077936170",
+                  "type": "Struct",
+                  "value": [
+                    {
+                      "param_type": "Dict",
+                      "value": {
+                        "type": "Dict",
+                        "key_type": "Int32",
+                        "value_type": "Struct",
+                        "value": [],
+                        "value_structId": "1077936145"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "value_structId": "1077936170"
+        }
+      }
+    }
+  ]
+}

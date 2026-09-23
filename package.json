@@ -10,6 +10,7 @@
     "push-data": "node scripts/push-data.js"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
     "@primeuix/themes": "^2.0.3",
     "@tanstack/react-virtual": "^3.13.21",
     "@types/chroma-js": "^3.1.2",
@@ -17,10 +18,12 @@
     "@vue-flow/core": "^1.48.2",
     "@zenfs/core": "^2.5.2",
     "@zenfs/dom": "^1.2.7",
+    "ag-psd": "31.0.2",
     "axios": "^1.13.6",
     "chroma-js": "^3.2.0",
     "consola": "^3.4.2",
     "core-js": "^3.8.3",
+    "create-vue": "^3.23.0",
     "genshin-impact-ugc-file-converter-web": "file:./vendor/genshin-impact-ugc-file-converter-web",
     "interactjs": "^1.10.27",
     "jsonpath-plus": "^10.3.0",
@@ -36,6 +39,7 @@
     "spark-md5": "^3.0.2",
     "undo-manager": "^1.1.1",
     "vue": "^3.2.13",
+    "vue-i18n": "^11.4.10",
     "vue-router": "^4.0.3",
     "vue-sonner": "^2.0.9",
     "vue-split-layout": "^0.0.16",

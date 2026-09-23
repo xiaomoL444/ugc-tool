@@ -1,44 +1,23 @@
 <script setup lang="ts">
-import PanelLayout from "@/components/Layout/PanelLayout.vue";
-import {
-  DialogueBlock,
-  DialogueNode,
-  DialogueValue,
-} from "./types/DialogueNode";
-import { consola } from "consola";
-import FormItemRow from "@/components/Layout/form-item-row.vue";
-import { Handle, Position } from "@vue-flow/core";
+import type { DialogueNode } from "./types/DialogueNode";
+import GroupNode from "./GroupNode.vue";
 
-const props = defineProps<{ id: string; data: DialogueNode }>();
-
-function AppendBlock() {
-  consola.trace("appendblock");
-  (props.data.blocks ??= []).push({} as DialogueBlock);
-}
-function DeleteBlock(blockIndex: number) {
-  props.data.blocks.splice(blockIndex, 1);
-}
-
-function AppendContent(blockIndex: number) {
-  (props.data.blocks[blockIndex].value ??= []).push({} as DialogueValue);
-}
-function DeleteContent(blockIndex: number, contentIndex: number) {
-  props.data.blocks[blockIndex].value.splice(contentIndex, 1);
-}
+const props = defineProps<{ id: string; node: DialogueNode }>();
 </script>
 
 <template>
+  <!-- Legacy editor retained in source history; migrated custom nodes render as Group nodes.
   <PanelLayout>
     <div class="Node">
-      {{ data.id }}
+      {{ node.id }}
       节点类型:
-      <select v-model="data.nodeType" placeholder="对话类型">
+      <select v-model="node.nodeType" placeholder="对话类型">
         <option value="Dialogue">对话</option>
         <option value="Option">选项</option>
         <option value="Branch">分支</option>
       </select>
       对话类型:
-      <select v-model="data.dialogueType" placeholder="对话类型">
+      <select v-model="node.dialogueType" placeholder="对话类型">
         <option value="Stand">站桩</option>
         <option value="Walk">边走边说</option>
         <option value="Shady">黑幕</option>
@@ -46,7 +25,7 @@ function DeleteContent(blockIndex: number, contentIndex: number) {
         <option value="CG2">CG插画文本</option>
         <option value="Center">中部文本</option>
       </select>
-      <div v-for="(block, blockIndex) in data.blocks" :key="blockIndex">
+      <div v-for="(block, blockIndex) in node.blocks" :key="blockIndex">
         <FormItemRow title="标题">
           <input type="text" v-model="block.title"
         /></FormItemRow>
@@ -112,9 +91,10 @@ function DeleteContent(blockIndex: number, contentIndex: number) {
       </div>
       <button v-on:click="AppendBlock">add block</button>
     </div>
-    <Handle type="target" :position="Position.Top" />
-    <Handle type="source" :position="Position.Bottom" />
-  </PanelLayout>
+    <Handle type="target" :position="Position.Left" />
+    <Handle type="source" :position="Position.Right" />
+  </PanelLayout> -->
+  <GroupNode :id="props.id" :node="props.node" />
 </template>
 
 <style scoped>

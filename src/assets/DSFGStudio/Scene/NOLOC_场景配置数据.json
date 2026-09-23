@@ -1,0 +1,156 @@
+{ 
+   "structId" : "1077936176", 
+   "type" : "Struct", 
+   "value" : [ 
+      { 
+         "param_type" : "Dict", 
+         "value" : { 
+            "type" : "Dict", 
+            "key_type" : "Int32", 
+            "value_type" : "Struct", 
+            "value" : [ 
+               { 
+                  "key" : { 
+                     "param_type" : "Int32", 
+                     "value" : "0"
+                  }, 
+                  "value" : { 
+                     "param_type" : "Struct", 
+                     "value" : { 
+                        "structId" : "1077936175", 
+                        "type" : "Struct", 
+                        "value" : [ 
+                           { 
+                              "param_type" : "Int32", 
+                              "value" : "0"
+                           }, 
+                           { 
+                              "param_type" : "String", 
+                              "value" : "主世界"
+                           }, 
+                           { 
+                              "param_type" : "Dict", 
+                              "value" : { 
+                                 "type" : "Dict", 
+                                 "key_type" : "Int32", 
+                                 "value_type" : "Vector3", 
+                                 "value" : [ 
+                                 ]
+                              }
+                           }
+                        ]
+                     }
+                  }
+               }
+            ], 
+            "value_structId" : "1077936175"
+         }
+      }, 
+      { 
+         "param_type" : "Dict", 
+         "value" : { 
+            "type" : "Dict", 
+            "key_type" : "Int32", 
+            "value_type" : "Struct", 
+            "value" : [ 
+               { 
+                  "key" : { 
+                     "param_type" : "Int32", 
+                     "value" : "0"
+                  }, 
+                  "value" : { 
+                     "param_type" : "Struct", 
+                     "value" : { 
+                        "structId" : "1077936174", 
+                        "type" : "Struct", 
+                        "value" : [ 
+                           { 
+                              "param_type" : "Int32", 
+                              "value" : "0"
+                           }, 
+                           { 
+                              "param_type" : "String", 
+                              "value" : "主区域"
+                           }, 
+                           { 
+                              "param_type" : "Int32", 
+                              "value" : "0"
+                           }
+                        ]
+                     }
+                  }
+               }
+            ], 
+            "value_structId" : "1077936174"
+         }
+      }, 
+      { 
+         "param_type" : "Dict", 
+         "value" : { 
+            "type" : "Dict", 
+            "key_type" : "Int32", 
+            "value_type" : "Struct", 
+            "value" : [ 
+               { 
+                  "key" : { 
+                     "param_type" : "Int32", 
+                     "value" : "0"
+                  }, 
+                  "value" : { 
+                     "param_type" : "Struct", 
+                     "value" : { 
+                        "structId" : "1077936177", 
+                        "type" : "Struct", 
+                        "value" : [ 
+                           { 
+                              "param_type" : "Dict", 
+                              "value" : { 
+                                 "type" : "Dict", 
+                                 "key_type" : "Int32", 
+                                 "value_type" : "Struct", 
+                                 "value" : [ 
+                                    { 
+                                       "key" : { 
+                                          "param_type" : "Int32", 
+                                          "value" : "0"
+                                       }, 
+                                       "value" : { 
+                                          "param_type" : "Struct", 
+                                          "value" : { 
+                                             "structId" : "1077936173", 
+                                             "type" : "Struct", 
+                                             "value" : [ 
+                                                { 
+                                                   "param_type" : "Int32", 
+                                                   "value" : "0"
+                                                }, 
+                                                { 
+                                                   "param_type" : "String", 
+                                                   "value" : "主二级区域"
+                                                }, 
+                                                { 
+                                                   "param_type" : "Int32", 
+                                                   "value" : "0"
+                                                }, 
+                                                { 
+                                                   "param_type" : "Int32", 
+                                                   "value" : "0"
+                                                }
+                                             ]
+                                          }
+                                       }
+                                    }
+                                 ], 
+                                 "value_structId" : "1077936173"
+                              }
+                           }
+                        ]
+                     }
+                  }
+               }
+            ], 
+            "value_structId" : "1077936177"
+         }
+      }
+   ]
+}

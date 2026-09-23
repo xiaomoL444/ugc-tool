@@ -1,0 +1,212 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[演出]演出", 
+   "value" : [ 
+      { 
+         "key" : "ActionGroup", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "StructList", 
+               "value" : [ 
+                  { 
+                     "key" : { 
+                        "param_type" : "Int32", 
+                        "value" : "0"
+                     }, 
+                     "value" : { 
+                        "param_type" : "StructList", 
+                        "value" : { 
+                           "structId" : "1077936159", 
+                           "value" : [ 
+                              { 
+                                 "param_type" : "Struct", 
+                                 "value" : { 
+                                    "structId" : "1077936159", 
+                                    "type" : "Struct", 
+                                    "value" : [ 
+                                       { 
+                                          "param_type" : "Dict", 
+                                          "value" : { 
+                                             "type" : "Dict", 
+                                             "key_type" : "Int32", 
+                                             "value_type" : "StructList", 
+                                             "value" : [ 
+                                             ], 
+                                             "value_structId" : "1077936160"
+                                          }
+                                       }, 
+                                       { 
+                                          "param_type" : "Dict", 
+                                          "value" : { 
+                                             "type" : "Dict", 
+                                             "key_type" : "Int32", 
+                                             "value_type" : "Float", 
+                                             "value" : [ 
+                                             ]
+                                          }
+                                       }, 
+                                       { 
+                                          "param_type" : "Int32List", 
+                                          "value" : [ 
+                                             "0", 
+                                             "1"
+                                          ]
+                                       }
+                                    ]
+                                 }
+                              }
+                           ]
+                        }
+                     }
+                  }
+               ], 
+               "value_structId" : "1077936159"
+            }
+         }
+      }, 
+      { 
+         "key" : "DialogueData", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "StructList", 
+               "value" : [ 
+                  { 
+                     "key" : { 
+                        "param_type" : "Int32", 
+                        "value" : "0"
+                     }, 
+                     "value" : { 
+                        "param_type" : "StructList", 
+                        "value" : { 
+                           "structId" : "1077936129", 
+                           "value" : [ 
+                              { 
+                                 "param_type" : "Struct", 
+                                 "value" : { 
+                                    "structId" : "1077936129", 
+                                    "type" : "Struct", 
+                                    "value" : [ 
+                                       { 
+                                          "param_type" : "String", 
+                                          "value" : ""
+                                       }, 
+                                       { 
+                                          "param_type" : "String", 
+                                          "value" : ""
+                                       }, 
+                                       { 
+                                          "param_type" : "String", 
+                                          "value" : ""
+                                       }, 
+                                       { 
+                                          "param_type" : "String", 
+                                          "value" : ""
+                                       }, 
+                                       { 
+                                          "param_type" : "Float", 
+                                          "value" : "0.00"
+                                       }, 
+                                       { 
+                                          "param_type" : "Int32List", 
+                                          "value" : [ 
+                                          ]
+                                       }, 
+                                       { 
+                                          "param_type" : "Float", 
+                                          "value" : "10.00"
+                                       }
+                                    ]
+                                 }
+                              }
+                           ]
+                        }
+                     }
+                  }
+               ], 
+               "value_structId" : "1077936129"
+            }
+         }
+      }, 
+      { 
+         "key" : "DialogueSelectData", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "StructList", 
+               "value" : [ 
+                  { 
+                     "key" : { 
+                        "param_type" : "Int32", 
+                        "value" : "0"
+                     }, 
+                     "value" : { 
+                        "param_type" : "StructList", 
+                        "value" : { 
+                           "structId" : "1077936138", 
+                           "value" : [ 
+                              { 
+                                 "param_type" : "Struct", 
+                                 "value" : { 
+                                    "structId" : "1077936138", 
+                                    "type" : "Struct", 
+                                    "value" : [ 
+                                       { 
+                                          "param_type" : "String", 
+                                          "value" : ""
+                                       }, 
+                                       { 
+                                          "param_type" : "StringList", 
+                                          "value" : [ 
+                                          ]
+                                       }, 
+                                       { 
+                                          "param_type" : "Int32List", 
+                                          "value" : [ 
+                                          ]
+                                       }, 
+                                       { 
+                                          "param_type" : "Int32List", 
+                                          "value" : [ 
+                                          ]
+                                       }
+                                    ]
+                                 }
+                              }
+                           ]
+                        }
+                     }
+                  }
+               ], 
+               "value_structId" : "1077936138"
+            }
+         }
+      }, 
+      { 
+         "key" : "CameraMovementData", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "StructList", 
+               "value" : [ 
+               ], 
+               "value_structId" : "1077936156"
+            }
+         }
+      }
+   ]
+}

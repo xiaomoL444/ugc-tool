@@ -1,0 +1,31 @@
+{ 
+   "type" : "Dict", 
+   "key_type" : "Int32", 
+   "value_type" : "Struct", 
+   "value" : [ 
+      { 
+         "key" : { 
+            "param_type" : "Int32", 
+            "value" : "0"
+         }, 
+         "value" : { 
+            "param_type" : "Struct", 
+            "value" : { 
+               "structId" : "1077936166", 
+               "type" : "Struct", 
+               "value" : [ 
+                  { 
+                     "param_type" : "Int32", 
+                     "value" : "0"
+                  }, 
+                  { 
+                     "param_type" : "String", 
+                     "value" : "TestMainQuest"
+                  }
+               ]
+            }
+         }
+      }
+   ], 
+   "value_structId" : "1077936166"
+}

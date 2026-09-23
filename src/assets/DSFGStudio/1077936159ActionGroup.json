@@ -1,0 +1,114 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[演出]ActionGroup", 
+   "value" : [ 
+      { 
+         "key" : "ActionClip", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "StructList", 
+               "value" : [ 
+                  { 
+                     "key" : { 
+                        "param_type" : "Int32", 
+                        "value" : "0"
+                     }, 
+                     "value" : { 
+                        "param_type" : "StructList", 
+                        "value" : { 
+                           "structId" : "1077936160", 
+                           "value" : [ 
+                              { 
+                                 "param_type" : "Struct", 
+                                 "value" : { 
+                                    "structId" : "1077936160", 
+                                    "type" : "Struct", 
+                                    "value" : [ 
+                                       { 
+                                          "param_type" : "String", 
+                                          "value" : ""
+                                       }, 
+                                       { 
+                                          "param_type" : "Float", 
+                                          "value" : "0.00"
+                                       }, 
+                                       { 
+                                          "param_type" : "StringList", 
+                                          "value" : [ 
+                                          ]
+                                       }, 
+                                       { 
+                                          "param_type" : "Int32List", 
+                                          "value" : [ 
+                                          ]
+                                       },
+                                       {
+                                          "param_type" : "GuidList",
+                                          "value" : []
+                                       },
+                                       {
+                                          "param_type" : "ConfigReferenceList",
+                                          "value" : []
+                                       },
+                                       {
+                                          "param_type" : "EntityReferenceList",
+                                          "value" : []
+                                       },
+                                       {
+                                          "param_type" : "FloatList",
+                                          "value" : []
+                                       }
+                                    ]
+                                 }
+                              }
+                           ]
+                        }
+                     }
+                  }
+               ], 
+               "value_structId" : "1077936160"
+            }
+         }
+      }, 
+      { 
+         "key" : "Timer", 
+         "param_type" : "Dict", 
+         "value" : { 
+            "param_type" : "Dict", 
+            "value" : { 
+               "type" : "Dict", 
+               "key_type" : "Int32", 
+               "value_type" : "Float", 
+               "value" : [ 
+                  { 
+                     "key" : { 
+                        "param_type" : "Int32", 
+                        "value" : "0"
+                     }, 
+                     "value" : { 
+                        "param_type" : "Float", 
+                        "value" : "0.00"
+                     }
+                  }
+               ]
+            }
+         }
+      }, 
+      { 
+         "key" : "NextGroup", 
+         "param_type" : "Int32List", 
+         "value" : { 
+            "param_type" : "Int32List", 
+            "value" : [ 
+               "0", 
+               "1"
+            ]
+         }
+      }
+   ]
+}

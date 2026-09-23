@@ -7,20 +7,18 @@ import type { EffectItem } from "./types/EffectData";
 const oss = createOss("EffectPlayer");
 function createMedia(item: EffectItem) {
   const state = reactive({ ready: false, audioBlocked: false, standFailed: false, tailFailed: false, audioFailed: false });
-  const title = item.title || item.name || item.id;
-  function video(path: string | undefined, label: string) {
+  function video(path: string | undefined) {
     if (!path) return null;
     const element = document.createElement("video");
     element.muted = true;
     element.defaultMuted = true;
     element.playsInline = true;
     element.preload = "auto";
-    element.setAttribute("aria-label", title + label);
     element.src = oss.path("webm", path);
     return element;
   }
-  const stand = video(item.standPath, "主特效");
-  const tail = video(item.tailPath, "拖尾特效");
+  const stand = video(item.standPath);
+  const tail = video(item.tailPath);
   const audio = item.hasAudio && item.audioPath ? document.createElement("audio") : null;
   if (stand) {
     stand.onerror = () => { state.standFailed = true; };

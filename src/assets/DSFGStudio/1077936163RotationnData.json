@@ -1,0 +1,35 @@
+{ 
+   "type" : "Struct", 
+   "struct_ype" : "basic", 
+   "name" : "[运镜]RotationData", 
+   "value" : [ 
+      { 
+         "key" : "type", 
+         "param_type" : "String", 
+         "value" : { 
+            "param_type" : "String", 
+            "value" : ""
+         }
+      }, 
+      { 
+         "key" : "slot", 
+         "param_type" : "StructList", 
+         "value" : { 
+            "param_type" : "StructList", 
+            "value" : { 
+               "structId" : "1077936164", 
+               "value" : [ 
+               ]
+            }
+         }
+      }, 
+      { 
+         "key" : "snapToTarget", 
+         "param_type" : "Bool", 
+         "value" : { 
+            "param_type" : "Bool", 
+            "value" : "False"
+         }
+      }
+   ]
+}

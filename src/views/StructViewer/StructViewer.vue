@@ -761,7 +761,7 @@ onBeforeMount(async () => {
     const oldSave = localStorage.getItem("xiaomoL444-Save");
     if (oldSave != null) {
       const workspaceName = "/旧数据工作区";
-      storage.mkdir(workspaceName);
+      await storage.mkdir(workspaceName);
 
       const oldSaveJson = JSON.parse(oldSave);
       const advanceDataStruct = oldSaveJson["advancedDataStruct"];
@@ -786,7 +786,7 @@ onBeforeMount(async () => {
         }),
       );
     } else {
-      storage.mkdir("/默认工作区");
+      await storage.mkdir("/默认工作区");
     }
   }
 

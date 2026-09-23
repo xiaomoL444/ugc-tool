@@ -1,10 +1,10 @@
 <template>
-  <SectionLayout title="特效预览">
+  <SectionLayout :title="t('effectPlayer.title')">
     <div class="browser">
       <div class="toolbar">
         <div class="toolbar-row">
-          <label class="search-label" for="effect-search">搜索（可搜索 id、名称、tag）：</label>
-          <input id="effect-search" v-model="search" type="search" autocomplete="off" placeholder="例如 10001001 / 冰元素受击 / 受击" />
+          <label class="search-label" for="effect-search">{{ t('effectPlayer.search.label') }}</label>
+          <input id="effect-search" v-model="search" type="search" autocomplete="off" :placeholder="t('effectPlayer.search.placeholder')" />
         </div>
 
         <div class="toolbar-row">
@@ -25,17 +25,17 @@
               class="tab"
               :class="{ active: audioFilter === tab.value }"
               :aria-pressed="audioFilter === tab.value"
-              title="再次点击取消音效筛选"
+              :title="t('effectPlayer.audio.clearHint')"
               type="button"
               @click="audioFilter = audioFilter === tab.value ? 'all' : tab.value"
             >
               {{ tab.label }}
             </button>
             <label class="version-filter">
-              游戏版本
-              <select v-model="versionFilter" aria-label="游戏版本">
-                <option value="all">全部版本</option>
-                <option v-for="version in gameVersions" :key="version" :value="version">{{ version || '未标注版本' }}</option>
+              {{ t('effectPlayer.version.label') }}
+              <select v-model="versionFilter" :aria-label="t('effectPlayer.version.label')">
+                <option value="all">{{ t('effectPlayer.version.all') }}</option>
+                <option v-for="version in gameVersions" :key="version" :value="version">{{ version || t('effectPlayer.version.unspecified') }}</option>
               </select>
             </label>
           </div>
@@ -46,8 +46,8 @@
       </div>
 
       <div class="grid-wrap">
-        <div v-if="loading" class="status-panel">正在加载特效...</div>
-        <div v-else-if="filteredEffects.length === 0" class="status-panel">未找到匹配的特效</div>
+        <div v-if="loading" class="status-panel">{{ t('effectPlayer.loading') }}</div>
+        <div v-else-if="filteredEffects.length === 0" class="status-panel">{{ t('effectPlayer.empty') }}</div>
         <VVirtualList
           v-else
           class="effect-list"
@@ -65,17 +65,17 @@
                 data-effect-card
                 @click="openModal(effect)"
               >
-                <button class="open-preview" type="button" :aria-label="`预览 ${effectName(effect)}（${effect.id}）`" @click.stop="openModal(effect)">
-                  <EffectMedia :item="effect" :suspended="Boolean(selectedEffect)" />
+                <button class="open-preview" type="button" :aria-label="t('effectPlayer.preview', { name: effectName(effect), id: effect.id })" @click.stop="openModal(effect)">
+                  <EffectMedia :item="effect" :title="effectName(effect)" :suspended="Boolean(selectedEffect)" />
                 </button>
                 <div class="effect-info">
-                  <button class="effect-name card-copy" type="button" :title="`点击复制名称：${effectName(effect)}`" @click.stop="Clipboard(effectName(effect))">
+                  <button class="effect-name card-copy" type="button" :title="t('effectPlayer.copyNamedEffect', { name: effectName(effect) })" @click.stop="Clipboard(effectName(effect))">
                     {{ effectName(effect) }}
                   </button>
-                <button class="effect-id card-copy" type="button" title="点击复制配置 ID" @click.stop="Clipboard(String(effect.id))">配置ID: {{ effect.id }}</button>
+                <button class="effect-id card-copy" type="button" :title="t('effectPlayer.copyId')" @click.stop="Clipboard(String(effect.id))">{{ t('effectPlayer.configId', { id: effect.id }) }}</button>
                 <div class="effect-meta">
-                  <span v-if="effect.duration >= 0">{{ effect.duration }}s</span>
-                  <span>{{ effect.isLoop ? "循环" : "限时" }}</span>
+                  <span v-if="effect.duration >= 0">{{ formatDuration(effect) }}</span>
+                  <span>{{ t(effect.isLoop ? 'effectPlayer.loop.shortLoop' : 'effectPlayer.loop.shortOnce') }}</span>
                 </div>
                 <div class="card-tags">
                   <span
@@ -107,16 +107,16 @@
   <Teleport to="body">
     <div v-if="selectedEffect" class="modal" @click.self="closeModal">
       <div class="modal-content">
-        <button class="close-button" type="button" aria-label="关闭" @click="closeModal">&times;</button>
+        <button class="close-button" type="button" :aria-label="t('effectPlayer.close')" @click="closeModal">&times;</button>
         <div class="modal-body">
-          <EffectMedia :item="selectedEffect" variant="modal" />
+          <EffectMedia :item="selectedEffect" :title="effectName(selectedEffect)" variant="modal" />
           <div class="modal-info">
             <h2 class="modal-title">
-              <button class="copy-name" type="button" title="点击复制名称" @click="Clipboard(effectName(selectedEffect))">{{ effectName(selectedEffect) }}</button>
+              <button class="copy-name" type="button" :title="t('effectPlayer.copyName')" @click="Clipboard(effectName(selectedEffect))">{{ effectName(selectedEffect) }}</button>
             </h2>
-            <button class="modal-id" type="button" title="点击复制配置 ID" @click="Clipboard(String(selectedEffect.id))">配置ID: {{ selectedEffect.id }}</button>
+            <button class="modal-id" type="button" :title="t('effectPlayer.copyId')" @click="Clipboard(String(selectedEffect.id))">{{ t('effectPlayer.configId', { id: selectedEffect.id }) }}</button>
             <p class="modal-meta">
-              时长：{{ formatDuration(selectedEffect) }}　{{ selectedEffect.isLoop ? "循环特效" : "限时特效" }}
+              {{ t('effectPlayer.duration.description', { duration: formatDuration(selectedEffect), type: t(selectedEffect.isLoop ? 'effectPlayer.loop.loop' : 'effectPlayer.loop.once') }) }}
             </p>
             <div class="modal-tags">
               <button
@@ -140,12 +140,17 @@
 <script setup lang="ts">
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import { Clipboard } from "@/utils/clipboard";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue";
+import { createCachedText } from "@/i18n/cachedText";
+import { useI18n } from "vue-i18n";
+import { loadOssTranslations } from "@/i18n";
 import { toast } from "vue-sonner";
 import { VVirtualList } from "vueuc";
 import EffectMedia from "./EffectMedia.vue";
 import EffectTagFilter from "./EffectTagFilter.vue";
 import { buildEffectTagGroups, matchesEffectTagGroups } from "./tagFilters";
+import { buildEffectSearchIndex } from "./searchIndex";
+import { effectNameKey, effectTagKey } from "./resourceKeys";
 import { createOss } from "@/utils/oss";
 import {
   EffectDataFile,
@@ -154,58 +159,68 @@ import {
   EffectRow,
 } from "./types/EffectData";
 
+const composer = useI18n({ useScope: "global" });
+const { t, messages } = composer;
+const resourceText = createCachedText(composer);
 const oss = createOss("EffectPlayer");
 const CARD_TAG_LIMIT = 4;
 const itemSize = 292;
 
-const loopTabs: { value: EffectLoopFilter; label: string }[] = [
-  { value: "all", label: "全部特效" },
-  { value: "once", label: "限时特效" },
-  { value: "loop", label: "循环特效" },
-];
+const loopTabs = computed<{ value: EffectLoopFilter; label: string }[]>(() => [
+  { value: "all", label: t("effectPlayer.loop.all") },
+  { value: "once", label: t("effectPlayer.loop.once") },
+  { value: "loop", label: t("effectPlayer.loop.loop") },
+]);
 
 const loading = ref(true);
-const audioTabs = [
-  { value: "with", label: "有音效" },
-  { value: "without", label: "无音效" },
-] as const;
+const audioTabs = computed(() => [
+  { value: "with", label: t("effectPlayer.audio.with") },
+  { value: "without", label: t("effectPlayer.audio.without") },
+] as const);
 const audioFilter = ref<"all" | "with" | "without">("all");
 const versionFilter = ref("all");
 const search = ref("");
 const loopFilter = ref<EffectLoopFilter>("all");
 const selectedTagIds = ref<number[]>([]);
-const selectedEffect = ref<EffectItem | null>(null);
-const effectData = ref<Record<string, EffectItem>>({});
-const tagData = ref<Record<string, string>>({});
-const tagCategories = ref<Record<string, number[]>>({});
+const selectedEffect = shallowRef<EffectItem | null>(null);
+// Catalogs are replaced as a whole; avoid proxying thousands of immutable records.
+const effectData = shallowRef<Record<string, EffectItem>>({});
+const tagData = shallowRef<Record<string, string>>({});
+const sourceTagData = shallowRef<Record<string, string>>({});
+const tagCategories = shallowRef<Record<string, number[]>>({});
+const effects = computed(() => Object.values(effectData.value));
 const columns = ref(4);
-const gameVersions = computed(() => [...new Set(Object.values(effectData.value).map((item) => item.giVersion?.trim() || ""))]
+const gameVersions = computed(() => [...new Set(effects.value.map((item) => item.giVersion?.trim() || ""))]
   .sort((a, b) => b.localeCompare(a, undefined, { numeric: true })));
 
-const tagGroups = computed(() =>
-  buildEffectTagGroups(tagData.value, tagCategories.value),
-);
+const rawTagGroups = computed(() => buildEffectTagGroups(tagData.value, tagCategories.value));
+const tagGroups = computed(() => rawTagGroups.value
+  .map((group) => ({
+    ...group,
+    name: resourceText(group.id === "uncategorized" ? "effectPlayer.filter.uncategorized" : group.name),
+    tags: group.tags.map((tag) => ({ ...tag, name: tagName(tag.id) })),
+  })));
+
+const searchIndex = computed(() => buildEffectSearchIndex(
+  effects.value, tagData.value, Object.values(messages.value), sourceTagData.value,
+));
 
 const searchedEffects = computed(() => {
   const q = search.value.trim().toLowerCase();
-  return Object.values(effectData.value).filter((item) => {
+  return effects.value.filter((item) => {
     if (loopFilter.value === "loop" && !item.isLoop) return false;
     if (loopFilter.value === "once" && item.isLoop) return false;
     if (audioFilter.value === "with" && !item.hasAudio) return false;
     if (audioFilter.value === "without" && item.hasAudio) return false;
     if (versionFilter.value !== "all" && (item.giVersion?.trim() || "") !== versionFilter.value) return false;
     if (!q) return true;
-    if (String(item.id).toLowerCase().includes(q)) return true;
-    if (effectName(item).toLowerCase().includes(q)) return true;
-    return (item.tagList ?? []).some((tagId) =>
-      tagName(tagId).toLowerCase().includes(q),
-    );
+    return searchIndex.value.get(String(item.id))?.includes(q) ?? false;
   });
 });
 
-const filteredEffects = computed(() => searchedEffects.value.filter((item) =>
-  matchesEffectTagGroups(item, selectedTagIds.value, tagGroups.value),
-));
+const filteredEffects = computed(() => selectedTagIds.value.length
+  ? searchedEffects.value.filter((item) => matchesEffectTagGroups(item, selectedTagIds.value, rawTagGroups.value))
+  : searchedEffects.value);
 
 const rows = computed<EffectRow[]>(() => {
   const list = filteredEffects.value;
@@ -224,13 +239,13 @@ const statsText = computed(() => {
   const total = Object.keys(effectData.value).length;
   const shown = filteredEffects.value.length;
   const label =
-    (loopTabs.find((tab) => tab.value === loopFilter.value)?.label ?? "特效") +
-    (audioFilter.value === "all" ? "" : ` · ${audioTabs.find((tab) => tab.value === audioFilter.value)?.label}`) +
-    (versionFilter.value === "all" ? "" : ` · ${versionFilter.value || '未标注版本'}`);
+    (loopTabs.value.find((tab) => tab.value === loopFilter.value)?.label ?? t("effectPlayer.loop.all")) +
+    (audioFilter.value === "all" ? "" : ` · ${audioTabs.value.find((tab) => tab.value === audioFilter.value)?.label}`) +
+    (versionFilter.value === "all" ? "" : ` · ${versionFilter.value || t('effectPlayer.version.unspecified')}`);
   if (shown === total && !search.value.trim() && selectedTagIds.value.length === 0) {
-    return `${label} 共 ${total} 个`;
+    return t("effectPlayer.stats.total", { label, total });
   }
-  return `${label} 显示 ${shown} / ${total} 个`;
+  return t("effectPlayer.stats.filtered", { label, shown, total });
 });
 
 onMounted(async () => {
@@ -244,9 +259,16 @@ onMounted(async () => {
       Object.entries(rawEffects).filter(([, item]) => Boolean(item.icon?.trim())),
     );
     tagData.value = data.TagData ?? {};
+    sourceTagData.value = data.sourceTagData ?? {};
     tagCategories.value = data.category ?? {};
+    // Resource translations are optional and do not block the data/media list.
+    void loadOssTranslations("EffectPlayer", "effectPlayer").then((results) => {
+      for (const result of results) {
+        if (result.status === "failed") console.warn(`Effect translations could not be loaded (${result.locale})`, result.error);
+      }
+    });
   } catch (error) {
-    toast.error("特效数据加载失败");
+    toast.error(t("effectPlayer.loadFailed"));
     console.error(error);
   } finally {
     loading.value = false;
@@ -259,16 +281,16 @@ onUnmounted(() => {
 });
 
 function effectName(item: EffectItem) {
-  return item.title || item.name || "未命名特效";
+  return resourceText(effectNameKey(item));
 }
 
 function tagName(tagId: number) {
-  return tagData.value[String(tagId)] || `Tag ${tagId}`;
+  return resourceText(effectTagKey(tagId, tagData.value[String(tagId)]));
 }
 
 function formatDuration(item: EffectItem) {
-  if (item.duration < 0) return "循环";
-  return `${item.duration}s`;
+  if (item.duration < 0) return t("effectPlayer.loop.shortLoop");
+  return t("effectPlayer.duration.seconds", { seconds: item.duration });
 }
 
 function visibleTags(item: EffectItem) {
@@ -345,6 +367,12 @@ function updateColumns() {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.toolbar-row input {
+  flex: 1;
+  min-width: min(240px, 100%);
 }
 
 .toolbar-row input {
@@ -353,8 +381,7 @@ function updateColumns() {
 }
 
 .search-label {
-  flex-shrink: 0;
-  white-space: nowrap;
+  text-align: left;
 }
 
 .tabs {
@@ -391,6 +418,7 @@ function updateColumns() {
   margin-left: auto;
   color: #667;
   font-size: 0.9rem;
+  text-align: right;
 }
 
 .tag-chip {

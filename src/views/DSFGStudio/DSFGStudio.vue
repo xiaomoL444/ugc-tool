@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import "./editorTypography.css";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 
@@ -20,11 +21,21 @@ import SelectableList from "@/components/UI/List/SelectableList.vue";
 import { ProjectID } from "./constant/constant";
 import CameraEditor from "./components/editormap/CameraEditor.vue";
 import DialogueEditor from "./components/DialogueEditor/DialogueEditor.vue";
+import QuestEditor from "./components/QuestEditor/QuestEditor.vue";
+import WalkTalkEditor from "./components/WalkTalkEditor/WalkTalkEditor.vue";
+import EntityPresetEditor from "./components/EntityPresetEditor/EntityPresetEditor.vue";
+import SceneEditor from "./components/SceneEditor/SceneEditor.vue";
+import { SCENE_FILE, createSceneProject, encodeSceneProject } from "./components/SceneEditor/sceneProject";
 
 const storage = inject<StorageClass>("storage")!.setProject(ProjectID); //储存区
 
 const workspaceIds = ref<string[]>([]); //工作区的所有id
 const selectedWorkspaceId = ref(""); //选择的工作区
+const editorRef = ref<{ prepareToLeave: () => Promise<void> }>();
+const switchingEditor = ref(false);
+const creatingWorkspace = ref(false);
+const newWorkspaceName = ref("");
+const addingWorkspace = ref(false);
 provide("selectedWorkspaceId", selectedWorkspaceId);
 
 /**
@@ -38,7 +49,9 @@ async function RefreshWorkspace() {
  * 添加工作区
  */
 async function AddWorkspace(undoGroupId = "", isForce = false) {
-  let inputId = prompt("工作区名称：", "");
+  if (addingWorkspace.value) return;
+  const inputId = newWorkspaceName.value.trim();
+  if (/[<>:"/\\|?*\u0000-\u001f]/.test(inputId) || inputId === "." || inputId === "..") { toast.warning("工作区名称不能包含路径或特殊字符"); return; }
   // const name = `新建工作区${crypto.randomUUID()}`;
   if (workspaceIds.value.some((q) => q == inputId)) {
     toast.warning("已有相同名称的工作区，无法重复添加");
@@ -50,31 +63,41 @@ async function AddWorkspace(undoGroupId = "", isForce = false) {
   }
 
   const workspacePath = `/${inputId}`;
-  await storage.mkdir(workspacePath);
-
-  RefreshWorkspace();
+  addingWorkspace.value = true;
+  try {
+    if (!await storage.exists(workspacePath)) await storage.mkdir(workspacePath);
+    if (!await storage.exists(`${workspacePath}/${SCENE_FILE}`)) await storage.writeFile(`${workspacePath}/${SCENE_FILE}`, encodeSceneProject(createSceneProject()));
+    await RefreshWorkspace();
+    creatingWorkspace.value = false; newWorkspaceName.value = "";
+  } catch (error) { consola.error(error); toast.error("工作区初始化失败，请重试"); }
+  finally { addingWorkspace.value = false; }
 }
 /**
  * 删除工作区
  * @param index 删除的工作区的序号
  */
 async function DelectWorkspace(undoGroupId = "", isForce = false) {
+  if (switchingEditor.value) return;
   undoGroupId = undoGroupId || crypto.randomUUID();
 
   if (selectedWorkspaceId.value == "") {
     toast.warning("未选择任何工作区");
+    return;
   }
 
   if (
     isForce ||
     confirm(`确认要删除 工作区:【${selectedWorkspaceId.value}】 嘛？`)
   ) {
-    const workspaceId = selectedWorkspaceId.value;
-    const trashPath = await storage.trash(`/${workspaceId}`);
-
-    ChangeWorkspace("", undoGroupId, isForce);
-
-    await RefreshWorkspace();
+    switchingEditor.value = true;
+    try {
+      await editorRef.value?.prepareToLeave();
+      const workspaceId = selectedWorkspaceId.value;
+      await storage.setProject(ProjectID).trash(`/${workspaceId}`);
+      selectedWorkspaceId.value = "";
+      await RefreshWorkspace();
+    } catch (error) { consola.error(error); toast.error("工作区删除失败，当前编辑内容已保留"); }
+    finally { switchingEditor.value = false; }
   }
 }
 
@@ -85,6 +108,7 @@ async function DelectWorkspace(undoGroupId = "", isForce = false) {
  * @param isForce 是否强制切换
  */
 async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
+  if (switchingEditor.value) return;
   undoGroupId = undoGroupId || crypto.randomUUID();
   consola.info(`切换工作区：${id}`);
 
@@ -95,14 +119,30 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
     return;
   }
 
-  selectedWorkspaceId.value = id;
+  switchingEditor.value = true;
+  try {
+    await editorRef.value?.prepareToLeave();
+    selectedWorkspaceId.value = id;
+  } catch (error) { consola.error(error); toast.error("保存失败，暂未切换工作区"); }
+  finally { switchingEditor.value = false; }
+}
+
+async function ChangeEditorKind(kind: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene") {
+  if (switchingEditor.value || selectedFunction.value === kind) return;
+  switchingEditor.value = true;
+  try {
+    await editorRef.value?.prepareToLeave();
+    selectedFunction.value = kind;
+  } catch (error) { consola.error(error); toast.error("保存失败，暂未切换编辑器"); }
+  finally { switchingEditor.value = false; }
 }
 
 onBeforeMount(async () => {
   //如果工作区的长度为0则执行初始化操作
   if ((await storage.getFolders("/")).length == 0) {
     consola.info("结构体编辑页面无存档，进行初始创建中");
-    storage.mkdir("/默认工作区");
+    await storage.mkdir("/默认工作区");
+    await storage.writeFile(`/默认工作区/${SCENE_FILE}`, encodeSceneProject(createSceneProject()));
   }
   //加载完毕后触发一次刷新工作区
   await ChangeWorkspace((await storage.getFolders("/"))[0], "", true);
@@ -111,51 +151,48 @@ onBeforeMount(async () => {
   selectedFunction.value = "Dialogue";
 });
 
-const selectedFunction = ref("");
+const selectedFunction = ref<"Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene">("Dialogue");
 function onSelectFunction() {}
 
 const functionViewMap: Record<string, Component> = {
   Dialogue: DialogueEditor,
-  Camera: CameraEditor,
+  Quest: QuestEditor,
+  WalkTalk: WalkTalkEditor,
+  EntityPresets: EntityPresetEditor,
+  Scene: SceneEditor,
 };
 </script>
 
 <template>
-  <Splitter style="height: 100%; width: 100%">
-    <SplitterPanel :size="15">
-      <SectionLayout title="工作区选择" class="top">
+  <Splitter class="dsfg-typography" style="height: 100%; width: 100%" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor">
+    <SplitterPanel :size="10">
+      <SectionLayout title="工作区" class="top">
+        <form v-if="creatingWorkspace" class="workspace-create" @submit.prevent="AddWorkspace()">
+          <input v-model="newWorkspaceName" aria-label="工作区名称" placeholder="工作区名称" :disabled="addingWorkspace" />
+          <button type="submit" :disabled="addingWorkspace">创建</button>
+          <button type="button" :disabled="addingWorkspace" @click="creatingWorkspace = false">取消</button>
+        </form>
         <SelectableList
           @select="ChangeWorkspace"
-          @add="AddWorkspace"
+          @add="creatingWorkspace = true"
           @delete="DelectWorkspace"
           :values="workspaceIds"
           :selected-value="selectedWorkspaceId"
         />
       </SectionLayout>
     </SplitterPanel>
-    <SplitterPanel :size="15"
-      ><SectionLayout title="功能选择">
-        <select
-          v-model="selectedFunction"
-          @change="onSelectFunction"
-          placeholder="选择功能"
-        >
-          <option value="Dialogue">对话</option>
-          <option value="Animation">动画</option>
-          <option value="Camera">运镜</option>
-        </select></SectionLayout
-      ></SplitterPanel
-    >
-
-    <SplitterPanel :size="85">
-      <SectionLayout>
-        <component :is="functionViewMap[selectedFunction]"></component>
+    <SplitterPanel :size="90">
+      <SectionLayout title="DSFG Studio">
+        <component v-if="selectedWorkspaceId" ref="editorRef" :is="functionViewMap[selectedFunction]"
+          :key="`${selectedWorkspaceId}:${selectedFunction}`" :editor-kind="selectedFunction"
+          @update:editor-kind="ChangeEditorKind" />
       </SectionLayout>
     </SplitterPanel>
   </Splitter>
 </template>
 
 <style scoped>
+.editor-switching { pointer-events: none; opacity: .75; }
 .timeline-editor {
   height: 100%;
   width: 100%;
@@ -211,4 +248,7 @@ const functionViewMap: Record<string, Component> = {
 .right {
   right: -4px;
 }
+.workspace-create { display:flex; flex-wrap:wrap; gap:6px; padding:10px; }
+.workspace-create input { box-sizing:border-box; width:100%; min-width:0; padding:7px; border:1px solid #cbd7e6; border-radius:5px; }
+.workspace-create button { padding:6px 10px; border:1px solid #cbd7e6; border-radius:5px; background:#edf4fd; color:#315f98; cursor:pointer; }
 </style>

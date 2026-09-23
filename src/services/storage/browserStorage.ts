@@ -1,76 +1,91 @@
-import { configure, configureSingle, fs } from "@zenfs/core"; // You can also use the default export
-import { FileChangeEvent, StorageProvider } from "./types";
+import { configureSingle, fs } from "@zenfs/core";
 import { IndexedDB } from "@zenfs/dom";
-import { consola } from "consola";
 import path from "path";
-// const localStorageKey = "xiaomoL444's Storage";
+import type { StorageSnapshot, SyncStorageProvider } from "./types";
 
-export class BrowserStorage implements StorageProvider {
-  storageName: string;
+const browserWriteLock = "ugc-tools.browser-storage.write";
+let initialization: Promise<void> | undefined;
+let pendingWrite: Promise<unknown> = Promise.resolve();
 
-  constructor() {
-    this.storageName = "本地浏览器缓存";
+async function revision(data: string): Promise<string> {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+
+function mutate<T>(action: () => Promise<T>): Promise<T> {
+  const run = async (): Promise<T> => typeof navigator !== "undefined" && navigator.locks
+    ? navigator.locks.request(browserWriteLock, action) : action();
+  const result = pendingWrite.then(run);
+  pendingWrite = result.catch(() => undefined);
+  return result;
+}
+
+export class BrowserStorage implements SyncStorageProvider {
+  readonly storageName = "本地浏览器缓存";
+
+  async init(): Promise<void> {
+    // Reuse the mount when the browser is already editing a project.
+    initialization ??= configureSingle({ backend: IndexedDB }).catch(error => {
+      initialization = undefined;
+      throw error;
+    });
+    await initialization;
   }
+
+  async isAvailable(): Promise<boolean> { return true; }
+  async exists(filePath: string): Promise<boolean> { return fs.promises.exists(filePath); }
   async rename(filePath: string, newName: string): Promise<void> {
-    const dir = path.dirname(filePath);
-    const newPath = `${dir}/${newName}`;
-    await fs.promises.rename(filePath, newPath);
+    await mutate(() => fs.promises.rename(filePath, path.join(path.dirname(filePath), newName)));
   }
   async mv(oldPath: string, newPath: string): Promise<void> {
-    await this.ensureDir(newPath);
-
-    // 取原文件名/文件夹名
-    const name = path.basename(oldPath);
-
-    // 拼接成目标路径
-    const dest = path.join(newPath, name);
-
-    // 确保目标父目录存在
-    await this.ensureDir(dest);
-
-    await fs.promises.rename(oldPath, dest);
-    return;
+    await mutate(async () => {
+      await fs.promises.mkdir(newPath, { recursive: true });
+      await fs.promises.rename(oldPath, path.join(newPath, path.basename(oldPath)));
+    });
+  }
+  async getFolders(filePath: string): Promise<string[]> {
+    if (!(await this.exists(filePath))) return [];
+    return (await fs.promises.readdir(filePath, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name);
+  }
+  async getFiles(filePath: string): Promise<string[]> {
+    if (!(await this.exists(filePath))) return [];
+    return (await fs.promises.readdir(filePath, { withFileTypes: true })).filter(entry => entry.isFile()).map(entry => entry.name);
+  }
+  async readdir(filePath: string): Promise<string[]> { return fs.promises.readdir(filePath); }
+  async mkdir(filePath: string): Promise<void> {
+    await mutate(async () => { await fs.promises.mkdir(filePath, { recursive: true }); });
+  }
+  async ensureDir(filePath: string): Promise<void> { await this.mkdir(path.dirname(filePath)); }
+  async readFile(filePath: string): Promise<string> { return fs.promises.readFile(filePath, "utf8"); }
+  async writeFile(filePath: string, data: string): Promise<void> {
+    await mutate(async () => {
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, data, "utf8");
+    });
   }
 
-  async exists(path: string): Promise<boolean> {
-    return fs.promises.exists(path);
-  }
-  async init(): Promise<void> {
-    consola.debug("初始化本地浏览器储存");
-    await configureSingle({ backend: IndexedDB });
-  }
-  async getFolders(path: string): Promise<string[]> {
-    if (!(await this.exists(path))) return [];
-    const entries = await fs.promises.readdir(path, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-  }
-  async getFiles(path: string): Promise<string[]> {
-    if (!(await this.exists(path))) return [];
-    const entries = fs.readdirSync(path, { withFileTypes: true });
-    return entries.filter((e) => e.isFile()).map((e) => e.name);
-  }
-  async isAvailable(): Promise<boolean> {
-    return true;
-  }
-  async mkdir(path: string): Promise<void> {
-    fs.mkdirSync(path, { recursive: true });
-  }
-  async writeFile(path: string, data: string): Promise<void> {
-    this.ensureDir(path);
-    fs.writeFileSync(path, data);
-  }
-  async readFile(path: string): Promise<string> {
-    return fs.readFileSync(path, "utf8");
-  }
-  async readdir(path: string): Promise<string[]> {
-    return fs.readdirSync(path);
-  }
-  onChange?(cb: (e: FileChangeEvent) => void): void {
-    // throw new Error("Method not implemented.");
+  async readSnapshot(filePath: string): Promise<StorageSnapshot | null> {
+    try {
+      const data = await this.readFile(filePath);
+      return { data, revision: await revision(data) };
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") return null;
+      throw error;
+    }
   }
 
-  async ensureDir(filePath: string): Promise<void> {
-    const dir = path.dirname(filePath);
-    await this.mkdir(dir);
+  async writeFileIfUnchanged(filePath: string, data: string, expectedRevision: string | null): Promise<void> {
+    await mutate(async () => {
+      const before = await this.readSnapshot(filePath);
+      if ((before?.revision ?? null) !== expectedRevision) throw new Error("浏览器文件已变化，请重新比较：" + filePath);
+      if (before?.data === data) return;
+      if (before) {
+        const backup = "/.ugc-sync-backups/" + crypto.randomUUID() + filePath;
+        await fs.promises.mkdir(path.dirname(backup), { recursive: true });
+        await fs.promises.writeFile(backup, before.data, "utf8");
+      }
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, data, "utf8");
+    });
   }
 }

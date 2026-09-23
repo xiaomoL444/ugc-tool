@@ -17,6 +17,7 @@ const routes = [
     component: () => import(`@/views/${r.name}/${r.name}.vue`),
     meta: {
       title: r.title,
+      titleKey: r.titleKey,
     },
   })),
   {
@@ -25,6 +26,7 @@ const routes = [
     component: HomePage,
     meta: {
       title: "标题页",
+      titleKey: "app.home",
     },
   },
   {
@@ -86,10 +88,6 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(process.env.BASE_URL),
   routes,
-});
-
-router.afterEach((to) => {
-  document.title = (to.meta.title as string) || "默认标题";
 });
 
 export default router;
