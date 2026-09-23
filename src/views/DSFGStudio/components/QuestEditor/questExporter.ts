@@ -88,7 +88,8 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
     value.value["desc"].setValue(sub.description);
     value.value["任务单位状态"].setValue(sub.unitState);
     value.value["pos"].setValue(sub.investigationPoint);
-    value.value["belondSceneId"].setValue(String(sub.belondSceneId));
+    // 结构体沿用 belondPrimaryId，值为一级区域 ID，不能替换成该区域的 worldId。
+    value.value["belondPrimaryId"].setValue(String(sub.belondPrimaryId));
     value.value["调查点范围"].setValue(String(sub.investigationRange));
     value.value["隐藏任务"].setValue(sub.hidden ? "True" : "False");
     value.value["后续任务"].setValue(sub.nextQuestIds.map((id) => String(id ?? -1)));

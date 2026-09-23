@@ -1,4 +1,6 @@
 {
+  "app.soundEffectPlayerTitle": "効果音プレイヤー",
+  "app.soundEffectPlayerDescription": "星々の幻境のバージョン 7.0 より前の効果音をオンラインで再生できます。",
   "app.language": "言語",
   "app.navigation": "ナビゲーション",
   "app.openNavigation": "ナビゲーションを開く",

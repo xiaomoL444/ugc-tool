@@ -2,7 +2,7 @@ import type { QuestChapter, QuestMain, QuestProject, QuestStructIds, QuestSub } 
 
 export const DEFAULT_QUEST_MAIN_STYLE = "Mainline";
 export const DEFAULT_QUEST_SUB_FIELDS = {
-  failureQuestId: -1, finishMainQuest: false, questProgress: 0, belondSceneId: 0,
+  failureQuestId: -1, finishMainQuest: false, questProgress: 0, belondPrimaryId: 0,
 } as const;
 
 export const DEFAULT_QUEST_STRUCT_IDS: QuestStructIds = {
@@ -120,6 +120,10 @@ export function decodeQuestProject(raw: string): QuestProject {
     }
     if (Array.isArray(project.subQuests)) for (const sub of project.subQuests) {
       if (!record(sub)) continue;
+      if (Object.prototype.hasOwnProperty.call(sub, "belondSceneId")) {
+        if (!Object.prototype.hasOwnProperty.call(sub, "legacyBelondSceneId")) sub.legacyBelondSceneId = sub.belondSceneId;
+        delete sub.belondSceneId;
+      }
       if (record(sub.investigationPoint) && typeof sub.investigationPoint.vector3 === "string") {
         sub.legacyInvestigationPoint = sub.investigationPoint;
         sub.investigationPoint = sub.investigationPoint.vector3;
@@ -211,7 +215,7 @@ export function validateQuestProject(project: QuestProject, options: QuestValida
     if (!Array.isArray(sub.nextQuestIds) || sub.nextQuestIds.length > 100 || sub.nextQuestIds.some((id) => id !== null && !int32(id))) {
       errors.push(`${label}后续任务必须是最多 100 项的 Int32 整数或空值列表。`);
     }
-    if (!int32(sub.belondSceneId)) errors.push(`${label}归属场景必须是 Int32 整数。`);
+    if (!int32(sub.belondPrimaryId)) errors.push(`${label}所属一级区域 ID 必须是 Int32 整数。`);
     if (typeof sub.investigationPoint !== "string" || (!options.allowDraftValues && !vector3(sub.investigationPoint))) errors.push(`${label}调查点必须是三个逗号分隔的有限数值。`);
   });
   return errors;

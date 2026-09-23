@@ -13,6 +13,9 @@ import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
 import WalkTalkPanel from "./WalkTalkPanel.vue";
 import { createWalkTalkProject, decodeWalkTalkProject, encodeWalkTalkProject, validateWalkTalkStructIds, type WalkTalkProject, type WalkTalkStructIds } from "./walkTalkProject";
 import { exportWalkTalk } from "./walkTalkExporter";
+import RuntimeImportButton from "../RuntimeImportButton.vue";
+import { commitRuntimeImport } from "../runtimeImportStorage";
+import { importWalkTalk } from "./walkTalkImporter";
 
 withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>(), { editorKind: "WalkTalk" });
 const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
@@ -129,9 +132,18 @@ async function deleteFile() {
   } catch (error) { if (!disposed) fileError.value = showError(error); }
   finally { if (!disposed) busy.value = false; }
 }
-function downloadProject() {
-  if (busy.value || !project.value || !selectedFile.value) { toast.warning("请先打开边走边说文件"); return; }
-  downloadTextFile(encodeWalkTalkProject(project.value), selectedFile.value, "application/json");
+async function importConfiguration(file: File) {
+  if (busy.value || disposed) return;
+  busy.value = true;
+  try {
+    const result = await commitRuntimeImport({ file, decode: importWalkTalk, encode: encodeWalkTalkProject,
+      storage: storage.setProject(ProjectID), active: () => !disposed, flush: () => saveQueue.flush(), directory });
+    if (!result) return;
+    loading = true; selectedFile.value = result.name; project.value = result.project; loading = false;
+    settingsOpen.value = false; creating.value = false; fileError.value = ""; saveStatus.value = "已导入";
+    await refreshFiles();
+    if (!disposed) toast.success(`已新增「${result.name}」`);
+  } finally { loading = false; if (!disposed) busy.value = false; }
 }
 function exportVariables() {
   if (busy.value || !project.value || !selectedFile.value) return;
@@ -151,9 +163,12 @@ function applySettings() {
   if (errors.length) { settingsError.value = errors.join("；"); return; }
   project.value.structIds = { ...settingsDraft.value }; settingsOpen.value = false;
 }
-function saveShortcut(event: KeyboardEvent) {
+async function saveShortcut(event: KeyboardEvent) {
   if (event.repeat || (!event.ctrlKey && !event.metaKey) || event.key.toLowerCase() !== "s") return;
-  event.preventDefault(); downloadProject();
+  event.preventDefault();
+  if (busy.value || disposed || !project.value || !selectedFile.value) return;
+  // 保存队列会显示失败状态并提示错误，不再下载编辑器文件。
+  await saveQueue.flush().catch(() => undefined);
 }
 onMounted(() => { void refreshFiles(); window.addEventListener("keydown", saveShortcut); });
 onBeforeUnmount(() => {
@@ -179,7 +194,7 @@ onBeforeUnmount(() => {
     <SplitterPanel :size="82">
       <SectionLayout title="边走边说编辑区">
         <div class="workspace-panel">
-          <header class="file-toolbar"><span>{{ selectedFile || '未选择文件' }}</span><small>{{ saveStatus }}</small><button type="button" :disabled="!project || busy" @click="openSettings">结构体 ID 设置</button><button type="button" :disabled="!project || busy" @click="downloadProject">下载编辑器 JSON · Ctrl+S</button><button type="button" class="primary" :disabled="!project || busy" @click="exportVariables">导出千星边走边说</button></header>
+          <header class="file-toolbar"><span>{{ selectedFile || '未选择文件' }}</span><small>{{ saveStatus }}</small><RuntimeImportButton :disabled="busy" :import-file="importConfiguration" /><button type="button" :disabled="!project || busy" @click="openSettings">结构体 ID 设置</button><button type="button" class="primary" :disabled="!project || busy" @click="exportVariables">导出千星边走边说</button></header>
           <WalkTalkPanel v-if="project" :key="selectedFile" :project="project" />
           <div v-else class="empty"><h3>一段按顺序播放的台词</h3><p>从左侧选择文件，或创建一份新的边走边说列表。</p><button type="button" class="primary" @click="creating = true">＋ 新建边走边说</button></div>
         </div>

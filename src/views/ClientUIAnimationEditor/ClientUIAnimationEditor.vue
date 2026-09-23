@@ -94,7 +94,7 @@
               <span v-else-if="node.type !== 'container'" class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
               <div v-if="node.id === selectedId" class="selection-tag">{{ node.name }} · {{ Math.round(previewNode(node).width) }} × {{ Math.round(previewNode(node).height) }}</div>
               <template v-if="node.id === selectedId">
-                <template v-if="canvasTool === 'combined' && !boneCreateMode"><i v-for="corner in resizeCorners" :key="corner" class="selection-corner" :class="[`corner-${corner}`, { 'resize-handle': !node.locked }]" @pointerdown.stop="startResize($event, node, corner)"></i></template>
+                <template v-if="canvasTool === 'combined' && !boneCreateMode"><i v-for="edge in resizeEdges" :key="edge" class="selection-edge" :class="[`edge-${edge}`, { 'resize-handle': !node.locked }]" @pointerdown.stop="startResize($event, node, edge)"></i><i v-for="corner in resizeCorners" :key="corner" class="selection-corner" :class="[`corner-${corner}`, { 'resize-handle': !node.locked }]" @pointerdown.stop="startResize($event, node, corner)"></i></template>
                 <i class="selection-pivot" :style="{ left: `${previewNode(node).pivotX * 100}%`, bottom: `${previewNode(node).pivotY * 100}%` }"></i>
               </template>
             </div>
@@ -596,9 +596,10 @@ const currentDevice = computed(() => deviceModes.find((device) => device.id === 
 const customCanvasLabel = computed(() => currentPreset.value.width === canvasWidth.value && currentPreset.value.height === canvasHeight.value ? undefined : `${canvasWidth.value} × ${canvasHeight.value}`);
 interface Matrix2D { a: number; b: number; c: number; d: number }
 const resizeCorners = ["tl", "tr", "bl", "br"] as const;
-type ResizeCorner = typeof resizeCorners[number];
+const resizeEdges = ["l", "r", "t", "b"] as const;
+type ResizeCorner = typeof resizeCorners[number] | typeof resizeEdges[number];
 const canvasTools = [
-  { id: "combined", label: "三合一", icon: "transform", hint: "拖动控件移动 · 顶部手柄旋转 · 四角调整大小" },
+  { id: "combined", label: "三合一", icon: "transform", hint: "拖动控件移动 · 顶部手柄旋转 · 四角及边缘调整大小" },
   { id: "move", label: "移动", icon: "move", hint: "拖动控件移动位置" },
   { id: "rotate", label: "旋转", icon: "rotate", hint: "拖动控件或圆环，绕轴心旋转" },
   { id: "scale", label: "缩放", icon: "scale", hint: "拖动控件等比缩放 · 红色 X / 绿色 Y 手柄单轴缩放" },
@@ -887,7 +888,55 @@ const hierarchyDragGhostStyle = computed<CSSProperties>(() => ({ left: `${hierar
 function localMatrix(node: UINode): Matrix2D { const radians = node.rotation * Math.PI / 180; const cosine = Math.cos(radians); const sine = Math.sin(radians); return { a: cosine * node.scaleX, b: sine * node.scaleX, c: -sine * node.scaleY, d: cosine * node.scaleY }; }
 function multiplyMatrix(parent: Matrix2D, local: Matrix2D): Matrix2D { return { a: parent.a * local.a + parent.c * local.b, b: parent.b * local.a + parent.d * local.b, c: parent.a * local.c + parent.c * local.d, d: parent.b * local.c + parent.d * local.d }; }
 function transformVector(matrix: Matrix2D, x: number, y: number) { return { x: matrix.a * x + matrix.c * y, y: matrix.b * x + matrix.d * y }; }
-function calculateWorldTransforms(sourceNodes: UINode[]) { const result = new Map<string, WorldTransform>(); const resolving = new Set<string>(); const nodeMap = new Map(sourceNodes.map((node) => [node.id, node])); const resolve = (node: UINode): WorldTransform => { const cached = result.get(node.id); if (cached) return cached; const local = localMatrix(node); const parent = node.parentId ? nodeMap.get(node.parentId) : null; if (!parent || resolving.has(node.id)) { const root = { x: node.x, y: node.y, matrix: local }; result.set(node.id, root); return root; } resolving.add(node.id); const parentWorld = resolve(parent); resolving.delete(node.id); const offset = transformVector(parentWorld.matrix, node.x - parent.pivotX * parent.width, node.y - parent.pivotY * parent.height); const world = { x: parentWorld.x + offset.x, y: parentWorld.y + offset.y, matrix: multiplyMatrix(parentWorld.matrix, local) }; result.set(node.id, world); return world; }; sourceNodes.forEach(resolve); return result; }
+function calculateWorldTransforms(sourceNodes: UINode[]) {
+  // Compose the complete 3D hierarchy before orthographic projection. Projecting each
+  // parent early loses depth (e.g. parent Y=90° + child Y=-90° cannot cancel).
+  // Unity Euler order is Z, X, Y: R = Ry * Rx * Rz, followed by local scale.
+  type SpatialTransform = { x: number; y: number; z: number; basis: number[] };
+  const spatial = new Map<string, SpatialTransform>();
+  const result = new Map<string, WorldTransform>();
+  const resolving = new Set<string>();
+  const nodeMap = new Map(sourceNodes.map(node => [node.id, node]));
+  const multiply = (a: number[], b: number[]) => Array.from({ length: 9 }, (_, i) => {
+    const row = Math.floor(i / 3) * 3, col = i % 3;
+    return a[row] * b[col] + a[row + 1] * b[col + 3] + a[row + 2] * b[col + 6];
+  });
+  const resolve = (node: UINode): SpatialTransform => {
+    const cached = spatial.get(node.id);
+    if (cached) return cached;
+    const x = (node.rotationX || 0) * Math.PI / 180;
+    const y = (node.rotationY || 0) * Math.PI / 180;
+    const z = node.rotation * Math.PI / 180;
+    const cx = Math.cos(x), sx = Math.sin(x), cy = Math.cos(y), sy = Math.sin(y), cz = Math.cos(z), sz = Math.sin(z);
+    const scaleZ = node.scaleZ ?? 1;
+    const basis = [
+      (cy * cz + sy * sx * sz) * node.scaleX, (-cy * sz + sy * sx * cz) * node.scaleY, sy * cx * scaleZ,
+      cx * sz * node.scaleX, cx * cz * node.scaleY, -sx * scaleZ,
+      (-sy * cz + cy * sx * sz) * node.scaleX, (sy * sz + cy * sx * cz) * node.scaleY, cy * cx * scaleZ,
+    ];
+    let world: SpatialTransform = { x: node.x, y: node.y, z: 0, basis };
+    const parent = node.parentId ? nodeMap.get(node.parentId) : null;
+    if (parent && !resolving.has(node.id)) {
+      resolving.add(node.id);
+      const p = resolve(parent);
+      resolving.delete(node.id);
+      const dx = node.x - parent.pivotX * parent.width;
+      const dy = node.y - parent.pivotY * parent.height;
+      world = {
+        x: p.x + p.basis[0] * dx + p.basis[1] * dy,
+        y: p.y + p.basis[3] * dx + p.basis[4] * dy,
+        z: p.z + p.basis[6] * dx + p.basis[7] * dy,
+        basis: multiply(p.basis, basis),
+      };
+    }
+    spatial.set(node.id, world);
+    // Rendering, selection outlines and hit-testing share the same projected pose.
+    result.set(node.id, { x: world.x, y: world.y, matrix: { a: world.basis[0], b: world.basis[3], c: world.basis[1], d: world.basis[4] } });
+    return world;
+  };
+  sourceNodes.forEach(resolve);
+  return result;
+}
 const worldTransforms = computed(() => calculateWorldTransforms(nodes.value));
 const previewWorldTransforms = computed(() => calculateWorldTransforms(previewNodes.value));
 const selectedWorldPosition = computed(() => { const node = selectedNode.value; if (!node) return { x: 0, y: 0 }; const world = previewWorldTransforms.value.get(node.id); return { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; });
@@ -1177,7 +1226,7 @@ function startAnimatedCanvasMove(event: PointerEvent, node: UINode) {
   pointerDrag(event, (dx, dy) => {
     if (dx !== 0 || movedX) { movedX = true; updateGeometry("x", roundLayout(world.x + dx)); }
     if (dy !== 0 || movedY) { movedY = true; updateGeometry("y", roundLayout(world.y - dy)); }
-  });
+  }, true);
   return true;
 }
 function startAnimatedCanvasResize(event: PointerEvent, node: UINode, corner: ResizeCorner) {
@@ -1187,11 +1236,15 @@ function startAnimatedCanvasResize(event: PointerEvent, node: UINode, corner: Re
   const pose = previewNode(node);
   const world = previewWorldTransforms.value.get(node.id)!;
   const matrix = world.matrix;
-  const left = corner === "tl" || corner === "bl";
-  const top = corner === "tl" || corner === "tr";
+  const left = corner === "tl" || corner === "bl" || corner === "l";
+  const top = corner === "tl" || corner === "tr" || corner === "t";
+  const resizeX = corner !== "t" && corner !== "b";
+  const resizeY = corner !== "l" && corner !== "r";
   let resizedX = false, resizedY = false;
   pointerDrag(event, (dx, dy) => {
     const delta = inverseTransformVector(matrix, dx, -dy);
+    if (!resizeX) delta.x = 0;
+    if (!resizeY) delta.y = 0;
     const width = delta.x !== 0 || resizedX ? Math.max(20, pose.width + (left ? -delta.x : delta.x)) : pose.width;
     const height = delta.y !== 0 || resizedY ? Math.max(20, pose.height + (top ? delta.y : -delta.y)) : pose.height;
     if (delta.x !== 0 || resizedX) { resizedX = true; updateGeometry("width", width); }
@@ -2253,14 +2306,21 @@ function startCanvasScale(event: PointerEvent, node: UINode, axis: "uniform" | "
 let stopCanvasNodeDrag: (() => void) | null = null;
 let moveCanvasNodeDrag: ((event: PointerEvent) => void) | null = null;
 onBeforeUnmount(() => stopCanvasNodeDrag?.());
-function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => void) {
+function pointerDrag(event: PointerEvent, onMove: (dx: number, dy: number) => void, constrainMove = false) {
   stopCanvasNodeDrag?.();
   const pointerId = event.pointerId;
   const startX = event.clientX;
   const startY = event.clientY;
+  let lockedAxis: 'x' | 'y' | null = null;
   const move = (next: PointerEvent) => {
     if (next.pointerId !== pointerId) return;
-    onMove((next.clientX - startX) / zoom.value, (next.clientY - startY) / zoom.value);
+    let dx = (next.clientX - startX) / zoom.value, dy = (next.clientY - startY) / zoom.value;
+    if (constrainMove && next.shiftKey) {
+      if (!lockedAxis && (dx !== 0 || dy !== 0)) lockedAxis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+      if (lockedAxis === 'x') dy = 0;
+      if (lockedAxis === 'y') dx = 0;
+    } else lockedAxis = null;
+    onMove(dx, dy);
   };
   const cleanup = () => {
     window.removeEventListener("pointermove", move);
@@ -2281,7 +2341,7 @@ function inverseTransformVector(matrix: Matrix2D, x: number, y: number) { const 
 function handleCanvasWheel(event: WheelEvent) { const viewport = viewportElement.value; if (!viewport) return; const normalizedDelta = event.deltaY * (event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? viewport.clientHeight : 1); const previousZoom = zoom.value; const nextZoom = Math.max(0.01, Math.min(1.5, previousZoom * Math.exp(-normalizedDelta * 0.0015))); if (nextZoom === previousZoom) return; const rect = viewport.getBoundingClientRect(); const pointerX = event.clientX - (rect.left + rect.width / 2); const pointerY = event.clientY - (rect.top + rect.height / 2); const ratio = nextZoom / previousZoom; panX.value = roundLayout(panX.value + (pointerX - panX.value) * (1 - ratio)); panY.value = roundLayout(panY.value + (pointerY - panY.value) * (1 - ratio)); zoom.value = nextZoom; }
 function startCanvasPan(event: PointerEvent) { if (event.button !== 1) return; event.preventDefault(); event.stopPropagation(); const startX = event.clientX; const startY = event.clientY; const originX = panX.value; const originY = panY.value; isPanning.value = true; const move = (next: PointerEvent) => { panX.value = roundLayout(originX + next.clientX - startX); panY.value = roundLayout(originY + next.clientY - startY); }; const end = () => { isPanning.value = false; window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end); }
 function handleViewportPointerDown(event: PointerEvent) { startCanvasPress(event); }
-function startMove(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; selectedId.value = node.id; if (node.locked) return; if (startAnimatedCanvasMove(event, node)) return; const x = node.x; const y = node.y; const parent = getLayoutParent(node); const parentMatrix = parent ? worldTransforms.value.get(parent.id)?.matrix ?? localMatrix(parent) : { a: 1, b: 0, c: 0, d: 1 }; pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(parentMatrix, dx, -dy); node.x = roundLayout(x + localDelta.x); node.y = roundLayout(y + localDelta.y); rebaseNodeLayout(node); const world = worldTransforms.value.get(node.id); cursorPosition.value = { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; }); }
+function startMove(event: PointerEvent, node: UINode) { if (event.button === 1) { startCanvasPan(event); return; } if (event.button !== 0) return; selectedId.value = node.id; if (node.locked) return; if (startAnimatedCanvasMove(event, node)) return; const x = node.x; const y = node.y; const parent = getLayoutParent(node); const parentMatrix = parent ? worldTransforms.value.get(parent.id)?.matrix ?? localMatrix(parent) : { a: 1, b: 0, c: 0, d: 1 }; pointerDrag(event, (dx, dy) => { const localDelta = inverseTransformVector(parentMatrix, dx, -dy); node.x = roundLayout(x + localDelta.x); node.y = roundLayout(y + localDelta.y); rebaseNodeLayout(node); const world = worldTransforms.value.get(node.id); cursorPosition.value = { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; }, true); }
 function startResize(event: PointerEvent, node: UINode, corner: ResizeCorner = "br") {
   if (event.button === 1) { startCanvasPan(event); return; }
   if (event.button !== 0 || node.locked) return;
@@ -2290,14 +2350,16 @@ function startResize(event: PointerEvent, node: UINode, corner: ResizeCorner = "
   const height = node.height;
   const x = node.x;
   const y = node.y;
-  const left = corner === "tl" || corner === "bl";
-  const top = corner === "tl" || corner === "tr";
+  const left = corner === "tl" || corner === "bl" || corner === "l";
+  const top = corner === "tl" || corner === "tr" || corner === "t";
+  const resizeX = corner !== "t" && corner !== "b";
+  const resizeY = corner !== "l" && corner !== "r";
   const worldMatrix = worldTransforms.value.get(node.id)?.matrix ?? localMatrix(node);
   const ownMatrix = localMatrix(node);
   pointerDrag(event, (dx, dy) => {
     const localDelta = inverseTransformVector(worldMatrix, dx, -dy);
-    const nextWidth = Math.max(20, roundLayout(width + (left ? -localDelta.x : localDelta.x)));
-    const nextHeight = Math.max(20, roundLayout(height + (top ? localDelta.y : -localDelta.y)));
+    const nextWidth = resizeX ? Math.max(20, roundLayout(width + (left ? -localDelta.x : localDelta.x))) : width;
+    const nextHeight = resizeY ? Math.max(20, roundLayout(height + (top ? localDelta.y : -localDelta.y))) : height;
     const pivotShift = transformVector(ownMatrix, (nextWidth - width) * (node.pivotX - (left ? 1 : 0)), (nextHeight - height) * (node.pivotY - (top ? 0 : 1)));
     node.x = roundLayout(x + pivotShift.x);
     node.y = roundLayout(y + pivotShift.y);
@@ -4896,6 +4958,17 @@ button { transition: background .12s, border-color .12s; }
 .corner-br { bottom: -7px; right: -7px; }
 .resize-handle { pointer-events: auto; touch-action: none; }
 .resize-handle.corner-tr, .resize-handle.corner-bl { cursor: nesw-resize; }
+.selection-edge { position: absolute; pointer-events: none; }
+.selection-edge::after { content: ""; position: absolute; width: 10px; height: 10px; box-sizing: border-box; border: 2px solid #434d58; background: #eff6f7; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.edge-l, .edge-r { top: 10px; bottom: 10px; width: 12px; }
+.edge-l { left: -6px; }
+.edge-r { right: -6px; }
+.edge-t, .edge-b { left: 10px; right: 10px; height: 12px; }
+.edge-t { top: -6px; }
+.edge-b { bottom: -6px; }
+.selection-edge.resize-handle { pointer-events: auto; }
+.resize-handle.edge-l, .resize-handle.edge-r { cursor: ew-resize; }
+.resize-handle.edge-t, .resize-handle.edge-b { cursor: ns-resize; }
 .selection-pivot { position: absolute; width: 10px; height: 10px; border: 3px solid #5ce5ee; border-radius: 50%; transform: translate(-50%, 50%); pointer-events: none; }
 .canvas-transform-toolbar { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; min-height: 43px; padding: 6px 10px; border-top: 1px solid #505968; background: #303743; }
 .canvas-transform-toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 0 0 auto; padding: 6px 10px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #c4cedc; font-size: 12px; cursor: pointer; }

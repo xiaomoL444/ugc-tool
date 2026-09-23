@@ -1,17 +1,17 @@
 <template>
   <div class="container">
     <div class="switchPanel">
-      <SectionLayout title="工作区选择" class="top">
+      <SectionLayout :title="t('structViewer.ui.workspace')" class="top">
         <div class="actionButtonComponent">
           <ActionButton v-on:update:selected="DelectWorkspace" class="delete"
-            >删除</ActionButton
+            >{{ t('structViewer.ui.delete') }}</ActionButton
           >
-          <ActionButton v-on:update:selected="AddWorkspace" class="add">
+          <ActionButton :title="t('structViewer.ui.addWorkspace')" :aria-label="t('structViewer.ui.addWorkspace')" v-on:update:selected="AddWorkspace" class="add">
             <img
               width="20"
               height="20"
               src="https://img.icons8.com/parakeet-filled/100/plus-math.png"
-              alt="plus-math"
+              alt=""
             />
           </ActionButton>
         </div>
@@ -28,17 +28,17 @@
         </div>
       </SectionLayout>
 
-      <SectionLayout title="高级数据管理" class="bottom">
+      <SectionLayout :title="t('structViewer.ui.definitions')" class="bottom">
         <div class="actionButtonComponent">
           <ActionButton v-on:update:selected="DeleteBaseStruct" class="delete"
-            >删除</ActionButton
+            >{{ t('structViewer.ui.delete') }}</ActionButton
           >
-          <ActionButton v-on:update:selected="selectFile(0)">
+          <ActionButton :title="t('structViewer.ui.importDefinition')" :aria-label="t('structViewer.ui.importDefinition')" v-on:update:selected="selectFile(0)">
             <img
               width="20"
               height="20"
               src="https://img.icons8.com/parakeet-filled/100/plus-math.png"
-              alt="plus-math"
+              alt=""
             />
           </ActionButton>
         </div>
@@ -60,17 +60,17 @@
       </SectionLayout>
     </div>
     <div class="variablePanel">
-      <SectionLayout title="自定义变量">
+      <SectionLayout :title="t('structViewer.ui.variables')">
         <div class="actionButtonComponent">
           <ActionButton v-on:update:selected="DeleteVariableData" class="delete"
-            >删除</ActionButton
+            >{{ t('structViewer.ui.delete') }}</ActionButton
           >
-          <ActionButton v-on:update:selected="selectFile(1)">
+          <ActionButton :title="t('structViewer.ui.importVariable')" :aria-label="t('structViewer.ui.importVariable')" v-on:update:selected="selectFile(1)">
             <img
               width="20"
               height="20"
               src="https://img.icons8.com/parakeet-filled/100/plus-math.png"
-              alt="plus-math"
+              alt=""
             />
           </ActionButton>
         </div>
@@ -91,22 +91,22 @@
       </SectionLayout>
     </div>
     <div class="editorPanel">
-      <SectionLayout title="编辑区">
-        <div style="display: flex;flex-direction: row;gap: 10px;">
+      <SectionLayout :title="t('structViewer.ui.editor')">
+        <div style="display: flex;flex-direction: row;flex-wrap: wrap;gap: 10px;">
           <ActionButton
             v-on:update:selected="downloadJson"
             style="width: 200px; margin-bottom: 10px"
-            >下载JSON</ActionButton
+            >{{ t('structViewer.ui.download') }}</ActionButton
           >
           <ActionButton
             v-on:update:selected="bus.emit('openCollapse')"
             style="width: 200px; margin-bottom: 10px"
-            >展开所有列表</ActionButton
+            >{{ t('structViewer.ui.expandAll') }}</ActionButton
           >
           <ActionButton
             v-on:update:selected="bus.emit('closeCollapse')"
             style="width: 200px; margin-bottom: 10px"
-            >关闭所有列表</ActionButton
+            >{{ t('structViewer.ui.collapseAll') }}</ActionButton
           >
         </div>
         <div class="editorArea">
@@ -130,6 +130,8 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+const { t } = useI18n({ useScope: "global" });
 import {
   ref,
   computed,
@@ -196,7 +198,7 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
 
   if (!isForce)
     udnoManager.add({
-      label: "切换选择工作区",
+      label: "structViewer.ui.history.switchWorkspace",
       groupId: undoGroupId,
       undo: async () => {
         selectedWorkspaceId.value = oldValue;
@@ -228,7 +230,7 @@ async function ChangeWorkspaceName(
   const newName = name;
   if (!isForce) {
     udnoManager.add({
-      label: "修改自定义变量名",
+      label: "structViewer.ui.history.renameWorkspace",
       groupId: undoGroupId,
       undo: async () => {
         const path = `/${newName}`;
@@ -266,7 +268,7 @@ function ChangeBaseStruct(
   undoGroupId = undoGroupId || crypto.randomUUID();
   if (!isForce) {
     udnoManager.add({
-      label: "切换选择高级数据管理",
+      label: "structViewer.ui.history.switchDefinition",
       groupId: undoGroupId,
       undo: () => ChangeBaseStruct(oldValue, undoGroupId, true),
       redo: () => ChangeBaseStruct(newValue, undoGroupId, true),
@@ -287,7 +289,7 @@ function ChangeVariableData(
   undoGroupId = undoGroupId || crypto.randomUUID();
   if (!isForce) {
     udnoManager.add({
-      label: "切换选择自定义变量",
+      label: "structViewer.ui.history.switchVariable",
       groupId: undoGroupId,
       undo: () => ChangeVariableData(oldValue, undoGroupId, true),
       redo: () => ChangeVariableData(newValue, undoGroupId, true),
@@ -332,7 +334,7 @@ async function ApplyParamNodeChange(
       //添加回撤部分
       if (enableUndoHistory) {
         udnoManager.add({
-          label: "设置变量",
+          label: "structViewer.ui.history.setVariable",
           undo: () =>
             ApplyParamNodeChange(
               { type: "set", path: path, value: oldValue } as ParamChange,
@@ -355,7 +357,7 @@ async function ApplyParamNodeChange(
       //添加回撤部分
       if (enableUndoHistory) {
         udnoManager.add({
-          label: "设置变量",
+          label: "structViewer.ui.history.setVariable",
           undo: () =>
             ApplyParamNodeChange(
               {
@@ -382,7 +384,7 @@ async function ApplyParamNodeChange(
       //添加回撤部分
       if (enableUndoHistory) {
         udnoManager.add({
-          label: "设置变量",
+          label: "structViewer.ui.history.setVariable",
           undo: () =>
             ApplyParamNodeChange(
               {
@@ -416,14 +418,14 @@ provide("baseStructList", baseStructList); //让子param组件能读取到
  * 添加工作区
  */
 async function AddWorkspace(undoGroupId = "", isForce = false) {
-  let inputId = prompt("工作区名称：", "");
+  let inputId = prompt(t('structViewer.ui.workspaceName'), "");
   // const name = `新建工作区${crypto.randomUUID()}`;
   if (workspaceIds.value.some((q) => q == inputId)) {
-    toast.warning("已有相同名称的工作区，无法重复添加");
+    toast.warning(t('structViewer.ui.duplicateWorkspace'));
     return;
   }
   if (inputId == "") {
-    toast.warning("工作区名称不可为空");
+    toast.warning(t('structViewer.ui.emptyWorkspace'));
     return;
   }
 
@@ -433,7 +435,7 @@ async function AddWorkspace(undoGroupId = "", isForce = false) {
   if (!isForce) {
     const binduuid = crypto.randomUUID();
     udnoManager.add({
-      label: "新建工作区",
+      label: "structViewer.ui.history.addWorkspace",
       groupId: undoGroupId,
       undo: async () => {
         const trashPath = await storage.trash(workspacePath);
@@ -457,12 +459,12 @@ async function DelectWorkspace(undoGroupId = "", isForce = false) {
   undoGroupId = undoGroupId || crypto.randomUUID();
 
   if (selectedWorkspaceId.value == "") {
-    toast.warning("未选择任何工作区");
+    toast.warning(t('structViewer.ui.noWorkspace'));
   }
 
   if (
     isForce ||
-    confirm(`确认要删除 工作区:【${selectedWorkspaceId.value}】 嘛？`)
+    confirm(t('structViewer.ui.deleteWorkspaceConfirm', { name: selectedWorkspaceId.value }))
   ) {
     const workspaceId = selectedWorkspaceId.value;
     const trashPath = await storage.trash(`/${workspaceId}`);
@@ -473,7 +475,7 @@ async function DelectWorkspace(undoGroupId = "", isForce = false) {
       const binduuid = crypto.randomUUID();
       BindNodeId(binduuid, trashPath);
       udnoManager.add({
-        label: "删除工作区",
+        label: "structViewer.ui.history.deleteWorkspace",
         groupId: undoGroupId,
         undo: async () => {
           await storage.restore(ResolveNodeId(binduuid), `/`);
@@ -511,17 +513,17 @@ function handleFileChange(event: Event) {
     try {
       fileJson = JSON.parse(fileContent);
     } catch {
-      alert("解析文件失败");
+      alert(t('structViewer.ui.parseFailed'));
       return;
     }
     //根据类别读取文件
     switch (selectedIndex.value) {
       case 0: //选择高级结构体数据
         //键入ID
-        let inputId = prompt(`请输入「 ${fileJson.name} 」的 ID:`, "");
+        let inputId = prompt(t('structViewer.ui.enterId', { name: fileJson.name }), "");
         // 如果用户取消了 prompt，退出
         if (inputId == null || !/^\d+$/.test(inputId) || inputId.length != 10) {
-          alert("请输入有效10位长度的整数ID！");
+          alert(t('structViewer.ui.invalidId'));
           return;
         }
 
@@ -532,7 +534,7 @@ function handleFileChange(event: Event) {
         AddVariableData(file.name, fileContent);
         break;
       default:
-        alert("读取文件错误");
+        alert(t('structViewer.ui.readFailed'));
         break;
     }
   };
@@ -547,7 +549,7 @@ async function AddBaseStruct(
   isForce = false,
 ): Promise<string | undefined> {
   if (selectedWorkspaceId.value == "") {
-    toast.warning("不存在活跃工作区，无法添加高级数据管理");
+    toast.warning(t('structViewer.ui.noWorkspaceDefinition'));
     return;
   }
 
@@ -557,7 +559,7 @@ async function AddBaseStruct(
   const filePath = `${fileDir}/${structId}.json`;
 
   if (await storage.exists(filePath)) {
-    toast.warning(`存在id为：${structId}的结构体定义，无法重复添加`);
+    toast.warning(t('structViewer.ui.duplicateDefinition', { id: structId }));
   }
 
   await storage.writeFile(filePath, structData);
@@ -565,7 +567,7 @@ async function AddBaseStruct(
   if (!isForce) {
     const binduuid = crypto.randomUUID();
     udnoManager.add({
-      label: "添加高级数据管理",
+      label: "structViewer.ui.history.addDefinition",
       groupId: undoGroupId,
       undo: async () => {
         const trashPath = await storage.trash(filePath);
@@ -592,10 +594,7 @@ async function DeleteBaseStruct(undoGroupId: string = "", isForce = false) {
   const id = selectedStructId.value;
   if (
     confirm(
-      `是否要删除高级数据管理的 【${id}】,名字:【${
-        baseStructList.value.find((q) => q.structId == id)?.structDefinition
-          .name
-      }】`,
+      t('structViewer.ui.deleteDefinitionConfirm', { id, name: baseStructList.value.find(q => q.structId == id)?.structDefinition.name ?? '' }),
     )
   ) {
     const workspaceId = selectedWorkspaceId.value;
@@ -611,7 +610,7 @@ async function DeleteBaseStruct(undoGroupId: string = "", isForce = false) {
       const binduuid = crypto.randomUUID();
       BindNodeId(binduuid, trashPath);
       udnoManager.add({
-        label: "删除高级结构体定义",
+        label: "structViewer.ui.history.deleteDefinition",
         groupId: undoGroupId,
         undo: async () => {
           await storage.restore(ResolveNodeId(binduuid), fileDir);
@@ -635,7 +634,7 @@ async function AddVariableData(
   isForce = false,
 ): Promise<void> {
   if (selectedWorkspaceId.value == "") {
-    toast.warning("不存在活跃工作区，无法添加自定义变量");
+    toast.warning(t('structViewer.ui.noWorkspaceVariable'));
     return;
   }
 
@@ -645,14 +644,14 @@ async function AddVariableData(
   const filePath = `${fileDir}/${name}.json`;
 
   if (await storage.exists(filePath)) {
-    toast.warning(`存在id为：${name}的变量，无法重复添加`);
+    toast.warning(t('structViewer.ui.duplicateVariable', { name }));
   }
   await storage.writeFile(filePath, content);
 
   if (!isForce) {
     const binduuid = crypto.randomUUID();
     udnoManager.add({
-      label: "添加自定义数据",
+      label: "structViewer.ui.history.addVariable",
       groupId: undoGroupId,
       undo: async () => {
         const trashPath = await storage.trash(filePath);
@@ -677,11 +676,7 @@ async function DeleteVariableData(undoGroupId: string = "", isForce = false) {
 
   if (
     confirm(
-      `是否要删除自定义变量的 【${
-        variableDataList.value.find(
-          (q) => q.variableName == selectedVarialbeName.value,
-        )?.variableName
-      }】`,
+      t('structViewer.ui.deleteVariableConfirm', { name: selectedVarialbeName.value }),
     )
   ) {
     const workspaceId = selectedWorkspaceId.value;
@@ -697,7 +692,7 @@ async function DeleteVariableData(undoGroupId: string = "", isForce = false) {
       const binduuid = crypto.randomUUID();
       BindNodeId(binduuid, trashPath);
       udnoManager.add({
-        label: "删除自定义数据",
+        label: "structViewer.ui.history.deleteVariable",
         groupId: undoGroupId,
         undo: async () => {
           await storage.restore(ResolveNodeId(binduuid), fileDir);
@@ -728,7 +723,7 @@ async function ChangeVariableDataName(
 
   if (!isForce) {
     udnoManager.add({
-      label: "修改自定义变量名",
+      label: "structViewer.ui.history.renameVariable",
       groupId: undoGroupId,
       undo: async () => {
         const filePath = `${fileDir}/${newName}.json`;
@@ -857,9 +852,7 @@ async function handleKey(e: KeyboardEvent) {
     //撤回
     await udnoManager.undo();
     toast.info(
-      `撤回:【${
-        udnoManager.getCommands()[udnoManager.getIndex() + 1]?.label
-      }】还可撤回${udnoManager.getIndex() + 1}步`,
+      t('structViewer.ui.undo', { action: t(udnoManager.getCommands()[udnoManager.getIndex() + 1]?.label || 'structViewer.ui.noHistory'), count: udnoManager.getIndex() + 1 }),
     );
   } else if (e.ctrlKey && e.key === "y") {
     e.preventDefault();
@@ -867,11 +860,7 @@ async function handleKey(e: KeyboardEvent) {
     //重做
     await udnoManager.redo();
     toast.info(
-      `重做【${
-        udnoManager.getCommands()[udnoManager.getIndex()]?.label
-      }】还可重做${
-        udnoManager.getCommands().length - udnoManager.getIndex() - 1
-      }步`,
+      t('structViewer.ui.redo', { action: t(udnoManager.getCommands()[udnoManager.getIndex()]?.label || 'structViewer.ui.noHistory'), count: udnoManager.getCommands().length - udnoManager.getIndex() - 1 }),
     );
   } else if ((e.ctrlKey || e.metaKey) && e.key === "s") {
     e.preventDefault(); // 阻止浏览器默认保存行为
@@ -890,7 +879,7 @@ function copyCache() {
       copied.value = true;
       setTimeout(() => (copied.value = false), 3000);
     })
-    .catch(() => alert("复制失败，请手动复制"));
+    .catch(() => alert(t('structViewer.ui.copyFailed')));
 }
 const STORAGE_KEY = "xiaomoL444-Save";
 

@@ -1,11 +1,11 @@
 <template>
     <div class="container">
-        <img :src="oss.path('album_pic', `${info.album_id}.jpg`)" class="album">
+        <img :src="oss.path('album_pic', `${info.album_id}.jpg`)" class="album" alt="">
         <div class="main-row">
 
             <div class="col title-col">
                 <NEllipsis>
-                    <div class="title">{{ info.name }}</div>
+                    <div class="title">{{ resourceText(info.nameI18nKey) }}</div>
                 </NEllipsis>
                 <div class="meta-row">
                     <div class="bgm-id">{{ info.id }}</div>
@@ -13,7 +13,7 @@
                 </div>
             </div>
             <div class="col album-col">
-                <NEllipsis>{{ info.album }}</NEllipsis>
+                <NEllipsis>{{ resourceText(info.albumI18nKey) }}</NEllipsis>
             </div>
         </div>
     </div>
@@ -87,6 +87,10 @@ import { NEllipsis } from 'naive-ui';
 import { BgmInfo } from '../types/bgmInfo';
 import { createOss } from "@/utils/oss";
 
+import { useI18n } from "vue-i18n";
+import { createCachedText } from "@/i18n/cachedText";
+
+const resourceText = createCachedText(useI18n({ useScope: "global" }));
 const oss = createOss("BgmPlayer");
 
 defineProps<{

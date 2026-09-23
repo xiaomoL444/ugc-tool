@@ -3,6 +3,8 @@ import type { StorageClass } from "@/services/storage/storage";
 import { ProjectID } from "../../constant/constant";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
 import { SCENE_FILE, createSceneProject, decodeSceneProject, encodeSceneProject, type SceneProject } from "./sceneProject";
+import { commitRuntimeImport } from "../runtimeImportStorage";
+import { importScene } from "./sceneImporter";
 
 export function useSceneProject() {
   const storage = inject<StorageClass>("storage")!;
@@ -38,11 +40,25 @@ export function useSceneProject() {
     finally { busy.value = false; }
   }
   async function retry() { if (project.value) await queue.flush(); else await load(); }
+  async function importConfiguration(fileInput: File) {
+    if (busy.value || disposed) return;
+    busy.value = true;
+    try {
+      const result = await commitRuntimeImport({ file: fileInput, decode: importScene, encode: encodeSceneProject,
+        storage: storage.setProject(ProjectID), active: () => !disposed, flush: () => queue.flush(),
+        overwrite: { path: file, backupDirectory: `/${workspace}/ImportBackups/Scene`,
+          confirm: () => confirm("导入将覆盖当前工作区的全部世界和区域配置。原配置会先备份，是否继续？") } });
+      if (!result) return;
+      loading = true; project.value = result.project; loading = false;
+      status.value = "已导入，原配置已备份"; error.value = "";
+      return true;
+    } finally { loading = false; if (!disposed) busy.value = false; }
+  }
   async function prepareToLeave() {
     if (busy.value) throw new Error("场景正在读写，请稍后切换");
     await queue.flush();
   }
   onMounted(load);
   onBeforeUnmount(() => { disposed = true; void queue.flush().catch(() => undefined); });
-  return { project, busy, error, status, retry, prepareToLeave };
+  return { project, busy, error, status, retry, prepareToLeave, importConfiguration };
 }

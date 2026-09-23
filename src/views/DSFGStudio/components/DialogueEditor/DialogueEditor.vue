@@ -65,6 +65,9 @@ import {
   toSerializableDialogueProject,
 } from "./utils/dialogueProjectCodec";
 import { exportQxqyPerformance } from "./utils/qxqyPerformanceExporter";
+import RuntimeImportButton from "../RuntimeImportButton.vue";
+import { commitRuntimeImport } from "../runtimeImportStorage";
+import { importQxqyPerformance } from "./utils/qxqyPerformanceImporter";
 import {
   normalizeSourceHandle,
   resolveGroupOutlets,
@@ -371,6 +374,21 @@ async function AddDialogueFile() {
   finally { fileBusy.value = false; }
   if (!newDialogueFileOpen.value) await SelectDialogueFile(fileName);
 }
+async function importConfiguration(file: File) {
+  if (fileBusy.value || disposed) return;
+  fileBusy.value = true;
+  try {
+    const result = await commitRuntimeImport({ file, decode: importQxqyPerformance, encode: result => encodeDialogueProject(result.project),
+      storage: storage.setProject(ProjectID), active: () => !disposed, flush: () => saveQueue.flush(),
+      directory: `/${documentWorkspaceId}/${DialogueEditorID}` });
+    if (!result) return;
+    loadingFile = true; selectedGroupNodeId.value = ""; structIdSettingsOpen.value = false;
+    selectedDialogueFile.value = result.name; dialogueProject.value = result.project.project; loadingFile = false;
+    newDialogueFileOpen.value = false;
+    await RefreshDialogueFile();
+    if (!disposed) { toast.success(`已新增「${result.name}」`); toast.warning(result.project.warnings.join("；")); }
+  } finally { loadingFile = false; if (!disposed) fileBusy.value = false; }
+}
 async function DeleteDialogueFile(undoGroupId = "", isForce = false) {
   if (fileBusy.value) return;
   undoGroupId = undoGroupId || crypto.randomUUID();
@@ -495,6 +513,7 @@ onBeforeUnmount(() => {
     <SplitterPanel :size="15"><div class="editor-file-panel">
       <EditorKindSelect :model-value="editorKind" @update:model-value="emit('update:editorKind', $event)" />
       <SectionLayout title="对话文件">
+        <RuntimeImportButton :disabled="fileBusy" :import-file="importConfiguration" />
         <SelectableList
           @select="SelectDialogueFile"
           @add="newDialogueFileOpen = true"

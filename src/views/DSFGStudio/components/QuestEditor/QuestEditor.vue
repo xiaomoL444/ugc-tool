@@ -11,6 +11,9 @@ import type { QuestProject, QuestStructIds } from "./types";
 import { createQuestProject, decodeQuestProject, encodeQuestProject, validateQuestProject, QUEST_STRUCT_ID_FIELDS } from "./questProject";
 import { exportQuestVariables } from "./questExporter";
 import { createWorkspaceSaveQueue } from "./workspaceSaveQueue";
+import RuntimeImportButton from "../RuntimeImportButton.vue";
+import { commitRuntimeImport } from "../runtimeImportStorage";
+import { importQuest } from "./questImporter";
 
 withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>(), { editorKind: "Quest" });
 const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
@@ -127,6 +130,20 @@ async function exportVariables() {
   } catch (error) { showError(error, "任务导出失败"); }
   finally { exporting.value = false; }
 }
+async function importConfiguration(file: File) {
+  if (busy.value || disposed || exporting.value) return;
+  busy.value = true;
+  try {
+    const result = await commitRuntimeImport({ file, decode: importQuest, encode: encodeQuestProject,
+      storage: storage.setProject(ProjectID), active: () => !disposed, flush: () => saveQueue.flush(),
+      overwrite: { path: documentPath, backupDirectory: `/${workspaceId}/ImportBackups/Quest`,
+        confirm: () => confirm("导入将覆盖当前工作区的全部任务配置。原配置会先备份，是否继续？") } });
+    if (!result) return;
+    loading = true; project.value = result.project; loading = false;
+    settingsOpen.value = false; legacyFiles.value = []; legacySelection.value = ""; loadError.value = ""; saveStatus.value = "已导入";
+    toast.success("任务配置已覆盖导入，原配置已备份");
+  } finally { loading = false; if (!disposed) busy.value = false; }
+}
 function openSettings() {
   if (!project.value) return;
   settingsDraft.value = { ...project.value.structIds };
@@ -164,6 +181,7 @@ onBeforeUnmount(() => {
           <header class="quest-file-toolbar">
             <span>{{ workspaceId }} <span class="workspace-label">/ 工作区任务</span></span><small role="status" :class="{ 'save-error': saveStatus === '保存失败' }">{{ saveStatus }}</small>
             <button type="button" :disabled="!project || busy" @click="openSettings">结构体 ID 设置</button>
+            <RuntimeImportButton :disabled="busy || exporting" :import-file="importConfiguration" />
             <button type="button" class="primary" :disabled="!project || busy || exporting" @click="exportVariables">{{ exporting ? '导出中…' : '导出千星任务' }}</button>
           </header>
           <QuestPanel v-if="project" :project="project" :inert="busy" />

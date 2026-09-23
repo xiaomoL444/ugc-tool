@@ -1,4 +1,6 @@
 <script setup>
+import { useI18n } from "vue-i18n";
+const { t } = useI18n({ useScope: "global" });
 import BaseButton from "@/components/UI/BaseButton.vue";
 
 const emit = defineEmits(["update:selected"]);
@@ -12,6 +14,8 @@ function onClick() {
 
 <template>
   <BaseButton
+    :title="t('structViewer.ui.insertItem')"
+    :aria-label="t('structViewer.ui.insertItem')"
     class="button"
     :activeEffect="false"
     bgGradient="#c7ffcd"

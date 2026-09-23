@@ -1,36 +1,43 @@
 <template>
     <Splitter>
         <SplitterPanel :size="70">
-            <SectionLayout :title="'歌曲列表'">
+            <SectionLayout :title="t('bgmPlayer.ui.songList')">
                 <div class="song-list-layout">
                     <div class="search-bar">
-                        <label for="bgm-search" class="search-label">搜索（名称或 id）：</label>
+                        <label for="bgm-search" class="search-label">{{ t('bgmPlayer.ui.searchLabel') }}</label>
                         <input id="bgm-search" v-model="search" type="search" autocomplete="off"
-                            placeholder="输入关键词，回车跳到第一项"
+                            :placeholder="t('bgmPlayer.ui.searchPlaceholder')"
                             @keydown.enter="jumpToFirstSearchResult" />
                         <span class="search-count" role="status">{{ statsText }}</span>
                         <button class="expand-all-button" type="button" :disabled="filteredCategories.length === 0"
-                            @click="toggleAllCategories">{{ allVisibleCategoriesExpanded ? "全部收起" : "全部展开" }}</button>
+                            @click="toggleAllCategories">{{ t(allVisibleCategoriesExpanded ? 'bgmPlayer.ui.collapseAll' : 'bgmPlayer.ui.expandAll') }}</button>
                     </div>
                     <div class="song-library">
-                        <div v-if="filteredCategories.length" class="category-controls" aria-label="音乐分类">
-                            <button v-for="group in filteredCategories" :key="group.category" class="category-header"
-                                :class="{ expanded: isCategoryExpanded(group.category) }"
-                                :aria-expanded="isCategoryExpanded(group.category)" :aria-controls="`bgm-category-${group.category}`"
-                                type="button" @click="toggleCategory(group.category)">
-                                <span class="category-arrow" :class="{ expanded: isCategoryExpanded(group.category) }" aria-hidden="true">▶</span>
-                                <span class="category-title" :title="categoryName(group.category)">{{ categoryName(group.category) }}</span>
-                                <span class="category-count">{{ group.songs.length }}</span>
-                            </button>
+                        <div class="library-controls">
+                            <div v-if="filteredCategories.length" class="category-controls" :aria-label="t('bgmPlayer.ui.categories')">
+                                <button v-for="group in filteredCategories" :key="group.category" class="category-header"
+                                    :class="{ expanded: isCategoryExpanded(group.category) }"
+                                    :aria-expanded="isCategoryExpanded(group.category)" :aria-controls="`bgm-category-${group.category}`"
+                                    type="button" @click="toggleCategory(group.category)">
+                                    <span class="category-arrow" :class="{ expanded: isCategoryExpanded(group.category) }" aria-hidden="true">▶</span>
+                                    <span class="category-title" :title="categoryName(group.category)">{{ categoryName(group.category) }}</span>
+                                    <span class="category-count">{{ group.songs.length }}</span>
+                                </button>
+                            </div>
+                            <select v-model="selectedVersion" class="version-filter"
+                                :aria-label="t('bgmPlayer.ui.versionFilter')" :disabled="loading || loadError">
+                                <option value="">{{ t('bgmPlayer.ui.allVersions') }}</option>
+                                <option v-for="version in availableVersions" :key="version" :value="version">{{ version }}</option>
+                            </select>
                         </div>
                         <div ref="songListRef" class="song-list-scroll">
-                            <div v-if="loading" class="status-panel" role="status">正在加载音乐...</div>
+                            <div v-if="loading" class="status-panel" role="status">{{ t('bgmPlayer.ui.loadingMusic') }}</div>
                             <div v-else-if="loadError" class="status-panel" role="alert">
-                                <span>音乐数据加载失败</span>
-                                <button class="expand-all-button" type="button" @click="loadData">重试</button>
+                                <span>{{ t('bgmPlayer.ui.loadFailed') }}</span>
+                                <button class="expand-all-button" type="button" @click="loadData">{{ t('bgmPlayer.ui.retry') }}</button>
                             </div>
-                            <div v-else-if="filteredCategories.length === 0" class="status-panel">未找到匹配的音乐</div>
-                            <div v-else-if="expandedGroups.length === 0" class="collapsed-hint">选择一个分类，或点击“全部展开”</div>
+                            <div v-else-if="filteredCategories.length === 0" class="status-panel">{{ t('bgmPlayer.ui.empty') }}</div>
+                            <div v-else-if="expandedGroups.length === 0" class="collapsed-hint">{{ t('bgmPlayer.ui.collapsedHint') }}</div>
                             <div v-else class="song-groups">
                                 <section v-for="group in expandedGroups" :id="`bgm-category-${group.category}`"
                                     :key="group.category" class="song-group" :class="`category-${group.category}`"
@@ -48,17 +55,14 @@
             </SectionLayout>
         </SplitterPanel>
         <SplitterPanel :size="30">
-            <SectionLayout :title="'歌曲元数据'">
+            <SectionLayout :title="t('bgmPlayer.ui.metadata')">
                 <div class="metadata-panel">
-                    <BgmMetadata v-if="selectedItem?.name" title="歌曲名" :info="selectedItem?.name"></BgmMetadata>
-                    <BgmMetadata v-if="selectedItem?.name" title="中文歌曲名" :info="chineseSongTitle(selectedItem.name)">
-                    </BgmMetadata>
-                    <BgmMetadata v-if="selectedItem?.id" title="id" :info="`${selectedItem?.id}`"></BgmMetadata>
-                    <BgmMetadata v-if="selectedItem?.time" title="时长"
-                        :info="`${selectedItem?.minute}分${selectedItem.second}秒`"></BgmMetadata>
-                    <BgmMetadata v-if="selectedItem?.album" title="专辑" :info="selectedItem.album"></BgmMetadata>
-                    <BgmMetadata v-if="selectedItem?.category != null" title="分类"
-                        :info="categoryName(selectedItem.category)"></BgmMetadata>
+                    <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.songName')" :info="resourceText(selectedItem.nameI18nKey)" />
+                    <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.songId')" :info="String(selectedItem.id)" />
+                    <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.duration')"
+                        :info="t('bgmPlayer.ui.durationValue', { minute: selectedItem.minute, second: selectedItem.second })" />
+                    <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.album')" :info="resourceText(selectedItem.albumI18nKey)" />
+                    <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.category')" :info="categoryName(selectedItem.category)" />
                     <div v-if="selectedItem?.song_id" class="ne-link-row">
                         <div class="ne-link-label">
                             <svg class="ne-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"
@@ -68,11 +72,11 @@
                             </svg>
                         </div>
                         <a class="ne-song-link" :href="neteaseSongUrl(selectedItem.song_id)" target="_blank"
-                            rel="noopener noreferrer">打开歌曲页</a>
+                            rel="noopener noreferrer">{{ t('bgmPlayer.ui.openSong') }}</a>
                     </div>
                     <!-- Spirits - KOKIA -->
                     <!-- Begin -->
-                    <iframe v-if="selectedItem" frameborder="no" border="0" marginwidth="0" marginheight="0"
+                    <iframe v-if="selectedItem" :title="t('bgmPlayer.ui.player')" frameborder="no" border="0" marginwidth="0" marginheight="0"
                         width="100%" height="86"
                         :src="`//music.163.com/outchain/player?type=2&id=${selectedItem?.song_id}&auto=1&height=66`"></iframe>
                     <!-- End -->
@@ -136,6 +140,7 @@
 .search-bar {
     position: relative;
     z-index: 1;
+    flex-wrap: wrap;
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -144,13 +149,13 @@
 }
 
 .search-label {
-    flex: 0 0 150px;
+    flex: 0 0 auto;
     white-space: nowrap;
 }
 
 .search-bar input {
     flex: 1;
-    min-width: 0;
+    min-width: 180px;
 }
 
 .song-library {
@@ -191,13 +196,36 @@
     opacity: 0.45;
 }
 
-.category-controls {
+.library-controls {
     position: relative;
     z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: start;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.category-controls {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 4px;
-    flex: 0 0 auto;
+    flex: 1 1 560px;
+    min-width: 0;
+}
+
+.version-filter {
+    box-sizing: border-box;
+    height: 38px;
+    max-width: 100%;
+    margin-left: auto;
+    padding: 0 8px;
+    border: 1px solid rgba(106, 90, 205, 0.2);
+    border-radius: 8px;
+    background: #f1f1ff;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
 }
 
 .category-header {
@@ -227,6 +255,7 @@
 }
 
 .category-header:focus-visible,
+.version-filter:focus-visible,
 .expand-all-button:focus-visible {
     outline: 2px solid #0ea2e5;
     outline-offset: 2px;
@@ -351,16 +380,18 @@ import ListButton from "@/components/button/ListButton.vue";
 import BgmInfoViewer from "./components/BgmInfoViewer.vue";
 import BgmMetadata from "./components/BgmMetadata.vue";
 import { createOss } from "@/utils/oss";
+import { useI18n } from "vue-i18n";
+import { createCachedText } from "@/i18n/cachedText";
+import { loadOssTranslations } from "@/i18n";
 import { normalizeBgmData } from "./utils/bgmData";
 
 function neteaseSongUrl(songId: number) {
     return `https://music.163.com/song?id=${songId}`;
 }
 
-/** `name` 按空格分割后的第 0 段（中文歌名等） */
-function chineseSongTitle(name: string) {
-    return name.split(" ")[0] ?? "";
-}
+const composer = useI18n({ useScope: "global" });
+const { t } = composer;
+const resourceText = createCachedText(composer);
 
 const oss = createOss("BgmPlayer");
 
@@ -374,8 +405,9 @@ async function loadData() {
     loadError.value = false;
     try {
         const data = normalizeBgmData(await oss.json("data.json"));
-        dataJson.value = data.musicData;
-        categoryData.value = data.categoryData;
+        dataJson.value = data.data;
+        categoryData.value = Object.fromEntries(data.category.map((item) => [String(item.id), item.nameI18nKey]));
+        void loadOssTranslations("BgmPlayer", "bgmPlayer");
     } catch (error) {
         loadError.value = true;
         console.error("音乐数据加载失败", error);
@@ -386,26 +418,36 @@ async function loadData() {
 
 onMounted(loadData);
 
-const selectedItem = ref<BgmInfo>();
+const selectedId = ref<number>();
+const selectedItem = computed(() => dataJson.value.find((item) => item.id === selectedId.value));
 function OnSelect(item: BgmInfo) {
-    selectedItem.value = item;
+    selectedId.value = item.id;
 }
 
 const search = ref("");
+const selectedVersion = ref("");
+const availableVersions = computed(() =>
+    [...new Set(dataJson.value.flatMap((item) => item.giVersion ? [item.giVersion] : []))]
+        .sort((left, right) => right.localeCompare(left, "en", { numeric: true })),
+);
 const expandedCategories = ref<number[]>([]);
 const songListRef = ref<HTMLElement | null>(null);
 
 function categoryName(categoryId: number) {
-    return categoryData.value[String(categoryId)] || `分类 ${categoryId}`;
+    const key = categoryData.value[String(categoryId)];
+    return key ? resourceText(key) : categoryId === 0
+        ? t('bgmPlayer.ui.uncategorized')
+        : t('bgmPlayer.ui.categoryFallback', { id: categoryId });
 }
 
 const filteredSongs = computed(() => {
     const q = search.value.trim().toLowerCase();
     return dataJson.value.filter((item) => {
+        if (selectedVersion.value && item.giVersion !== selectedVersion.value) return false;
         if (!q) return true;
         if (String(item.id).includes(q)) return true;
         if (String(item.song_id).includes(q)) return true;
-        return [item.name, item.album, categoryName(item.category)]
+        return [resourceText(item.nameI18nKey), resourceText(item.albumI18nKey), categoryName(item.category)]
             .some((value) => (value ?? "").toLowerCase().includes(q));
     });
 });
@@ -466,11 +508,11 @@ async function jumpToFirstSearchResult() {
 }
 
 const statsText = computed(() => {
-    if (loading.value) return "加载中...";
-    if (loadError.value) return "加载失败";
+    if (loading.value) return t("bgmPlayer.ui.loading");
+    if (loadError.value) return t("bgmPlayer.ui.loadFailed");
     const total = dataJson.value.length;
-    if (!search.value.trim()) return `共 ${total} 首`;
-    return `${filteredSongs.value.length} / ${total} 首`;
+    if (!search.value.trim() && !selectedVersion.value) return t("bgmPlayer.ui.totalCount", { count: total });
+    return t("bgmPlayer.ui.resultCount", { count: filteredSongs.value.length, total });
 });
 
 </script>

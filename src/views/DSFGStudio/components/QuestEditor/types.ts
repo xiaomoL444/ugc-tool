@@ -17,7 +17,10 @@ export interface QuestSub {
   unitState: string;
   investigationPoint: string;
   legacyInvestigationPoint?: Record<string, unknown>;
-  belondSceneId: number;
+  /** 所属一级区域 ID（SceneProject.mainAreas）；沿用结构体字段名，不是世界 ID。 */
+  belondPrimaryId: number;
+  /** 旧版世界关联备份，不参与导出，也不自动映射为一级区域。 */
+  legacyBelondSceneId?: unknown;
   investigationRange: number;
   hidden: boolean;
   nextQuestIds: Array<number | null>;

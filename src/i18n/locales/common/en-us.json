@@ -1,4 +1,6 @@
 {
+  "app.soundEffectPlayerTitle": "Sound Effect Player",
+  "app.soundEffectPlayerDescription": "Play Miliastra Wonderland sound effects from before version 7.0 online.",
   "app.language": "Language",
   "app.navigation": "Navigation",
   "app.openNavigation": "Open navigation",

@@ -41,3 +41,16 @@ const props = defineProps<{
     </ListButton>
   </div>
 </template>
+
+<style scoped>
+.actionButtonComponent,
+.selectableListPlane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.actionButtonComponent {
+  margin-bottom: 12px;
+}
+</style>

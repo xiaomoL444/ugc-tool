@@ -1,9 +1,10 @@
 export interface BgmInfo {
   id: number;
-  name: string;
+  giVersion?: string;
+  nameI18nKey: string;
   song_id: number;
   album_id: number;
-  album: string;
+  albumI18nKey: string;
   time: number;
   minute: number;
   second: number;
@@ -12,6 +13,6 @@ export interface BgmInfo {
 }
 
 export interface BgmDataFile {
-  musicData: BgmInfo[];
-  categoryData: Record<string, string>;
+  data: BgmInfo[];
+  category: { id: number; nameI18nKey: string }[];
 }

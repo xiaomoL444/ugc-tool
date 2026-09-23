@@ -111,6 +111,56 @@ async function main() {
     function pointer(x = 100, extras = {}) { return { button: 0, pointerId: 9, clientX: x, clientY: 20, target: { closest: () => null }, preventDefault() {}, ...extras }; }
     async function gesture(api, work) { const event = pointer(); api.beginEditorHistoryPointer(event); work(event); api.endEditorHistoryPointer(event); await tick(); }
 
+    await test("X/Y rotation keys project UI edge-on, flip its back and preserve setup through seeking", () => {
+      for (const axis of ['X', 'Y']) {
+        const api = fixture(); const group = node(api);
+        const track = addTrack(api, `localRotation${axis}`);
+        track.keyframes[0].value = 0;
+        track.keyframes.push({ id: 'turn', time: 2, value: 180, easeType: 'Linear', interpolation: 'tween' });
+        const component = axis === 'X' ? 'd' : 'a';
+        const scale = axis === 'X' ? group.scaleY : group.scaleX;
+        for (const [time, expected] of [[0, scale], [.5, scale * Math.SQRT1_2], [1, 0], [2, -scale]]) {
+          api.currentTime.value = time;
+          near(api.previewWorldTransforms.value.get(group.id).matrix[component], expected);
+        }
+        assert.equal(group[`rotation${axis}`], 0, 'preview must not modify setup');
+        api.currentTime.value = 0;
+        near(api.previewWorldTransforms.value.get(group.id).matrix[component], scale);
+      }
+    });
+    await test("3D parent-child rotations compose before projection, including depth scale and custom pivots", () => {
+      const api = fixture(); const group = node(api), child = node(api, 'image');
+      group.scaleX = group.scaleY = group.scaleZ = 1;
+      group.rotationY = 90; child.rotationY = -90;
+      child.pivotX = .2; child.pivotY = .8;
+      let parent = api.previewWorldTransforms.value.get(group.id), world = api.previewWorldTransforms.value.get(child.id);
+      near(world.matrix.a, 1); near(world.matrix.d, 1); near(world.x, parent.x);
+      group.scaleZ = 2;
+      world = api.previewWorldTransforms.value.get(child.id);
+      near(world.matrix.a, 2, 'parent depth scale acts on rotated child');
+      group.rotationY = 0; group.rotationX = 90; group.scaleZ = 1;
+      child.rotationY = 0; child.rotationX = -90;
+      parent = api.previewWorldTransforms.value.get(group.id); world = api.previewWorldTransforms.value.get(child.id);
+      near(world.matrix.a, 1); near(world.matrix.d, 1); near(world.y, parent.y);
+    });
+    await test("Shift movement locks a world axis for static and animated controls, releases and relocks", () => {
+      for(const animated of [false,true]) {
+        const api=fixture(); const target=node(api,'image'); api.selectedId.value=target.id;
+        node(api).rotation=35; api.zoom.value=0.5;
+        if(animated) { addTrack(api,'anchoredPositionX','image'); addTrack(api,'anchoredPositionY','image'); }
+        const initial={...api.previewWorldTransforms.value.get(target.id)};
+        api.startMove(pointer(100,{clientY:100,shiftKey:true}),target);
+        api.dispatch('pointermove',pointer(120,{clientY:104,shiftKey:true}));
+        nearPoint(api.previewWorldTransforms.value.get(target.id),{x:initial.x+40,y:initial.y},'horizontal lock',.05);
+        api.dispatch('pointermove',pointer(125,{clientY:160,shiftKey:true}));
+        nearPoint(api.previewWorldTransforms.value.get(target.id),{x:initial.x+50,y:initial.y},'stable lock',.05);
+        api.dispatch('pointermove',pointer(125,{clientY:160,shiftKey:false}));
+        nearPoint(api.previewWorldTransforms.value.get(target.id),{x:initial.x+50,y:initial.y-120},'release',.05);
+        api.dispatch('pointermove',pointer(125,{clientY:165,shiftKey:true}));
+        nearPoint(api.previewWorldTransforms.value.get(target.id),{x:initial.x,y:initial.y-130},'vertical relock',.05);
+        api.dispatch('pointerup',pointer(125,{clientY:165}));
+      }
+    });
     await test("Selecting a property row chooses its preceding key without moving the playhead or editing data", () => {
       const api = fixture(); const x = addTrack(api,'anchoredPositionX');
       x.keyframes.push({id:'later',time:2,value:120,easeType:'Linear',interpolation:'tween'});
@@ -695,6 +745,38 @@ async function main() {
           await api.undoEditorOperation(); assert.equal(api.captureUndoState(), initialState);
           await api.redoEditorOperation(); assert.equal(api.captureUndoState(), resizedState);
         }
+      }
+    });
+    await test("Edge resizing locks the other dimension and opposite edge, with keyframes and undo", async () => {
+      for (const animated of [false, true]) for (const edge of ['l','r','t','b']) {
+        const api = fixture(); node(api).rotation = 37;
+        Object.assign(node(api, 'image'), { pivotX: .2, pivotY: .8, rotation: -23, sizeDeltaX: 120, sizeDeltaY: 80 });
+        api.getHierarchyOrder().forEach(api.applyNodeLayout);
+        api.selectedId.value = 'image';
+        if (animated) for (const field of ['sizeDeltaX','sizeDeltaY','anchoredPositionX','anchoredPositionY']) addTrack(api, field, 'image');
+        api.currentTime.value = 2; api.zoom.value = .5;
+        api.editorHistory.reset(api.captureUndoState());
+        const initial = api.captureUndoState(), before = worldCorners(api, 'image');
+        const horizontal = edge === 'l' || edge === 'r';
+        const fixed = { l: ['topRight','bottomRight'], r: ['topLeft','bottomLeft'], t: ['bottomLeft','bottomRight'], b: ['topLeft','topRight'] }[edge];
+        const matrix = api.previewWorldTransforms.value.get('image').matrix;
+        await gesture(api, event => {
+          api.startResize(event, node(api, 'image'), edge);
+          for (const factor of [1, -10, 0, .5]) {
+            // Include tangential movement: it must not resize the other dimension.
+            const x = (edge === 'l' ? -40 : 40) * factor;
+            const y = (edge === 'b' ? -30 : 30) * factor;
+            api.dispatch('pointermove', pointer(100 + (matrix.a*x+matrix.c*y)*.5, { clientY:20-(matrix.b*x+matrix.d*y)*.5 }));
+            const pose = preview(api, 2, 'image'), after = worldCorners(api, 'image');
+            near(pose.width, horizontal ? Math.max(20, 120+40*factor) : 120);
+            near(pose.height, horizontal ? 80 : Math.max(20, 80+30*factor));
+            for (const corner of fixed) nearPoint(after[corner], before[corner], 'opposite edge', .03);
+          }
+          api.dispatch('pointerup', event);
+        });
+        assert.equal(history(api).length, 1);
+        if (animated) assert.equal(api.keyframeTracks.value.find(track => track.fieldKey === (horizontal ? 'sizeDeltaY' : 'sizeDeltaX')).keyframes.length, 1);
+        await api.undoEditorOperation(); assert.equal(api.captureUndoState(), initial);
       }
     });
     await test("Canvas clicks select on release and cycle front-to-back through overlapping controls without transforming or pausing", async () => {
