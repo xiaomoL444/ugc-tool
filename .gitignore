@@ -1,6 +1,7 @@
 .DS_Store
 node_modules
 /dist
+/vendor/spine233-file-parser/
 public/data
 
 # local env files
