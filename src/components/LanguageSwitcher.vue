@@ -37,11 +37,11 @@ import type { AppLocale } from '../i18n'
 const { t, locale } = useI18n({ useScope: 'global' })
 const currentLabel = computed(() => supportedLocales.find(item => item.value === locale.value)?.label ?? locale.value)
 const coverageNotes: Record<AppLocale, string> = {
-  'zh-CN': '除简体中文外，其他语言尚未全面适配。目前仅查询类工具「音效播放器」和「特效播放器」支持多语言。',
-  'zh-TW': '除簡體中文外，其他語言尚未全面適配。目前僅查詢類工具「音效播放器」和「特效播放器」支援多語言。',
-  'en-US': 'Languages other than Simplified Chinese are not fully supported. Multilingual support is currently limited to the Sound Effect Player and Effect Player lookup tools.',
-  'ja-JP': '簡体字中国語以外の言語には、まだ完全には対応していません。現在、多言語に対応しているのは検索ツールの「効果音プレイヤー」と「エフェクトプレイヤー」のみです。',
-  'ru-RU': 'Полная локализация доступна только на упрощённом китайском. Другие языки пока поддерживаются лишь в инструментах поиска «Проигрыватель звуковых эффектов» и «Проигрыватель эффектов».',
+  'zh-CN': '除简体中文外，其他语言尚未全面适配。目前仅查询类工具「音效播放器」、「特效播放器」和「BGM播放器」支持多语言。',
+  'zh-TW': '除簡體中文外，其他語言尚未全面適配。目前僅查詢類工具「音效播放器」、「特效播放器」和「BGM播放器」支援多語言。',
+  'en-US': 'Languages other than Simplified Chinese are not fully supported. Multilingual support is currently limited to the Sound Effect Player, Effect Player, and BGM Player lookup tools.',
+  'ja-JP': '簡体字中国語以外の言語には、まだ完全には対応していません。現在、多言語に対応しているのは検索ツールの「効果音プレイヤー」、「エフェクトプレイヤー」、「BGMプレーヤー」のみです。',
+  'ru-RU': 'Полная локализация доступна только на упрощённом китайском. Другие языки пока поддерживаются лишь в инструментах поиска «Проигрыватель звуковых эффектов», «Проигрыватель эффектов» и «BGM-плеер».',
 }
 const coverageNote = computed(() => coverageNotes[locale.value as AppLocale] ?? coverageNotes['zh-CN'])
 const root = ref<HTMLElement | null>(null)

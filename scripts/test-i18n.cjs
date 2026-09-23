@@ -31,6 +31,22 @@ assert.equal(resolveInitialLocale(null, ["fr-FR"]), "zh-CN");
 assert.equal(resolveInitialLocale(null, []), "zh-CN");
 
 const instance = createAppI18n("zh-CN");
+const { appRoutes } = require('../src/configs/routes.ts');
+const soundRoute = appRoutes.find(route => route.name === 'SoundEffectPlayer');
+assert.equal(soundRoute.titleKey, 'app.soundEffectPlayerTitle');
+assert.equal(soundRoute.descriptionKey, 'app.soundEffectPlayerDescription');
+const homeSoundTitle = computed(() => instance.global.t(soundRoute.titleKey));
+const homeSoundDescription = computed(() => instance.global.t(soundRoute.descriptionKey));
+for (const {value: locale} of supportedLocales) {
+  instance.global.locale.value = locale;
+  assert.notEqual(homeSoundTitle.value, soundRoute.titleKey);
+  assert.notEqual(homeSoundDescription.value, soundRoute.descriptionKey);
+  assert.match(homeSoundDescription.value, /7\.0/);
+}
+instance.global.locale.value = 'en-US';
+assert.equal(homeSoundTitle.value, 'Sound Effect Player');
+instance.global.locale.value = 'zh-CN';
+assert.equal(homeSoundTitle.value, '音效播放器');
 const composer = instance.global;
 const liveTitle = computed(() => composer.t("app.effectPlayerTitle"));
 assert.equal(liveTitle.value, "特效播放器");
@@ -85,7 +101,7 @@ assert.equal(catalogs.getLocaleMessage("zh-CN").effectPlayer.category, undefined
 assert.equal(catalogs.getLocaleMessage("en-US").effectPlayer.category, undefined);
 
 // Every supported language must provide both player UIs and shared controls locally.
-for (const module of ["common", "effectPlayer", "soundEffectPlayer"]) {
+for (const module of ["common", "effectPlayer", "soundEffectPlayer", "bgmPlayer"]) {
   const base = require(`../src/i18n/locales/${module}/en-us.json`);
   const parameters = (text) => [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]))].sort();
   for (const { value: locale } of supportedLocales) {

@@ -1,3 +1,13 @@
+import ruRUStructViewer from "./locales/structViewer/ru-ru.json";
+import jaJPStructViewer from "./locales/structViewer/ja-jp.json";
+import enUSStructViewer from "./locales/structViewer/en-us.json";
+import zhTWStructViewer from "./locales/structViewer/zh-tw.json";
+import zhCNStructViewer from "./locales/structViewer/zh-cn.json";
+import ruRUBgmPlayer from "./locales/bgmPlayer/ru-ru.json";
+import jaJPBgmPlayer from "./locales/bgmPlayer/ja-jp.json";
+import enUSBgmPlayer from "./locales/bgmPlayer/en-us.json";
+import zhTWBgmPlayer from "./locales/bgmPlayer/zh-tw.json";
+import zhCNBgmPlayer from "./locales/bgmPlayer/zh-cn.json";
 import { createI18n } from "vue-i18n";
 import zhCNCommon from "./locales/common/zh-cn.json";
 import enUSCommon from "./locales/common/en-us.json";
@@ -42,11 +52,11 @@ export function createAppI18n(locale: AppLocale = defaultLocale) {
     ]),
     fallbackFormat: false,
     messages: {
-      "zh-CN": { ...zhCNCommon, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer, ...zhCNHomePage },
-      "en-US": { ...enUSCommon, ...enUSEffectPlayer, ...enUSSoundEffectPlayer, ...enUSHomePage },
-      "zh-TW": { ...zhTWCommon, ...zhTWEffectPlayer, ...zhTWSoundEffectPlayer, ...zhTWHomePage },
-      "ja-JP": { ...jaJPCommon, ...jaJPEffectPlayer, ...jaJPSoundEffectPlayer, ...jaJPHomePage },
-      "ru-RU": { ...ruRUCommon, ...ruRUEffectPlayer, ...ruRUSoundEffectPlayer, ...ruRUHomePage },
+      "zh-CN": { ...zhCNCommon, ...zhCNStructViewer, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer, ...zhCNHomePage, ...zhCNBgmPlayer },
+      "en-US": { ...enUSCommon, ...enUSStructViewer, ...enUSEffectPlayer, ...enUSSoundEffectPlayer, ...enUSHomePage, ...enUSBgmPlayer },
+      "zh-TW": { ...zhTWCommon, ...zhTWStructViewer, ...zhTWEffectPlayer, ...zhTWSoundEffectPlayer, ...zhTWHomePage, ...zhTWBgmPlayer },
+      "ja-JP": { ...jaJPCommon, ...jaJPStructViewer, ...jaJPEffectPlayer, ...jaJPSoundEffectPlayer, ...jaJPHomePage, ...jaJPBgmPlayer },
+      "ru-RU": { ...ruRUCommon, ...ruRUStructViewer, ...ruRUEffectPlayer, ...ruRUSoundEffectPlayer, ...ruRUHomePage, ...ruRUBgmPlayer },
     },
   });
 }

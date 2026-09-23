@@ -61,6 +61,21 @@ async function main() {
     return result;
   }
 
+  test("Public event Clips use the shared light palette and readable inherited text", () => {
+    const eventStyle = declarations(".clip-publicevent");
+    assert.equal(eventStyle.background, "#dff3ef");
+    assert.equal(eventStyle.border, "1px solid #9bcdbf");
+    assert.equal(eventStyle.color, undefined);
+    assert.equal(declarations(".timeline-clip").color, "#334155");
+    function luminance(hex) {
+      const channels = hex.slice(1).match(/../g).map(channel => parseInt(channel, 16) / 255)
+        .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    }
+    const ratio = (luminance(eventStyle.background) + 0.05) / (luminance(declarations(".timeline-clip").color) + 0.05);
+    assert.ok(ratio >= 4.5, `Public event label contrast is ${ratio}`);
+  });
+
   for (const kind of ["dialogue", "select"]) {
     const clipElement = elementWithClass(`${kind}-clip`);
     test(`${kind} keeps its start in seconds and extends to the row's right edge`, () => {

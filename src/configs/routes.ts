@@ -15,6 +15,8 @@ export const appRoutes: AppRoute[] = [
     path: "/StructViewer",
     name: "StructViewer",
     title: "结构体编辑器",
+    titleKey: "structViewer.ui.title",
+    descriptionKey: "structViewer.ui.description",
     description:
       "可在线编辑千星奇域「月之八」（6.7）版本之前的结构体变量与字典变量",
   },
@@ -22,6 +24,8 @@ export const appRoutes: AppRoute[] = [
     path: "/SoundEffectPlayer",
     name: "SoundEffectPlayer",
     title: "音效播放器",
+    titleKey: "app.soundEffectPlayerTitle",
+    descriptionKey: "app.soundEffectPlayerDescription",
     description: "可在线播放千星奇域7.0版本之前的音效",
   },  
   {
@@ -49,6 +53,8 @@ export const appRoutes: AppRoute[] = [
     {
     path: "/BgmPlayer",
     name: "BgmPlayer",
+    titleKey: "bgmPlayer.ui.title",
+    descriptionKey: "bgmPlayer.ui.description",
     title: "BGM播放器",
     description:
       "可在线播放千星奇域「月之八」（6.7）版本之前的BGM",

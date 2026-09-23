@@ -2,7 +2,7 @@
   <div class="container">
     <!-- 字符串 -->
     <div v-if="(['String']as ParamType[]).includes(param.param_type)">
-      <input placeholder="请输入文本" :value="param.value" @change="onChange" />
+      <input :placeholder="t('structViewer.ui.enterText')" :value="param.value" @change="onChange" />
     </div>
 
     <!-- 字符串列表 -->
@@ -17,7 +17,7 @@
       >
         <input
           class="input"
-          placeholder="请输入文本"
+          :placeholder="t('structViewer.ui.enterText')"
           :value="value"
           @change="onChange($event, index)"
         />
@@ -122,8 +122,8 @@
     <!-- 布尔值 -->
     <div v-if="(['Bool']as ParamType[]).includes(param.param_type)">
       <select :value="param.value" @change="onChange">
-        <option value="True">是</option>
-        <option value="False">否</option>
+        <option value="True">{{ t('structViewer.ui.yes') }}</option>
+        <option value="False">{{ t('structViewer.ui.no') }}</option>
       </select>
     </div>
 
@@ -138,8 +138,8 @@
         class="row"
       >
         <select :value="value" @change="onChange($event, index)">
-          <option value="True">是</option>
-          <option value="False">否</option>
+          <option value="True">{{ t('structViewer.ui.yes') }}</option>
+          <option value="False">{{ t('structViewer.ui.no') }}</option>
         </select>
         <div class="operation">
           <RemoveListElementButton
@@ -294,7 +294,7 @@
               }"
             >
               <NEllipsis style="max-width: 100%">
-                {{ ParamMetaMap[childrenParam.param_type].title }}
+                {{ t(ParamMetaMap[childrenParam.param_type].titleKey) }}
               </NEllipsis>
             </div>
           </div>
@@ -309,19 +309,9 @@
           v-else
           style="background: #ff89aabb; align-items: center; padding: 10px"
           ><div>
-            字段类型错误！结构体id:{{ (param.value as StructNode).structId }}
-            <p>
-              变量类型：
-              {{ ParamMetaMap[childrenParam.param_type || "NULL"].title }}
-            </p>
-            提供的结构体定义类型：{{
-              ParamMetaMap[
-                (baseStructList?.find(
-                  (q) => q.structId == (param.value as StructNode).structId,
-                )?.structDefinition.value[index]?.param_type as ParamType) ||
-                  "NULL"
-              ].title
-            }}
+            {{ t('structViewer.ui.typeError', { id: (param.value as StructNode).structId }) }}
+            <p>{{ t('structViewer.ui.actualType', { type: t(ParamMetaMap[childrenParam.param_type || 'NULL'].titleKey) }) }}</p>
+            {{ t('structViewer.ui.expectedType', { type: t(ParamMetaMap[(baseStructList?.find(q => q.structId == (param.value as StructNode).structId)?.structDefinition.value[index]?.param_type as ParamType) || 'NULL'].titleKey) }) }}
           </div></PanelLayout
         >
       </div>
@@ -329,7 +319,7 @@
         <PanelLayout
           style="background: #ff89aabb; align-items: center; padding: 10px"
         >
-          <div>结构体id不存在：{{ (param.value as StructNode).structId }}</div>
+          <div>{{ t('structViewer.ui.missingStruct', { id: (param.value as StructNode).structId }) }}</div>
         </PanelLayout>
       </div>
     </div>
@@ -361,7 +351,7 @@
             :style="{ top: `${structListCount * 10 - 10}px` }"
             v-on:click="ClickCollapse(index)"
           >
-            第{{ index }}项,{{ fastHash(JSON.stringify(childrenParam)) }}
+            {{ t('structViewer.ui.listItem', { index, hash: fastHash(JSON.stringify(childrenParam)) }) }}
           </div>
           <NCollapse
             v-model:expanded-names="expandedNames"
@@ -438,6 +428,8 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
+const { t } = useI18n({ useScope: "global" });
 import {
   computed,
   inject,
@@ -544,7 +536,7 @@ function onChange(
     props.param.param_type == "StringList"
   ) {
     if (value.length >= 500) {
-      toast.warning(`输入的字符超过500,会导致导入千星编辑器失败（但该网页允许保存），请重新输入一遍，目前字数：${value.length}`);
+      toast.warning(t('structViewer.ui.textTooLong', { count: value.length }));
     }
   }
 

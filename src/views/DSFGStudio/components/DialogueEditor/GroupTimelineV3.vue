@@ -1315,8 +1315,8 @@ onBeforeUnmount(() => {
 }
 
 .clip-publicevent {
-  background: linear-gradient(90deg, #3d7367, #529585);
-  border: 1px solid #83c9b7;
+  background: #dff3ef;
+  border: 1px solid #9bcdbf;
 }
 
 .clip-playerskill {

@@ -6,7 +6,7 @@ const vm = require("node:vm");
 const Module = require("node:module");
 const ts = require("typescript");
 const vue = require("vue");
-const { parse, compileScript, compileTemplate } = require("@vue/compiler-sfc");
+const { parse, compileScript, compileTemplate, compileStyle } = require("@vue/compiler-sfc");
 const plain = value => JSON.parse(JSON.stringify(value));
 const root = path.resolve(__dirname, "..");
 const directory = path.join(root, "src/views/DSFGStudio/components/WalkTalkEditor");
@@ -61,7 +61,7 @@ async function main() {
         ...options.bindings,
       };
       const context = vm.createContext(bindings);
-      vm.runInContext(`${script}\nglobalThis.api = { project, files, selectedFile, creating, newName, busy, saveStatus, fileError, settingsOpen, settingsDraft, settingsError, refreshFiles, selectFile, createFile, deleteFile, downloadProject, exportVariables, openSettings, applySettings, saveShortcut };`, context, { filename, timeout: 2000 });
+      vm.runInContext(`${script}\nglobalThis.api = { project, files, selectedFile, creating, newName, busy, saveStatus, fileError, settingsOpen, settingsDraft, settingsError, refreshFiles, selectFile, createFile, deleteFile, exportVariables, openSettings, applySettings, saveShortcut };`, context, { filename, timeout: 2000 });
       const result = { ...context.api, data, storage, workspace, calls, errors, downloads, exposed, mount: () => mounted(), unmount: () => unmounted(), flush: () => saves.flush(), close: async () => { stops.forEach(stop => stop()); unmounted(); try { await saves.flush(); } catch { saves.discard(); } } };
       harnesses.push(result);
       return result;
@@ -78,7 +78,28 @@ async function main() {
         assert.deepEqual(result.errors, []);
         const script = compileScript(result.descriptor, { id: name });
         assert.deepEqual(compileTemplate({ source: result.descriptor.template.content, filename, id: name, compilerOptions: { bindingMetadata: script.bindings } }).errors, []);
+        for (const style of result.descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename, id: name, scoped: true }).errors, []);
       }
+    });
+    await test("compact cards left-align labels and retain editable timing, params and grouped actions", () => {
+      const file = path.join(directory, "WalkTalkPanel.vue");
+      const panel = parse(fs.readFileSync(file, "utf8")).descriptor;
+      const css = compileStyle({ source: panel.styles[0].content, filename: file, id: 'walk-talk-appearance' });
+      function declarations(selector) {
+        const result = {};
+        css.rawResult.root.walkRules(rule => {
+          if (rule.selectors.includes(selector) && rule.parent.type === 'root') rule.walkDecls(decl => { result[decl.prop] = decl.value; });
+        });
+        return result;
+      }
+      assert.equal(declarations('.walk-talk-panel')['text-align'], 'left');
+      assert.equal(declarations('label')['text-align'], 'left');
+      assert.equal(declarations('.card-title')['text-align'], 'left');
+      assert.equal(declarations('.delay-input input').width, '100px');
+      assert.ok(panel.template.content.includes('v-model="entry.continueDelay"'));
+      assert.ok(panel.template.content.includes('v-model="entry.params"'));
+      assert.ok(panel.template.content.includes('class="card-actions" role="group"'));
+      assert.ok(panel.styles[0].content.includes('@media (max-width: 540px)'));
     });
     await test("style is a bound dropdown with registered choices and a read-only legacy fallback", () => {
       const panel = parse(fs.readFileSync(path.join(directory, "WalkTalkPanel.vue"), "utf8")).descriptor;
@@ -161,17 +182,18 @@ async function main() {
       assert.deepEqual(plain(h.project.value.structIds), { sequence: "9", dialogue: "10" }); assert.equal(h.settingsOpen.value, false);
       await h.flush(); assert.equal(model.decodeWalkTalkProject(h.data.get(aPath)).structIds.sequence, "9");
     });
-    await test("Ctrl+S downloads editor data while variable export uses the real six-field library mapping", async () => {
+    await test("Ctrl+S saves to the workspace without downloading; runtime export remains available", async () => {
       const h = await open(); h.project.value.entries[0].continueDelay = "7.25";
       let prevented = 0;
       const event = { ctrlKey: true, metaKey: false, key: "s", repeat: false, preventDefault: () => prevented++ };
-      h.saveShortcut(event); assert.equal(prevented, 1); assert.equal(h.downloads[0][1], "a.json");
-      assert.equal(JSON.parse(h.downloads[0][0]).entries[0].continueDelay, "7.25");
-      h.exportVariables(); assert.equal(h.downloads[1][1], "a-边走边说.json");
-      const variable = JSON.parse(h.downloads[1][0]);
+      await h.saveShortcut(event); assert.equal(prevented, 1); assert.equal(h.downloads.length, 0);
+      assert.equal(JSON.parse(h.data.get(aPath)).entries[0].continueDelay, "7.25");
+      assert.ok(!descriptor.template.content.includes("downloadProject"));
+      h.exportVariables(); assert.equal(h.downloads[0][1], "a-边走边说.json");
+      const variable = JSON.parse(h.downloads[0][0]);
       assert.equal(variable.value[0].value.value[0].value.value[4].value, "7.25");
-      h.saveShortcut({ ...event, repeat: true }); h.saveShortcut({ ...event, ctrlKey: false }); assert.equal(h.downloads.length, 2);
-      h.project.value.entries[0].continueDelay = "bad"; h.exportVariables(); assert.equal(h.downloads.length, 2); assert.ok(h.errors.at(-1).includes("continueDelay"));
+      await h.saveShortcut({ ...event, repeat: true }); await h.saveShortcut({ ...event, ctrlKey: false }); assert.equal(h.downloads.length, 1);
+      h.project.value.entries[0].continueDelay = "bad"; h.exportVariables(); assert.equal(h.downloads.length, 1); assert.ok(h.errors.at(-1).includes("continueDelay"));
     });
     await test("busy operations block leave and stale unmounted reads cannot replace the document", async () => {
       const gate = deferred(); const h = harness({ storage: { async readFile() { return gate.promise; } } });

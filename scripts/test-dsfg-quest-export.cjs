@@ -189,26 +189,42 @@ async function main() {
       sub.value[6].value = "-1";
       assert.deepEqual(exported(project).result.value, expected);
     });
-    test("Vector3 and scene ID survive save/export while legacy point data is preserved", () => {
+    test("Vector3 and primary area ID survive save/export while legacy point data is preserved", () => {
       const project = source(2);
       const oldPoint = { space: 1, pointType: "Vector3", vector3: "160,900,1", offset: "0,0,0" };
       project.subQuests[0].investigationPoint = oldPoint;
-      delete project.subQuests[0].belondSceneId;
+      delete project.subQuests[0].belondPrimaryId;
       project.subQuests[1].investigationPoint = "-10,2.5,30";
-      project.subQuests[1].belondSceneId = 42;
+      project.subQuests[1].belondPrimaryId = 42;
       const restored = decodeQuestProject(encodeQuestProject(project));
       assert.equal(restored.subQuests[0].investigationPoint, "160,900,1");
       assert.deepEqual(restored.subQuests[0].legacyInvestigationPoint, oldPoint);
-      assert.equal(restored.subQuests[0].belondSceneId, 0);
+      assert.equal(restored.subQuests[0].belondPrimaryId, 0);
       assert.deepEqual(decodeQuestProject(encodeQuestProject(restored)), restored);
       const { subs, result } = exported(restored);
       const rows = values(values(subs)[0]);
       assert.deepEqual(rows.map(row => row.value["pos"].toQxqyValue()), [
         "160,900,1", "-10,2.5,30",
       ]);
-      assert.deepEqual(rows.map(row => row.value.belondSceneId.value), ["0", "42"]);
+      assert.deepEqual(rows.map(row => row.value.belondPrimaryId.value), ["0", "42"]);
       assert.ok(!result.json.includes("legacyInvestigationPoint"));
       assert.ok(!result.json.includes("1077936164"));
+    });
+    test("old world IDs are backed up, never mistaken for primary area IDs", () => {
+      const project = source(2);
+      delete project.subQuests[0].belondPrimaryId;
+      project.subQuests[0].belondSceneId = 42;
+      project.subQuests[1].belondSceneId = 42;
+      project.subQuests[1].belondPrimaryId = 123;
+      const restored = decodeQuestProject(encodeQuestProject(project));
+      assert.deepEqual(restored.subQuests.map(sub => sub.belondPrimaryId), [0, 123]);
+      assert.deepEqual(restored.subQuests.map(sub => sub.legacyBelondSceneId), [42, 42]);
+      assert.ok(restored.subQuests.every(sub => !Object.hasOwn(sub, "belondSceneId")));
+      assert.deepEqual(decodeQuestProject(encodeQuestProject(restored)), restored);
+      const result = exported(restored);
+      assert.deepEqual(values(values(result.subs)[0]).map(row => row.value.belondPrimaryId.value), ["0", "123"]);
+      assert.ok(!result.result.json.includes("belondSceneId"));
+      assert.ok(!result.result.json.includes("legacyBelondSceneId"));
     });
     test("own IDs remain distinct from parent IDs, struct IDs and bucket offsets through save, reorder and deletion", () => {
       const project = source(5);
@@ -260,7 +276,7 @@ async function main() {
       assert.deepEqual(keys(result.chapters), [7]); assert.deepEqual(keys(result.mains), [21]);
       assert.equal(values(result.mains)[0].value.chapter.value, "7");
       const value = values(values(result.subs)[0])[0];
-      assert.deepEqual(Object.keys(value.value), ["id", "mainQuestId", "title", "desc", "任务单位状态", "pos", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress", "belondSceneId"]);
+      assert.deepEqual(Object.keys(value.value), ["id", "mainQuestId", "title", "desc", "任务单位状态", "pos", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress", "belondPrimaryId"]);
       assert.equal(value.value["mainQuestId"].type, "Int32"); assert.equal(value.value["mainQuestId"].value, "21");
       assert.equal(value.value["title"].value, sub.title); assert.equal(value.value["desc"].value, sub.description);
       assert.equal(value.value["任务单位状态"].value, sub.unitState);
@@ -277,7 +293,7 @@ async function main() {
       assert.deepEqual(definition.value.map((field) => [field.key, field.param_type]), [
         ["id", "Int32"], ["mainQuestId", "Int32"], ["title", "String"], ["desc", "String"], ["任务单位状态", "ConfigReference"],
         ["pos", "Vector3"], ["调查点范围", "Float"], ["隐藏任务", "Bool"], ["后续任务", "Int32List"],
-        ["失败回溯任务", "Int32"], ["finishMainQuest", "Bool"], ["questProgress", "Int32"], ["belondSceneId", "Int32"],
+        ["失败回溯任务", "Int32"], ["finishMainQuest", "Bool"], ["questProgress", "Int32"], ["belondPrimaryId", "Int32"],
       ]);
       assert.deepEqual(definition.value.slice(9).map((field) => field.value.value), ["-1", "False", "0", "0"]);
       const sub = project.subQuests[0];
@@ -750,7 +766,7 @@ async function main() {
         (s) => s.investigationPoint = 2, (s) => s.investigationPoint = "Unknown",
         (s) => s.investigationPoint = "False", (s) => s.hidden = "False",
         (s) => s.investigationRange = Infinity,
-        (s) => s.belondSceneId = 1.5, (s) => s.belondSceneId = 2147483648, (s) => s.belondSceneId = "0",
+        (s) => s.belondPrimaryId = 1.5, (s) => s.belondPrimaryId = 2147483648, (s) => s.belondPrimaryId = "0",
       ]) { const project = source(); mutate(project.subQuests[0]); assert.throws(() => exportQuestVariables(project)); }
     });
     test("invalid or duplicate struct IDs fail before any export", () => {

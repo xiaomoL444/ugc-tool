@@ -4,7 +4,7 @@ const path = require('node:path');
 const Module = require('node:module');
 const ts = require('typescript');
 const vue = require('vue');
-const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc');
+const { parse, compileScript, compileTemplate, compileStyle } = require('@vue/compiler-sfc');
 
 async function main() {
   const library = await import('miliastra-variable');
@@ -125,8 +125,36 @@ async function main() {
       assert.deepEqual(errors, []);
       const compiled = compileScript(descriptor, { id: file });
       assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename: file, id: file, compilerOptions: { bindingMetadata: compiled.bindings } }).errors, []);
+      for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename: file, id: 'scene-test', scoped: true }).errors, []);
+      if (file.endsWith('SceneEditor.vue')) {
+        const ast = ts.createSourceFile(file, descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+        const names = new Set(['world', 'main', 'sub', 'childAreas', 'breadcrumb']);
+        const code = ast.statements.filter(statement => ts.isVariableStatement(statement)
+          && statement.declarationList.declarations.some(declaration => names.has(declaration.name.getText(ast))))
+          .map(statement => statement.getText(ast)).join('\n');
+        const state = vue.ref({ worlds: [{ id: '5', name: '世界 A' }, { id: '8', name: '世界 B' }],
+          mainAreas: [{ id: '9', name: '异地', worldId: '8' }, { id: '12', name: '区域 A', worldId: '5' }],
+          subAreas: [{ id: '20', name: '地点 A', mainAreaId: '12' }] });
+        const selection = vue.ref({ kind: 'world', index: 0 });
+        const derived = require('node:vm').runInNewContext(ts.transpileModule(code + '\n({ childAreas, breadcrumb });', { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText,
+          { computed: vue.computed, project: state, selected: selection });
+        assert.equal(derived.childAreas.value.length, 1);
+        assert.equal(derived.childAreas.value[0].index, 1, 'Child navigation must retain the original array index');
+        assert.equal(derived.childAreas.value[0].kind, 'main');
+        selection.value = { kind: 'main', index: 1 };
+        assert.equal(derived.breadcrumb.value, '世界 A / 区域 A');
+        assert.equal(derived.childAreas.value[0].id, '20');
+        selection.value = { kind: 'sub', index: 0 };
+        assert.equal(derived.breadcrumb.value, '世界 A / 区域 A / 地点 A');
+        assert.equal(derived.childAreas.value.length, 0);
+        state.value.mainAreas[1].worldId = '8';
+        assert.equal(derived.breadcrumb.value, '世界 B / 区域 A / 地点 A');
+        assert.ok(descriptor.template.content.includes('choose(area.kind, area.index)'));
+        assert.ok(descriptor.template.content.includes('aria-label="世界连接点"'));
+        assert.ok(descriptor.template.content.includes('aria-label="下级区域"'));
+      }
     }
-    console.log('PASS scene editor and navigation compile');
+    console.log('PASS scene editor script/template/styles compile; child navigation and breadcrumbs track selection and parent changes');
   } finally {
     Module._load = originalLoad;
     if (originalTs) Module._extensions['.ts'] = originalTs; else delete Module._extensions['.ts'];

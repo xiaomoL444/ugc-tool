@@ -5,7 +5,7 @@ import { useStylePresets } from "../EntityPresetEditor/stylePresets";
 const { options: questStyleOptions, error: questStyleError, retry: retryQuestStyles } = useStylePresets("questStyles");
 import type { TreeSelectOption } from "naive-ui";
 import QuestReferenceSelect from "./QuestReferenceSelect.vue";
-import QuestWorldSelect from "./QuestWorldSelect.vue";
+import QuestMainAreaSelect from "./QuestMainAreaSelect.vue";
 import ClipPropertyEditor from "../DialogueEditor/components/clip-editors/ClipPropertyEditor.vue";
 import type { ClipPropertyDefinition } from "../DialogueEditor/types/DialogueNode";
 import { createQuestChapter, createQuestMain, createQuestSub, removeQuestSubQuests } from "./questProject";
@@ -17,7 +17,7 @@ const search = ref("");
 const inspectorSection = ref("basic");
 const inspectorSections = [
   { key: "basic", label: "基本信息", hint: "标题、描述与归属" },
-  { key: "location", label: "场景与调查", hint: "调查点、范围与单位" },
+  { key: "location", label: "区域与调查", hint: "一级区域、调查点与范围" },
   { key: "flow", label: "任务流转", hint: "后续任务与完成条件" },
 ];
 const treeScroll = ref<HTMLElement>();
@@ -287,7 +287,7 @@ function updateRange(event: Event) {
   }
 }
 
-function updateSubInteger(key: "failureQuestId" | "questProgress" | "belondSceneId", event: Event, commit = false) {
+function updateSubInteger(key: "failureQuestId" | "questProgress" | "belondPrimaryId", event: Event, commit = false) {
   const sub = selectedSub.value;
   if (!sub) return;
   const input = event.target as HTMLInputElement;
@@ -298,7 +298,7 @@ function updateSubInteger(key: "failureQuestId" | "questProgress" | "belondScene
   const value = input.valueAsNumber;
   if (!Number.isInteger(value) || value < -2147483648 || value > 2147483647) {
     if (commit) {
-      toast.warning(`${key === "failureQuestId" ? "失败回溯任务 ID" : key === "belondSceneId" ? "归属场景" : "任务进度"}必须是 Int32 整数`);
+      toast.warning(`${key === "failureQuestId" ? "失败回溯任务 ID" : key === "belondPrimaryId" ? "所属一级区域 ID" : "任务进度"}必须是 Int32 整数`);
       input.value = String(sub[key] ?? "");
     }
     return;
@@ -488,10 +488,11 @@ function parentLabel(main: QuestMain) {
             <label class="quest-field"><span>任务描述 <code>desc</code></span><textarea v-model="selectedSub.description" aria-label="任务描述" rows="4" placeholder="填写任务描述" /></label>
             <label class="hidden-field"><input v-model="selectedSub.hidden" type="checkbox" role="switch" aria-label="隐藏任务" /><span>隐藏任务</span></label>
             </section>
-            <section v-show="inspectorSection === 'location'" class="form-card location-card" aria-label="场景与调查">
-            <h3 class="form-heading">场景与调查</h3><p class="form-description">设置任务发生的场景，以及玩家需要调查的位置。</p>
+            <section v-show="inspectorSection === 'location'" class="form-card location-card" aria-label="区域与调查">
+            <h3 class="form-heading">区域与调查</h3><p class="form-description">设置任务所属的一级区域，以及玩家需要调查的位置。</p>
             <label class="quest-field"><span>单位状态 <code>unitState · ConfigReference</code></span><input v-model="selectedSub.unitState" aria-label="单位状态" placeholder="填写配置引用" /><small>以字符串保存 ConfigReference。</small></label>
-            <div class="quest-field"><span>所属世界 <code>belondSceneId</code></span><QuestWorldSelect v-model="selectedSub.belondSceneId" /></div>
+            <div class="quest-field"><span>所属一级区域 <code>belondPrimaryId</code></span><QuestMainAreaSelect v-model="selectedSub.belondPrimaryId" /></div>
+            <p v-if="selectedSub.legacyBelondSceneId !== undefined" class="form-description">旧版世界 ID：{{ selectedSub.legacyBelondSceneId }}（仅作备份，不导出）。请确认上方的一级区域关联。</p>
             <p v-if="selectedSub.legacyInvestigationPoint" class="inspector-info">已沿用旧调查点的 Vector3 坐标；原配置已保留备份。若原先使用实体、GUID 或偏移，请核对这里的最终坐标。</p>
             <div class="position-editor"><ClipPropertyEditor :property="pointProperty" :model-value="selectedSub.investigationPoint" @update:model-value="updatePoint" /></div>
             <label class="quest-field"><span>调查范围 <code>investigationRange</code></span><input type="number" aria-label="调查范围" :value="selectedSub.investigationRange" step="any" @input="updateRange" /><small>保留结构体默认值 -1；可填写所需范围。</small></label>

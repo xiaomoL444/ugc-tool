@@ -101,7 +101,7 @@
          }
       }, 
       { 
-         "key" : "belondSceneId", 
+         "key" : "belondPrimaryId",
          "param_type" : "Int32", 
          "value" : { 
             "param_type" : "Int32", 
