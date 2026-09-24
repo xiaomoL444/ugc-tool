@@ -212,9 +212,20 @@ function propertiesOf(node: GiaObject, type: ControlType): Record<string, unknow
     const body = componentBody(node, "83");
     const imageColor = packedArgb(body?.["502"]);
     const imageId = numberValue(body?.["503"], Number.NaN);
+    // Native sample: image 504=1 is stretch; zero/omission is basic.
+    const imageType = enumValue(body?.["504"], ["basic", "stretch"] as const);
+    const mask = componentBody(node, "84");
+    const feather = asObject(mask?.["511"]);
+    const fill = numberValue(mask?.["508"], Number.NaN);
+    const widthX = numberValue(feather?.["501"], Number.NaN);
+    const widthY = numberValue(feather?.["502"], Number.NaN);
     return {
       ...(Number.isFinite(imageId) ? { imageId } : {}),
       ...(imageColor ? { imageColor } : {}),
+      ...(imageType ? { imageType } : {}),
+      ...(Number.isFinite(fill) && fill >= 0 && fill <= 100 ? { fillAmount: fill / 100 } : {}),
+      ...(Number.isFinite(widthX) && widthX >= 0 ? { softEdgeWidthX: widthX } : {}),
+      ...(Number.isFinite(widthY) && widthY >= 0 ? { softEdgeWidthY: widthY } : {}),
     };
   }
 

@@ -49,6 +49,30 @@ async function main() {
     assert.equal(originalGiaUIIndex({ document: exported.document, deviceIndex: 0 }), 32);
     assert.deepEqual(exported.document.json['2'].map(raw => raw['1']['4']), [1073741825, 1073741826, 1073741827]);
     console.log("PASS fresh native UI: wrapper, hierarchy, sibling order, four layouts, negative scale, rotation, Unicode and color");
+    const imageProperties = clone(fresh);
+    Object.assign(imageProperties[1].properties, { imageType: 'stretch', fillAmount: .71, softEdgeWidthX: 13.25, softEdgeWidthY: 27.5 });
+    const masked = exportGiaUI({ name: '图片字段测试', uiIndex: 32, deviceIndex: 0, nodes: imageProperties });
+    const maskedImport = importGiaControls(buffer(masked.bytes));
+    for (const key of ['imageType','fillAmount','softEdgeWidthX','softEdgeWidthY']) assert.equal(maskedImport.controls[1].properties[key], imageProperties[1].properties[key]);
+    const imageRaw = masked.document.json['2'][1]['19']['1']['505'];
+    const maskRaw = imageRaw.find(c => '84' in c)['503']['85'];
+    assert.equal(maskRaw['508'], 71);
+    assert.deepEqual(maskRaw['511'], { '501':13.25, '502':27.5 });
+    // Unknown flags must survive editing the known numeric fields, without being guessed.
+    maskRaw['501'] = 1; maskRaw['515'] = 1; maskRaw['512'] = 85;
+    const baselineImages = importedNodes(maskedImport), modifiedImages = clone(baselineImages);
+    Object.assign(modifiedImages[1].properties, { imageType: 'basic', fillAmount: 0, softEdgeWidthX: 0 });
+    const editedMask = exportGiaUI({ name: '图片字段测试', uiIndex: 32, deviceIndex: 0, nodes: modifiedImages,
+      source: { document: masked.document, baseline: baselineImages, deviceIndex: 0 } });
+    const readMask = importGiaControls(buffer(editedMask.bytes)).controls[1].properties;
+    assert.equal(readMask.imageType, 'basic'); assert.equal(readMask.fillAmount, 0); assert.equal(readMask.softEdgeWidthX, 0); assert.equal(readMask.softEdgeWidthY, 27.5);
+    const preservedMask = editedMask.document.json['2'][1]['19']['1']['505'].find(c => '84' in c)['503']['85'];
+    for (const key of ['501','515','512']) assert.equal(preservedMask[key], maskRaw[key]);
+    imageProperties[1].properties.fillAmount = 1;
+    assert.equal(importGiaControls(buffer(exportGiaUI({ name:'full', uiIndex:32, deviceIndex:0, nodes:imageProperties }).bytes)).controls[1].properties.fillAmount, 1);
+    imageProperties[1].properties.fillAmount = .715;
+    assert.throws(() => exportGiaUI({ name:'invalid', uiIndex:32, deviceIndex:0, nodes:imageProperties }), /整数百分比/);
+    console.log('PASS image type and mask numeric fields: percent conversion, float widths, zero/full values, unknown field preservation and precision validation');
     const references = [node("container", "reference-root"), node("reference", "reference", "reference-root"), node("uiAnimation", "effect", "reference-root")];
     references[1].properties.referencedPrefabIndex = 1073746851;
     references[2].properties.animationId = 10001145;
@@ -137,6 +161,13 @@ async function main() {
     console.log("PASS unknown changed fields, old imports without provenance and malformed trees fail before download");
     for (const file of process.argv.slice(2)) {
       const bytes = buffer(fs.readFileSync(file)), original = importGiaControls(bytes);
+      if (path.basename(file) === '测试客户端控件容器gia调试.gia') {
+        const props = original.controls.find(c => c.type === 'image').properties;
+        assert.equal(props.imageType, 'stretch'); assert.equal(props.fillAmount, .71);
+        assert.equal(props.softEdgeWidthX, 8); assert.equal(props.softEdgeWidthY, 8);
+        assert.equal(props.enableMask, undefined, 'unverified switches are not inferred');
+        assert.equal(props.horizontalSoftRange, undefined, 'unverified ranges are not inferred');
+      }
       const nodes = original.controls.map(control => { const l = control.layout; return node(control.type, `gia_node_${control.sourceNodeIndex}`, control.parentSourceNodeIndex === null ? null : `gia_node_${control.parentSourceNodeIndex}`, {
         name: control.name, active: l.active, scaleX: l.scaleX, scaleY: l.scaleY, scaleZ: l.scaleZ,
         rotationX: l.rotationX, rotationY: l.rotationY, rotation: l.rotationZ, anchorMinX: l.anchorMinX, anchorMinY: l.anchorMinY, anchorMaxX: l.anchorMaxX, anchorMaxY: l.anchorMaxY,

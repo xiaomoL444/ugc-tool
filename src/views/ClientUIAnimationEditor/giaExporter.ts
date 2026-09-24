@@ -135,6 +135,23 @@ const scalar = (tag: number, field: string, convert: (value: unknown) => UgcValu
   const b = body(raw, tag); if (value === null || value === undefined) delete b[field]; else b[field] = convert(value);
 };
 const flag = (value: unknown) => value ? 1 : 0;
+const featherWidth = (axis: string): PropertyWriter => (raw, value) => {
+  // No component is needed to represent an unset editor-only value.
+  if ((value === null || value === undefined) && !component(raw, 84)) return;
+  const mask = body(raw, 84), vector = obj(mask["511"]);
+  if (value === null || value === undefined) { delete vector[axis]; if ("511" in mask) mask["511"] = vector; return; }
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error("羽化宽度必须是非负有限数值");
+  vector[axis] = value; mask["511"] = vector;
+};
+const fillAmount: PropertyWriter = (raw, value) => {
+  if ((value === null || value === undefined) && !component(raw, 84)) return;
+  scalar(84, "508", item => {
+    if (typeof item !== "number" || !Number.isFinite(item) || item < 0 || item > 1) throw new Error("填充量必须在 0～1 之间");
+    const percent = item * 100;
+    if (Math.abs(percent - Math.round(percent)) > 1e-6) throw new Error("GIA 填充进度只支持整数百分比，请使用 0.01 的步长");
+    return Math.round(percent);
+  })(raw, value);
+};
 const enumeration = (values: string[]) => (value: unknown) => {
   const index = values.indexOf(String(value)); if (index < 0) throw new Error(`未知枚举值 ${String(value)}`); return index;
 };
@@ -142,7 +159,8 @@ const PROPERTY_WRITERS: Partial<Record<ControlType, Record<string, PropertyWrite
   reference: { referencedPrefabIndex: scalar(76, "501") },
   uiAnimation: { animationId: scalar(85, "501"), playSoundEffect: scalar(85, "502", flag) },
   container: { isolateNavigation: scalar(78, "501", flag), disableKeyEventPassthrough: scalar(78, "502", flag), disableCursorEventPassthrough: scalar(78, "503", flag), showCursor: scalar(78, "504", flag) },
-  image: { imageId: scalar(83, "503"), imageColor: scalar(83, "502", packedColor) },
+  image: { imageId: scalar(83, "503"), imageColor: scalar(83, "502", packedColor), imageType: scalar(83, "504", enumeration(["basic", "stretch"])),
+    fillAmount, softEdgeWidthX: featherWidth("501"), softEdgeWidthY: featherWidth("502") },
   text: { text: (raw, value) => { const b = body(raw, 74), text = obj(b["510"]); b["510"] = text; text["501"] = `string:${String(value ?? "")}`; },
     fontSize: scalar(74, "512"), minimumFontSize: scalar(74, "513"), fontColor: scalar(74, "504", packedColor), bgColor: scalar(74, "505", packedColor), outlineColor: scalar(74, "507", packedColor),
     horizontalAlignment: scalar(74, "508", enumeration(["left", "middle", "right"])), verticalAlignment: scalar(74, "509", enumeration(["top", "middle", "bottom"])) },
@@ -192,6 +210,7 @@ function prepareEncoding(document: ConverterDocument): void {
     if (record.values.some(value => value && typeof value === "object")) type = "object";
     else if (record.values.some(value => typeof value === "number")) {
       if (/\/503\/13\/12\/501\/502\/(501|502|503|504|505|506|508)\/(1|2|3|501|502)$/.test(path)) type = "float32";
+      else if (/\/503\/85\/511\/(501|502)$/.test(path)) type = "float32";
       else if (!["int", "int32", "int64", "float32"].includes(type ?? "")) type = "int";
       if (type !== "float32" && record.values.some(value => typeof value === "number" && !Number.isSafeInteger(value))) throw new Error(`GIA 整数字段 ${path} 包含小数或越界值，不能无损写入`);
     } else if (record.values.some(value => typeof value === "string" && value.startsWith("string:"))) type = "string";
