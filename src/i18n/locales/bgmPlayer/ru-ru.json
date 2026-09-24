@@ -27,7 +27,5 @@
   "bgmPlayer.ui.categoryFallback": "Категория {id}",
   "bgmPlayer.ui.uncategorized": "Без категории",
   "bgmPlayer.ui.copy": "Копировать: {title}",
-  "bgmPlayer.ui.metadataEntry": "{title}: {info}",
-  "bgmPlayer.ui.title": "BGM-плеер",
-  "bgmPlayer.ui.description": "Слушайте онлайн BGM «Мириад миров», добавленную до версии 6.7."
+  "bgmPlayer.ui.metadataEntry": "{title}: {info}"
 }

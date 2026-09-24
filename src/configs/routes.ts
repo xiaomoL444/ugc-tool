@@ -53,11 +53,11 @@ export const appRoutes: AppRoute[] = [
     {
     path: "/BgmPlayer",
     name: "BgmPlayer",
-    titleKey: "bgmPlayer.ui.title",
-    descriptionKey: "bgmPlayer.ui.description",
+    titleKey: "app.bgmPlayerTitle",
+    descriptionKey: "app.bgmPlayerDescription",
     title: "BGM播放器",
     description:
-      "可在线播放千星奇域「月之八」（6.7）版本之前的BGM",
+      "可在线播放千星奇域 7.1 版本之前的 BGM。",
   },
   {
     path: "/MiniMapMapper",

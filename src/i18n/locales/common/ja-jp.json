@@ -12,5 +12,7 @@
   "app.effectPlayerDescription": "星々の幻境のバージョン 7.0 より前のエフェクトを閲覧し、画像・アニメーション・音声をプレビューできます。",
   "common.copySuccess": "{text} をコピーしました",
   "common.copyFailed": "コピーに失敗しました：{error}",
-  "common.storageUnderDevelopment": "ストレージ設定は開発中です。"
+  "common.storageUnderDevelopment": "ストレージ設定は開発中です。",
+  "app.bgmPlayerTitle": "BGMプレーヤー",
+  "app.bgmPlayerDescription": "バージョン7.1より前の千星奇域のBGMをオンラインで再生できます。"
 }

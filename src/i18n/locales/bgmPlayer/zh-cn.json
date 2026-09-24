@@ -27,7 +27,5 @@
   "bgmPlayer.ui.categoryFallback": "分类 {id}",
   "bgmPlayer.ui.uncategorized": "未分类",
   "bgmPlayer.ui.copy": "复制{title}",
-  "bgmPlayer.ui.metadataEntry": "{title}：{info}",
-  "bgmPlayer.ui.title": "BGM播放器",
-  "bgmPlayer.ui.description": "可在线播放千星奇域「月之八」（6.7）版本之前的BGM"
+  "bgmPlayer.ui.metadataEntry": "{title}：{info}"
 }

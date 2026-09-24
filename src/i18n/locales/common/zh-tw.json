@@ -12,5 +12,7 @@
   "app.effectPlayerDescription": "可瀏覽千星奇域 7.0 版本之前的特效，預覽圖片、動畫與音效。",
   "common.copySuccess": "已複製 {text}",
   "common.copyFailed": "複製失敗：{error}",
-  "common.storageUnderDevelopment": "儲存設定功能尚在開發中。"
+  "common.storageUnderDevelopment": "儲存設定功能尚在開發中。",
+  "app.bgmPlayerTitle": "BGM播放器",
+  "app.bgmPlayerDescription": "可線上播放千星奇域 7.1 版本之前的 BGM。"
 }

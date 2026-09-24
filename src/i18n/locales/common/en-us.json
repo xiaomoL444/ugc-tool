@@ -12,5 +12,7 @@
   "app.effectPlayerDescription": "Browse Miliastra Wonderland effects from before version 7.0, with image, animation, and audio previews.",
   "common.copySuccess": "Copied {text}",
   "common.copyFailed": "Copy failed: {error}",
-  "common.storageUnderDevelopment": "Storage settings are still under development."
+  "common.storageUnderDevelopment": "Storage settings are still under development.",
+  "app.bgmPlayerTitle": "BGM Player",
+  "app.bgmPlayerDescription": "Play Miliastra Wonderland BGM from before version 7.1 online."
 }

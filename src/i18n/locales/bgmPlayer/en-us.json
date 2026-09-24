@@ -27,7 +27,5 @@
   "bgmPlayer.ui.categoryFallback": "Category {id}",
   "bgmPlayer.ui.uncategorized": "Uncategorized",
   "bgmPlayer.ui.copy": "Copy {title}",
-  "bgmPlayer.ui.metadataEntry": "{title}: {info}",
-  "bgmPlayer.ui.title": "BGM Player",
-  "bgmPlayer.ui.description": "Play Miliastra Wonderland BGM from before version 6.7 online."
+  "bgmPlayer.ui.metadataEntry": "{title}: {info}"
 }

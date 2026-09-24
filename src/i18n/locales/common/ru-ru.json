@@ -12,5 +12,7 @@
   "app.effectPlayerDescription": "Просматривайте эффекты «Мириад миров» до версии 7.0: изображения, анимацию и звук.",
   "common.copySuccess": "Скопировано: {text}",
   "common.copyFailed": "Не удалось скопировать: {error}",
-  "common.storageUnderDevelopment": "Настройки хранилища ещё в разработке."
+  "common.storageUnderDevelopment": "Настройки хранилища ещё в разработке.",
+  "app.bgmPlayerTitle": "BGM-плеер",
+  "app.bgmPlayerDescription": "Слушайте онлайн BGM «Мириад миров», добавленную до версии 7.1."
 }

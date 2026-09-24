@@ -84,6 +84,55 @@ function jumpAddress(item: AppRoute) {
         </a>
       </PanelLayout>
 
+<PanelLayout>
+        <a
+          href="https://wiki.miliastra.dev/"
+          style="color: inherit; text-decoration: none"
+        >
+          <div
+            class="card"
+            style="
+              background: -webkit-linear-gradient(
+                90deg,
+                #99f8ffCC,
+                #d6feffCC
+              ); /* Chrome 10-25, Safari 5.1-6 */
+              background: linear-gradient(
+                45deg,
+                #99f8ffCC,
+                #d6feffCC
+              ); /* W3C, IE 10+/ Edge, Firefox 16+, Chrome 26+, Opera 12+, Safari 7+ */
+            "
+          >
+            <div
+              style="position: absolute; top: 0; left: 10px; font-size: 14px"
+            >
+              ✦───────
+            </div>
+            <div class="title">Miliastra Wonderland Community Wiki</div>
+            <div class="description">
+              <p>
+                <img
+                  src="https://wiki.miliastra.dev/system_miliastra_wonderland.webp"
+                  style="border-radius: 100%;width: 70px;"
+                />
+              </p>
+            </div>
+
+            <div
+              style="
+                position: absolute;
+                bottom: 0;
+                right: 10px;
+                font-size: 14px;
+              "
+            >
+              ───────✦
+            </div>
+          </div>
+        </a>
+      </PanelLayout>
+
       <div v-for="(item, index) in appRoutes" :key="index">
         <PanelLayout>
           <div class="card" v-on:click="jumpAddress(item)">

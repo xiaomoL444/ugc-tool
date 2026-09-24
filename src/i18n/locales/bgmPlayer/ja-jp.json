@@ -27,7 +27,5 @@
   "bgmPlayer.ui.categoryFallback": "カテゴリ {id}",
   "bgmPlayer.ui.uncategorized": "未分類",
   "bgmPlayer.ui.copy": "{title}をコピー",
-  "bgmPlayer.ui.metadataEntry": "{title}：{info}",
-  "bgmPlayer.ui.title": "BGMプレーヤー",
-  "bgmPlayer.ui.description": "バージョン6.7より前の千星奇域のBGMをオンラインで再生できます。"
+  "bgmPlayer.ui.metadataEntry": "{title}：{info}"
 }
