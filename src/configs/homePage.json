@@ -1,0 +1,131 @@
+{
+  "categories": [
+    {
+      "id": "resources",
+      "title": "资源预览",
+      "titleKey": "homePage.categories.resources",
+      "color": "#6279d9",
+      "background": "#eef0ff",
+      "cards": [
+        {
+          "id": "bgm",
+          "href": "/BgmPlayer",
+          "title": "BGM播放器",
+          "titleKey": "app.bgmPlayerTitle",
+          "description": "可在线播放千星奇域 7.1 版本之前的 BGM。",
+          "descriptionKey": "app.bgmPlayerDescription",
+          "icon": "♫",
+          "badge": "v7.1 Update"
+        },
+        {
+          "id": "sound",
+          "href": "/SoundEffectPlayer",
+          "title": "音效播放器",
+          "titleKey": "app.soundEffectPlayerTitle",
+          "description": "可在线播放千星奇域 7.0 版本之前的音效",
+          "descriptionKey": "app.soundEffectPlayerDescription",
+          "icon": "≋",
+          "badge": ""
+        },
+        {
+          "id": "effect",
+          "href": "/EffectPlayer",
+          "title": "特效播放器",
+          "titleKey": "app.effectPlayerTitle",
+          "description": "预览特效、图片、动画与声音",
+          "descriptionKey": "app.effectPlayerDescription",
+          "icon": "✦",
+          "badge": ""
+        }
+      ]
+    },
+    {
+      "id": "editors",
+      "title": "编辑与生成",
+      "titleKey": "homePage.categories.editors",
+      "color": "#299b90",
+      "background": "#eaf5f2",
+      "cards": [
+        {
+          "id": "struct",
+          "href": "/StructViewer",
+          "title": "结构体编辑器",
+          "titleKey": "structViewer.ui.title",
+          "description": "可在线编辑千星奇域「月之八」（6.7）版本之前的结构体变量与字典变量",
+          "descriptionKey": "structViewer.ui.description",
+          "icon": "{ }"
+        },
+        {
+          "id": "dialogue",
+          "href": "/DSFGStudio",
+          "title": "对话模版编辑器",
+          "description": "对话模版编辑器 v2，编排对话内容与选项",
+          "icon": "☏"
+        },
+        {
+          "id": "animation",
+          "href": "/ClientUIAnimationEditor",
+          "title": "客户端UI动画编辑器",
+          "description": "制作客户端界面动画",
+          "icon": "▷"
+        },
+        {
+          "id": "text",
+          "href": "/TextGradient",
+          "title": "文本渐变器",
+          "description": "生成支持千星奇域（Unity）富文本格式的颜色渐变文本与流光效果",
+          "icon": "Tt"
+        },
+        {
+          "id": "pixel",
+          "href": "/PixelArt",
+          "title": "图片转像素画",
+          "description": "将图片转成像素画文本或千星奇域字符串列表结构体变量 JSON",
+          "icon": "▧"
+        }
+      ]
+    },
+    {
+      "id": "utilities",
+      "title": "实用工具",
+      "titleKey": "homePage.categories.utilities",
+      "color": "#b5892d",
+      "background": "#faf5e9",
+      "cards": [
+        {
+          "id": "map",
+          "href": "/MiniMapMapper",
+          "title": "小地图场景映射计算",
+          "description": "计算小地图与场景的坐标映射",
+          "credit": "无边天下第一制作提供",
+          "icon": "⌖"
+        }
+      ]
+    },
+    {
+      "id": "community",
+      "title": "社区与文档",
+      "titleKey": "homePage.categories.community",
+      "color": "#8d70bf",
+      "background": "#f2edf9",
+      "cards": [
+        {
+          "id": "tewasa",
+          "href": "http://ys.tewasa.com/",
+          "title": "奇域？迷因？铁花洒！！",
+          "description": "铁花洒到底是什么口牙！",
+          "icon": "✦",
+          "cover": "https://pinksheep-arc.cn-nb1.rains3.com/Xiaomol444/tewasa_icon.png"
+        },
+        {
+          "id": "wiki",
+          "href": "https://wiki.miliastra.dev/",
+          "title": "Miliastra Wonderland Community Wiki",
+          "description": "",
+          "icon": "✦",
+          "cover": "https://wiki.miliastra.dev/system_miliastra_wonderland.webp"
+        }
+      ]
+    }
+  ]
+}

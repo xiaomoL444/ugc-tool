@@ -1,3 +1,21 @@
 {
-  "homePage.ui.contactTitle": "Контакты и ссылки"
+  "homePage.ui.contactTitle": "Контакты и ссылки",
+  "homePage.ui.welcome": "Добро пожаловать в набор инструментов XiaomoL444",
+  "homePage.ui.subtitle": "Чего желаете, дорогой гость? Выбирайте ниже!",
+  "homePage.categories.resources": "Просмотр ресурсов",
+  "homePage.categories.editors": "Редактирование и генерация",
+  "homePage.categories.utilities": "Утилиты",
+  "homePage.categories.community": "Сообщество и документация",
+  "announcements.title": "Объявления",
+  "announcements.unreadCount": "Непрочитанных объявлений: {count}",
+  "announcements.list": "Список объявлений",
+  "announcements.content": "Текст объявления",
+  "announcements.unread": "Не прочитано",
+  "announcements.refresh": "Обновить",
+  "announcements.retry": "Повторить",
+  "announcements.loading": "Загрузка объявлений…",
+  "announcements.empty": "Объявлений пока нет",
+  "announcements.indexError": "Не удалось загрузить список. Повторите попытку.",
+  "announcements.contentError": "Не удалось загрузить объявление. Повторите попытку.",
+  "announcements.close": "Закрыть объявления"
 }

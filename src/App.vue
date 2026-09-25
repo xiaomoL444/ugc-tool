@@ -9,6 +9,7 @@
         <h2 class="title" style="color: white;">{{ pageTitle }}</h2>
       </div>
     </PanelLayout>
+    <AnnouncementBell />
     <StorageSettings />
     <LanguageSwitcher />
   </div>
@@ -256,6 +257,7 @@ import { useRoute } from 'vue-router'
 import { computed, onErrorCaptured, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import LanguageSwitcher from './components/LanguageSwitcher.vue'
+import AnnouncementBell from './components/AnnouncementBell.vue'
 import { Toaster, toast } from 'vue-sonner'
 import 'vue-sonner/style.css'
 import PanelLayout from './components/Layout/PanelLayout.vue'

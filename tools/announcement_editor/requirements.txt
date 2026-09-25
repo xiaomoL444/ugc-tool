@@ -1,0 +1,2 @@
+# Optional: browser Markdown preview only
+markdown-it-py>=3.0,<5

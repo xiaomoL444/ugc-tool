@@ -1,3 +1,21 @@
 {
-  "homePage.ui.contactTitle": "联系作者与相关链接"
+  "homePage.ui.contactTitle": "联系作者与相关链接",
+  "homePage.ui.welcome": "欢迎来到晓末L444的工具集",
+  "homePage.ui.subtitle": "客官想要什么下面请",
+  "homePage.categories.resources": "资源预览",
+  "homePage.categories.editors": "编辑与生成",
+  "homePage.categories.utilities": "实用工具",
+  "homePage.categories.community": "社区与文档",
+  "announcements.title": "公告",
+  "announcements.unreadCount": "有 {count} 条未读公告",
+  "announcements.list": "公告列表",
+  "announcements.content": "公告正文",
+  "announcements.unread": "未读",
+  "announcements.refresh": "刷新",
+  "announcements.retry": "重试",
+  "announcements.loading": "正在加载公告…",
+  "announcements.empty": "暂无公告",
+  "announcements.indexError": "公告列表加载失败，请重试。",
+  "announcements.contentError": "公告内容加载失败，请重试。",
+  "announcements.close": "关闭公告"
 }

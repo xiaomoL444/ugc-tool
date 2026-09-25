@@ -1,3 +1,21 @@
 {
-  "homePage.ui.contactTitle": "お問い合わせ・関連リンク"
+  "homePage.ui.contactTitle": "お問い合わせ・関連リンク",
+  "homePage.ui.welcome": "暁末L444のツール集へようこそ",
+  "homePage.ui.subtitle": "お客さま、何をお探しですか？下からお選びください！",
+  "homePage.categories.resources": "リソースプレビュー",
+  "homePage.categories.editors": "編集・生成",
+  "homePage.categories.utilities": "便利なツール",
+  "homePage.categories.community": "コミュニティ・ドキュメント",
+  "announcements.title": "お知らせ",
+  "announcements.unreadCount": "未読のお知らせが {count} 件あります",
+  "announcements.list": "お知らせ一覧",
+  "announcements.content": "お知らせの本文",
+  "announcements.unread": "未読",
+  "announcements.refresh": "更新",
+  "announcements.retry": "再試行",
+  "announcements.loading": "お知らせを読み込み中…",
+  "announcements.empty": "お知らせはありません",
+  "announcements.indexError": "一覧を読み込めませんでした。再試行してください。",
+  "announcements.contentError": "本文を読み込めませんでした。再試行してください。",
+  "announcements.close": "お知らせを閉じる"
 }

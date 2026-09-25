@@ -1,0 +1,18 @@
+{
+  "announcements": [
+    {
+      "id": "welcome",
+      "title": "欢迎来到公告中心",
+      "date": "2026-09-26",
+      "revision": "1",
+      "content": "welcome.md"
+    },
+    {
+      "id": "guide",
+      "title": "工具集使用提示",
+      "date": "2026-09-25",
+      "revision": "1",
+      "content": "guide.md"
+    }
+  ]
+}

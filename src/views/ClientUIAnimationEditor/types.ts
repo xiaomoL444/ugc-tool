@@ -176,6 +176,8 @@ export interface UINodeEditorSettings {
 }
 
 export type UINodeOf<T extends ControlType> = ClientUIBaseControlModel & {
+  /** Preview-only multiplier for the opaque template resource's internal colors. */
+  previewTemplateAlpha?: number;
   type: T;
   properties: ControlPropertiesMap[T];
   editor?: UINodeEditorSettings;

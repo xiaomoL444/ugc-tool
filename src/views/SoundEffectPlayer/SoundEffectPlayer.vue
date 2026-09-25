@@ -18,13 +18,20 @@
 
           <SplitterPanel :size="94">
             <div class="sound-library">
-              <div v-if="filteredCategories.length" class="category-controls">
-                <button v-for="group in filteredCategories" :key="group.category" type="button" class="category-header"
-                  :class="{ expanded: isCategoryExpanded(group.category) }" @click="toggleCategory(group.category)">
-                  <span class="category-arrow" :class="{ expanded: isCategoryExpanded(group.category) }">▶</span>
-                  <span class="category-title">{{ categoryName(group.category) }}</span>
-                  <span class="category-count">{{ group.ids.length }}</span>
-                </button>
+              <div class="library-controls">
+                <div v-if="filteredCategories.length" class="category-controls">
+                  <button v-for="group in filteredCategories" :key="group.category" type="button" class="category-header"
+                    :class="{ expanded: isCategoryExpanded(group.category) }" @click="toggleCategory(group.category)">
+                    <span class="category-arrow" :class="{ expanded: isCategoryExpanded(group.category) }">▶</span>
+                    <span class="category-title">{{ categoryName(group.category) }}</span>
+                    <span class="category-count">{{ group.ids.length }}</span>
+                  </button>
+                </div>
+                <select v-model="selectedVersion" class="version-filter"
+                  :aria-label="t('soundEffectPlayer.ui.versionFilter')" :disabled="dataLoading || dataLoadError">
+                  <option value="">{{ t('soundEffectPlayer.ui.allVersions') }}</option>
+                  <option v-for="version in availableVersions" :key="version" :value="version">{{ version }}</option>
+                </select>
               </div>
 
               <VVirtualList v-if="libraryRows.length" ref="libraryListRef" :items="libraryRows" :item-size="72"
@@ -191,11 +198,41 @@
   min-height: 0;
 }
 
+.library-controls {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.version-filter {
+  box-sizing: border-box;
+  height: 38px;
+  max-width: 100%;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid rgba(106, 90, 205, 0.2);
+  border-radius: 8px;
+  background: #f1f1ff;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.version-filter:focus-visible {
+  outline: 2px solid #0ea2e5;
+  outline-offset: 2px;
+}
+
 .category-controls {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
-  flex: 0 0 auto;
+  flex: 1 1 700px;
+  min-width: 0;
 }
 
 .category-header {
@@ -402,6 +439,13 @@ const resourceText = createCachedText(composer);
 const selectedId = ref(""); //选择的音效id
 
 const search = ref("");
+const selectedVersion = ref("");
+const availableVersions = computed(() =>
+  [...new Set(soundData.value.data.flatMap((item) => item.giVersion ? [item.giVersion] : []))]
+    .sort((left, right) => right.localeCompare(left, "en", { numeric: true })),
+);
+const dataLoading = ref(true);
+const dataLoadError = ref(false);
 
 const audioSource = ref("");
 
@@ -478,14 +522,15 @@ const keys = computed(() =>
 
 const filteredCategories = computed(() => {
   const query = search.value.trim().toLocaleLowerCase();
-  const groups = !query
+  const groups = !query && !selectedVersion.value
     ? orderedCategories.value
     : orderedCategories.value
       .map((group) => ({
         ...group,
         ids: group.ids.filter((id) => {
           const item = dataJson.value[id];
-          return item?.name?.toLocaleLowerCase().includes(query) || id.toLocaleLowerCase().includes(query);
+          if (selectedVersion.value && item.giVersion !== selectedVersion.value) return false;
+          return !query || item?.name?.toLocaleLowerCase().includes(query) || id.toLocaleLowerCase().includes(query);
         }),
       }))
       .filter((group) => group.ids.length > 0);
@@ -520,12 +565,15 @@ onMounted(async () => {
     soundData.value = await oss.json<SoundEffectData>("data.json");
     void loadOssTranslations("SoundEffectPlayer", "soundEffectPlayer");
   } catch (error) {
+    dataLoadError.value = true;
     console.error("音效数据加载失败", error);
     toast.error(t('soundEffectPlayer.ui.loadFailed'));
+  } finally {
+    dataLoading.value = false;
   }
 });
 
-watch([search, orderedCategories], () => {
+watch([search, selectedVersion, orderedCategories], () => {
   if (!search.value.trim()) return;
   expandedCategories.value = filteredCategories.value.map((group) => group.category.toString());
 });

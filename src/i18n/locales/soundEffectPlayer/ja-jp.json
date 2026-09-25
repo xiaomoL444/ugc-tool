@@ -1,4 +1,6 @@
 {
+  "soundEffectPlayer.ui.versionFilter": "バージョンで絞り込み",
+  "soundEffectPlayer.ui.allVersions": "すべてのバージョン",
   "soundEffectPlayer.ui.selectSound": "効果音を選択",
   "soundEffectPlayer.ui.player": "プレーヤー",
   "soundEffectPlayer.ui.searchLabel": "検索（名前・ID）：",

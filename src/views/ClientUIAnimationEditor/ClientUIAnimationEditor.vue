@@ -89,7 +89,7 @@
             <div v-for="node in renderNodes" :key="node.id" class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked, 'bone-attach-hover': node.id === boneHoverTarget?.id }]" :style="nodeStyle(node)" @pointerdown.stop="startCanvasPress($event)">
               <SpriteImage v-if="node.type === 'image'" :mask-properties="(previewNode(node) as UINodeOf<'image'>).properties" :asset="getImageAsset(node.properties.imageId)" :width="previewNode(node).width" :height="previewNode(node).height" :image-type="node.properties.imageType" :color="safeColor((previewNode(node) as UINodeOf<'image'>).properties.imageColor, editorTypeColors.image)" />
               <PrimitiveImage v-else-if="node.type === 'primitive'" :image-url="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.imageUrl ?? ''" :preview-mode="node.properties.previewMode" :fit-data="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.fitData" :width="previewNode(node).width" :height="previewNode(node).height" />
-              <ControlTemplatePreview v-else-if="node.type === 'reference'" :asset="controlTemplateByIndex.get(node.properties.referencedPrefabIndex ?? -1) ?? null" :missing-index="node.properties.referencedPrefabIndex" :device-index="templateDeviceIndex" :width="previewNode(node).width" :height="previewNode(node).height" />
+              <ControlTemplatePreview v-else-if="node.type === 'reference'" :asset="controlTemplateByIndex.get(node.properties.referencedPrefabIndex ?? -1) ?? null" :missing-index="node.properties.referencedPrefabIndex" :device-index="templateDeviceIndex" :width="previewNode(node).width" :height="previewNode(node).height" :alpha="previewNode(node).previewTemplateAlpha ?? 1" />
               <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
               <span v-else-if="node.type !== 'container'" class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
               <div v-if="node.id === selectedId" class="selection-tag">{{ node.name }} · {{ Math.round(previewNode(node).width) }} × {{ Math.round(previewNode(node).height) }}</div>
@@ -1318,6 +1318,7 @@ function buildKeyframePreviewNodes(time: number) {
       for (const source of getTweenGroupNodes(node.id, nodes.value)) {
         const target = byId.get(source.id);
         if (!target) continue;
+        if (source.type === "reference") target.previewTemplateAlpha = Math.max(0, Math.min(GROUP_ALPHA_MAX, value)) / GROUP_ALPHA_MAX;
         for (const colorKey of getGroupAlphaColorFields(source.type)) {
           const base = normalizeColorRGBA((source.properties as unknown as Record<string, unknown>)[colorKey]);
           if (!base) continue;
@@ -1450,6 +1451,7 @@ function buildTweenPreviewNodes(time: number) {
       for (const sourceNode of getTweenGroupNodes(node.id, nodes.value)) {
         const preview = nodeMap.get(sourceNode.id);
         if (!preview) continue;
+        if (sourceNode.type === "reference" && typeof value === "number") preview.previewTemplateAlpha = Math.max(0, Math.min(GROUP_ALPHA_MAX, value)) / GROUP_ALPHA_MAX;
         const sourceProperties = sourceNode.properties as unknown as Record<string, unknown>;
         const targetProperties = preview.properties as unknown as Record<string, unknown>;
         for (const key of getGroupAlphaColorFields(sourceNode.type)) {

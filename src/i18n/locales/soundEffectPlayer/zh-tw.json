@@ -1,4 +1,6 @@
 {
+  "soundEffectPlayer.ui.versionFilter": "篩選版本",
+  "soundEffectPlayer.ui.allVersions": "全部版本",
   "soundEffectPlayer.ui.selectSound": "選擇音效",
   "soundEffectPlayer.ui.player": "播放器",
   "soundEffectPlayer.ui.searchLabel": "搜尋（名稱或 ID）：",

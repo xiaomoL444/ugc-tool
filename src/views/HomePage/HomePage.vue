@@ -1,164 +1,75 @@
 <script setup lang="ts">
-import PanelLayout from "@/components/Layout/PanelLayout.vue";
-import { onMounted, ref } from "vue";
-import { AppRoute, appRoutes } from "@/configs/routes";
-import axios from "axios";
 import { useI18n } from "vue-i18n";
 import { contactLinks } from "@/configs/contactLinks";
+import homePageData from "@/configs/homePage.json";
 
-const { t } = useI18n({ useScope: "global" });
-
-function jumpAddress(item: AppRoute) {
-  window.location.href = item.path;
+interface HomeCard {
+  id: string;
+  href: string;
+  title: string;
+  titleKey?: string;
+  description: string;
+  descriptionKey?: string;
+  icon: string;
+  cover?: string;
+  credit?: string;
+  badge?: string;
+  badgeKey?: string;
 }
+interface HomeCategory {
+  id: string;
+  title: string;
+  titleKey: string;
+  color: string;
+  background: string;
+  cards: HomeCard[];
+}
+const categories: HomeCategory[] = homePageData.categories;
+const { t, te } = useI18n({ useScope: "global" });
+const displayText = (value: string, key?: string) => key && te(key) ? t(key) : value;
 </script>
 
 <template>
-  <div
-    class="home-page"
-    style="
-      padding-top: 30px;
-      display: flex;
-      flex-direction: column;
-      justify-items: center;
-      align-items: center;
-      width: 100%;
-      overflow-y: auto;
-    "
-  >
-    <img
-      alt="Vue logo"
-      style="height: 30%; border-radius: 10%"
-      src="@/assets/HomePage/avatar.jpg"
-    />
-    <h1>欢迎来到晓末L444的工具集</h1>
-    <h2>客官想要什么下面请</h2>
-    <div class="Grid">
-      <PanelLayout>
-        <a
-          href="http://ys.tewasa.com/"
-          style="color: inherit; text-decoration: none"
+  <div class="home-page">
+    <div class="home-content">
+      <header class="welcome">
+        <img class="avatar" alt="" src="@/assets/HomePage/avatar.jpg" />
+        <div>
+          <h1>{{ t('homePage.ui.welcome') }}</h1>
+          <p>{{ t('homePage.ui.subtitle') }}</p>
+        </div>
+      </header>
+      <div class="categories">
+        <fieldset
+          v-for="category in categories"
+          :key="category.id"
+          class="category"
+          :style="{ '--category-color': category.color, '--category-background': category.background }"
         >
-          <div
-            class="card"
-            style="
-              background: -webkit-linear-gradient(
-                90deg,
-                #99f8ff,
-                #d6feff
-              ); /* Chrome 10-25, Safari 5.1-6 */
-              background: linear-gradient(
-                45deg,
-                #99f8ff,
-                #d6feff
-              ); /* W3C, IE 10+/ Edge, Firefox 16+, Chrome 26+, Opera 12+, Safari 7+ */
-            "
-          >
-            <div
-              style="position: absolute; top: 0; left: 10px; font-size: 14px"
-            >
-              ✦───────
-            </div>
-            <div class="title">奇域？迷因？铁花洒！!</div>
-            <div class="description">
-              铁花洒到底是什么口牙！
-              <p>
-                <img
-                  src="https://pinksheep-arc.cn-nb1.rains3.com/Xiaomol444/tewasa_icon.png"
-                  style="border-radius: 100%"
-                />
-              </p>
-            </div>
-
-            <div
-              style="
-                position: absolute;
-                bottom: 0;
-                right: 10px;
-                font-size: 14px;
-              "
-            >
-              ───────✦
-            </div>
+          <legend>
+            <h2>{{ displayText(category.title, category.titleKey) }} <span>· {{ category.cards.length }}</span></h2>
+          </legend>
+          <div class="card-grid">
+            <a v-for="card in category.cards" :key="card.id" class="tool-card" :href="card.href">
+              <span class="card-icon" aria-hidden="true">
+                <img v-if="card.cover" :src="card.cover" alt="" loading="lazy" />
+                <span v-else>{{ card.icon }}</span>
+              </span>
+              <div class="card-content">
+                <div class="card-heading">
+                  <h3>{{ displayText(card.title, card.titleKey) }}</h3>
+                  <span v-if="card.badge?.trim()" class="card-badge">
+                    {{ displayText(card.badge, card.badgeKey) }}
+                  </span>
+                </div>
+                <p v-if="card.description">{{ displayText(card.description, card.descriptionKey) }}</p>
+                <small v-if="card.credit">{{ card.credit }}</small>
+              </div>
+              <span class="card-arrow" aria-hidden="true">›</span>
+            </a>
           </div>
-        </a>
-      </PanelLayout>
-
-<PanelLayout>
-        <a
-          href="https://wiki.miliastra.dev/"
-          style="color: inherit; text-decoration: none"
-        >
-          <div
-            class="card"
-            style="
-              background: -webkit-linear-gradient(
-                90deg,
-                #99f8ffCC,
-                #d6feffCC
-              ); /* Chrome 10-25, Safari 5.1-6 */
-              background: linear-gradient(
-                45deg,
-                #99f8ffCC,
-                #d6feffCC
-              ); /* W3C, IE 10+/ Edge, Firefox 16+, Chrome 26+, Opera 12+, Safari 7+ */
-            "
-          >
-            <div
-              style="position: absolute; top: 0; left: 10px; font-size: 14px"
-            >
-              ✦───────
-            </div>
-            <div class="title">Miliastra Wonderland Community Wiki</div>
-            <div class="description">
-              <p>
-                <img
-                  src="https://wiki.miliastra.dev/system_miliastra_wonderland.webp"
-                  style="border-radius: 100%;width: 70px;"
-                />
-              </p>
-            </div>
-
-            <div
-              style="
-                position: absolute;
-                bottom: 0;
-                right: 10px;
-                font-size: 14px;
-              "
-            >
-              ───────✦
-            </div>
-          </div>
-        </a>
-      </PanelLayout>
-
-      <div v-for="(item, index) in appRoutes" :key="index">
-        <PanelLayout>
-          <div class="card" v-on:click="jumpAddress(item)">
-            <div
-              style="position: absolute; top: 0; left: 10px; font-size: 14px"
-            >
-              ✦───────
-            </div>
-            <div class="title" :style="{ color: item.titleColor ?? '#000' }">
-              {{ item.titleKey ? t(item.titleKey) : item.title }}
-            </div>
-            <div class="description">{{ item.descriptionKey ? t(item.descriptionKey) : item.description }}</div>
-            <div
-              style="
-                position: absolute;
-                bottom: 0;
-                right: 10px;
-                font-size: 14px;
-              "
-            >
-              ───────✦
-            </div>
-          </div>
-        </PanelLayout>
+        </fieldset>
       </div>
-    </div>
     <section v-if="contactLinks.length" class="contact-section" aria-labelledby="contact-title">
       <h2 id="contact-title">{{ t('homePage.ui.contactTitle') }}</h2>
       <div class="contact-links">
@@ -173,17 +84,219 @@ function jumpAddress(item: AppRoute) {
         </a>
       </div>
     </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
+
 .home-page {
   box-sizing: border-box;
+  width: 100%;
+  overflow-y: auto;
   scrollbar-width: none;
-  -ms-overflow-style: none;
+  padding: 24px 24px 32px;
 }
 .home-page::-webkit-scrollbar {
   display: none;
+}
+.home-content {
+  max-width: 1440px;
+  margin: 0 auto;
+}
+.welcome {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin: 8px 0 30px;
+  text-align: left;
+}
+.avatar {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 22px;
+  flex-shrink: 0;
+}
+.welcome h1 {
+  margin: 0 0 10px;
+  color: #24345b;
+  font-size: clamp(21px, 2.2vw, 30px);
+}
+.welcome p {
+  margin: 0;
+  color: #697795;
+  line-height: 1.6;
+}
+.categories {
+  display: grid;
+  gap: 24px;
+}
+.category {
+  min-width: 0;
+  margin: 0;
+  padding: 0px 20px 20px;
+  border: 1.5px solid var(--category-color);
+  border-radius: 12px;
+  background: var(--category-background);
+  text-align: left;
+}
+.category legend {
+  max-width: calc(100% - 20px);
+  margin-left: 2px;
+  padding: 0 10px;
+  color: var(--category-color);
+}
+.category h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.5;
+}
+.category h2 span {
+  white-space: nowrap;
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.tool-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  min-height: 120px;
+  box-sizing: border-box;
+  padding: 0px 20px;
+  border: 1px solid #ffffff;
+  border-radius: 12px;
+  background: #ffffffdf;
+  color: #253455;
+  text-decoration: none;
+  box-shadow: 0 3px 12px #26376508;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.tool-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--category-color);
+  box-shadow: 0 6px 18px #26376514;
+}
+.tool-card:focus-visible {
+  outline: 3px solid var(--category-color);
+  outline-offset: 3px;
+}
+.card-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--category-background);
+  color: var(--category-color);
+  font-family: Arial, sans-serif;
+  font-size: 34px;
+}
+.card-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.card-content {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.card-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.card-heading h3 {
+  min-width: 0;
+}
+.card-badge {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 2px 8px;
+  border: 1px solid #f5c789;
+  border-radius: 999px;
+  background: #fff3df;
+  color: #99500b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.card-content h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.5;
+}
+.card-content p {
+  margin: 6px 0 0;
+  color: #697795;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.card-content small {
+  display: block;
+  margin-top: 8px;
+  color: #697795;
+  line-height: 1.6;
+}
+.card-arrow {
+  flex-shrink: 0;
+  color: #697795;
+  font-family: Arial, sans-serif;
+  font-size: 28px;
+}
+.card-grid > :only-child {
+  grid-column: 1 / -1;
+}
+@media (max-width: 1100px) {
+  .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .home-page { padding: 18px 6px 24px; }
+  .welcome { gap: 14px; margin-bottom: 24px; }
+  .avatar { width: 60px; height: 60px; border-radius: 16px; }
+  .welcome p { font-size: 14px; }
+  .category { padding: 12px; }
+  .category h2 { font-size: 18px; }
+  .card-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .tool-card { padding: 16px; gap: 14px; }
+  .card-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.card-heading h3 {
+  min-width: 0;
+}
+.card-badge {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 2px 8px;
+  border: 1px solid #f5c789;
+  border-radius: 999px;
+  background: #fff3df;
+  color: #99500b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.card-content h3 { font-size: 17px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-card { transition: none; }
+  .tool-card:hover { transform: none; }
 }
 .contact-section {
   box-sizing: border-box;
@@ -242,61 +355,5 @@ function jumpAddress(item: AppRoute) {
 .contact-label {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-.Grid {
-  position: relative;
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(270px, 270px));
-  gap: 20px;
-  place-items: center;
-  justify-content: center;
-  box-sizing: content-box;
-}
-.card {
-  /* padding: 50px; */
-  width: 250px;
-  height: 143.6px;
-
-  padding: 10px;
-
-  cursor: pointer;
-  user-select: none;
-  box-sizing: content-box;
-
-  background-color: #fff5;
-}
-.container {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-}
-.container:hover {
-  transform: scale(1.05); /* 放大 */
-  border-color: #4fa3ff; /* 边框亮起 */
-  box-shadow: 0 0 12px #4fa3ff50; /* 发光效果 */
-}
-.card .title {
-  position: relative;
-  padding-top: 10px;
-  padding-left: 10px;
-  width: 100%;
-  text-align: left;
-  font-size: 20px;
-  color: #000;
-}
-.card .description {
-  position: relative;
-  padding-top: 5px;
-  padding-left: 10px;
-  width: 100%;
-  text-align: left;
-  font-size: 15px;
-  color: #0008;
-
-  white-space: pre-wrap;
-}
-.bottom-line {
-  position: fixed;
-  height: auto;
-  bottom: 0;
 }
 </style>

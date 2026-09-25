@@ -17,7 +17,7 @@ import { imageAssetById, loadImageCatalog } from "./imageAssets";
 import SpriteImage from "./SpriteImage.vue";
 import type { ColorRGBA } from "./types";
 
-const props = withDefaults(defineProps<{ asset: ControlTemplateAsset | null; width: number; height: number; deviceIndex?: number; fit?: boolean; missingIndex?: number | null }>(), { deviceIndex: 0, fit: false, missingIndex: null });
+const props = withDefaults(defineProps<{ asset: ControlTemplateAsset | null; width: number; height: number; deviceIndex?: number; fit?: boolean; missingIndex?: number | null; alpha?: number }>(), { deviceIndex: 0, fit: false, missingIndex: null, alpha: 1 });
 void loadImageCatalog();
 const scene = computed(() => props.asset ? buildTemplateScene(props.asset, props.deviceIndex) : null);
 const sceneStyle = computed<CSSProperties>(() => {
@@ -35,7 +35,9 @@ function nodeStyle(node: TemplateSceneNode): CSSProperties {
 }
 function color(value: unknown, fallback: ColorRGBA = { r: 255, g: 255, b: 255, a: 1 }): ColorRGBA {
   const c = value as ColorRGBA | null;
-  return c && [c.r, c.g, c.b, c.a].every(Number.isFinite) ? c : fallback;
+  const base = c && [c.r, c.g, c.b, c.a].every(Number.isFinite) ? c : fallback;
+  const alpha = Number.isFinite(props.alpha) ? Math.max(0, Math.min(1, props.alpha)) : 1;
+  return { ...base, a: base.a * alpha };
 }
 function cssColor(value: unknown, fallback?: ColorRGBA): string {
   const c = color(value, fallback); return `rgba(${c.r}, ${c.g}, ${c.b}, ${c.a})`;

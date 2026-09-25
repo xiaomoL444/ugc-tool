@@ -1,3 +1,21 @@
 {
-  "homePage.ui.contactTitle": "聯絡作者與相關連結"
+  "homePage.ui.contactTitle": "聯絡作者與相關連結",
+  "homePage.ui.welcome": "歡迎來到曉末L444的工具集",
+  "homePage.ui.subtitle": "客官想要什麼下面請",
+  "homePage.categories.resources": "資源預覽",
+  "homePage.categories.editors": "編輯與生成",
+  "homePage.categories.utilities": "實用工具",
+  "homePage.categories.community": "社群與文件",
+  "announcements.title": "公告",
+  "announcements.unreadCount": "有 {count} 則未讀公告",
+  "announcements.list": "公告列表",
+  "announcements.content": "公告內容",
+  "announcements.unread": "未讀",
+  "announcements.refresh": "重新整理",
+  "announcements.retry": "重試",
+  "announcements.loading": "正在載入公告…",
+  "announcements.empty": "暫無公告",
+  "announcements.indexError": "公告列表載入失敗，請重試。",
+  "announcements.contentError": "公告內容載入失敗，請重試。",
+  "announcements.close": "關閉公告"
 }

@@ -1,4 +1,6 @@
 {
+  "soundEffectPlayer.ui.versionFilter": "Фильтр по версии",
+  "soundEffectPlayer.ui.allVersions": "Все версии",
   "soundEffectPlayer.ui.selectSound": "Выбор звука",
   "soundEffectPlayer.ui.player": "Проигрыватель",
   "soundEffectPlayer.ui.searchLabel": "Поиск (название или ID):",

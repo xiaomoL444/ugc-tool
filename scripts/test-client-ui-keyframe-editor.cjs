@@ -143,6 +143,31 @@ async function main() {
       parent = api.previewWorldTransforms.value.get(group.id); world = api.previewWorldTransforms.value.get(child.id);
       near(world.matrix.a, 1); near(world.matrix.d, 1); near(world.y, parent.y);
     });
+    await test("Template group alpha reaches its own artwork from self or ancestors without mutating assets", () => {
+      for (const owner of ['template', 'group']) {
+        const api = fixture();
+        api.nodes.value.push(api.makeNode('reference', 'Template', { id:'template', parentId:'group' }));
+        const base = plain(api.nodes.value);
+        const track = addTrack(api, 'groupAlpha', owner);
+        track.keyframes[0].value = 255;
+        track.keyframes.push({ id:'fade', time:2, value:0, easeType:'Linear', interpolation:'tween' });
+        for (const [time, alpha] of [[0,1],[1,.5],[2,0],[1,.5],[0,1]]) {
+          near(preview(api, time, 'template').previewTemplateAlpha, alpha);
+        }
+        api.tweenTracks.value = [{ id:'legacy', nodeId:owner, fieldKey:'groupAlpha', startTime:0, duration:2, initialValue:255, endValue:0, easeType:'Linear' }];
+        near(api.buildTweenPreviewNodes(1).find(n => n.id === 'template').previewTemplateAlpha, .5);
+        assert.deepEqual(plain(api.nodes.value), base);
+      }
+      const templateSource = parse(fs.readFileSync(path.join(editor, 'ControlTemplatePreview.vue'), 'utf8')).descriptor.scriptSetup.content;
+      const templateAst = ts.createSourceFile('preview.ts', templateSource, ts.ScriptTarget.Latest, true);
+      const colorFunction = templateAst.statements.find(s => ts.isFunctionDeclaration(s) && s.name?.text === 'color');
+      const code = ts.transpileModule(colorFunction.getText(templateAst), { compilerOptions:{ target:ts.ScriptTarget.ES2020 } }).outputText;
+      const props = { alpha:.5 }, color = new Function('props', code+'; return color;')(props);
+      const base = { r:25, g:50, b:75, a:.4 };
+      near(color(base).a, .2); near(base.a, .4);
+      props.alpha = 0; near(color(base).a, 0);
+      props.alpha = 1; near(color(base).a, .4);
+    });
     await test("Shift movement locks a world axis for static and animated controls, releases and relocks", () => {
       for(const animated of [false,true]) {
         const api=fixture(); const target=node(api,'image'); api.selectedId.value=target.id;
