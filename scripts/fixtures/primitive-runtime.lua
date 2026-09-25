@@ -1,5 +1,7 @@
 -- API mock verification, not a game-device pass.
 local created, destroyed, failImage, wrongTemplate = {}, {}, nil, false
+local logs = {}
+function printerr(message) logs[#logs + 1] = message end
 local paths = {}
 local function target(name)
     local control = { alive = true, kind = "ClientUIContainerControl", name = name, children = {}, active = true, visible = true, canControllerFocus = false }
@@ -75,10 +77,10 @@ assert(first.parent.children[2].imageId == 100001)
 
 local missingPath = data.groups[2].path
 local savedTarget = paths[missingPath]
-paths[missingPath] = nil
+savedTarget.kind = "ClientUIImageControl"
 local ok, message = pcall(lib.create, root, data, 987654)
 assert(not ok and #created == 6 and first.alive, "preflight failure must not affect existing collection")
-paths[missingPath] = savedTarget
+savedTarget.kind = "ClientUIContainerControl"
 data.groups[2].elements[1][11] = 256
 assert(not pcall(lib.create, root, data, 987654) and #created == 6)
 data.groups[2].elements[1][11] = 128
@@ -152,3 +154,25 @@ assert(#descendantCollection.controls == 6, 'any base control can resolve descen
 descendantCollection:destroy()
 assert(not pcall(lib.create, nonContainerRoot, dofile('self.lua'), 987654), 'image targets must still be containers')
 print("PASS Lua 5.3 runtime: compact types/modes, legacy compatibility, paths, layout, SetImage, alpha, stacking, preflight, rollback, replacement, cleanup and 800 images")
+
+-- Missing containers are recoverable, including an entirely missing collection.
+for _, missingIndex in ipairs({1, 2}) do
+    local missing = data.groups[missingIndex].path
+    local saved = paths[missing]
+    paths[missing] = nil
+    local logCount = #logs
+    local partial = lib.create(root, data, 987654)
+    assert(#partial.controls == 3 and #logs == logCount + 1)
+    assert(logs[#logs]:find(missing, 1, true), "diagnostic includes missing path")
+    assert(partial.controls[1].parent == paths[data.groups[3 - missingIndex].path])
+    partial:destroy()
+    paths[missing] = saved
+end
+local savedPaths = paths
+paths = {}
+local logCount = #logs
+local empty = lib.create(root, data, 987654)
+assert(#empty.controls == 0 and #logs == logCount + 2)
+empty:destroy()
+paths = savedPaths
+print("PASS missing primitive containers log errors and continue")

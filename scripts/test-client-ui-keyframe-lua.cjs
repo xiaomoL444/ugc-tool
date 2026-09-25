@@ -380,6 +380,24 @@ end
 ${fs.readFileSync(path.join(__dirname, "fixtures/timeline-rotation-runtime.lua"), "utf8")}
 ${fs.readFileSync(path.join(__dirname, "fixtures/timeline-visibility-runtime.lua"), "utf8")}
 ${fs.readFileSync(path.join(__dirname, "fixtures/timeline-events-runtime.lua"), "utf8")}
+-- Missing paths before and between valid tracks must not roll back the sequence.
+for version = 3,8 do
+    local function row(path, field)
+        if version == 8 then return {path,field,{{0,10,false,"Linear","tween"},{1,20,false,"Linear","step"}}} end
+        return {path,field,0,1,"Linear",10,20}
+    end
+    local logCount = #logs
+    local partial = Lib.Create(root, {schema="ClientUIAnimationEditor.TweenTimeline@" .. version,duration=8,tracks={
+        row("Missing","anchoredPositionX"), row("","anchoredPositionX"),
+        row("Missing","sizeDeltaX"), row("","sizeDeltaX"),
+    }})
+    assert(#partial.items == 2 and not partial.killed and #logs == logCount + 1)
+    assert(logs[#logs]:find("Missing",1,true))
+    assert(root.anchoredPositionX == 10 and root.sizeDeltaX == 10)
+    if version == 8 then assert(partial.callbacks[#partial.callbacks][1] == 8) end
+    local empty = Lib.Create(root, {schema="ClientUIAnimationEditor.TweenTimeline@" .. version,duration=8,tracks={row("Missing","anchoredPositionX")}})
+    assert(#empty.items == 0 and not empty.killed and #logs == logCount + 2)
+end
 local count = #logs
 local before = root.anchoredPositionX
 local invalid = Lib.Create(root, {schema=Lib.Schema,duration=2,tracks={ {"","anchoredPositionX",{{0,10,false,"Linear","tween"},{0,20,false,"Linear","step"}}} }})

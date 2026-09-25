@@ -62,55 +62,57 @@ local function CreateKeyframes(root, data, options)
             local field, kind = row[2], KeyframeFields[row[2]]
             if kind == nil then error("未知 Tweenable 字段：" .. field) end
             local control = GetControl(root, row[1], controls)
-            if control == nil then error("找不到关键帧控件：" .. row[1]) end
-            local isGroup = field == "groupAlpha"
-            local targets, baseline = {}, nil
-            if isGroup then
-                CollectColors(control, targets, {})
-                baseline = 255
-                if #targets == 0 then printerr("[TweenTimeline] 组透明度没有可控制的颜色：" .. row[1]) end
-            else
-                baseline = control[field]
-                if kind == "boolean" and type(baseline) ~= "boolean" then error("控件没有可读取的显隐状态：" .. row[1]) end
-                if kind == "number" and not IsNumber(baseline) then error("控件没有可读取的数值字段：" .. row[1] .. "/" .. field) end
-                if kind == "color" then
-                    local r, g, b, a = Color.ToRGBA(baseline)
-                    if not IsNumber(r) or not IsNumber(g) or not IsNumber(b) or not IsNumber(a) then error("控件颜色字段无效：" .. field) end
+            -- GetControl 已记录缺失路径；仅跳过该轨道，继续创建其他轨道。
+            if control ~= nil then
+                local isGroup = field == "groupAlpha"
+                local targets, baseline = {}, nil
+                if isGroup then
+                    CollectColors(control, targets, {})
+                    baseline = 255
+                    if #targets == 0 then printerr("[TweenTimeline] 组透明度没有可控制的颜色：" .. row[1]) end
+                else
+                    baseline = control[field]
+                    if kind == "boolean" and type(baseline) ~= "boolean" then error("控件没有可读取的显隐状态：" .. row[1]) end
+                    if kind == "number" and not IsNumber(baseline) then error("控件没有可读取的数值字段：" .. row[1] .. "/" .. field) end
+                    if kind == "color" then
+                        local r, g, b, a = Color.ToRGBA(baseline)
+                        if not IsNumber(r) or not IsNumber(g) or not IsNumber(b) or not IsNumber(a) then error("控件颜色字段无效：" .. field) end
+                    end
+                    targets[1] = { control, field }
                 end
-                targets[1] = { control, field }
-            end
-            for _, target in ipairs(targets) do
-                local owned = claimed[target[1]] or {}
-                if owned[target[2]] then error("重复轨道或组透明度与颜色轨道冲突：" .. row[1] .. "/" .. field) end
-                owned[target[2]], claimed[target[1]] = true, owned
-                originals[#originals + 1] = { target[1], target[2], target[1][target[2]] }
-            end
-            local rawKeys = {}
-            for keyIndex, key in ipairs(row[3]) do
-                if type(key) ~= "table" or not IsNumber(key[1]) or key[1] < 0 or not KeyframeValue(key[2], kind)
-                    or (key[3] ~= nil and type(key[3]) ~= "boolean") or Ease[key[4]] == nil
-                    or (key[5] ~= "tween" and key[5] ~= "step")
-                    or (key[6] ~= nil and not KeyframeValue(key[6], kind))
-                    or (key[7] ~= nil and type(key[7]) ~= "boolean")
-                    or (key[7] == true and key[6] == nil)
-                    or ((key[3] == true or key[7] == true) and not IsRelativeField(field)) then
-                    error("关键帧格式或增量字段无效：" .. trackIndex .. "/" .. keyIndex)
+                for _, target in ipairs(targets) do
+                    local owned = claimed[target[1]] or {}
+                    if owned[target[2]] then error("重复轨道或组透明度与颜色轨道冲突：" .. row[1] .. "/" .. field) end
+                    owned[target[2]], claimed[target[1]] = true, owned
+                    originals[#originals + 1] = { target[1], target[2], target[1][target[2]] }
                 end
-                if isGroup and (key[2] < 0 or key[2] > 255 or (key[6] ~= nil and (key[6] < 0 or key[6] > 255))) then error("组透明度超出 0–255") end
-                if kind == "boolean" and (key[5] ~= "step" or key[6] ~= nil) then error("显隐仅支持阶跃切换，不支持补间或左极限值") end
-                rawKeys[#rawKeys + 1] = key
+                local rawKeys = {}
+                for keyIndex, key in ipairs(row[3]) do
+                    if type(key) ~= "table" or not IsNumber(key[1]) or key[1] < 0 or not KeyframeValue(key[2], kind)
+                        or (key[3] ~= nil and type(key[3]) ~= "boolean") or Ease[key[4]] == nil
+                        or (key[5] ~= "tween" and key[5] ~= "step")
+                        or (key[6] ~= nil and not KeyframeValue(key[6], kind))
+                        or (key[7] ~= nil and type(key[7]) ~= "boolean")
+                        or (key[7] == true and key[6] == nil)
+                        or ((key[3] == true or key[7] == true) and not IsRelativeField(field)) then
+                        error("关键帧格式或增量字段无效：" .. trackIndex .. "/" .. keyIndex)
+                    end
+                    if isGroup and (key[2] < 0 or key[2] > 255 or (key[6] ~= nil and (key[6] < 0 or key[6] > 255))) then error("组透明度超出 0–255") end
+                    if kind == "boolean" and (key[5] ~= "step" or key[6] ~= nil) then error("显隐仅支持阶跃切换，不支持补间或左极限值") end
+                    rawKeys[#rawKeys + 1] = key
+                end
+                table.sort(rawKeys, function(a, b) return a[1] < b[1] end)
+                local keys, previous, previousTime = {}, baseline, nil
+                for _, key in ipairs(rawKeys) do
+                    if previousTime ~= nil and key[1] - previousTime <= 0.000001 then error("同一轨道存在重复时间关键帧") end
+                    local value = ResolveKeyframeValue(key[2], key[3], previous)
+                    local incoming = value
+                    if key[6] ~= nil then incoming = ResolveKeyframeValue(key[6], key[7], previous) end
+                    keys[#keys + 1] = { time = key[1], value = value, incoming = incoming, ease = key[4], interpolation = key[5] }
+                    previous, previousTime = value, key[1]
+                end
+                lanes[#lanes + 1] = { targets = targets, keys = keys, isGroup = isGroup, isVisibility = kind == "boolean", baseline = baseline }
             end
-            table.sort(rawKeys, function(a, b) return a[1] < b[1] end)
-            local keys, previous, previousTime = {}, baseline, nil
-            for _, key in ipairs(rawKeys) do
-                if previousTime ~= nil and key[1] - previousTime <= 0.000001 then error("同一轨道存在重复时间关键帧") end
-                local value = ResolveKeyframeValue(key[2], key[3], previous)
-                local incoming = value
-                if key[6] ~= nil then incoming = ResolveKeyframeValue(key[6], key[7], previous) end
-                keys[#keys + 1] = { time = key[1], value = value, incoming = incoming, ease = key[4], interpolation = key[5] }
-                previous, previousTime = value, key[1]
-            end
-            lanes[#lanes + 1] = { targets = targets, keys = keys, isGroup = isGroup, isVisibility = kind == "boolean", baseline = baseline }
         end
         -- 确定每个真实字段的首值；构造后和 Restart 的 0 秒统一恢复同一状态。
         for _, lane in ipairs(lanes) do

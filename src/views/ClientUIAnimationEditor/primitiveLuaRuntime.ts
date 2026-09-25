@@ -96,27 +96,31 @@ local function Prepare(root, data, imagePrefabIndex)
         if (group.visible ~= nil and type(group.visible) ~= "boolean") or (group.focus ~= nil and type(group.focus) ~= "boolean") then error("无效的图元容器显示状态") end
         local target = root
         if group.path ~= "" then target = root:FindChild(group.path) end
-        if target == nil or not target.alive or typeof(target) ~= "ClientUIContainerControl" then error("未找到图元容器：" .. group.path) end
-        if used[target] then error("图元容器路径重复：" .. group.path) end
-        used[target] = true
-        for _, row in ipairs(group.elements) do
-            if not Array(row) or #row ~= #Columns then error("无效的图元字段数量：" .. group.path) end
-            local imageId, imageType = DecodeType(row, compact)
-            if not imageId or not imageType then error("无效的图片类型或图形类型：" .. group.path) end
-            for index = 3, #Columns do if not Number(row[index]) then error("图元包含无效数值：" .. group.path) end end
-            if row[5] <= 0 or row[6] <= 0 then error("图元大小必须为正数：" .. group.path) end
-            for index = 8, 11 do
-                if row[index] < 0 or row[index] > 255 or row[index] % 1 ~= 0 then error("图元颜色必须为 0–255 整数：" .. group.path) end
+        if target == nil or not target.alive then
+            printerr("[PrimitiveImageLib] 未找到图元容器，跳过：" .. group.path)
+        else
+            if typeof(target) ~= "ClientUIContainerControl" then error("图元目标必须是容器：" .. group.path) end
+            if used[target] then error("图元容器路径重复：" .. group.path) end
+            used[target] = true
+            for _, row in ipairs(group.elements) do
+                if not Array(row) or #row ~= #Columns then error("无效的图元字段数量：" .. group.path) end
+                local imageId, imageType = DecodeType(row, compact)
+                if not imageId or not imageType then error("无效的图片类型或图形类型：" .. group.path) end
+                for index = 3, #Columns do if not Number(row[index]) then error("图元包含无效数值：" .. group.path) end end
+                if row[5] <= 0 or row[6] <= 0 then error("图元大小必须为正数：" .. group.path) end
+                for index = 8, 11 do
+                    if row[index] < 0 or row[index] > 255 or row[index] % 1 ~= 0 then error("图元颜色必须为 0–255 整数：" .. group.path) end
+                end
             end
+            targets[#targets + 1] = { control = target, group = group, compact = compact,
+                applyState = data.v == PrimitiveImageLib.Version, visible = target.visible, focus = target.canControllerFocus }
         end
-        targets[#targets + 1] = { control = target, group = group, compact = compact,
-            applyState = data.v == PrimitiveImageLib.Version, visible = target.visible, focus = target.canControllerFocus }
     end
     return targets
 end
 
 function PrimitiveImageLib.create(root, data, imagePrefabIndex)
-    -- 先检查全部路径和数据；无效输入不会影响已有图片。
+    -- 先检查路径和数据；缺失容器报错并跳过，其他无效输入不会影响已有图片。
     local targets = Prepare(root, data, imagePrefabIndex)
     local collection = { controls = {} }
     function collection:destroy()
