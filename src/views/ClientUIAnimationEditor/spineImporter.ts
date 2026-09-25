@@ -100,11 +100,11 @@ export async function convertSpineDocument(data: unknown, name: string, width: n
       const node = bones.get(boneName);
       if (!node || !object(timelines)) throw new Error(`动画引用了无效骨骼「${boneName}」。`);
       for (const [kind, values] of Object.entries(timelines)) {
-        if (kind !== "rotate" && kind !== "translate") { warnings.add(kind === "scale" ? "已跳过 X/Y 缩放动画：游戏内 localScaleX / localScaleY Tween 无效，静态缩放保留" : `骨骼 ${boneName} 的 ${kind} 轨道未导入`); continue; }
+        if (kind !== "rotate" && kind !== "translate" && kind !== "scale") { warnings.add(`骨骼 ${boneName} 的 ${kind} 轨道未导入`); continue; }
         if (!Array.isArray(values) || values.length > 10000) throw new Error("关键帧格式无效或数量过多。");
         const frames = values as RecordValue[];
         frames.forEach((f, i) => { if (!object(f) || num(f.time) < 0 || i && num(f.time) <= num(frames[i - 1].time)) throw new Error("关键帧时间必须递增且非负。"); });
-        const axes = kind === "rotate" ? [["angle", "localRotationZ", node.rotation]] : [["x", "anchoredPositionX", node.anchorOffsetX], ["y", "anchoredPositionY", node.anchorOffsetY]];
+        const axes = kind === "rotate" ? [["angle", "localRotationZ", node.rotation]] : kind === "scale" ? [["x", "localScaleX", node.scaleX], ["y", "localScaleY", node.scaleY]] : [["x", "anchoredPositionX", node.anchorOffsetX], ["y", "anchoredPositionY", node.anchorOffsetY]];
         for (const [axis, fieldKey, baseline] of axes) {
           const keys: UIKeyframe[] = [];
           const push = (time: number, value: number, step = false) => {
@@ -113,14 +113,16 @@ export async function convertSpineDocument(data: unknown, name: string, width: n
           };
           if (frames.length && num(frames[0].time) > 0) push(0, Number(baseline), true);
           frames.forEach((frame, i) => {
-            const time = num(frame.time), start = Number(baseline) + num(frame[String(axis)]);
+            // Spine scale keys are factors of the setup scale, not additive offsets.
+            const valueAt = (key: RecordValue) => kind === "scale" ? Number(baseline) * num(key[String(axis)], 1) : Number(baseline) + num(key[String(axis)]);
+            const time = num(frame.time), start = valueAt(frame);
             push(time, start, frame.curve === "stepped");
             const next = frames[i + 1];
             if (!next || frame.curve === undefined || frame.curve === "stepped") return;
             const control = Array.isArray(frame.curve) ? frame.curve : [frame.curve, frame.c2 ?? 0, frame.c3 ?? 1, frame.c4 ?? 1];
             if (control.length !== 4 || !control.every((v: unknown) => typeof v === "number" && Number.isFinite(v)) || control[0] < 0 || control[0] > 1 || control[2] < 0 || control[2] > 1) throw new Error("不支持的 Spine 贝塞尔曲线。");
             warnings.add("贝塞尔缓动已按 30 Hz 采样为线性关键帧近似，可继续编辑");
-            const dt = num(next.time) - time, end = Number(baseline) + num(next[String(axis)]);
+            const dt = num(next.time) - time, end = valueAt(next);
             const count = Math.max(2, Math.ceil(dt * 30));
             for (let j = 1; j < count; j++) {
               const p = j / count; let lo = 0, hi = 1;

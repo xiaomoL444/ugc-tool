@@ -19,7 +19,13 @@ async function main() {
   assert.deepEqual(result.nodes.filter(n => n.type === 'primitive').map(n => n.name), ['front', 'back']);
   assert.equal(result.nodes.find(n => n.name === 'arm').scaleX, 2);
   assert.equal(result.animations.length, 2);
-  assert.ok(result.warnings.some(w => w.includes('缩放动画')));
+  assert.ok(!result.warnings.some(w => w.includes('缩放动画')));
+  const scaleX = result.animations[0].keyframeTracks.find(t => t.fieldKey === 'localScaleX');
+  const scaleY = result.animations[0].keyframeTracks.find(t => t.fieldKey === 'localScaleY');
+  assert.equal(evaluateKeyframeTrack(scaleX, 0, 2), 2);
+  assert.equal(evaluateKeyframeTrack(scaleX, .5, 2), 3);
+  assert.equal(evaluateKeyframeTrack(scaleX, 1, 2), 4);
+  assert.equal(evaluateKeyframeTrack(scaleY, 1, 1), 2);
   assert.ok(result.warnings.some(w => w.includes('30 Hz')));
   const x = result.animations[0].keyframeTracks.find(t => t.fieldKey === 'anchoredPositionX');
   assert.equal(evaluateKeyframeTrack(x, 0, 20), 20);
@@ -28,9 +34,9 @@ async function main() {
   const rotation = result.animations[0].keyframeTracks.find(t => t.fieldKey === 'localRotationZ');
   assert.equal(rotation.keyframes[0].value, 40); assert.equal(rotation.keyframes.at(-1).value, 60);
   assert.ok(Math.abs(evaluateKeyframeTrack(rotation, .5, 40) - 50) < .001);
-  assert.ok(result.animations.every(a => a.keyframeTracks.every(t => !t.fieldKey.startsWith('localScale'))));
+  assert.ok(result.animations.every(a => a.keyframeTracks.every(t => t.fieldKey !== 'localScaleZ')));
   const exported = buildKeyframeTimelineDataLua({ projectName: 'Spine', rootNodeId: result.nodes[0].id, nodes: result.nodes, tracks: result.animations[0].keyframeTracks, sequenceDuration: 1 });
-  assert.equal(exported.trackCount, 3);
+  assert.equal(exported.trackCount, 5);
   await assert.rejects(() => convertSpineDocument({ ...source, skeleton: { spine: '4.2' } }, 'x', 100, 100, async () => ''), /3.8/);
   const broken = JSON.parse(before); broken.bones[1].parent = 'missing';
   await assert.rejects(() => convertSpineDocument(broken, 'x', 100, 100, async () => ''), /父骨骼/);

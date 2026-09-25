@@ -335,7 +335,6 @@ import type { UITimelineEvent } from "./types";
 import type { UIAnimation, UIKeyframe, UIKeyframeTrack } from "./types";
 import AnimationListPanel from "./AnimationListPanel.vue";
 import { normalizeAnimationCollection, uniqueAnimationName } from "./animationCollection";
-import { removeRetiredScaleTweenTracks } from "./timelineCompatibility";
 import { evaluateKeyframeTrack, resolveKeyframeTrack, migrateTweenClipsToKeyframes, normalizeKeyframeTracks } from "./keyframeTimeline";
 import { buildKeyframeTimelineDataLua, prepareKeyframeTimelineImport } from "./keyframeLua";
 import { createEditorHistory } from "./editorHistory";
@@ -1148,15 +1147,6 @@ function insertKeyframeAtTime(trackId: string, time: number) {
   selectKeyframe(track.id, key.id);
 }
 function writeAnimatedValue(node: UINode, fieldKey: string, value: UITweenValue) {
-  // Static scale is still editable (inspector, gizmo and reparent compensation),
-  // but these axes must never create/update a Tween or a keyframe.
-  if (fieldKey === "localScaleX" || fieldKey === "localScaleY") {
-    if (typeof value !== "number" || !Number.isFinite(value)) return;
-    node[fieldKey === "localScaleX" ? "scaleX" : "scaleY"] = value;
-    applyNodeLayout(node);
-    applyDescendantLayouts(node.id);
-    return;
-  }
   const field = getTweenableField(node.type, fieldKey);
   if (!field || value === null || (typeof value === "number" && !Number.isFinite(value))) return;
   const track = keyframeTracks.value.find(item => item.nodeId === node.id && item.fieldKey === fieldKey);
@@ -1351,7 +1341,7 @@ function buildKeyframePreviewNodes(time: number) {
   return cloned;
 }
 
-function availableTweenFields(node: UINode) { const used = new Set([...keyframeTracks.value, ...tweenTracks.value].filter(track => track.nodeId === node.id).map(track => track.fieldKey)); return getTweenableFields(node.type).filter((field) => !used.has(field.fieldKey)); }
+function availableTweenFields(node: UINode) { const used = new Set([...keyframeTracks.value, ...tweenTracks.value].filter(track => track.nodeId === node.id).map(track => track.fieldKey)); return getTweenableFields(node.type).filter((field) => field.fieldKey !== "localScaleZ" && !used.has(field.fieldKey)); }
 function tweenFieldConflict(node: UINode, fieldKey: string) { return getTweenTrackConflict(node.id, fieldKey, nodes.value, [...tweenTracks.value, ...keyframeConflictClips()]); }
 function selectHierarchyNode(node: UINode, event?: MouseEvent) { if (boneCreateMode.value && event?.ctrlKey) { attachControlToBone(node); return; } if (boneCreateMode.value && node.type === "container") boneParentId.value = node.id; selectedKeyframeId.value = null; selectedId.value = node.id; selectedTweenTrackId.value = null; closeTweenFieldPicker(); }
 function selectTimelineNode(node: UINode) { selectHierarchyNode(node); }
@@ -2821,7 +2811,6 @@ function applyProjectDataContents(serialized: string) {
     throw new Error("这不是有效的 UI 动画工程文件");
   }
   const loadedTemplates = normalizeControlTemplates(data.controlTemplates);
-  const removedScaleTracks = removeRetiredScaleTweenTracks(data);
   const loadedPrimitiveResources = normalizePrimitiveResources(data.primitiveResources);
   const loadedGiaSource = normalizeGiaExportSource(data.giaSource);
   giaExportOpen.value = false;
@@ -2873,10 +2862,6 @@ function applyProjectDataContents(serialized: string) {
   selectedId.value = rootContainer.value?.id ?? null;
   search.value = "";
   collapsed.value = new Set();
-  if (removedScaleTracks) {
-    timelineEditNotice.value = `已移除 ${removedScaleTracks} 条游戏内无效的 localScaleX / localScaleY 动画轨道，静态缩放保持不变。`;
-    toast.warning(timelineEditNotice.value);
-  }
   nextTick(fitCanvas);
 }
 async function loadProject(event: Event) {

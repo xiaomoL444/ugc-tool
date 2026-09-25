@@ -268,23 +268,27 @@ async function main() {
       api.confirmTimelineDataImport(); assert.equal(api.activeAnimation.value.events.length,1);
       assert.equal(api.activeAnimation.value.events[0].nodeId,'image'); assert.equal(api.keyframeTracks.value.length,0);
     });
-    await test("Loading retired scale lanes keeps static scale, other animations and reports the migration", () => {
+    await test("Hidden Z scale lanes load unchanged and remain editable without migration warnings", () => {
       const api = fixture(); addTrack(api, "sizeDeltaX");
       const data = JSON.parse(api.serializeProject());
-      for (const fieldKey of ["localScaleX", "localScaleY"]) data.animations[0].keyframeTracks.push({
+      for (const fieldKey of ["localScaleZ"]) data.animations[0].keyframeTracks.push({
         id: fieldKey, nodeId: "group", fieldKey, keyframes: [{ id: fieldKey + "-key", time: 0, value: 8, easeType: "Linear", interpolation: "tween" }],
       });
       const source = JSON.stringify(data);
       api.applyProjectData(source);
-      assert.equal(api.keyframeTracks.value.length, 1);
+      assert.equal(api.keyframeTracks.value.length, 2);
       assert.equal(api.keyframeTracks.value[0].fieldKey, "sizeDeltaX");
       near(node(api).scaleX, 2); near(node(api).scaleY, 3);
-      assert.match(api.timelineEditNotice.value, /已移除 2 条/);
-      assert.ok(api.alerts.some(message => message.includes("已移除 2 条")));
+      assert.ok(!api.alerts.some(message => message.includes("已移除")));
+      api.selectedId.value = "group";
+      api.currentTime.value = 1;
+      api.updateAnimatedBaseValue("localScaleZ", 5);
+      assert.equal(api.keyframeTracks.value[1].keyframes.at(-1).value, 5);
+      assert.equal(JSON.parse(api.serializeProject()).animations[0].keyframeTracks[1].fieldKey, "localScaleZ");
       api.selectedId.value = "group";
       api.updateAnimatedBaseValue("localScaleX", -1.5); api.updateAnimatedBaseValue("localScaleY", 0);
       near(node(api).scaleX, -1.5); near(node(api).scaleY, 0);
-      assert.equal(api.keyframeTracks.value.length, 1, "Static edits cannot add keys");
+      assert.equal(api.keyframeTracks.value.length, 2, "Untracked static edits cannot add lanes");
       assert.equal(JSON.stringify(data), source, "Original imported project stays recoverable");
     });
     await test("Bone mode starts at root, previews without mutations, creates a chain and supports undo and JSON", async () => {
@@ -503,10 +507,10 @@ async function main() {
     });
     await test("New property tracks seed a real current-time key and mark only that property as animated", () => {
       const api = fixture(); const before = plain(api.nodes.value); api.currentTime.value = 1.25;
-      const track = addTrack(api, "localScaleZ");
+      const track = addTrack(api, "localScaleX");
       assert.ok(track); assert.equal(track.keyframes.length, 1); assert.equal(track.keyframes[0].time, 1.25); assert.equal(track.keyframes[0].value, 2);
-      assert.equal(api.hasAnimatedField("localScaleZ"), true); assert.equal(api.hasAnimatedField("localScaleY"), false);
-      api.addKeyframeTrack(node(api), "localScaleZ"); assert.equal(api.keyframeTracks.value.length, 1);
+      assert.equal(api.hasAnimatedField("localScaleX"), true); assert.equal(api.hasAnimatedField("localScaleY"), false);
+      api.addKeyframeTrack(node(api), "localScaleX"); assert.equal(api.keyframeTracks.value.length, 1);
       assert.deepEqual(plain(api.nodes.value), before);
       assert.equal(api.selectedKeyframeId.value, track.keyframes[0].id);
     });
@@ -569,35 +573,35 @@ async function main() {
       await api.editorHistory.redo(); assert.equal(api.keyframeTracks.value[0].keyframes.length, 1);
     });
     await test("Editing an animated parameter creates one key at the playhead and updates that key on repeated edits", () => {
-      const api = fixture(); const track = addTrack(api, "localScaleZ"); const before = plain(api.nodes.value);
-      api.currentTime.value = 2; api.updateAnimatedBaseValue("localScaleZ", 3);
+      const api = fixture(); const track = addTrack(api, "localScaleX"); const before = plain(api.nodes.value);
+      api.currentTime.value = 2; api.updateAnimatedBaseValue("localScaleX", 3);
       assert.equal(track.keyframes.length, 2); const id = track.keyframes[1].id;
-      api.updateAnimatedBaseValue("localScaleZ", 4);
+      api.updateAnimatedBaseValue("localScaleX", 4);
       assert.equal(track.keyframes.length, 2); assert.equal(track.keyframes[1].id, id); assert.equal(track.keyframes[1].value, 4);
-      near(preview(api, 1).scaleZ, 3); near(preview(api, 2).scaleZ, 4);
+      near(preview(api, 1).scaleX, 3); near(preview(api, 2).scaleX, 4);
       assert.deepEqual(plain(api.nodes.value), before);
     });
     await test("Switching relative mode preserves the pose and later increments resolve from the preceding key", () => {
-      const api = fixture(); const track = addTrack(api, "localScaleZ");
-      api.currentTime.value = 1; api.updateAnimatedBaseValue("localScaleZ", 3);
-      api.currentTime.value = 2; api.updateAnimatedBaseValue("localScaleZ", 5);
-      const before = [0, 0.5, 1, 1.5, 2].map((time) => preview(api, time).scaleZ);
+      const api = fixture(); const track = addTrack(api, "localScaleX");
+      api.currentTime.value = 1; api.updateAnimatedBaseValue("localScaleX", 3);
+      api.currentTime.value = 2; api.updateAnimatedBaseValue("localScaleX", 5);
+      const before = [0, 0.5, 1, 1.5, 2].map((time) => preview(api, time).scaleX);
       api.updateKeyframe(track.id, track.keyframes[1].id, { relative: true });
       api.updateKeyframe(track.id, track.keyframes[2].id, { relative: true });
       assert.equal(track.keyframes[1].value, 1); assert.equal(track.keyframes[2].value, 2);
-      assert.deepEqual([0, 0.5, 1, 1.5, 2].map((time) => preview(api, time).scaleZ), before);
-      api.currentTime.value = 3; api.updateAnimatedBaseValue("localScaleZ", 6);
+      assert.deepEqual([0, 0.5, 1, 1.5, 2].map((time) => preview(api, time).scaleX), before);
+      api.currentTime.value = 3; api.updateAnimatedBaseValue("localScaleX", 6);
       const last = track.keyframes.at(-1); assert.equal(last.relative, true); assert.equal(last.value, 1);
       api.updateKeyframe(track.id, track.keyframes[1].id, { value: 2 });
-      near(preview(api, 1).scaleZ, 4); near(preview(api, 2).scaleZ, 6); near(preview(api, 3).scaleZ, 7);
-      assert.equal(node(api).scaleZ, 2);
+      near(preview(api, 1).scaleX, 4); near(preview(api, 2).scaleX, 6); near(preview(api, 3).scaleX, 7);
+      assert.equal(node(api).scaleX, 2);
     });
     await test("Seek and playback expose animated inspector values without mutating bases or creating undo records", async () => {
-      const api = fixture(); addTrack(api, "localScaleZ"); api.currentTime.value = 2; api.updateAnimatedBaseValue("localScaleZ", 4);
+      const api = fixture(); addTrack(api, "localScaleX"); api.currentTime.value = 2; api.updateAnimatedBaseValue("localScaleX", 4);
       api.editorHistory.reset(api.captureUndoState()); const before = api.captureUndoState();
       for (const [time, value] of [[0, 2], [1, 3], [2, 4], [4, 4], [0.5, 2.5]]) {
         api.seekKeyframeTime(time); api.playing.value = true; api.zoom.value = 0.7; await tick();
-        near(api.inspectorNode.value.scaleZ, value); assert.equal(api.captureUndoState(), before); assert.equal(history(api).length, 0);
+        near(api.inspectorNode.value.scaleX, value); assert.equal(api.captureUndoState(), before); assert.equal(history(api).length, 0);
       }
     });
     await test("The actual selectedProperties setter keys color while keeping non-animated fields on the base model", () => {
@@ -646,13 +650,13 @@ async function main() {
       await api.redoEditorOperation(); assert.equal(api.captureUndoState(), after);
     });
     await test("Deleting keys, entire tracks and containers preserves the correct remaining animation and undo snapshot", async () => {
-      const api = fixture(); const groupTrack = addTrack(api, "localScaleZ"); addTrack(api, "sizeDeltaX", "image");
-      api.currentTime.value = 1; api.writeAnimatedValue(node(api), "localScaleZ", 3);
+      const api = fixture(); const groupTrack = addTrack(api, "localScaleX"); addTrack(api, "sizeDeltaX", "image");
+      api.currentTime.value = 1; api.writeAnimatedValue(node(api), "localScaleX", 3);
       api.editorHistory.reset(api.captureUndoState()); const before = api.captureUndoState();
       await gesture(api, () => api.removeKeyframe(groupTrack.id, groupTrack.keyframes[1].id));
       assert.equal(api.keyframeTracks.value.find((track) => track.id === groupTrack.id).keyframes.length, 1);
       await api.undoEditorOperation(); assert.equal(api.captureUndoState(), before);
-      await gesture(api, () => api.removeKeyframeTrack(groupTrack.id)); assert.equal(api.hasAnimatedField("localScaleZ", "group"), false);
+      await gesture(api, () => api.removeKeyframeTrack(groupTrack.id)); assert.equal(api.hasAnimatedField("localScaleX", "group"), false);
       await api.undoEditorOperation(); assert.equal(api.captureUndoState(), before);
       api.selectedId.value = "group"; await gesture(api, () => api.removeSelected());
       assert.equal(api.keyframeTracks.value.length, 0); assert.equal(api.nodes.value.length, 1);
@@ -945,7 +949,7 @@ async function main() {
         Object.assign(node(api, "image"), { scaleX: -1.5, scaleY: 0.75, rotation: -23, pivotX: 0.2, pivotY: 0.8 });
         api.getHierarchyOrder().forEach(api.applyNodeLayout);
         api.selectedId.value = "image"; api.selectCanvasTool("scale"); api.zoom.value = 0.55;
-        if (animated) for (const field of ["localScaleX", "localScaleY"]) assert.equal(addTrack(api, field, "image"), undefined);
+        if (animated) for (const field of ["localScaleX", "localScaleY"]) assert.ok(addTrack(api, field, "image"));
         api.currentTime.value = 2; api.editorHistory.reset(api.captureUndoState());
         const beforeState = api.captureUndoState(), base = plain(node(api, "image"));
         const world = plain(api.selectedWorldPosition.value), pivot = api.canvasClientPoint(world.x, world.y);
@@ -966,7 +970,8 @@ async function main() {
         }
         api.dispatch("pointerup", event); api.endEditorHistoryPointer(event); await tick();
         assert.equal(history(api).length, 1);
-        assert.equal(api.keyframeTracks.value.length, 0, "X/Y scaling remains a static edit, never a Tween");
+        assert.equal(api.keyframeTracks.value.length, animated ? 2 : 0);
+        if (animated) assert.deepEqual(plain(node(api, "image")), base);
         const afterState = api.captureUndoState(); await api.undoEditorOperation(); assert.equal(api.captureUndoState(), beforeState);
         await api.redoEditorOperation(); assert.equal(api.captureUndoState(), afterState);
       }
@@ -1149,7 +1154,7 @@ async function main() {
       const undoAfter = api.captureUndoState(); await api.undoEditorOperation(); assert.equal(api.captureUndoState(), undoBefore);
       await api.redoEditorOperation(); assert.equal(api.captureUndoState(), undoAfter);
     });
-    await test("Transform copy samples the preview; animated fields key while retired X/Y scales remain static", async () => {
+    await test("Transform copy samples the preview; animated X/Y scales key while Z remains static", async () => {
       for (const action of ["reset", "paste"]) {
         const api = fixture();
         imports.baseTweenableFields.forEach((field) => addTrack(api, field.fieldKey));
@@ -1161,7 +1166,7 @@ async function main() {
         const copiedPose = plain(api.inspectorNode.value); const setup = plain(api.nodes.value);
         api.copySelectedPropertyGroup("transform");
         const copied = plain(api.propertyClipboard.value.values);
-        near(copied.scaleX, 4); near(copied.anchorOffsetX, 140); near(copied.sizeDeltaX, 230);
+        near(copied.scaleX, 3); near(copied.anchorOffsetX, 140); near(copied.sizeDeltaX, 230);
         for (const field of imports.baseTweenableFields) near(copied[field.modelKey], copiedPose[field.modelKey], `Copy ${field.fieldKey} from preview`);
         assert.deepEqual(plain(api.nodes.value), setup);
         api.currentTime.value = 3; const beforePose = plain(api.inspectorNode.value);
@@ -1175,7 +1180,6 @@ async function main() {
         api.editorHistory.reset(api.captureUndoState()); const undoBefore = api.captureUndoState();
         await gesture(api, () => api[action === "reset" ? "resetSelectedPropertyGroup" : "pasteSelectedPropertyGroup"]("transform"));
         const expectedSetup = plain(setup);
-        if (action === "reset") Object.assign(expectedSetup.find(item => item.id === "group"), { scaleX: 1, scaleY: 1 });
         assert.deepEqual(plain(api.nodes.value), expectedSetup, `${action} changes only static X/Y scales, not animated setup or descendants`);
         for (const field of imports.baseTweenableFields) {
           const wanted = expected[field.modelKey]; near(api.inspectorNode.value[field.modelKey], wanted, `${action} ${field.fieldKey}`);
@@ -1225,7 +1229,7 @@ async function main() {
       }
     });
     await test("Collapsing the animation panel only changes layout, not playback, selection, save data or undo history", async () => {
-      const api = fixture(); const track = addTrack(api, "localScaleZ"); api.currentTime.value = 2; api.playing.value = true;
+      const api = fixture(); const track = addTrack(api, "localScaleX"); api.currentTime.value = 2; api.playing.value = true;
       await tick(); api.editorHistory.flush(); const saved = api.serializeProject(); const snapshot = api.captureUndoState(); const count = history(api).length;
       for (const collapsed of [true, false, true]) {
         api.animationsPanelCollapsed.value = collapsed; await tick(); api.editorHistory.flush();
@@ -1235,15 +1239,15 @@ async function main() {
     });
     await test("Animations share setup but isolate same-property keys and durations; switching is not an undo action", async () => {
       const api = fixture(); const setup = plain(api.nodes.value); const firstId = api.activeAnimationId.value;
-      addTrack(api, "localScaleZ"); api.updateAnimatedBaseValue("localScaleZ", 3); api.duration.value = 4;
+      addTrack(api, "localScaleX"); api.updateAnimatedBaseValue("localScaleX", 3); api.duration.value = 4;
       api.createAnimation(); const secondId = api.activeAnimationId.value;
-      assert.notEqual(secondId, firstId); assert.equal(api.keyframeTracks.value.length, 0); near(api.inspectorNode.value.scaleZ, 2);
-      addTrack(api, "localScaleZ"); api.updateAnimatedBaseValue("localScaleZ", 7); api.duration.value = 9;
+      assert.notEqual(secondId, firstId); assert.equal(api.keyframeTracks.value.length, 0); near(api.inspectorNode.value.scaleX, 2);
+      addTrack(api, "localScaleX"); api.updateAnimatedBaseValue("localScaleX", 7); api.duration.value = 9;
       await tick(); api.editorHistory.flush(); const snapshot = api.captureUndoState(); const count = history(api).length;
       api.currentTime.value = 2; api.playing.value = true; api.selectAnimation(firstId);
       assert.equal(api.playing.value, false); assert.equal(api.currentTime.value, 0); assert.equal(api.selectedKeyframeId.value, null);
-      near(api.inspectorNode.value.scaleZ, 3); assert.equal(api.duration.value, 4);
-      api.selectAnimation(secondId); near(api.inspectorNode.value.scaleZ, 7); assert.equal(api.duration.value, 9);
+      near(api.inspectorNode.value.scaleX, 3); assert.equal(api.duration.value, 4);
+      api.selectAnimation(secondId); near(api.inspectorNode.value.scaleX, 7); assert.equal(api.duration.value, 9);
       await tick(); api.editorHistory.flush(); assert.equal(api.captureUndoState(), snapshot); assert.equal(history(api).length, count);
       assert.deepEqual(plain(api.nodes.value), setup);
     });
@@ -1283,7 +1287,7 @@ async function main() {
       assert.equal(api.animations.value.length, 1); assert.equal(api.activeAnimation.value.name, "默认动画"); assert.deepEqual(plain(api.keyframeTracks.value), data.keyframeTracks);
     });
     await test("Invalid animation collections reject duplicate identities, names and broken inactive tracks", () => {
-      const api = fixture(); addTrack(api, "localScaleZ"); const original = plain(api.animations.value);
+      const api = fixture(); addTrack(api, "localScaleX"); const original = plain(api.animations.value);
       for (const mutate of [list => list.push(plain(list[0])), list => list[0].duration = NaN, list => list[0].name = "", list => list[0].keyframeTracks[0].nodeId = "missing"]) {
         const data = plain(original); mutate(data); assert.throws(() => imports.normalizeAnimationCollection(data, api.nodes.value));
       }
@@ -1298,17 +1302,17 @@ async function main() {
     await test("Lua Data import modifies only the current animation", () => {
       const api = fixture(); addTrack(api, "sizeDeltaX"); const original = plain(api.activeAnimation.value); api.createAnimation();
       api.openTimelineDataImport(); api.timelineDataImportMode.value = "replace";
-      api.timelineDataSource.value = 'return {schema="ClientUIAnimationEditor.TweenTimeline@7",duration=8,tracks={{"","localScaleZ",0,1,"Linear",1,2}}}';
-      api.confirmTimelineDataImport(); assert.equal(api.keyframeTracks.value.length, 1); assert.equal(api.keyframeTracks.value[0].fieldKey, "localScaleZ"); assert.equal(api.duration.value, 8);
+      api.timelineDataSource.value = 'return {schema="ClientUIAnimationEditor.TweenTimeline@7",duration=8,tracks={{"","localScaleX",0,1,"Linear",1,2}}}';
+      api.confirmTimelineDataImport(); assert.equal(api.keyframeTracks.value.length, 1); assert.equal(api.keyframeTracks.value[0].fieldKey, "localScaleX"); assert.equal(api.duration.value, 8);
       assert.deepEqual(plain(api.animations.value[0]), original);
     });
     await test("Actual Lua Data export uses only the selected animation and includes its name in the filename", () => {
       const api = fixture(); addTrack(api, "sizeDeltaX"); api.renameAnimation("待机");
-      const first = api.activeAnimationId.value; api.createAnimation(); api.renameAnimation("入场"); addTrack(api, "localScaleZ");
+      const first = api.activeAnimationId.value; api.createAnimation(); api.renameAnimation("入场"); addTrack(api, "localScaleX");
       api.exportSelectedNodeKeyframeData(); assert.equal(api.downloads.length, 1);
-      assert.match(api.downloads[0].fileName, /入场/); assert.match(api.downloads[0].code, /"localScaleZ"/); assert.doesNotMatch(api.downloads[0].code, /"sizeDeltaX"/);
+      assert.match(api.downloads[0].fileName, /入场/); assert.match(api.downloads[0].code, /"localScaleX"/); assert.doesNotMatch(api.downloads[0].code, /"sizeDeltaX"/);
       api.selectAnimation(first); api.exportSelectedNodeKeyframeData();
-      assert.match(api.downloads[1].fileName, /待机/); assert.match(api.downloads[1].code, /"sizeDeltaX"/); assert.doesNotMatch(api.downloads[1].code, /"localScaleZ"/);
+      assert.match(api.downloads[1].fileName, /待机/); assert.match(api.downloads[1].code, /"sizeDeltaX"/); assert.doesNotMatch(api.downloads[1].code, /"localScaleX"/);
     });
     await test("Legacy Clip-only files migrate into keyframes without changing preview during gaps and relative chains", async () => {
       const api = fixture();

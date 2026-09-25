@@ -31,9 +31,9 @@ const visibilityField: TweenableFieldDefinition = {
   description: "到达关键帧时立即显示或隐藏；首帧前保留初始可见性。隐藏父控件会同时隐藏子级，不改变激活状态。",
 };
 
-/** 当前支持的缩放补间字段；X/Y 根据游戏实测停用，静态缩放仍保留。 */
+/** XYZ 都是合法补间字段；Z 的游戏显示无效果，仅在添加菜单隐藏。 */
 export function isScaleTweenField(fieldKey: string): boolean {
-  return fieldKey === "localScaleZ";
+  return fieldKey === "localScaleX" || fieldKey === "localScaleY" || fieldKey === "localScaleZ";
 }
 
 export function isSizeTweenField(fieldKey: string): boolean {
@@ -127,6 +127,8 @@ export const baseTweenableFields: TweenableFieldDefinition[] = [
   { fieldKey: "anchorMaxY", modelKey: "anchorMaxY", label: "最大锚点 Y", source: "base", valueKind: "number", ...normalizedScrub },
   { fieldKey: "pivotX", modelKey: "pivotX", label: "中心 X", source: "base", valueKind: "number", ...normalizedScrub },
   { fieldKey: "pivotY", modelKey: "pivotY", label: "中心 Y", source: "base", valueKind: "number", ...normalizedScrub },
+  { fieldKey: "localScaleX", modelKey: "scaleX", label: "缩放 X", source: "base", valueKind: "number", ...scaleScrub },
+  { fieldKey: "localScaleY", modelKey: "scaleY", label: "缩放 Y", source: "base", valueKind: "number", ...scaleScrub },
   { fieldKey: "localScaleZ", modelKey: "scaleZ", label: "缩放 Z", source: "base", valueKind: "number", ...scaleScrub },
   { fieldKey: "localRotationX", modelKey: "rotationX", label: "旋转 X", source: "base", valueKind: "number", ...rotationScrub },
   { fieldKey: "localRotationY", modelKey: "rotationY", label: "旋转 Y", source: "base", valueKind: "number", ...rotationScrub },
