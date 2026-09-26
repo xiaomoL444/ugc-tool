@@ -27,5 +27,10 @@
   "soundEffectPlayer.ui.uncategorized": "未分類",
   "soundEffectPlayer.ui.categoryFallback": "カテゴリ {id}",
   "soundEffectPlayer.ui.loadFailed": "効果音データの読み込みに失敗しました",
-  "soundEffectPlayer.ui.playFailed": "再生に失敗しました"
+  "soundEffectPlayer.ui.playFailed": "再生に失敗しました",
+  "soundEffectPlayer.ui.waveform": "音声波形",
+  "soundEffectPlayer.ui.waveformHint": "クリックまたはドラッグで移動",
+  "soundEffectPlayer.ui.waveformLoading": "波形を読み込み中…",
+  "soundEffectPlayer.ui.waveformFailed": "波形を読み込めません。クリックまたはドラッグで移動できます。",
+  "soundEffectPlayer.ui.copyHint": "クリックしてコピー"
 }

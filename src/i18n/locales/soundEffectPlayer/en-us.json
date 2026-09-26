@@ -27,5 +27,10 @@
   "soundEffectPlayer.ui.uncategorized": "Uncategorized",
   "soundEffectPlayer.ui.categoryFallback": "Category {id}",
   "soundEffectPlayer.ui.loadFailed": "Failed to load sound data",
-  "soundEffectPlayer.ui.playFailed": "Playback failed"
+  "soundEffectPlayer.ui.playFailed": "Playback failed",
+  "soundEffectPlayer.ui.waveform": "Audio waveform",
+  "soundEffectPlayer.ui.waveformHint": "Click or drag to seek",
+  "soundEffectPlayer.ui.waveformLoading": "Loading waveform…",
+  "soundEffectPlayer.ui.waveformFailed": "Waveform unavailable. Click or drag to seek.",
+  "soundEffectPlayer.ui.copyHint": "Click to copy"
 }

@@ -66,20 +66,25 @@
     <SplitterPanel :size="30">
       <SectionLayout :title="t('soundEffectPlayer.ui.player')">
         <div class="player">
-          <span>{{ t('soundEffectPlayer.ui.soundName', { name: dataJson[selectedId]?.name ?? t('soundEffectPlayer.ui.notSelected') }) }}</span>
-          <span>{{ t('soundEffectPlayer.ui.soundId', { id: selectedId || t('soundEffectPlayer.ui.notSelected') }) }}</span>
+          <button type="button" class="copy-sound-info" :disabled="!dataJson[selectedId]?.name"
+            :title="t('soundEffectPlayer.ui.copyHint')" @click="Clipboard(dataJson[selectedId].name)">
+            {{ t('soundEffectPlayer.ui.soundName', { name: dataJson[selectedId]?.name ?? t('soundEffectPlayer.ui.notSelected') }) }}
+          </button>
+          <button type="button" class="copy-sound-info" :disabled="!selectedId"
+            :title="t('soundEffectPlayer.ui.copyHint')" @click="Clipboard(selectedId)">
+            {{ t('soundEffectPlayer.ui.soundId', { id: selectedId || t('soundEffectPlayer.ui.notSelected') }) }}
+          </button>
+          <AudioWaveform :src="audioSource" :current-time="currentTime" :duration="duration"
+            :disabled="loading || !selectedId" @seek="seek" />
+          <div class="playback-time">
+            <span>{{ formatTime(currentTime) }}</span>
+            <span>/ {{ loading ? t('soundEffectPlayer.ui.loading') : formatTime(duration) }}</span>
+          </div>
           <ActionButton v-on:update:selected="togglePlay">{{
             t(playing ? 'soundEffectPlayer.ui.pause' : 'soundEffectPlayer.ui.play')
           }}</ActionButton>
           <ActionButton v-on:update:selected="prevTrack">{{ t('soundEffectPlayer.ui.previous') }}</ActionButton>
           <ActionButton v-on:update:selected="nextTrack">{{ t('soundEffectPlayer.ui.next') }}</ActionButton>
-
-          <!-- 时间进度 -->
-          <div>
-            <span v-if="!loading">{{ formatTime(currentTime) }}/{{ formatTime(duration) }}</span>
-            <span v-else>{{ formatTime(currentTime) }}/{{ t('soundEffectPlayer.ui.loading') }}</span>
-            <input type="range" :max="duration" step="0.1" v-model.number="currentTime" @input="seek" />
-          </div>
 
           <!-- 播放速度 -->
           <div>
@@ -116,7 +121,7 @@
 
           <!-- 音频元素 -->
           <audio ref="audioRef" @timeupdate="updateTime" @loadedmetadata="loadMetadata" :src="audioSource"
-            @ended="ended"></audio>
+            @play="onPlay" @pause="onPause" @error="onAudioError" @ended="ended"></audio>
         </div>
       </SectionLayout>
     </SplitterPanel>
@@ -400,15 +405,57 @@
 }
 
 input[type="range"] {
+  box-sizing: border-box;
   width: 100%;
+  margin-inline: 0;
 }
 
 .player {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: 400px;
+  width: min(400px, calc(100% - 32px));
   margin: 20px auto;
+}
+.copy-sound-info {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.copy-sound-info:hover:not(:disabled) {
+  color: #174ea6;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.copy-sound-info:focus-visible {
+  outline: 2px solid #174ea6;
+  outline-offset: 3px;
+}
+
+.copy-sound-info:disabled {
+  cursor: default;
+}
+
+.playback-time {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #5b7ea7;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.playback-time span:first-child {
+  color: #174ea6;
+  font-size: 22px;
 }
 </style>
 
@@ -418,7 +465,9 @@ import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import AudioWaveform from "./AudioWaveform.vue";
+import { Clipboard } from "@/utils/clipboard";
 
 import { SoundEffectData } from "./types/SoundEffectData";
 import { VVirtualList, type VVirtualListInst } from "vueuc";
@@ -615,12 +664,14 @@ function jumpToFirstSearchResult() {
   if (id) SelectSound(id, true);
 }
 
-function SelectSound(id: string, shouldScroll = false) {
-  console.log(`选择了${id}`);
+async function SelectSound(id: string, shouldScroll = false) {
+  stop();
   selectedId.value = id;
-  audioSource.value = "";
+  currentTime.value = 0;
+  duration.value = 0;
   audioSource.value = oss.path("audio", `${id}.mp3`);
   loading.value = true;
+  await nextTick();
   audioRef.value?.load();
   if (shouldScroll) void scrollToSound(id);
 }
@@ -631,11 +682,47 @@ const playing = ref(false);
 const volume = ref(1);
 const speed = ref(1);
 
-const currentTrack = defineModel();
 const currentTime = ref(0);
 const duration = ref(0);
 
 let timer: ReturnType<typeof setTimeout> | null = null;
+let animationFrame: number | null = null;
+
+function clearLoopTimer() {
+  if (timer !== null) clearTimeout(timer);
+  timer = null;
+}
+
+function onPlay() {
+  playing.value = true;
+  if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+  const tick = () => {
+    updateTime();
+    animationFrame = requestAnimationFrame(tick);
+  };
+  animationFrame = requestAnimationFrame(tick);
+}
+
+function onPause() {
+  playing.value = false;
+  if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+  animationFrame = null;
+  updateTime();
+}
+
+function onAudioError() {
+  clearLoopTimer();
+  onPause();
+  loading.value = false;
+  duration.value = 0;
+  currentTime.value = 0;
+}
+
+onBeforeUnmount(() => {
+  clearLoopTimer();
+  audioRef.value?.pause();
+  if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+});
 
 function toggleLoop() {
   if (!audioRef.value) return;
@@ -658,16 +745,18 @@ function togglePlay() {
 }
 
 function start() {
-  if (!audioRef.value) return;
-  audioRef.value.play().catch(() => {
+  if (!audioRef.value || !selectedId.value || loading.value) return;
+  clearLoopTimer();
+  audioRef.value.play().catch((error: DOMException) => {
+    if (error.name === 'AbortError') return;
     toast.warning(t('soundEffectPlayer.ui.playFailed'));
   });
-  playing.value = true;
 }
 function stop() {
+  clearLoopTimer();
   if (!audioRef.value) return;
   audioRef.value.pause();
-  playing.value = false;
+  onPause();
 }
 
 // 上一首 / 下一首
@@ -686,8 +775,10 @@ function nextTrack() {
 }
 
 // 时间控制
-function seek() {
-  if (!audioRef.value) return;
+function seek(seconds: number) {
+  if (!audioRef.value || loading.value || !Number.isFinite(duration.value) || duration.value <= 0) return;
+  clearLoopTimer();
+  currentTime.value = Math.max(0, Math.min(duration.value, seconds));
   audioRef.value.currentTime = currentTime.value;
 }
 
@@ -698,7 +789,7 @@ function updateTime() {
 
 function loadMetadata() {
   if (!audioRef.value) return;
-  duration.value = audioRef.value.duration;
+  duration.value = Number.isFinite(audioRef.value.duration) ? audioRef.value.duration : 0;
   loading.value = false;
   changePlaybackRate();
   start();
@@ -720,18 +811,22 @@ function changeVolume() {
 
 // 格式化时间 mm:ss
 function formatTime(sec: number) {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  const tenths = Math.floor(Math.max(0, sec) * 10);
+  const m = Math.floor(tenths / 600);
+  const s = Math.floor(tenths / 10) % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}.${tenths % 10}`;
 }
 
 function ended() {
   if (!audioRef.value) return;
-  audioRef.value.currentTime = 0;
-  playing.value = false;
+  onPause();
   if (!loopEnabled.value) return;
 
+  clearLoopTimer();
   timer = setTimeout(() => {
+    if (!audioRef.value) return;
+    audioRef.value.currentTime = 0;
+    updateTime();
     start();
   }, interval.value * 1000);
 }

@@ -27,5 +27,10 @@
   "soundEffectPlayer.ui.uncategorized": "Без категории",
   "soundEffectPlayer.ui.categoryFallback": "Категория {id}",
   "soundEffectPlayer.ui.loadFailed": "Не удалось загрузить данные звуков",
-  "soundEffectPlayer.ui.playFailed": "Не удалось воспроизвести звук"
+  "soundEffectPlayer.ui.playFailed": "Не удалось воспроизвести звук",
+  "soundEffectPlayer.ui.waveform": "Звуковая волна",
+  "soundEffectPlayer.ui.waveformHint": "Нажмите или перетащите для перемотки",
+  "soundEffectPlayer.ui.waveformLoading": "Загрузка звуковой волны…",
+  "soundEffectPlayer.ui.waveformFailed": "Волна недоступна. Нажмите или перетащите для перемотки.",
+  "soundEffectPlayer.ui.copyHint": "Нажмите, чтобы скопировать"
 }

@@ -27,5 +27,10 @@
   "soundEffectPlayer.ui.uncategorized": "未分类",
   "soundEffectPlayer.ui.categoryFallback": "分类 {id}",
   "soundEffectPlayer.ui.loadFailed": "音效数据加载失败",
-  "soundEffectPlayer.ui.playFailed": "播放失败"
+  "soundEffectPlayer.ui.playFailed": "播放失败",
+  "soundEffectPlayer.ui.waveform": "音频波形",
+  "soundEffectPlayer.ui.waveformHint": "点击或拖动定位",
+  "soundEffectPlayer.ui.waveformLoading": "正在读取音频波形…",
+  "soundEffectPlayer.ui.waveformFailed": "波形加载失败，仍可点击或拖动定位",
+  "soundEffectPlayer.ui.copyHint": "单击复制内容"
 }
