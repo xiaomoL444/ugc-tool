@@ -53,5 +53,7 @@
   "effectPlayer.media.clickForAudio": "クリックして音声付きでプレビュー",
   "effectPlayer.media.hoverForAudio": "カーソルを合わせると音声を再生",
   "effectPlayer.media.enableAudio": "音声をオンにする",
-  "effectPlayer.media.errorSeparator": "；"
+  "effectPlayer.media.errorSeparator": "；",
+  "effectPlayer.media.unavailable": "プレビューはありません",
+  "effectPlayer.media.loading": "プレビューを読み込み中…"
 }

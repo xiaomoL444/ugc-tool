@@ -14,7 +14,7 @@
       <header class="dialog-heading">
         <span class="heading-icon"><EditorIcon name="folder" :size="22" /></span>
         <div class="heading-copy">
-          <span class="eyebrow">客户端 UI 动画</span>
+          <span class="eyebrow">{{ kind === 'particles' ? '客户端 UI 特效' : '客户端 UI 动画' }}</span>
           <h2 id="client-ui-workspace-title">工作区与编辑文件</h2>
         </div>
         <button class="close-button" type="button" :disabled="busy" aria-label="关闭工作区面板" title="关闭" @click="requestClose">×</button>
@@ -38,7 +38,7 @@
             >
               <EditorIcon name="folder" :size="17" /><span class="row-name">{{ name }}</span><span v-if="name === workspace" class="selected-dot" aria-hidden="true"></span>
             </button>
-            <div v-if="!workspaces.length" class="empty-list"><EditorIcon name="folder" :size="26" /><p>还没有工作区</p><small>新建一个工作区，集中管理你的 UI 动画。</small></div>
+            <div v-if="!workspaces.length" class="empty-list"><EditorIcon name="folder" :size="26" /><p>还没有工作区</p><small>{{ kind === 'particles' ? '新建一个工作区，集中管理你的 UI 特效。' : '新建一个工作区，集中管理你的 UI 动画。' }}</small></div>
           </div>
           <div class="list-actions">
             <button type="button" :disabled="busy || !workspace" @click="emit('rename-workspace')">重命名</button>
@@ -52,7 +52,7 @@
           </div>
           <div class="document-tools" role="group" aria-label="新建与导入编辑文件">
             <button class="action-button primary-action" type="button" :disabled="busy || !workspace" @click="emit('create-document')"><EditorIcon name="plus" :size="15" />新建文件</button>
-            <button class="action-button" type="button" :disabled="busy || !workspace" @click="emit('import-gia')"><EditorIcon name="import" :size="15" />导入 GIA</button>
+            <button v-if="kind !== 'particles'" class="action-button" type="button" :disabled="busy || !workspace" @click="emit('import-gia')"><EditorIcon name="import" :size="15" />导入 GIA</button>
             <button class="action-button" type="button" :disabled="busy || !workspace" @click="emit('import-json')">导入 JSON</button>
           </div>
           <div class="name-list document-list" role="group" aria-label="编辑文件列表">
@@ -68,10 +68,10 @@
               @click="emit('select-document', name)"
             >
               <span class="document-icon"><EditorIcon name="timeline" :size="20" /></span>
-              <span class="document-copy"><span class="row-name">{{ name }}</span><small>客户端 UI 动画文件</small></span>
+              <span class="document-copy"><span class="row-name">{{ name }}</span><small>{{ kind === 'particles' ? '客户端 UI 粒子特效文件' : '客户端 UI 动画文件' }}</small></span>
               <span v-if="name === document" class="current-label">当前编辑</span>
             </button>
-            <div v-if="!documents.length" class="empty-list document-empty"><EditorIcon name="timeline" :size="32" /><p>{{ workspace ? '工作区内还没有编辑文件' : '选择工作区以查看编辑文件' }}</p><small>{{ workspace ? '从空白画布开始，或导入已有的 GIA / JSON。' : '每个工作区可以保存多个独立的控件布局与时间轴。' }}</small></div>
+            <div v-if="!documents.length" class="empty-list document-empty"><EditorIcon name="timeline" :size="32" /><p>{{ workspace ? '工作区内还没有编辑文件' : '选择工作区以查看编辑文件' }}</p><small>{{ kind === 'particles' ? (workspace ? '新建一个特效文件，或导入已有的粒子 JSON。' : '每个工作区可以保存多个独立的粒子特效。') : (workspace ? '从空白画布开始，或导入已有的 GIA / JSON。' : '每个工作区可以保存多个独立的控件布局与时间轴。') }}</small></div>
           </div>
           <div class="list-actions document-actions">
             <span class="selected-document" :title="document">{{ document || '未选择编辑文件' }}</span>
@@ -84,7 +84,7 @@
       <div v-if="error" class="error-message" role="alert"><span>{{ error }}</span><button type="button" :disabled="busy" @click="emit('retry')">重试保存</button></div>
       <footer class="dialog-footer">
         <span class="save-status" :class="{ saving: busy, failed: !!error }" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span>{{ status || (busy ? '正在处理…' : '存档就绪') }}</span>
-        <span class="import-hint">导入 GIA 会创建新的编辑文件，不覆盖当前文件。</span>
+        <span class="import-hint">{{ kind === 'particles' ? '导入 JSON 会创建新的特效文件，不覆盖当前文件。' : '导入 GIA 会创建新的编辑文件，不覆盖当前文件。' }}</span>
       </footer>
     </section>
   </div>
@@ -95,6 +95,7 @@ import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import EditorIcon from './EditorIcon.vue'
 
 const props = defineProps<{
+  kind?: "animation" | "particles"
   open: boolean
   busy: boolean
   workspaces: string[]

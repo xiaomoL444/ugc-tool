@@ -53,5 +53,7 @@
   "effectPlayer.media.clickForAudio": "Нажмите для просмотра со звуком",
   "effectPlayer.media.hoverForAudio": "Наведите указатель для воспроизведения звука",
   "effectPlayer.media.enableAudio": "Включить звук",
-  "effectPlayer.media.errorSeparator": "; "
+  "effectPlayer.media.errorSeparator": "; ",
+  "effectPlayer.media.unavailable": "Предпросмотр недоступен",
+  "effectPlayer.media.loading": "Загрузка предпросмотра…"
 }

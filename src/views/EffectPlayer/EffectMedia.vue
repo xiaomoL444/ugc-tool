@@ -10,18 +10,22 @@
         <div ref="standHost" class="media-host" />
         <span v-if="standFailed" class="media-error">{{ t('effectPlayer.media.standFailed') }}</span>
       </div>
-      <img v-else class="fallback-icon" :src="iconUrl" :alt="title" />
+      <img v-else-if="iconUrl" class="fallback-icon" :src="iconUrl" :alt="title" @error="iconFailed = true" />
+      <div v-else class="media-placeholder">{{ t('effectPlayer.media.unavailable') }}</div>
       <div v-if="item.tailPath" class="video-pane tail-pane">
         <div ref="tailHost" class="media-host" />
         <span v-if="tailFailed" class="media-error">{{ t('effectPlayer.media.tailFailed') }}</span>
       </div>
     </div>
     <div v-if="!mediaReady" class="loading-state">
-      <img class="loading-icon" :src="iconUrl" :alt="title" />
+      <img v-if="iconUrl" class="loading-icon" :src="iconUrl" :alt="title" @error="iconFailed = true" />
+      <div v-else class="media-placeholder" role="status">
+        {{ t(hasMedia && !loadError ? 'effectPlayer.media.loading' : 'effectPlayer.media.unavailable') }}
+      </div>
       <span v-if="loadError" class="media-error" role="status">{{ loadError }}</span>
     </div>
     <div ref="audioHost" hidden />
-    <img v-if="mediaReady && (item.standPath || item.tailPath)" class="preview-icon" :src="iconUrl" :alt="title" />
+    <img v-if="mediaReady && iconUrl && (item.standPath || item.tailPath)" class="preview-icon" :src="iconUrl" :alt="title" @error="iconFailed = true" />
     <span v-if="mediaReady && item.hasAudio && item.audioPath" class="audio-status">
       {{ audioStatus }}
     </span>
@@ -72,7 +76,13 @@ watchEffect(() => {
   media.stand?.setAttribute('aria-label', t('effectPlayer.media.standLabel', { name: props.title }));
   media.tail?.setAttribute('aria-label', t('effectPlayer.media.tailLabel', { name: props.title }));
 });
-const iconUrl = computed(() => oss.path("icon", props.item.icon || `${props.item.id}.png`));
+const iconFailed = ref(false);
+const iconUrl = computed(() => {
+  const icon = props.item.icon?.trim();
+  return icon && !iconFailed.value ? oss.path("icon", icon) : undefined;
+});
+const hasMedia = computed(() => Boolean(props.item.standPath || props.item.tailPath || (props.item.hasAudio && props.item.audioPath)));
+watch(() => [props.item.id, props.item.icon], () => { iconFailed.value = false; });
 const active = computed(() => visible.value && pageVisible.value && !props.suspended);
 const audible = computed(() => active.value && (props.variant === "modal" || hovered.value));
 const audioStatus = computed(() => {
@@ -163,6 +173,7 @@ onBeforeUnmount(() => {
 .video-panes { display: flex; width: 100%; height: 100%; align-items: stretch; justify-content: center; }
 .video-panes.is-loading { visibility: hidden; }
 .loading-state { position: absolute; inset: 0; }
+.media-placeholder { display: flex; align-items: center; justify-content: center; flex: 1; width: 100%; height: 100%; min-width: 0; padding: 16px; box-sizing: border-box; color: #9ba8bc; font-size: 0.85rem; text-align: center; background: linear-gradient(135deg, #171c27, #111218); }
 .loading-icon { display: block; width: 100%; height: 100%; object-fit: contain; }
 .preview-icon { position: absolute; right: 8px; bottom: 8px; z-index: 2; width: 48px; height: 48px; padding: 4px; object-fit: contain; background: rgba(17, 18, 24, 0.82); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45); pointer-events: none; }
 .is-modal .preview-icon { right: 12px; bottom: 12px; width: 96px; height: 96px; padding: 6px; border-color: rgba(159, 231, 255, 0.35); border-radius: 12px; }

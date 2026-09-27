@@ -53,5 +53,7 @@
   "effectPlayer.media.clickForAudio": "点击预览以开启声音",
   "effectPlayer.media.hoverForAudio": "悬停播放声音",
   "effectPlayer.media.enableAudio": "开启声音",
-  "effectPlayer.media.errorSeparator": "、"
+  "effectPlayer.media.errorSeparator": "、",
+  "effectPlayer.media.unavailable": "暂无预览资源",
+  "effectPlayer.media.loading": "正在加载预览…"
 }

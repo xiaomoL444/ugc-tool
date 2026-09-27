@@ -115,7 +115,7 @@
               <button class="copy-name" type="button" :title="t('effectPlayer.copyName')" @click="Clipboard(effectName(selectedEffect))">{{ effectName(selectedEffect) }}</button>
             </h2>
             <button class="modal-id" type="button" :title="t('effectPlayer.copyId')" @click="Clipboard(String(selectedEffect.id))">{{ t('effectPlayer.configId', { id: selectedEffect.id }) }}</button>
-            <p class="modal-meta">
+            <p v-if="Number.isFinite(selectedEffect.duration)" class="modal-meta">
               {{ t('effectPlayer.duration.description', { duration: formatDuration(selectedEffect), type: t(selectedEffect.isLoop ? 'effectPlayer.loop.loop' : 'effectPlayer.loop.once') }) }}
             </p>
             <div class="modal-tags">
@@ -256,7 +256,7 @@ onMounted(async () => {
     const data = await oss.json<EffectDataFile>("data.json");
     const rawEffects = data.effectData ?? {};
     effectData.value = Object.fromEntries(
-      Object.entries(rawEffects).filter(([, item]) => Boolean(item.icon?.trim())),
+      Object.entries(rawEffects).filter(([, item]) => String(item?.id ?? "").trim() !== ""),
     );
     tagData.value = data.TagData ?? {};
     sourceTagData.value = data.sourceTagData ?? {};

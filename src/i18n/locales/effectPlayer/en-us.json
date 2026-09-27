@@ -53,5 +53,7 @@
   "effectPlayer.media.clickForAudio": "Click to preview with sound",
   "effectPlayer.media.hoverForAudio": "Hover to play sound",
   "effectPlayer.media.enableAudio": "Enable sound",
-  "effectPlayer.media.errorSeparator": "; "
+  "effectPlayer.media.errorSeparator": "; ",
+  "effectPlayer.media.unavailable": "No preview available",
+  "effectPlayer.media.loading": "Loading preview…"
 }

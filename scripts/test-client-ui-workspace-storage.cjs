@@ -159,6 +159,59 @@ async function main() {
     assert.equal(storage.folders.has("/AnotherPage"), false);
   });
 
+
+  await test("Particle namespace isolates files and selection from the animation editor", async () => {
+    const { storage, repository } = await setup();
+    await repository.createDocument(DEFAULT_UI_WORKSPACE, "同名文件", "animation");
+    const particles = new ClientUIWorkspaceRepository(storage, "UIVfxEditor");
+    await particles.createWorkspace(DEFAULT_UI_WORKSPACE);
+    await particles.createDocument(DEFAULT_UI_WORKSPACE, "同名文件", "particles");
+    await particles.writeSelection({ workspace: DEFAULT_UI_WORKSPACE, document: "同名文件" });
+    assert.equal(await repository.readDocument(DEFAULT_UI_WORKSPACE, "同名文件"), "animation");
+    assert.equal(await repository.readSelection(), null);
+    assert.equal(await particles.readDocument(DEFAULT_UI_WORKSPACE, "同名文件"), "particles");
+  });
+
+  const { migrateParticleLegacy } = require("../src/views/UIVfxEditor/particleWorkspace.ts");
+  const { createPreset } = require("../src/views/UIVfxEditor/particleModel.ts");
+  await test("Legacy particle migration is idempotent and never revives deleted files", async () => {
+    const storage = new MemoryStorage(), repository = new ClientUIWorkspaceRepository(storage, "UIVfxEditor");
+    const project = createPreset("coins", 100002); project.name = "旧版/路径效果";
+    const raw = JSON.stringify(project);
+    assert.equal(await migrateParticleLegacy(storage, repository, raw), true);
+    const selection = await repository.readSelection();
+    const migrated = JSON.parse(await repository.readDocument(selection.workspace, selection.document));
+    assert.equal(migrated.name, "旧版_路径效果");
+    assert.deepEqual(migrated.emitters, project.emitters);
+    assert.equal(await migrateParticleLegacy(storage, repository, raw), false);
+    await repository.trashWorkspace(selection.workspace);
+    assert.equal(await migrateParticleLegacy(storage, repository, raw), false);
+    assert.deepEqual(await repository.listWorkspaces(), []);
+  });
+
+  await test("Legacy migration retries a failed selection write without duplicate files", async () => {
+    const storage = new MemoryStorage(), repository = new ClientUIWorkspaceRepository(storage, "UIVfxEditor");
+    const raw = JSON.stringify(createPreset("snow", 100002));
+    storage.beforeOperation = async (method, target) => {
+      if (method === "writeFile" && target.endsWith("/.selection.json")) throw new Error("Injected migration failure");
+    };
+    await assert.rejects(migrateParticleLegacy(storage, repository, raw), /Injected/);
+    assert.deepEqual(await repository.listDocuments(DEFAULT_UI_WORKSPACE), ["轻雪飘落"]);
+    storage.beforeOperation = null;
+    assert.equal(await migrateParticleLegacy(storage, repository, raw), true);
+    assert.deepEqual(await repository.listDocuments(DEFAULT_UI_WORKSPACE), ["轻雪飘落"]);
+    assert.equal((await repository.readSelection()).document, "轻雪飘落");
+  });
+
+  await test("Legacy particle migration preserves existing files on name collision", async () => {
+    const storage = new MemoryStorage(), repository = new ClientUIWorkspaceRepository(storage, "UIVfxEditor");
+    await repository.createWorkspace(DEFAULT_UI_WORKSPACE);
+    await repository.createDocument(DEFAULT_UI_WORKSPACE, "星光散射", "existing data");
+    await migrateParticleLegacy(storage, repository, JSON.stringify(createPreset("stars", 100002)));
+    assert.equal(await repository.readDocument(DEFAULT_UI_WORKSPACE, "星光散射"), "existing data");
+    assert.equal((await repository.readSelection()).document, "星光散射 (2)");
+  });
+
   await test("Importing the same GIA twice creates separate documents without overwriting", async () => {
     const { repository } = await setup();
     assert.equal(await repository.createDocument(DEFAULT_UI_WORKSPACE, "测试任务View", "first GIA"), "测试任务View");

@@ -35,7 +35,7 @@
           "description": "预览特效、图片、动画与声音",
           "descriptionKey": "app.effectPlayerDescription",
           "icon": "✦",
-          "badge": ""
+          "badge": "v7.1 Update"
         }
       ]
     },
@@ -68,6 +68,14 @@
           "title": "客户端UI动画编辑器",
           "description": "制作客户端界面动画",
           "icon": "▷"
+        },
+        {
+          "id": "vsfEditor",
+          "href": "/UIVfxEditor",
+          "title": "客户端粒子效果编辑器",
+          "description": "制作客户端界面动画",
+          "icon": "▷",
+          "badge": "test"
         },
         {
           "id": "text",

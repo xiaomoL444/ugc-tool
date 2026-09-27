@@ -18,6 +18,7 @@ interface WorkspaceCallbacks {
   apply: (serialized: string) => void;
   createBlank: (name: string) => string;
   onBeforeSwitch?: () => void;
+  initialDocumentName?: string;
 }
 
 interface DocumentTarget { workspace: string; document: string }
@@ -170,8 +171,9 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
       if (workspaces.length === 0) {
         await repository.createWorkspace(DEFAULT_UI_WORKSPACE);
         if (disposed) return;
-        const blank = stage(callbacks.createBlank("新建动画"), "新建动画");
-        await repository.createDocument(DEFAULT_UI_WORKSPACE, "新建动画", blank);
+        const name = callbacks.initialDocumentName ?? "新建动画";
+        const blank = stage(callbacks.createBlank(name), name);
+        await repository.createDocument(DEFAULT_UI_WORKSPACE, name, blank);
         workspaces = await repository.listWorkspaces();
       }
       const remembered = await repository.readSelection();

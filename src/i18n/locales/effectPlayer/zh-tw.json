@@ -53,5 +53,7 @@
   "effectPlayer.media.clickForAudio": "點擊預覽並播放音效",
   "effectPlayer.media.hoverForAudio": "移入滑鼠播放音效",
   "effectPlayer.media.enableAudio": "開啟音效",
-  "effectPlayer.media.errorSeparator": "；"
+  "effectPlayer.media.errorSeparator": "；",
+  "effectPlayer.media.unavailable": "暫無預覽資源",
+  "effectPlayer.media.loading": "正在載入預覽…"
 }

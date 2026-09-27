@@ -57,7 +57,7 @@ function sortNames(names: string[]): string[] {
 export class ClientUIWorkspaceRepository {
   private mutations: Promise<void> = Promise.resolve();
 
-  constructor(private readonly storage: WorkspaceStorage) {}
+  constructor(private readonly storage: WorkspaceStorage, private readonly projectId = CLIENT_UI_PROJECT_ID) {}
 
   private mutate<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.mutations.then(operation);
@@ -69,29 +69,29 @@ export class ClientUIWorkspaceRepository {
   private async requireWorkspace(workspace: string): Promise<void> {
     // setProject is mutable on the shared singleton: reset it at every call,
     // including calls made after an await or by a delayed save.
-    const folders = await this.storage.setProject(CLIENT_UI_PROJECT_ID).getFolders("/");
+    const folders = await this.storage.setProject(this.projectId).getFolders("/");
     if (!folders.includes(workspace)) throw new Error(`工作区“${workspace}”不存在`);
   }
 
   private async requireDocument(workspace: string, document: string): Promise<void> {
     await this.requireWorkspace(workspace);
-    const files = await this.storage.setProject(CLIENT_UI_PROJECT_ID).getFiles(`/${workspace}`);
+    const files = await this.storage.setProject(this.projectId).getFiles(`/${workspace}`);
     if (!files.includes(`${document}.json`)) throw new Error(`编辑文件“${document}”不存在`);
   }
 
   async listWorkspaces(): Promise<string[]> {
     await this.mutations;
-    const folders = await this.storage.setProject(CLIENT_UI_PROJECT_ID).getFolders("/");
+    const folders = await this.storage.setProject(this.projectId).getFolders("/");
     return sortNames(folders.filter((name) => isValidName(name, validateWorkspaceName)));
   }
 
   async createWorkspace(requestedName: string): Promise<void> {
     const name = validateWorkspaceName(requestedName);
     return this.mutate(async () => {
-      if (await this.storage.setProject(CLIENT_UI_PROJECT_ID).exists(`/${name}`)) {
+      if (await this.storage.setProject(this.projectId).exists(`/${name}`)) {
         throw new Error(`已有同名工作区“${name}”`);
       }
-      await this.storage.setProject(CLIENT_UI_PROJECT_ID).mkdir(`/${name}`);
+      await this.storage.setProject(this.projectId).mkdir(`/${name}`);
     });
   }
 
@@ -101,10 +101,10 @@ export class ClientUIWorkspaceRepository {
     return this.mutate(async () => {
       await this.requireWorkspace(oldWorkspace);
       if (oldWorkspace === newWorkspace) return;
-      if (await this.storage.setProject(CLIENT_UI_PROJECT_ID).exists(`/${newWorkspace}`)) {
+      if (await this.storage.setProject(this.projectId).exists(`/${newWorkspace}`)) {
         throw new Error(`已有同名工作区“${newWorkspace}”`);
       }
-      await this.storage.setProject(CLIENT_UI_PROJECT_ID).rename(`/${oldWorkspace}`, newWorkspace);
+      await this.storage.setProject(this.projectId).rename(`/${oldWorkspace}`, newWorkspace);
     });
   }
 
@@ -112,7 +112,7 @@ export class ClientUIWorkspaceRepository {
     const workspace = validateWorkspaceName(name);
     return this.mutate(async () => {
       await this.requireWorkspace(workspace);
-      return this.storage.setProject(CLIENT_UI_PROJECT_ID).trash(`/${workspace}`);
+      return this.storage.setProject(this.projectId).trash(`/${workspace}`);
     });
   }
 
@@ -120,7 +120,7 @@ export class ClientUIWorkspaceRepository {
     const workspace = validateWorkspaceName(name);
     await this.mutations;
     await this.requireWorkspace(workspace);
-    const files = await this.storage.setProject(CLIENT_UI_PROJECT_ID).getFiles(`/${workspace}`);
+    const files = await this.storage.setProject(this.projectId).getFiles(`/${workspace}`);
     return sortNames(files
       .filter((file) => file.endsWith(".json"))
       .map((file) => file.slice(0, -5))
@@ -132,7 +132,7 @@ export class ClientUIWorkspaceRepository {
     const document = validateDocumentName(documentName);
     await this.mutations;
     await this.requireDocument(workspace, document);
-    return this.storage.setProject(CLIENT_UI_PROJECT_ID).readFile(documentStoragePath(workspace, document));
+    return this.storage.setProject(this.projectId).readFile(documentStoragePath(workspace, document));
   }
 
   async createDocument(workspaceName: string, requestedName: string, serializedData: string): Promise<string> {
@@ -142,10 +142,10 @@ export class ClientUIWorkspaceRepository {
       await this.requireWorkspace(workspace);
       let document = baseName;
       let suffix = 2;
-      while (await this.storage.setProject(CLIENT_UI_PROJECT_ID).exists(documentStoragePath(workspace, document))) {
+      while (await this.storage.setProject(this.projectId).exists(documentStoragePath(workspace, document))) {
         document = `${baseName} (${suffix++})`;
       }
-      await this.storage.setProject(CLIENT_UI_PROJECT_ID).writeFile(documentStoragePath(workspace, document), serializedData);
+      await this.storage.setProject(this.projectId).writeFile(documentStoragePath(workspace, document), serializedData);
       return document;
     });
   }
@@ -157,7 +157,7 @@ export class ClientUIWorkspaceRepository {
       // BrowserStorage.writeFile creates missing parents. Check both kinds here
       // so a pending save cannot recreate a deleted workspace or document.
       await this.requireDocument(workspace, document);
-      await this.storage.setProject(CLIENT_UI_PROJECT_ID).writeFile(documentStoragePath(workspace, document), serializedData);
+      await this.storage.setProject(this.projectId).writeFile(documentStoragePath(workspace, document), serializedData);
     });
   }
 
@@ -168,10 +168,10 @@ export class ClientUIWorkspaceRepository {
     return this.mutate(async () => {
       await this.requireDocument(workspace, oldDocument);
       if (oldDocument === newDocument) return;
-      if (await this.storage.setProject(CLIENT_UI_PROJECT_ID).exists(documentStoragePath(workspace, newDocument))) {
+      if (await this.storage.setProject(this.projectId).exists(documentStoragePath(workspace, newDocument))) {
         throw new Error(`已有同名编辑文件“${newDocument}”`);
       }
-      await this.storage.setProject(CLIENT_UI_PROJECT_ID).rename(documentStoragePath(workspace, oldDocument), `${newDocument}.json`);
+      await this.storage.setProject(this.projectId).rename(documentStoragePath(workspace, oldDocument), `${newDocument}.json`);
     });
   }
 
@@ -180,7 +180,7 @@ export class ClientUIWorkspaceRepository {
     const document = validateDocumentName(documentName);
     return this.mutate(async () => {
       await this.requireDocument(workspace, document);
-      return this.storage.setProject(CLIENT_UI_PROJECT_ID).trash(documentStoragePath(workspace, document));
+      return this.storage.setProject(this.projectId).trash(documentStoragePath(workspace, document));
     });
   }
 
@@ -204,18 +204,18 @@ export class ClientUIWorkspaceRepository {
     }
     return this.mutate(async () => {
       if (segments.length === 2) await this.requireWorkspace(workspace);
-      if (await this.storage.setProject(CLIENT_UI_PROJECT_ID).exists(target)) {
+      if (await this.storage.setProject(this.projectId).exists(target)) {
         throw new Error("恢复目标已存在，请先重命名同名项目");
       }
       // StorageClass.restore moves each recycled item's basename into parent.
-      await this.storage.setProject(CLIENT_UI_PROJECT_ID).restore(trashPath, parent);
+      await this.storage.setProject(this.projectId).restore(trashPath, parent);
     });
   }
 
   async readSelection(): Promise<ClientUIWorkspaceSelection | null> {
     await this.mutations;
-    if (!(await this.storage.setProject(CLIENT_UI_PROJECT_ID).exists("/.selection.json"))) return null;
-    const serialized = await this.storage.setProject(CLIENT_UI_PROJECT_ID).readFile("/.selection.json");
+    if (!(await this.storage.setProject(this.projectId).exists("/.selection.json"))) return null;
+    const serialized = await this.storage.setProject(this.projectId).readFile("/.selection.json");
     let selection: ClientUIWorkspaceSelection;
     try {
       const value = JSON.parse(serialized);
@@ -226,10 +226,10 @@ export class ClientUIWorkspaceRepository {
     } catch {
       return null;
     }
-    const folders = await this.storage.setProject(CLIENT_UI_PROJECT_ID).getFolders("/");
+    const folders = await this.storage.setProject(this.projectId).getFolders("/");
     if (!folders.includes(selection.workspace)) return null;
     if (selection.document === "") return selection;
-    const files = await this.storage.setProject(CLIENT_UI_PROJECT_ID).getFiles(`/${selection.workspace}`);
+    const files = await this.storage.setProject(this.projectId).getFiles(`/${selection.workspace}`);
     return files.includes(`${selection.document}.json`) ? selection : null;
   }
 
@@ -241,7 +241,7 @@ export class ClientUIWorkspaceRepository {
     return this.mutate(async () => {
       if (selection.document === "") await this.requireWorkspace(selection.workspace);
       else await this.requireDocument(selection.workspace, selection.document);
-      await this.storage.setProject(CLIENT_UI_PROJECT_ID).writeFile("/.selection.json", JSON.stringify(selection));
+      await this.storage.setProject(this.projectId).writeFile("/.selection.json", JSON.stringify(selection));
     });
   }
 }
