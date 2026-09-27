@@ -70,14 +70,6 @@
           "icon": "▷"
         },
         {
-          "id": "vsfEditor",
-          "href": "/UIVfxEditor",
-          "title": "客户端粒子效果编辑器",
-          "description": "制作客户端界面动画",
-          "icon": "▷",
-          "badge": "test"
-        },
-        {
           "id": "text",
           "href": "/TextGradient",
           "title": "文本渐变器",
