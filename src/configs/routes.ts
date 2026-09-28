@@ -86,7 +86,7 @@ export const appRoutes: AppRoute[] = [
   {
     path: "/UIVfxEditor",
     name: "UIVfxEditor",
-    title: "客户端UI粒子效果编辑器",
+    title: "客户端UI粒子效果编辑器（test）",
     description:
       `客户端UI粒子效果编辑器`,
   },
