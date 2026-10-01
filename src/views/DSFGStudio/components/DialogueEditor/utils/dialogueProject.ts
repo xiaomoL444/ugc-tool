@@ -23,6 +23,7 @@ import {
   resolveClipComponentTemplate,
 } from "../config/clipComponentRegistry";
 import { createClipPropertyValues } from "./clipProperties";
+import { normalizeCameraProperties } from "../config/cameraClip";
 import { getLineDefinition } from "../config/lineRegistry";
 import { DEFAULT_DIALOGUE_STYLE_ID } from "../config/dialogueStyleRegistry";
 import { DEFAULT_SELECT_STYLE_ID, DEFAULT_SELECT_ICON_ID } from "../config/selectStyleRegistry";
@@ -37,7 +38,6 @@ import {
 } from "./qxqyStructWorkspace";
 
 export const CURRENT_SCHEMA_VERSION = 12 as const;
-const DEFAULT_MAX_LINES = 8;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -57,6 +57,7 @@ export function createDialogueClip(): DialogueClip {
     startTime: 0,
     continueDelayTime: DEFAULT_CONTINUE_DELAY_TIME,
     advanceMode: "PlayerInput",
+    autoContinue: -1,
     nodeGraphEvent: [],
   };
 }
@@ -125,7 +126,6 @@ export function createDialogueNode(id: string): DialogueNode {
     select: undefined,
     lines: [createPerformanceLine("Camera")],
     timeline: {
-      maxLines: DEFAULT_MAX_LINES,
       duration: DEFAULT_TIMELINE_DURATION,
     },
     next: [],
@@ -239,13 +239,6 @@ function normalizeDialogueNode(id: string, value: unknown): DialogueNode {
       : undefined,
     lines,
     timeline: {
-      maxLines: Math.max(
-        lines.length + 3,
-        positiveInteger(
-          timelineSource.maxLines,
-          DEFAULT_MAX_LINES,
-        ),
-      ),
       duration: Math.max(
         0.1,
         nonNegativeNumber(timelineSource.duration, legacyTimelineEnd),
@@ -332,6 +325,9 @@ function normalizeDialogueClip(value: unknown): DialogueClip {
       source.advanceMode === "None" || source.delayMode === "Auto"
         ? "None"
         : "PlayerInput",
+    autoContinue: typeof source.autoContinue === "number" && Number.isFinite(source.autoContinue)
+      ? source.autoContinue
+      : -1,
     nodeGraphEvent: Array.isArray(source.nodeGraphEvent)
       ? source.nodeGraphEvent.filter(
           (event): event is string => typeof event === "string",
@@ -398,7 +394,7 @@ function normalizeLine(value: unknown, index: number): PerformanceLine {
   };
 }
 
-function normalizePerformanceClip(
+export function normalizePerformanceClip(
   value: unknown,
   lineType: PerformanceLineType,
   lineIndex: number,
@@ -451,18 +447,12 @@ function normalizeClipComponent(
         : "未命名 Component",
     enabled: source.enabled !== false,
     ...(typeof source.cameraViewpointEnabled === "boolean" ? { cameraViewpointEnabled: source.cameraViewpointEnabled } : {}),
-    properties: createClipPropertyValues(template?.properties ?? [], source.properties),
+    properties: createClipPropertyValues(template?.properties ?? [], templateId === "camera.shot" ? normalizeCameraProperties(source.properties) : source.properties),
   };
 }
 
 function normalizeLineType(value: unknown): PerformanceLineType {
   return typeof value === "string" && value ? value : "Camera";
-}
-
-function positiveInteger(value: unknown, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.max(1, Math.floor(value))
-    : fallback;
 }
 
 function nonNegativeNumber(value: unknown, fallback: number) {

@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import StudioSidebarContent from "../StudioSidebarContent.vue";
 import { toast } from "vue-sonner";
 import { useStylePresets } from "../EntityPresetEditor/stylePresets";
 const { options: questStyleOptions, error: questStyleError, retry: retryQuestStyles } = useStylePresets("questStyles");
 import type { TreeSelectOption } from "naive-ui";
 import QuestReferenceSelect from "./QuestReferenceSelect.vue";
 import QuestMainAreaSelect from "./QuestMainAreaSelect.vue";
+import QuestFlowGraph from "./QuestFlowGraph.vue";
 import ClipPropertyEditor from "../DialogueEditor/components/clip-editors/ClipPropertyEditor.vue";
 import type { ClipPropertyDefinition } from "../DialogueEditor/types/DialogueNode";
 import { createQuestChapter, createQuestMain, createQuestSub, removeQuestSubQuests } from "./questProject";
 import type { QuestMain, QuestProject, QuestSelection, QuestSub } from "./types";
 
-const props = defineProps<{ project: QuestProject }>();
+const props = defineProps<{ project: QuestProject; sidebarDisabled?: boolean }>();
 const selection = ref<QuestSelection | null>(null);
+const editorView = ref<"properties" | "flow">("properties");
 const search = ref("");
 const inspectorSection = ref("basic");
 const inspectorSections = [
@@ -26,7 +29,6 @@ const childPage = ref(0);
 const expanded = ref(new Set<string>(["unassigned"]));
 const subPages = ref<Record<number, number>>({});
 const treePage = ref(0);
-const nextQuestIdInput = ref("");
 const SUB_PAGE_SIZE = 50;
 const TREE_PAGE_SIZE = 200;
 const pointProperty: ClipPropertyDefinition = {
@@ -72,9 +74,24 @@ const referenceOptions = computed<TreeSelectOption[]>(() => {
 function chooseNextQuest(value: number | null, index?: number) {
   const sub = selectedSub.value;
   if (!sub || (value !== null && !subsById.value.has(value))) return;
+  if (index !== undefined && (index < 0 || index >= sub.nextQuestIds.length)) return;
+  if (index !== undefined && sub.nextQuestIds[index] === value) return;
+  if (value !== null && sub.nextQuestIds.some((id, position) => id === value && position !== index)) {
+    toast.warning("该任务已在后续任务中，不能重复添加");
+    return;
+  }
   if (index !== undefined) {
-    if (index >= 0 && index < sub.nextQuestIds.length) sub.nextQuestIds[index] = value;
+    sub.nextQuestIds[index] = value;
   } else if (value !== null && sub.nextQuestIds.length < 100) sub.nextQuestIds.push(value);
+}
+
+function chooseFailureQuest(value: number | null) {
+  const sub = selectedSub.value;
+  if (!sub || sub.failureQuestId !== -1 || value === null || !subsById.value.has(value)) return;
+  sub.failureQuestId = value;
+}
+function removeFailureQuest() {
+  if (selectedSub.value) selectedSub.value.failureQuestId = -1;
 }
 
 const selectedChapter = computed(() => selection.value?.kind === "chapter"
@@ -176,7 +193,6 @@ watch(() => selection.value ? `${selection.value.kind}:${selection.value.id}` : 
   childPage.value = 0;
   inspector.value?.scrollTo({ top: 0 });
 });
-watch(() => selectedSub.value?.id, () => { nextQuestIdInput.value = ""; });
 watch(() => props.project, () => {
   selection.value = null;
   search.value = "";
@@ -200,6 +216,7 @@ function selectRow(row: TreeRow) {
     toggle(row.key);
   } else if (row.kind !== "pagination") {
     selection.value = { kind: row.kind, id: row.id };
+    if (row.kind === "chapter" || row.kind === "main") toggle(row.key);
   }
 }
 
@@ -306,38 +323,6 @@ function updateSubInteger(key: "failureQuestId" | "questProgress" | "belondPrima
   sub[key] = value;
 }
 
-function addNextQuest() {
-  const sub = selectedSub.value;
-  const text = nextQuestIdInput.value.trim();
-  const id = Number(text);
-  if (!sub || sub.nextQuestIds.length >= 100) return;
-  if (!/^[+-]?\d+$/.test(text) || !Number.isInteger(id) || id < -2147483648 || id > 2147483647) {
-    toast.warning("请输入 Int32 范围内的后续任务 ID"); return;
-  }
-  sub.nextQuestIds.push(id);
-  nextQuestIdInput.value = "";
-}
-
-function updateNextQuest(index: number, event: Event, commit = false) {
-  const sub = selectedSub.value;
-  const input = event.target as HTMLInputElement;
-  const id = input.valueAsNumber;
-  if (!sub || index < 0 || index >= sub.nextQuestIds.length) return;
-  // 数字框在输入负号等中间态时也可能返回空字符串，不能误当作主动清空。
-  if (input.value.trim() === "" && !input.validity?.badInput) {
-    sub.nextQuestIds[index] = null;
-    return;
-  }
-  if (!Number.isInteger(id) || id < -2147483648 || id > 2147483647) {
-    if (commit) {
-      toast.warning("后续任务 ID 必须是 Int32 整数");
-      input.value = String(sub.nextQuestIds[index] ?? "");
-    }
-    return;
-  }
-  sub.nextQuestIds[index] = id;
-}
-
 function moveNextQuest(index: number, offset: number) {
   const ids = selectedSub.value?.nextQuestIds;
   const destination = index + offset;
@@ -387,6 +372,12 @@ function parentLabel(main: QuestMain) {
   const chapter = main.chapterId === null ? undefined : chaptersById.value.get(main.chapterId);
   return `${chapter?.title || "直属主任务"} / ${main.title || "未命名主任务"} #${main.id}`;
 }
+
+function editFlowTask(id: number) {
+  editorView.value = "properties";
+  inspectorSection.value = "flow";
+  void reveal({ kind: "sub", id });
+}
 </script>
 
 <template>
@@ -397,6 +388,10 @@ function parentLabel(main: QuestMain) {
         <span class="quest-counts">章节 {{ project.chapters.length }}/100 · 主任务 {{ project.mainQuests.length }}/100 · 子任务 {{ project.subQuests.length }}/10000</span>
       </div>
       <div class="toolbar-actions">
+        <div class="quest-view-switch" role="group" aria-label="任务编辑视图">
+          <button type="button" :aria-pressed="editorView === 'properties'" @click="editorView = 'properties'">任务属性</button>
+          <button type="button" :aria-pressed="editorView === 'flow'" @click="editorView = 'flow'">任务衔接图</button>
+        </div>
         <button type="button" :disabled="project.chapters.length >= 100" @click="addChapter">＋ 章节</button>
         <button type="button" :disabled="project.mainQuests.length >= 100" :title="activeChapterId === null ? '创建直属主任务' : '在当前章节创建主任务'" @click="addMain()">＋ 主任务</button>
         <button type="button" class="primary" :disabled="!selectedParentMain || project.subQuests.length >= 10000" @click="addSub()">＋ 子任务</button>
@@ -404,7 +399,7 @@ function parentLabel(main: QuestMain) {
     </header>
 
     <div class="quest-columns">
-      <aside class="quest-browser" aria-label="任务层级">
+      <StudioSidebarContent><aside class="quest-browser" aria-label="任务层级" :inert="sidebarDisabled">
         <div class="browser-heading"><strong>任务目录</strong><span>{{ project.mainQuests.length + project.subQuests.length }} 项任务</span></div>
         <div class="tree-search">
           <input v-model="search" type="search" aria-label="搜索任务" placeholder="搜索标题、描述或 ID" />
@@ -428,7 +423,7 @@ function parentLabel(main: QuestMain) {
             <template v-else>
               <button v-if="row.kind !== 'sub'" type="button" class="fold-button" :aria-label="`${isOpen(row.key) ? '折叠' : '展开'}${row.label}`" :aria-expanded="isOpen(row.key)" :disabled="Boolean(search.trim())" @click="toggle(row.key)">{{ isOpen(row.key) ? '▾' : '▸' }}</button>
               <span v-else class="sub-dot">·</span>
-              <button type="button" class="tree-item" :title="`${row.label}${row.id >= 0 ? ` · ID ${row.id}` : ''}`" :aria-current="selection?.kind === row.kind && selection?.id === row.id ? 'true' : undefined" @click="selectRow(row)">
+              <button type="button" class="tree-item" :title="`${row.label}${row.id >= 0 ? ` · ID ${row.id}` : ''}`" :aria-current="selection?.kind === row.kind && selection?.id === row.id ? 'true' : undefined" :aria-expanded="row.kind !== 'sub' ? isOpen(row.key) : undefined" @click="selectRow(row)">
                 <span class="tree-kind">{{ row.kind === 'chapter' ? '章' : row.kind === 'sub' ? '子' : '主' }}</span>
                 <span class="tree-title">{{ row.label }}</span>
                 <small v-if="row.id >= 0">#{{ row.id }}</small>
@@ -448,9 +443,10 @@ function parentLabel(main: QuestMain) {
           <button type="button" :disabled="treePage + 1 >= treePageCount" @click="treePage++">下一页</button>
         </footer>
         <p class="tree-footnote">点击条目编辑 · 点击 ＋ 添加下级任务<br />改名或移动归属时，任务 ID 保持不变。</p>
-      </aside>
+      </aside></StudioSidebarContent>
 
-      <main ref="inspector" class="quest-inspector" aria-label="任务属性">
+      <KeepAlive><QuestFlowGraph v-if="editorView === 'flow'" :project="project" :selection="selection" @select="reveal({ kind: 'sub', id: $event })" @edit="editFlowTask" /></KeepAlive>
+      <main v-show="editorView === 'properties'" ref="inspector" class="quest-inspector" aria-label="任务属性">
         <template v-if="selectedItem">
           <nav class="quest-breadcrumb" aria-label="任务路径">
             <span>任务编排</span>
@@ -490,9 +486,8 @@ function parentLabel(main: QuestMain) {
             </section>
             <section v-show="inspectorSection === 'location'" class="form-card location-card" aria-label="区域与调查">
             <h3 class="form-heading">区域与调查</h3><p class="form-description">设置任务所属的一级区域，以及玩家需要调查的位置。</p>
-            <label class="quest-field"><span>单位状态 <code>unitState · ConfigReference</code></span><input v-model="selectedSub.unitState" aria-label="单位状态" placeholder="填写配置引用" /><small>以字符串保存 ConfigReference。</small></label>
+            <label class="quest-field"><span>单位状态 <code>unitState · ConfigReference</code></span><input v-model="selectedSub.unitState" aria-label="单位状态" placeholder="填写配置引用" /></label>
             <div class="quest-field"><span>所属一级区域 <code>belondPrimaryId</code></span><QuestMainAreaSelect v-model="selectedSub.belondPrimaryId" /></div>
-            <p v-if="selectedSub.legacyBelondSceneId !== undefined" class="form-description">旧版世界 ID：{{ selectedSub.legacyBelondSceneId }}（仅作备份，不导出）。请确认上方的一级区域关联。</p>
             <p v-if="selectedSub.legacyInvestigationPoint" class="inspector-info">已沿用旧调查点的 Vector3 坐标；原配置已保留备份。若原先使用实体、GUID 或偏移，请核对这里的最终坐标。</p>
             <div class="position-editor"><ClipPropertyEditor :property="pointProperty" :model-value="selectedSub.investigationPoint" @update:model-value="updatePoint" /></div>
             <label class="quest-field"><span>调查范围 <code>investigationRange</code></span><input type="number" aria-label="调查范围" :value="selectedSub.investigationRange" step="any" @input="updateRange" /><small>保留结构体默认值 -1；可填写所需范围。</small></label>
@@ -506,7 +501,6 @@ function parentLabel(main: QuestMain) {
                 <li v-for="(id, index) in selectedSub.nextQuestIds" :key="index" :class="{ 'is-empty': id === null }">
                   <span class="next-quest-order">{{ index + 1 }}</span>
                   <QuestReferenceSelect :options="referenceOptions" :model-value="id" :label="`选择后续任务 ${index + 1}`" @update:model-value="chooseNextQuest($event, index)" />
-                  <input type="number" :value="id ?? ''" step="1" min="-2147483648" max="2147483647" placeholder="空引用" :aria-label="`后续任务 ${index + 1} ID`" @input="updateNextQuest(index, $event)" @change="updateNextQuest(index, $event, true)" />
                   <small v-if="id === null">空引用 · 导出为 -1</small>
                   <small v-else :title="subsById.get(id)?.title">{{ subsById.has(id) ? (subsById.get(id)?.title || '未命名子任务') : '当前文件未找到此 ID' }}</small>
                   <button type="button" :disabled="index === 0" :aria-label="`上移后续任务 ${index + 1}`" @click="moveNextQuest(index, -1)">↑</button>
@@ -517,19 +511,20 @@ function parentLabel(main: QuestMain) {
               <div class="next-quest-add">
                 <QuestReferenceSelect :options="referenceOptions" :model-value="null" label="添加后续任务" placeholder="＋ 选择后续任务，可搜索任务名" :disabled="selectedSub.nextQuestIds.length >= 100" @update:model-value="chooseNextQuest($event)" />
               </div>
-              <div class="next-quest-add">
-                <input v-model="nextQuestIdInput" inputmode="numeric" aria-label="添加后续任务 ID" placeholder="或手动填写任务 ID" :disabled="selectedSub.nextQuestIds.length >= 100" @keydown.enter.prevent="addNextQuest" />
-                <button type="button" :disabled="selectedSub.nextQuestIds.length >= 100" @click="addNextQuest">＋ 添加</button>
-              </div>
-              <small>删除任务时，指向它的引用会置空并保留位置；可以重新填写 ID 或移除此项。导出时会警告空引用及当前文件中不存在的 ID。</small>
+              <small>删除任务时，指向它的引用会置空并保留位置；可以重新选择任务或移除此项。导出时会警告空引用及当前文件中不存在的 ID。</small>
             </section>
             <section class="form-card" aria-label="完成与回溯"><h3 class="form-heading">完成与回溯</h3>
             <div class="quest-field"><span>失败回溯任务 <code>失败回溯任务 · Int32</code></span>
-              <QuestReferenceSelect :options="referenceOptions" :model-value="selectedSub.failureQuestId === -1 ? null : selectedSub.failureQuestId" label="选择失败回溯任务" placeholder="无回溯任务 · 点击选择或搜索任务名" @update:model-value="selectedSub.failureQuestId = $event ?? -1" />
-              <input type="number" aria-label="失败回溯任务 ID" :value="selectedSub.failureQuestId ?? ''" step="1" min="-2147483648" max="2147483647" placeholder="空引用" @input="updateSubInteger('failureQuestId', $event)" @change="updateSubInteger('failureQuestId', $event, true)" />
-              <small v-if="selectedSub.failureQuestId === null">空引用 · 导出为 -1 并警告；默认值为 -1。</small>
-              <small v-else-if="selectedSub.failureQuestId === -1">默认 -1；可填写完整子任务 ID，跨字典时不取余数。</small>
-              <small v-else>{{ subsById.has(selectedSub.failureQuestId) ? (subsById.get(selectedSub.failureQuestId)?.title || '未命名子任务') : '当前工作区未找到此子任务 ID，导出时将警告但保留原值。' }}</small>
+              <QuestReferenceSelect v-if="selectedSub.failureQuestId === -1" :options="referenceOptions" :model-value="null" label="添加回溯任务" placeholder="＋ 添加回溯任务，可搜索任务名" @update:model-value="chooseFailureQuest" />
+              <div v-else class="failure-quest-row">
+                <div class="failure-quest-name">
+                  <strong v-if="selectedSub.failureQuestId === null">回溯目标已删除或未指定</strong>
+                  <template v-else><strong>{{ subsById.get(selectedSub.failureQuestId)?.title || (subsById.has(selectedSub.failureQuestId) ? '未命名子任务' : '未找到回溯任务') }}</strong><small>#{{ selectedSub.failureQuestId }}</small></template>
+                </div>
+                <button type="button" class="danger" aria-label="删除回溯任务关联" @click="removeFailureQuest">删除</button>
+              </div>
+              <small v-if="selectedSub.failureQuestId === null || (selectedSub.failureQuestId !== -1 && !subsById.has(selectedSub.failureQuestId))">此关联未找到有效目标，可删除关联后重新选择。</small>
+              <small v-else>只能添加一个回溯任务；删除关联后可以重新选择。</small>
             </div>
             <label class="hidden-field"><input v-model="selectedSub.finishMainQuest" type="checkbox" role="switch" aria-label="完成主任务" /><span>完成主任务</span></label>
             <label class="quest-field"><span>任务进度 <code>questProgress · Int32</code></span><input type="number" aria-label="任务进度" :value="selectedSub.questProgress" step="1" min="-2147483648" max="2147483647" @input="updateSubInteger('questProgress', $event)" @change="updateSubInteger('questProgress', $event, true)" /><small>默认 0，按填写的整数导出。</small></label>
@@ -569,6 +564,9 @@ button.danger:hover { background: #fef2f2; }
 .quest-toolbar strong { font-size: 15px; color: #1e293b; }
 .quest-counts { font-size: 11px; color: #64748b; }
 .toolbar-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.quest-view-switch { display: flex; padding: 2px; margin-right: 8px; border: 1px solid #d7e1f2; border-radius: 7px; background: #f1f5fc; }
+.quest-view-switch button { border: 0; background: transparent; }
+.quest-view-switch button[aria-pressed="true"] { background: #fff; color: #167dde; box-shadow: 0 1px 4px #36598715; }
 .quest-columns { display: grid; grid-template-columns: clamp(245px, 28%, 340px) minmax(0, 1fr); flex: 1; min-height: 0; }
 .quest-browser { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fff; border-right: 1px solid #dbe3ed; }
 .tree-search { padding: 12px; border-bottom: 1px solid #eef2f7; }
@@ -631,14 +629,14 @@ code { color: #7a8ca2; font-family: inherit; font-size: 11px; }
 .next-quests ol { list-style: none; padding: 0; margin: 12px 0; }
 .next-quests li { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 12px; border: 1px solid #e3e9f2; border-radius: 8px; background: #f8fafc; flex-wrap: wrap; }
 .next-quest-order { width: 18px; color: #94a3b8; font-size: 11px; }
-.next-quests input { box-sizing: border-box; min-width: 0; border: 1px solid #cbd5e1; border-radius: 5px; padding: 7px; background: #fff; color: #1e293b; font-size: 12px; }
-.next-quests li input { width: 100px; }
 .next-quests li small { flex: 1; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.next-quests li.is-empty input { border-color: #d9aa59; background: #fffbeb; }
 .next-quests li.is-empty small { color: #a16b19; }
 .next-quests li button { padding: 5px 7px; }
 .next-quest-add { display: flex; gap: 8px; margin: 10px 0; }
-.next-quest-add input { flex: 1; }
+.failure-quest-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid #dce5f2; border-radius: 8px; background: #f8faff; }
+.failure-quest-name { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.failure-quest-name strong { overflow-wrap: anywhere; color: #465d80; font-size: 13px; font-weight: 500; }
+.failure-quest-row button { flex-shrink: 0; }
 .inspector-note { color: #94a3b8; line-height: 1.7; font-size: 11px; margin-top: 20px; }
 .inspector-info { border: 1px solid #dbe3ed; background: #fff; padding: 16px; border-radius: 8px; margin-top: 24px; }
 .inspector-info h3 { margin: 0; font-size: 13px; color: #475569; }

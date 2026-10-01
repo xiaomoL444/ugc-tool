@@ -5,6 +5,12 @@ import type { DialogueClip } from "../../types/DialogueNode";
 import { getDialogueStyles } from "../../config/dialogueStyleRegistry";
 
 const props = defineProps<{ clip: DialogueClip }>();
+const autoContinue = computed({
+  get: () => props.clip.autoContinue,
+  set: (value: number | string) => {
+    props.clip.autoContinue = typeof value === "number" && Number.isFinite(value) ? value : -1;
+  },
+});
 const content = computed({
   get: () => props.clip.content,
   set: (value: string) => { props.clip.content = normalizeDialogueInput(value); },
@@ -60,6 +66,11 @@ function moveParam(index: number, direction: number) {
       黄色标记控制 ContinueDelayTime；不触发按下时导出为 -1，且不生成出口。
       Dialogue 的右边界始终跟随 Timeline 末尾。
     </small>
+    <label>
+      自动推进等待时间（秒）
+      <input v-model.number="autoContinue" type="number" step="0.1" />
+    </label>
+    <small class="advance-hint">默认 -1，表示不自动推进；正数表示开启自动播放后的等待秒数。</small>
   </div>
 </template>
 

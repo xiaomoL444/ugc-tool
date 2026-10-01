@@ -2,21 +2,22 @@
 import { inject, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 import { toast } from "vue-sonner";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
+import type { StudioEditorKind } from "../studioSidebar";
 import { StorageClass } from "@/services/storage/storage";
 import { downloadTextFile } from "@/utils/download";
 import { ProjectID } from "../../constant/constant";
-import EditorKindSelect from "../EditorKindSelect.vue";
 import QuestPanel from "./QuestPanel.vue";
-import type { QuestProject, QuestStructIds } from "./types";
-import { createQuestProject, decodeQuestProject, encodeQuestProject, validateQuestProject, QUEST_STRUCT_ID_FIELDS } from "./questProject";
+import type { QuestProject } from "./types";
+import { createQuestProject, decodeQuestProject, encodeQuestProject, validateQuestProject } from "./questProject";
+import { useWorkspaceStructIds } from "../useWorkspaceStructIds";
 import { exportQuestVariables } from "./questExporter";
 import { createWorkspaceSaveQueue } from "./workspaceSaveQueue";
 import RuntimeImportButton from "../RuntimeImportButton.vue";
 import { commitRuntimeImport } from "../runtimeImportStorage";
 import { importQuest } from "./questImporter";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>(), { editorKind: "Quest" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
+withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "Quest" });
+const emit = defineEmits<{ "update:editorKind": [value: StudioEditorKind] }>();
 const storage = inject<StorageClass>("storage")!;
 const workspace = inject<Ref<string>>("selectedWorkspaceId")!;
 // 工作区切换会重建 Panel；所有异步保存固定使用原工作区路径。
@@ -32,7 +33,7 @@ const busy = ref(false);
 const exporting = ref(false);
 const saveStatus = ref("准备读取任务");
 const settingsOpen = ref(false);
-const settingsDraft = ref<QuestStructIds>();
+const workspaceIds = useWorkspaceStructIds();
 const unassignedDraft = ref(-1);
 const settingsError = ref("");
 let disposed = false;
@@ -122,7 +123,7 @@ async function exportVariables() {
   const exportName = downloadBaseName;
   exporting.value = true;
   try {
-    const result = exportQuestVariables(project.value);
+    const result = exportQuestVariables(workspaceIds.quest(project.value));
     if (disposed) return;
     downloadTextFile(result.json, `${exportName}-任务配置数据.json`, "application/json");
     if (result.warnings.length) { console.warn(result.warnings); toast.warning(result.warnings.join("；")); }
@@ -146,21 +147,21 @@ async function importConfiguration(file: File) {
 }
 function openSettings() {
   if (!project.value) return;
-  settingsDraft.value = { ...project.value.structIds };
   unassignedDraft.value = project.value.unassignedChapterId;
   settingsError.value = "";
   settingsOpen.value = true;
 }
 function applySettings() {
-  if (!project.value || !settingsDraft.value) return;
-  const candidate = { ...project.value, structIds: { ...settingsDraft.value }, unassignedChapterId: unassignedDraft.value };
-  const errors = validateQuestProject(candidate);
+  if (!project.value) return;
+  const candidate = { ...project.value, unassignedChapterId: unassignedDraft.value };
+  let errors: string[];
+  try { errors = validateQuestProject(workspaceIds.quest(candidate)); }
+  catch (error) { settingsError.value = error instanceof Error ? error.message : String(error); return; }
   if (errors.length) { settingsError.value = errors.join("；"); return; }
-  project.value.structIds = candidate.structIds;
   project.value.unassignedChapterId = candidate.unassignedChapterId;
   settingsOpen.value = false;
 }
-async function changeEditor(kind: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene") {
+async function changeEditor(kind: StudioEditorKind) {
   try { await saveQueue.flush(); emit("update:editorKind", kind); }
   catch { /* 保存失败时留在任务编辑器，防止丢失未保存内容。 */ }
 }
@@ -175,16 +176,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="quest-editor" :inert="busy" :aria-busy="busy">
-      <EditorKindSelect :model-value="editorKind" @update:model-value="changeEditor" />
-      <SectionLayout title="任务编辑区">
+      <SectionLayout title="任务编辑" class="quest-edit-section">
         <div class="quest-workspace" :class="{ 'is-busy': busy }" :aria-busy="busy">
           <header class="quest-file-toolbar">
             <span>{{ workspaceId }} <span class="workspace-label">/ 工作区任务</span></span><small role="status" :class="{ 'save-error': saveStatus === '保存失败' }">{{ saveStatus }}</small>
-            <button type="button" :disabled="!project || busy" @click="openSettings">结构体 ID 设置</button>
+            <button type="button" :disabled="!project || busy" @click="openSettings">任务设置</button>
             <RuntimeImportButton :disabled="busy || exporting" :import-file="importConfiguration" />
             <button type="button" class="primary" :disabled="!project || busy || exporting" @click="exportVariables">{{ exporting ? '导出中…' : '导出千星任务' }}</button>
           </header>
-          <QuestPanel v-if="project" :project="project" :inert="busy" />
+          <QuestPanel v-if="project" :project="project" :inert="busy" :sidebar-disabled="busy" />
           <div v-else class="quest-empty">
             <template v-if="legacyFiles.length > 1">
               <h3>选择要沿用的旧任务</h3>
@@ -205,11 +205,9 @@ onBeforeUnmount(() => {
       </SectionLayout>
   </div>
   <Teleport to="body">
-    <div v-if="settingsOpen && settingsDraft" :inert="busy" class="quest-settings-backdrop dsfg-typography" @click.self="settingsOpen = false" @keydown.esc="settingsOpen = false">
-      <form class="quest-settings" role="dialog" aria-modal="true" aria-label="任务结构体 ID 设置" @submit.prevent="applySettings">
-        <header><h3>任务结构体 ID</h3><button type="button" aria-label="关闭任务结构体设置" @click="settingsOpen = false">×</button></header>
-        <p>不同千星编辑器的结构体 ID 可能不同；修改后会同时替换嵌套结构体和字典类型。</p>
-        <label v-for="field in QUEST_STRUCT_ID_FIELDS" :key="field.key">{{ field.label }}<input v-model="settingsDraft[field.key]" :aria-label="`${field.label} ID`" inputmode="numeric" /><small>{{ field.description }}</small></label>
+    <div v-if="settingsOpen" :inert="busy" class="quest-settings-backdrop dsfg-typography" @click.self="settingsOpen = false" @keydown.esc="settingsOpen = false">
+      <form class="quest-settings" role="dialog" aria-modal="true" aria-label="任务设置" @submit.prevent="applySettings">
+        <header><h3>任务设置</h3><button type="button" aria-label="关闭任务设置" @click="settingsOpen = false">×</button></header>
         <label>无章节编号<input v-model.number="unassignedDraft" aria-label="无章节编号" type="number" step="1" /><small>直属主任务的“归属章节”字段使用此编号，默认 -1。</small></label>
         <p v-if="settingsError" class="settings-error" role="alert">{{ settingsError }}</p>
         <footer><button type="button" @click="settingsOpen = false">取消</button><button class="primary" type="submit">应用</button></footer>

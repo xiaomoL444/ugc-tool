@@ -59,8 +59,6 @@ onBeforeUnmount(() => { disposed = true; });
     <template v-else-if="!busy">
       <small v-if="!mainAreas.length">场景中还没有一级区域，请先在“场景”中创建，再刷新列表。</small>
       <small v-else-if="!currentExists" class="area-warning">当前编号 #{{ modelValue }} 未关联有效一级区域，请选择所属一级区域。</small>
-      <small v-else>关联当前工作区“场景”中的一级区域。</small>
-      <small>旧存档若关联的是世界，请重新确认一级区域；不会自动转换编号。</small>
       <small v-if="hasInvalidAreas" class="area-warning">部分一级区域 ID 无效或重复，请在“场景”中修正后刷新。</small>
     </template>
   </div>

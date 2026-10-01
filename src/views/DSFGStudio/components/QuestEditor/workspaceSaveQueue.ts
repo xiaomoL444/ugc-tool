@@ -63,5 +63,10 @@ export function createWorkspaceSaveQueue(
     if (pending.size === 0) clearTimer();
   }
 
-  return { schedule, flush, discard };
+  // A snapshot is not persisted until the in-flight writer has also completed.
+  function hasPendingChanges() {
+    return pending.size > 0 || running !== undefined;
+  }
+
+  return { schedule, flush, discard, hasPendingChanges };
 }

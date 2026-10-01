@@ -1,0 +1,145 @@
+/* Concept A shell. Every selector stays inside DSFG Studio; App.vue is untouched. */
+#app .dsfg-studio {
+  --studio-blue: #078cff;
+  --studio-cyan: #00b4f0;
+  --studio-purple: #9285ff;
+  --studio-line: #d4d8f4;
+  --studio-ink: #293963;
+  display: grid;
+  grid-template-columns: clamp(238px, 18vw, 300px) minmax(0, 1fr);
+  gap: 14px;
+  width: 100%; height: 100%; min-height: 0; min-width: 0;
+  box-sizing: border-box; color: var(--studio-ink); text-align: left; font-size: 14px;
+}
+#app .dsfg-studio .studio-sidebar { --sidebar-text: #405477; --sidebar-muted: #8290ad; --sidebar-selected: #d5ebff; --sidebar-hover: #edf3ff; display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; padding: 18px 14px; box-sizing: border-box; border: 1px solid #ffffffa6; border-radius: 12px; background: linear-gradient(150deg, #ffffffdb, #ffffff75); color: var(--sidebar-text); font-size: 13px; font-weight: 400; line-height: 1.5; }
+#app .dsfg-studio .studio-sidebar :is(button, input, select) { font-family: inherit; }
+#app .dsfg-studio .studio-workspace-picker { display: flex; align-items: center; gap: 6px; position: relative; }
+#app .dsfg-studio .studio-icon-button { display: grid; place-items: center; width: 30px; height: 36px; padding: 0; flex-shrink: 0; border: 1px solid var(--studio-line); border-radius: 7px; background: #ffffff8c; color: #6275b1; cursor: pointer; }
+#app .dsfg-studio .studio-workspace-menu summary { list-style: none; border-color: transparent; }
+#app .dsfg-studio .studio-workspace-menu summary::-webkit-details-marker { display: none; }
+#app .dsfg-studio .studio-workspace-menu > div { position: absolute; z-index: 30; top: 44px; right: 0; padding: 6px; min-width: 150px; border: 1px solid var(--studio-line); border-radius: 8px; background: #fff; box-shadow: 0 8px 24px #35487418; }
+#app .dsfg-studio .studio-workspace-menu button { width: 100%; padding: 9px; border: 0; border-radius: 4px; background: transparent; color: #52677f; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+#app .dsfg-studio .studio-workspace-menu button:hover { background: #edf5ff; }
+#app .dsfg-studio .studio-workspace-menu button:last-child { color: #ad5868; }
+#app .dsfg-studio .studio-workspace-menu button:last-child:hover { background: #fff0f3; }
+#app .dsfg-studio .studio-feature-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0; gap: 3px; border-bottom: 1px solid #d6dbf5; }
+#app .dsfg-studio .studio-feature-tabs button { position: relative; min-height: 42px; padding: 6px 0 11px; border: 0; border-radius: 0; background: transparent; color: #5a648b; font: inherit; font-size: 14px; cursor: pointer; }
+#app .dsfg-studio .studio-feature-tabs button[aria-pressed="true"] { color: var(--studio-blue); }
+#app .dsfg-studio .studio-feature-tabs button[aria-pressed="true"]::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--studio-blue); border-radius: 2px; }
+#app .dsfg-studio .studio-dialogue-modes { display: flex; padding: 3px; gap: 3px; border: 1px solid var(--studio-line); border-radius: 8px; background: #ffffff8c; }
+#app .dsfg-studio .studio-dialogue-modes button { flex: 1; padding: 8px 4px; border: 0; border-radius: 6px; background: transparent; color: #6976a0; font: inherit; font-size: 12px; cursor: pointer; }
+#app .dsfg-studio .studio-dialogue-modes button[aria-pressed="true"] { color: #fff; background: linear-gradient(110deg, #1981ff, #00a9f4); box-shadow: 0 2px 5px #148bff24; }
+#app .dsfg-studio .studio-sidebar-content { flex: 1; min-height: 0; min-width: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #c5cbef transparent; }
+#app .dsfg-studio .studio-main { min-width: 0; min-height: 0; overflow: hidden; padding: 0; }
+#app .dsfg-studio :is(.dialogue-editor, .walk-talk-editor, .quest-editor) { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+#app .dsfg-studio .studio-sidebar-placeholder { color: #8491b0; font-size: 12px; }
+#app .dsfg-studio :is(.studio-feature-tabs, .studio-dialogue-modes, .studio-workspace-picker) :is(button, summary, select):focus-visible { outline: 2px solid #54a8ff; outline-offset: 2px; }
+#app .dsfg-studio .studio-workspace-select .workspace-trigger:focus-visible { outline-color: #887bd7; }
+#app .dsfg-studio .studio-workspace-select .workspace-option:focus-visible { outline: none; background: #f0edff; }
+
+/* Titles reserve a row in normal flow. Border segments need no opaque title backdrop. */
+#app .dsfg-studio .Section { min-width: 0; border: 0; border-radius: 12px; background: transparent; filter: none; backdrop-filter: none; -webkit-backdrop-filter: none; overflow: visible; }
+#app .dsfg-studio .Section > .MainBox { display: flex; position: static; flex: 0 0 30px; min-width: 0; align-items: center; }
+#app .dsfg-studio .Section > .MainBox::before,
+#app .dsfg-studio .Section > .MainBox::after { content: ''; align-self: stretch; margin-top: 15px; border-top: 1px solid var(--studio-purple); }
+#app .dsfg-studio .Section > .MainBox::before { flex: 0 0 16px; border-left: 1px solid var(--studio-purple); border-top-left-radius: 10px; }
+#app .dsfg-studio .Section > .MainBox::after { flex: 1 0 16px; border-right: 1px solid var(--studio-purple); border-top-right-radius: 10px; }
+#app .dsfg-studio .Section > .MainBox > .title { flex: 0 1 auto; display: block; width: auto; min-width: 0; height: auto; padding: 0 10px; border: 0; background: transparent; color: var(--studio-blue); font-size: 17px; font-weight: 600; line-height: 30px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#app .dsfg-studio .Section > .panel { flex: 1; min-width: 0; box-sizing: border-box; height: auto; padding: 10px 12px 12px; border: 1px solid var(--studio-purple); border-top: 0; border-radius: 0 0 10px 10px; background: #ffffff14; overflow: hidden; }
+
+/* Functional navigation is moved into the shared sidebar, with independent scrolling. */
+#app .dsfg-studio .studio-sidebar :is(.studio-sidebar-heading, .browser-heading, .tree-heading, .category-nav .nav-title) { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; margin: 0 0 12px; padding: 0; color: #34466b; font-size: 14px; font-weight: 600; line-height: 24px; }
+#app .dsfg-studio .studio-sidebar :is(.studio-sidebar-heading, .browser-heading, .tree-heading) strong { font: inherit; }
+#app .dsfg-studio .studio-sidebar .browser-heading > span { color: var(--sidebar-muted); font-size: 11px; font-weight: 400; }
+#app .dsfg-studio .studio-sidebar :is(.studio-file-search, .tree-search input, .scene-browser .search) { box-sizing: border-box; width: 100%; height: 40px; min-height: 40px; border: 1px solid var(--studio-line); border-radius: 8px; background: #ffffffc9; color: var(--sidebar-text); font-size: 13px; font-weight: 400; line-height: 20px; }
+#app .dsfg-studio .studio-sidebar :is(.tree-search input, .scene-browser .search) { padding: 9px 10px; }
+#app .dsfg-studio .studio-sidebar .studio-file-search input { font-size: 13px; font-weight: 400; color: var(--sidebar-text); }
+#app .dsfg-studio .studio-sidebar input::placeholder { color: var(--sidebar-muted); opacity: 1; font-weight: 400; }
+#app .dsfg-studio .studio-sidebar :is(.tree-search input, .scene-browser .search):focus-visible { outline: 2px solid #5aaeff66; outline-offset: 0; }
+#app .dsfg-studio .editor-file-panel,
+#app .dsfg-studio .file-panel { height: auto; min-height: 100%; }
+#app .dsfg-studio .quest-browser { min-height: 100%; max-height: 100%; border: 0; background: transparent; }
+#app .dsfg-studio .quest-browser .tree-search { padding: 0 0 12px; border: 0; }
+#app .dsfg-studio .quest-browser .tree-tools { padding: 0 0 12px; border-color: var(--studio-line); }
+#app .dsfg-studio .quest-browser .tree-scroll { padding: 0; }
+#app .dsfg-studio .quest-browser .tree-row { min-height: 44px; border-radius: 8px; }
+#app .dsfg-studio .scene-browser { box-sizing: border-box; width: 100%; min-width: 0; min-height: 100%; border: 0; background: transparent; }
+#app .dsfg-studio .scene-browser .search { margin: 0 0 12px; }
+#app .dsfg-studio .scene-browser nav { padding: 0; }
+#app .dsfg-studio .scene-browser .tree-node { min-height: 44px; padding: 10px; border-radius: 8px; }
+#app .dsfg-studio .scene-browser .tree-sub { padding-left: 24px; }
+#app .dsfg-studio .scene-browser .tree-main { border-color: var(--studio-line); }
+#app .dsfg-studio .category-nav { display: flex; flex-direction: column; box-sizing: border-box; min-height: 100%; padding: 0; border: 0; background: transparent; gap: 4px; }
+#app .dsfg-studio .category-nav button { min-height: 44px; padding: 10px; border-radius: 8px; }
+#app .dsfg-studio .studio-sidebar :is(.studio-file-select, .tree-item, .scene-browser .tree-node, .category-nav button) { color: var(--sidebar-text); font-size: 13px; font-weight: 500; line-height: 20px; }
+#app .dsfg-studio .studio-sidebar :is(.studio-file-row, .tree-row, .scene-browser .tree-node, .category-nav button):hover { background: var(--sidebar-hover); }
+#app .dsfg-studio .studio-sidebar :is(.studio-file-row.selected, .tree-row.selected, .scene-browser .tree-node.active, .category-nav button.active) { background: var(--sidebar-selected); box-shadow: inset 2px 0 var(--studio-blue); border-radius: 8px; }
+#app .dsfg-studio .studio-sidebar :is(.studio-file-row.selected .studio-file-select, .tree-row.selected .tree-item, .scene-browser .tree-node.active, .category-nav button.active) { color: var(--studio-blue); font-weight: 600; }
+#app .dsfg-studio .studio-sidebar :is(.tree-item small, .scene-browser .tree-node small) { color: var(--sidebar-muted); font-size: 11px; font-weight: 400; }
+#app .dsfg-studio .studio-sidebar :is(.tree-footnote, .scene-browser .aside-note, .category-nav > p, .file-help) { margin: 16px 0 0; padding: 12px 0 0; border-top: 1px solid var(--studio-line); color: var(--sidebar-muted); font-size: 11px; font-weight: 400; line-height: 1.8; }
+#app .dsfg-studio .studio-sidebar .category-nav > p { margin-top: auto; padding-top: 12px; }
+#app .dsfg-studio .studio-sidebar .studio-file-actions :is(button, .runtime-import button) { min-height: 34px; padding: 7px 10px; border: 1px solid var(--studio-line); border-radius: 7px; color: var(--sidebar-text); background: #ffffffb8; font-size: 12px; font-weight: 500; line-height: 18px; }
+#app .dsfg-studio .quest-columns,
+#app .dsfg-studio .settings-layout { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+
+/* Consistent light surfaces, cyan card accents and quiet secondary actions. */
+#app .dsfg-studio :is(.scene-editor, .entity-editor, .quest-panel, .text-preview, .walk-talk-panel, .workspace-panel, .dnd-flow, .vue-flow) { background: transparent; }
+#app .dsfg-studio :is(.dialogue-export-toolbar, .quest-file-toolbar, .file-toolbar, .scene-editor .page-header) { min-height: 48px; padding: 4px 6px 14px; gap: 10px; border: 0; background: transparent; }
+#app .dsfg-studio :is(.dialogue-export-toolbar, .quest-file-toolbar, .file-toolbar, .scene-editor .page-header) button { min-height: 34px; padding: 7px 12px; border-radius: 7px; font-size: 12px; }
+#app .dsfg-studio :is(.dialogue-export-toolbar > button:not(.struct-id-settings-button), .quest-file-toolbar .primary, .file-toolbar .primary, .page-header .primary) { border-color: #078cff; background: linear-gradient(110deg, #1683ff, #00a7f2); color: #fff; box-shadow: 0 2px 5px #078cff1a; }
+#app .dsfg-studio .dialogue-export-toolbar .struct-id-settings-button { border-color: var(--studio-line); background: #ffffffc9; color: #6554c9; }
+#app .dsfg-studio .dialogue-view-switch { background: #ffffff9c; border-color: var(--studio-line); }
+#app .dsfg-studio .dialogue-view-switch button { background: transparent; color: #6976a0; }
+#app .dsfg-studio .dialogue-view-switch button[aria-pressed="true"] { background: linear-gradient(110deg, #1683ff, #00a7f2); color: #fff; }
+#app .dsfg-studio .runtime-import button { min-height: 34px; border-color: var(--studio-line); border-radius: 7px; background: #ffffffb8; color: #6554c9; font-size: 12px; }
+#app .dsfg-studio .studio-save-note { display: inline-flex; align-items: center; gap: 6px; color: #438472; font-size: 12px; }
+#app .dsfg-studio .studio-save-note::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #35a37c; }
+#app .dsfg-studio :is(.text-preview-toolbar, .text-preview-legend) { background: #ffffff80; }
+#app .dsfg-studio .text-preview-viewport { background: transparent; background-image: none; }
+#app .dsfg-studio .vue-flow__background { opacity: .25; }
+#app .dsfg-studio .text-collection-panel { border-color: var(--studio-line); background: #ffffffad; }
+#app .dsfg-studio .text-flow-block:not(.block-entry):not(.block-output) { border-color: #cdd7f5; border-top: 3px solid var(--block-color, var(--studio-cyan)); box-shadow: 0 3px 12px #7283c10b; }
+#app .dsfg-studio .text-block-header { background: #f7faff; }
+#app .dsfg-studio .timeline-panel { margin-top: 8px; border: 1px solid var(--studio-line); border-radius: 9px; overflow: hidden; }
+#app .dsfg-studio .timeline-resize-handle { background: transparent; }
+#app .dsfg-studio .timeline-resize-handle span { border-color: #9b8cff; background: #b5a9ff; }
+#app .dsfg-studio .group-timeline-v3 { border: 0; background: #ffffffc9; }
+#app .dsfg-studio .quest-toolbar { margin: 0 0 12px; padding: 12px 16px; border: 1px solid var(--studio-line); border-radius: 8px; background: #ffffff9c; }
+#app .dsfg-studio .quest-inspector { padding: 16px 20px 28px; }
+#app .dsfg-studio :is(.form-card, .children-card, .next-quests, .scene-editor .card, .preset-section) { border: 1px solid var(--studio-line); border-top: 3px solid var(--studio-cyan); border-radius: 10px; background: #ffffffeb; box-shadow: 0 3px 12px #7283c10b; }
+#app .dsfg-studio .scene-editor { min-width: 0; }
+#app .dsfg-studio .scene-editor > main { padding: 0 8px 16px; }
+#app .dsfg-studio .scene-editor .page-header h2 { font-size: 16px; color: #394e7e; }
+#app .dsfg-studio .scene-editor .scene-overview { background: #ffffff80; border-color: var(--studio-line); }
+#app .dsfg-studio .scene-editor .card { padding: 22px; }
+#app .dsfg-studio .entity-editor .settings-layout > main { padding: 8px 10px 22px; }
+#app .dsfg-studio .entity-editor .settings-header h2 { font-size: 16px; }
+#app .dsfg-studio .entity-editor .preset-section { padding: 22px; }
+#app .dsfg-studio .entity-editor .system-items article { background: #f5f7ff; border-color: #dce1f5; }
+#app .dsfg-studio .entity-editor :is(.preset-list, .style-preset-section > .items) { grid-template-columns: minmax(0, 1fr); }
+#app .dsfg-studio .entity-editor :is(.preset-list, .style-preset-section > .items) > article { min-width: 0; overflow-wrap: anywhere; }
+#app .dsfg-studio .entity-editor :is(.preset-list, .style-preset-section > .items) > article > :is(label, div) { min-width: 0; }
+#app .dsfg-studio .entity-editor .system-items article { border-top: 3px solid var(--studio-cyan); text-align: center; }
+#app .dsfg-studio .walk-talk-panel .list-toolbar { padding: 12px 16px; border: 1px solid var(--studio-line); border-radius: 8px; background: #ffffff80; }
+#app .dsfg-studio .walk-talk-panel .dialogue-list { padding: 16px 2px; }
+#app .dsfg-studio .studio-empty { display: flex; flex: 1; align-items: center; justify-content: center; flex-direction: column; height: 100%; padding: 28px; box-sizing: border-box; text-align: center; color: #8697b9; }
+#app .dsfg-studio .studio-empty h2 { margin: 18px 0 4px; color: #526a9e; font-size: 18px; }
+#app .dsfg-studio .studio-empty p { margin: 10px 0 24px; font-size: 13px; line-height: 1.8; }
+#app .dsfg-studio .studio-empty button { padding: 9px 16px; border: 1px solid #c7d8fa; border-radius: 8px; background: #ffffffad; color: var(--studio-blue); font: inherit; font-size: 13px; cursor: pointer; }
+@media (max-width: 1100px) {
+  #app .dsfg-studio { grid-template-columns: 224px minmax(0, 1fr); gap: 10px; }
+  #app .dsfg-studio .studio-sidebar { padding: 14px 10px; }
+  #app .dsfg-studio .Section > .panel { padding: 8px; }
+  #app .dsfg-studio .quest-inspector { padding: 12px 4px 20px; }
+}
+@media (max-width: 720px) {
+  #app .dsfg-studio { grid-template-columns: 190px minmax(0, 1fr); gap: 8px; }
+  #app .dsfg-studio .studio-sidebar { padding: 12px 8px; }
+  #app .dsfg-studio .studio-feature-tabs button { font-size: 12px; }
+  #app .dsfg-studio .studio-workspace-picker { flex-wrap: wrap; }
+  #app .dsfg-studio .studio-workspace-select { flex-basis: 100%; }
+  #app .dsfg-studio .category-nav { flex-direction: column; }
+  #app .dsfg-studio .category-nav :is(.nav-title, p) { display: block; }
+  #app .dsfg-studio .quest-columns { overflow: hidden; }
+  #app .dsfg-studio .quest-inspector { overflow: auto; }
+}

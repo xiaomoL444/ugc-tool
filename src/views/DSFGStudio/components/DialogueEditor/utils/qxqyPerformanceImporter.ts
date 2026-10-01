@@ -1,4 +1,5 @@
 import { Position } from "@vue-flow/core";
+import { normalizeCameraProperties } from "../config/cameraClip";
 import { readRuntime, assertImport } from "../../runtimeImport";
 import { DEFAULT_QXQY_STRUCT_IDS, createQxqyStructWorkspace } from "./qxqyStructWorkspace";
 import { createEmptyDialogueProject, createDialogueNode, createDialogueClip, createSelectClip, createSelectOption, createFocusPushClip, createConditionBranchNode, createConditionBranchOutput, createPerformanceLine, createPerformanceClip } from "./dialogueProject";
@@ -64,8 +65,10 @@ export function importQxqyPerformance(text: string) {
             assertImport(!node.dialogue, `Group ${index} 有多个台词 Clip，当前编辑器不能无损还原`);
             const delay = Number(source.continueDelay);
             assertImport(delay === -1 || delay >= 0, "台词推进延迟只能为 -1 或非负数");
+            const autoContinue = source.autoContinue == null ? -1 : Number(source.autoContinue);
+            assertImport(Number.isFinite(autoContinue), "台词自动推进等待时间必须为有限数值");
             node.dialogue = { ...createDialogueClip(), style: source.style, speaker: source.talker, subtitle: source.subtitle, content: source.content, nodeGraphEvent: source.prams,
-              startTime: action.time, advanceMode: delay === -1 ? "None" : "PlayerInput", continueDelayTime: Math.max(0, delay) };
+              startTime: action.time, advanceMode: delay === -1 ? "None" : "PlayerInput", continueDelayTime: Math.max(0, delay), autoContinue };
           } else if (action.actionType === "NOLOC_DIALOG_SELECT") {
             assertImport(!node.select && source.content.length === source.icons.length && !source.params.length, `Group ${index} 的选项数据无法无损还原（重复 Clip、列表不匹配或含额外 params）`);
             node.select = { ...createSelectClip(), style: source.style, startTime: action.time, continueDelayTime: duration,
@@ -78,7 +81,7 @@ export function importQxqyPerformance(text: string) {
             const convert = (value: any, key = ""): any => Array.isArray(value) ? value.map(item => convert(item)) : value && typeof value === "object"
               ? Object.fromEntries(Object.entries(value).map(([name, item]) => [name, convert(item, name)]))
               : key === "space" ? Number(value) : value;
-            clip.components[0].properties = convert(source); line.clips.push(clip); node.lines.push(line);
+            clip.components[0].properties = normalizeCameraProperties(convert(source)) as Record<string, unknown>; line.clips.push(clip); node.lines.push(line);
           }
         } else if (action.actionType === "NOLOC_FOCUSPUSH") {
           params(action, ["stringParams", "intParams"]);
@@ -98,7 +101,6 @@ export function importQxqyPerformance(text: string) {
           line.clips.push(clip); node.lines.push(line);
         } else throw new Error(`Group ${index} 包含尚不支持的动作 ${action.actionType}，未导入`);
       }
-      node.timeline.maxLines = Math.max(8, node.lines.length + 3);
       if (node.dialogue) {
         const action = actions.find((item: any) => item.actionType === "NOLOC_DIALOG");
         assertImport(Number(getFlowClipDuration(node, node.dialogue).toFixed(2)) === Number(action.duration), `Group ${index} 的台词结束时间与其他 Clip 冲突，无法按当前 Timeline 模型无损还原`);

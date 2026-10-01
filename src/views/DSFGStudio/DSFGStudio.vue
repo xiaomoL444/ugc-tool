@@ -1,31 +1,37 @@
 <script setup lang="ts">
 import "./editorTypography.css";
-import Splitter from "primevue/splitter";
-import SplitterPanel from "primevue/splitterpanel";
 
 import {
   reactive,
   computed,
   ref,
   onMounted,
+  onBeforeUnmount,
   provide,
   inject,
   onBeforeMount,
   type Component,
 } from "vue";
-import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import { consola } from "consola";
 import { toast } from "vue-sonner";
 import { StorageClass } from "@/services/storage/storage";
-import SelectableList from "@/components/UI/List/SelectableList.vue";
 import { ProjectID } from "./constant/constant";
-import CameraEditor from "./components/editormap/CameraEditor.vue";
 import DialogueEditor from "./components/DialogueEditor/DialogueEditor.vue";
 import QuestEditor from "./components/QuestEditor/QuestEditor.vue";
 import WalkTalkEditor from "./components/WalkTalkEditor/WalkTalkEditor.vue";
 import EntityPresetEditor from "./components/EntityPresetEditor/EntityPresetEditor.vue";
 import SceneEditor from "./components/SceneEditor/SceneEditor.vue";
+import CameraEditor from "./components/CameraEditor/CameraEditor.vue";
 import { SCENE_FILE, createSceneProject, encodeSceneProject } from "./components/SceneEditor/sceneProject";
+import StudioIcon from "./components/StudioIcon.vue";
+import StudioCreateDialog from "./components/StudioCreateDialog.vue";
+import StudioWorkspaceSelect from "./components/StudioWorkspaceSelect.vue";
+import { studioSidebarKey, type StudioEditorKind } from "./components/studioSidebar";
+import WorkspaceStructIdSettings from "./components/WorkspaceStructIdSettings.vue";
+import { createWorkspaceStructIds, loadWorkspaceStructIds, encodeWorkspaceStructIds, validateWorkspaceStructIds,
+  WORKSPACE_STRUCT_IDS_FILE, type WorkspaceStructIdState, type WorkspaceStructIds } from "./components/workspaceStructIds";
+import { workspaceStructIdsKey } from "./components/useWorkspaceStructIds";
+import "./studioShell.css";
 
 const storage = inject<StorageClass>("storage")!.setProject(ProjectID); //储存区
 
@@ -36,7 +42,60 @@ const switchingEditor = ref(false);
 const creatingWorkspace = ref(false);
 const newWorkspaceName = ref("");
 const addingWorkspace = ref(false);
+const workspaceMenu = ref<HTMLDetailsElement>();
+function closeWorkspaceMenuOutside(event: PointerEvent) {
+  const menu = workspaceMenu.value;
+  if (menu?.open && !event.composedPath().includes(menu)) menu.open = false;
+}
+onMounted(() => document.addEventListener("pointerdown", closeWorkspaceMenuOutside, true));
+onBeforeUnmount(() => document.removeEventListener("pointerdown", closeWorkspaceMenuOutside, true));
+const structSettingsOpen = ref(false);
+const structSettingsError = ref("");
+const structSettings = ref<WorkspaceStructIdState>({ ids: createWorkspaceStructIds(), candidates: {}, warnings: [] });
+const workspaceStructIds = computed(() => structSettings.value.ids);
+provide(workspaceStructIdsKey, { ids: workspaceStructIds, error: structSettingsError });
+async function readStructSettings(workspaceId: string) {
+  try {
+    const state = await loadWorkspaceStructIds(storage.setProject(ProjectID), workspaceId);
+    structSettings.value = state; structSettingsError.value = "";
+  } catch (error) {
+    structSettings.value = { ids: createWorkspaceStructIds(), candidates: {}, warnings: [] };
+    structSettingsError.value = error instanceof Error ? error.message : "工作区结构体设置读取失败";
+  }
+}
+async function openStructSettings() {
+  if (!selectedWorkspaceId.value || switchingEditor.value) return;
+  switchingEditor.value = true;
+  try {
+    await editorRef.value?.prepareToLeave();
+    await readStructSettings(selectedWorkspaceId.value);
+    structSettingsOpen.value = true;
+  } catch (error) { toast.error(error instanceof Error ? error.message : "暂时无法打开设置"); }
+  finally { switchingEditor.value = false; }
+}
+async function retryStructSettings() {
+  structSettingsOpen.value = false;
+  await openStructSettings();
+}
+async function saveStructSettings(ids: WorkspaceStructIds) {
+  if (structSettingsError.value) throw new Error("请先重新读取工作区设置，原文件未被覆盖。");
+  const text = encodeWorkspaceStructIds(ids), workspaceId = selectedWorkspaceId.value;
+  await storage.setProject(ProjectID).writeFile(`/${workspaceId}/${WORKSPACE_STRUCT_IDS_FILE}`, text);
+  if (selectedWorkspaceId.value !== workspaceId) return;
+  structSettings.value = { ids: JSON.parse(text).ids, candidates: {}, warnings: [] };
+  toast.success("工作区结构体 ID 已保存，所有模块统一生效");
+}
 provide("selectedWorkspaceId", selectedWorkspaceId);
+const sidebarTarget = ref<HTMLElement>();
+provide(studioSidebarKey, sidebarTarget);
+const editorTabs = [
+  { value: "Dialogue", label: "对话" }, { value: "Quest", label: "任务" },
+  { value: "Camera", label: "镜头" },
+  { value: "Scene", label: "场景" }, { value: "EntityPresets", label: "预设" },
+] as const;
+function selectWorkspace(id: string) {
+  void ChangeWorkspace(id);
+}
 
 /**
  * 刷新工作区
@@ -122,12 +181,17 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
   switchingEditor.value = true;
   try {
     await editorRef.value?.prepareToLeave();
+    await readStructSettings(id);
     selectedWorkspaceId.value = id;
+    structSettingsOpen.value = false;
+    if (structSettingsError.value || validateWorkspaceStructIds(structSettings.value.ids).length) {
+      toast.warning("请通过工作区菜单设置结构体 ID；旧配置存在冲突或读取问题。");
+    }
   } catch (error) { consola.error(error); toast.error("保存失败，暂未切换工作区"); }
   finally { switchingEditor.value = false; }
 }
 
-async function ChangeEditorKind(kind: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene") {
+async function ChangeEditorKind(kind: StudioEditorKind) {
   if (switchingEditor.value || selectedFunction.value === kind) return;
   switchingEditor.value = true;
   try {
@@ -151,44 +215,46 @@ onBeforeMount(async () => {
   selectedFunction.value = "Dialogue";
 });
 
-const selectedFunction = ref<"Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene">("Dialogue");
+const selectedFunction = ref<StudioEditorKind>("Dialogue");
 function onSelectFunction() {}
 
-const functionViewMap: Record<string, Component> = {
+const functionViewMap: Record<StudioEditorKind, Component> = {
   Dialogue: DialogueEditor,
   Quest: QuestEditor,
   WalkTalk: WalkTalkEditor,
   EntityPresets: EntityPresetEditor,
   Scene: SceneEditor,
+  Camera: CameraEditor,
 };
 </script>
 
 <template>
-  <Splitter class="dsfg-typography" style="height: 100%; width: 100%" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor">
-    <SplitterPanel :size="10">
-      <SectionLayout title="工作区" class="top">
-        <form v-if="creatingWorkspace" class="workspace-create" @submit.prevent="AddWorkspace()">
-          <input v-model="newWorkspaceName" aria-label="工作区名称" placeholder="工作区名称" :disabled="addingWorkspace" />
-          <button type="submit" :disabled="addingWorkspace">创建</button>
-          <button type="button" :disabled="addingWorkspace" @click="creatingWorkspace = false">取消</button>
-        </form>
-        <SelectableList
-          @select="ChangeWorkspace"
-          @add="creatingWorkspace = true"
-          @delete="DelectWorkspace"
-          :values="workspaceIds"
-          :selected-value="selectedWorkspaceId"
-        />
-      </SectionLayout>
-    </SplitterPanel>
-    <SplitterPanel :size="90">
-      <SectionLayout title="DSFG Studio">
-        <component v-if="selectedWorkspaceId" ref="editorRef" :is="functionViewMap[selectedFunction]"
+  <div class="dsfg-typography dsfg-studio" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor || structSettingsOpen">
+    <aside class="studio-sidebar" aria-label="工作区与编辑内容">
+      <div class="studio-workspace-picker">
+        <StudioWorkspaceSelect :model-value="selectedWorkspaceId" :workspaces="workspaceIds" :disabled="addingWorkspace || switchingEditor" @select="selectWorkspace" />
+        <button type="button" class="studio-icon-button" title="新建工作区" aria-label="新建工作区" :disabled="addingWorkspace" @click="creatingWorkspace = !creatingWorkspace"><StudioIcon name="plus" /></button>
+        <details ref="workspaceMenu" class="studio-workspace-menu"><summary class="studio-icon-button" aria-label="工作区操作" title="工作区操作"><StudioIcon name="more" /></summary><div><button type="button" :disabled="!selectedWorkspaceId || addingWorkspace" @click="($event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open'); openStructSettings()">设置结构体 ID</button><button type="button" :disabled="!selectedWorkspaceId || addingWorkspace" @click="($event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open'); DelectWorkspace()">删除当前工作区</button></div></details>
+      </div>
+      <nav class="studio-feature-tabs" aria-label="编辑内容">
+        <button v-for="tab in editorTabs" :key="tab.value" type="button" :aria-pressed="selectedFunction === tab.value || (tab.value === 'Dialogue' && selectedFunction === 'WalkTalk')" @click="tab.value === 'Dialogue' && selectedFunction === 'WalkTalk' ? undefined : ChangeEditorKind(tab.value)">{{ tab.label }}</button>
+      </nav>
+      <div v-if="selectedFunction === 'Dialogue' || selectedFunction === 'WalkTalk'" class="studio-dialogue-navigation">
+        <div class="studio-sidebar-heading"><strong>对话文件</strong></div>
+        <div class="studio-dialogue-modes" role="group" aria-label="对话编辑类型"><button type="button" :aria-pressed="selectedFunction === 'Dialogue'" @click="ChangeEditorKind('Dialogue')">演出对话</button><button type="button" :aria-pressed="selectedFunction === 'WalkTalk'" @click="ChangeEditorKind('WalkTalk')">边走边说</button></div>
+      </div>
+      <div ref="sidebarTarget" class="studio-sidebar-content"></div>
+      <p v-if="!selectedWorkspaceId" class="studio-sidebar-placeholder">选择或新建工作区开始编辑</p>
+    </aside>
+    <main class="studio-main" aria-label="编辑区">
+        <component v-if="selectedWorkspaceId && sidebarTarget" ref="editorRef" :is="functionViewMap[selectedFunction]"
           :key="`${selectedWorkspaceId}:${selectedFunction}`" :editor-kind="selectedFunction"
           @update:editor-kind="ChangeEditorKind" />
-      </SectionLayout>
-    </SplitterPanel>
-  </Splitter>
+        <div v-else class="studio-empty"><StudioIcon name="folder" :size="44" /><h2>从一个工作区开始</h2><p>在左侧选择工作区，或创建一个新的工作区。</p><button type="button" @click="creatingWorkspace = true">＋ 新建工作区</button></div>
+    </main>
+    <StudioCreateDialog v-if="creatingWorkspace" v-model="newWorkspaceName" title="新建工作区" label="工作区名称" placeholder="输入工作区名称" :busy="addingWorkspace" @submit="AddWorkspace()" @close="creatingWorkspace = false" />
+    <WorkspaceStructIdSettings v-if="structSettingsOpen" :workspace="selectedWorkspaceId" :state="structSettings" :load-error="structSettingsError" :save-settings="saveStructSettings" @close="structSettingsOpen = false" @retry="retryStructSettings" />
+  </div>
 </template>
 
 <style scoped>
@@ -248,7 +314,4 @@ const functionViewMap: Record<string, Component> = {
 .right {
   right: -4px;
 }
-.workspace-create { display:flex; flex-wrap:wrap; gap:6px; padding:10px; }
-.workspace-create input { box-sizing:border-box; width:100%; min-width:0; padding:7px; border:1px solid #cbd7e6; border-radius:5px; }
-.workspace-create button { padding:6px 10px; border:1px solid #cbd7e6; border-radius:5px; background:#edf4fd; color:#315f98; cursor:pointer; }
 </style>

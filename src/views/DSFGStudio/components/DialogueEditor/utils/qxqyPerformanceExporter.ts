@@ -1,4 +1,5 @@
 import { compilePublicEventArguments } from "./publicEventParameters";
+import { normalizeCameraProperties } from "../config/cameraClip";
 import {
   VariableValue,
   VariableWorkspace,
@@ -173,6 +174,20 @@ export function exportQxqyPerformance(
     groupOrder,
     warnings,
   };
+}
+
+/** 独立镜头文件与对话 Timeline 使用相同的参数写入和结构体 ID。 */
+export function exportQxqyCameraClip(clip: PerformanceClip, structIds: QxqyStructIds) {
+  if (clip.type !== "Camera" || !Number.isFinite(clip.duration) || clip.duration < 0.1) {
+    throw new Error("请输入有效的镜头时长（至少 0.1 秒）。");
+  }
+  const errors = validateQxqyStructIds(structIds);
+  if (errors.length) throw new Error(errors.join("；"));
+  const workspace = createQxqyStructWorkspace(structIds);
+  const root = workspace.createDefault(structIds.camera);
+  writeCameraClip(root, clip, clip.duration, `镜头「${clip.name}」`);
+  if (root.issues.length) throw new Error(root.issues.map(issue => issue.message).join("；"));
+  return { value: root.toQxqyValue(), json: root.serialize(2) };
 }
 
 function compileConditionBranch(
@@ -425,6 +440,8 @@ function createActionData(
         ? formatFloat(sourceClip.dialogue.continueDelayTime)
         : "-1.00",
     );
+    const autoContinue = sourceClip.dialogue.autoContinue;
+    data.value.autoContinue.setValue((Number.isFinite(autoContinue) ? autoContinue : -1).toFixed(2));
     const params = sourceClip.dialogue.nodeGraphEvent;
     if (params.length > MAX_STRUCT_LIST_ITEMS) throw new Error("对话入参最多 100 项。");
     data.value.prams.setValue(params.map((value, index) => {
@@ -450,17 +467,21 @@ function createActionData(
   if (mapping.dataField === "CameraMovementData" && "clip" in sourceClip) {
     // 从 CameraClip 的内嵌默认值出发；它与独立 PositionData 的默认值不同。
     // 开始时间仅由 Timer 排程，新版 CameraClip 没有 delay 字段。
-    writeCameraValue(
+    writeCameraClip(
       data,
-      {
-        ...flattenComponentProperties(sourceClip.clip),
-        duration: formatFloat(sourceClip.duration),
-      },
+      sourceClip.clip,
+      sourceClip.duration,
       `Group「${sourceClip.node.name}」镜头「${sourceClip.clip.name}」`,
     );
   }
 
   return data;
+}
+
+function writeCameraClip(target: VariableValue, clip: PerformanceClip, duration: number, path: string) {
+  writeCameraValue(target, normalizeCameraProperties({
+    ...flattenComponentProperties(clip), duration: formatFloat(duration),
+  }), path);
 }
 
 function flattenComponentProperties(clip: PerformanceClip) {

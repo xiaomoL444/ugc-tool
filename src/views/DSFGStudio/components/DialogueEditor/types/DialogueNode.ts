@@ -19,8 +19,6 @@ export interface DialogueNode {
 export interface TimelineSettings {
   /** 编辑器显示范围（秒）；未设置时自动计算，不影响演出时长。 */
   displayDuration?: number;
-  /** 包含固定 Dialogue Line 在内的最大纵向 Line 数。 */
-  maxLines: number;
   /** Timeline 的基础结束时间；其他 Clip 可以把实际结束时间继续向后推。 */
   duration: number;
 }
@@ -55,6 +53,8 @@ export interface DialogueClip {
   /** Clip 内部延迟标记；外层结束时间始终由 Group Timeline 派生。 */
   continueDelayTime: number;
   advanceMode: DialogueAdvanceMode;
+  /** 自动播放的推进等待秒数；-1 表示不自动推进。 */
+  autoContinue: number;
   nodeGraphEvent: string[];
 }
 

@@ -2,24 +2,38 @@
 import { computed, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import { downloadTextFile } from "@/utils/download";
-import EditorKindSelect from "../EditorKindSelect.vue";
+import SectionLayout from "@/components/Layout/SectionLayout.vue";
+import StudioSidebarContent from "../StudioSidebarContent.vue";
+import type { StudioEditorKind } from "../studioSidebar";
 import { useSceneProject } from "./useSceneProject";
+import { useWorkspaceStructIds } from "../useWorkspaceStructIds";
 import { nextSceneId, contactWorldOptions, updateSceneWorldId, validateSceneProject, type SceneWorld, type SceneMainArea, type SceneSubArea } from "./sceneProject";
 import { exportScene } from "./sceneExporter";
 import RuntimeImportButton from "../RuntimeImportButton.vue";
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>(), { editorKind: "Scene" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
+import SceneGraph from "./SceneGraph.vue";
+import type { SceneSelection } from "./sceneGraph";
+withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "Scene" });
+const emit = defineEmits<{ "update:editorKind": [value: StudioEditorKind] }>();
 const { project, busy, error, status, retry, prepareToLeave, importConfiguration: importSceneConfiguration } = useSceneProject();
 async function importConfiguration(file: File) {
   if (await importSceneConfiguration(file)) choose("world", 0);
 }
 defineExpose({ prepareToLeave });
 const selected = ref<{ kind: "world" | "main" | "sub"; index: number }>({ kind: "world", index: 0 });
-const settings = ref(false);
+const editorView = ref<"properties" | "graph">("properties");
+function editGraphItem(selection: SceneSelection) {
+  choose(selection.kind, selection.index);
+  editorView.value = "properties";
+}
+const workspaceIds = useWorkspaceStructIds();
 const search = ref("");
 const world = computed(() => selected.value.kind === "world" ? project.value?.worlds[selected.value.index] : undefined);
 const main = computed(() => selected.value.kind === "main" ? project.value?.mainAreas[selected.value.index] : undefined);
 const sub = computed(() => selected.value.kind === "sub" ? project.value?.subAreas[selected.value.index] : undefined);
+const selectedParentMain = computed(() => main.value ?? (sub.value
+  ? project.value?.mainAreas.find(area => area.id === sub.value!.mainAreaId) : undefined));
+const selectedParentWorld = computed(() => world.value ?? (selectedParentMain.value
+  ? project.value?.worlds.find(item => item.id === selectedParentMain.value!.worldId) : undefined));
 const selectedItem = computed(() => world.value ?? main.value ?? sub.value);
 const selectedKindLabel = computed(() => world.value ? "世界" : main.value ? "一级区域" : "二级区域");
 const childAreas = computed(() => {
@@ -29,30 +43,31 @@ const childAreas = computed(() => {
   return [];
 });
 const breadcrumb = computed(() => {
-  const parentMain = sub.value ? project.value?.mainAreas.find(area => area.id === sub.value!.mainAreaId) : main.value;
-  const parentWorld = parentMain ? project.value?.worlds.find(item => item.id === parentMain.worldId) : world.value;
-  return [parentWorld?.name, parentMain?.name, sub.value?.name].filter(Boolean).join(" / ");
+  return [selectedParentWorld.value?.name, selectedParentMain.value?.name, sub.value?.name].filter(Boolean).join(" / ");
 });
 const idDraft = ref("");
 watch(() => world.value ?? main.value ?? sub.value, item => { idDraft.value = item?.id ?? ""; }, { immediate: true });
-const issues = computed(() => project.value ? validateSceneProject(project.value) : []);
-const structLabels = { scene: "场景配置数据", world: "世界", mainArea: "一级区域", subArea: "二级区域", subAreaTable: "二级区域字典" };
+const issues = computed(() => {
+  if (!project.value) return [];
+  try { return validateSceneProject(workspaceIds.scene(project.value)); }
+  catch (error) { return [error instanceof Error ? error.message : String(error)]; }
+});
 function matches(item: { id: string; name: string }) { return `${item.id} ${item.name}`.toLowerCase().includes(search.value.trim().toLowerCase()); }
 function showMain(item: SceneMainArea) { return matches(item) || !!project.value?.subAreas.some(child => child.mainAreaId === item.id && matches(child)); }
 function showWorld(item: SceneWorld) { return matches(item) || !!project.value?.mainAreas.some(child => child.worldId === item.id && showMain(child)); }
-function choose(kind: "world" | "main" | "sub", index: number) { selected.value = { kind, index }; settings.value = false; }
+function choose(kind: "world" | "main" | "sub", index: number) { selected.value = { kind, index }; }
 function addWorld() {
-  if (!project.value) return;
+  if (!project.value || busy.value) return;
   project.value.worlds.push({ id: nextSceneId(project.value.worlds), name: "新世界", contacts: [] });
   choose("world", project.value.worlds.length - 1);
 }
-function addMain(parent: SceneWorld) {
-  if (!project.value) return;
+function addMain(parent = selectedParentWorld.value) {
+  if (!project.value || busy.value || !parent) return;
   project.value.mainAreas.push({ id: nextSceneId(project.value.mainAreas), name: "新一级区域", worldId: parent.id });
   choose("main", project.value.mainAreas.length - 1);
 }
-function addSub(parent: SceneMainArea) {
-  if (!project.value) return;
+function addSub(parent = selectedParentMain.value) {
+  if (!project.value || busy.value || !parent) return;
   project.value.subAreas.push({ id: nextSceneId(project.value.subAreas), name: "新二级区域", mainAreaId: parent.id, bgm: "0" });
   choose("sub", project.value.subAreas.length - 1);
 }
@@ -93,26 +108,26 @@ function removeSelected() {
 }
 function exportVariables() {
   if (!project.value) return;
-  try { downloadTextFile(exportScene(project.value).json, "NOLOC_场景配置数据.json", "application/json"); toast.success("场景数据已导出"); }
+  try { downloadTextFile(exportScene(workspaceIds.scene(project.value)).json, "NOLOC_场景配置数据.json", "application/json"); toast.success("场景数据已导出"); }
   catch (reason) { toast.error(reason instanceof Error ? reason.message : String(reason)); }
 }
 </script>
 
 <template>
+  <SectionLayout title="场景编辑" class="scene-edit-section">
   <div class="scene-editor" :inert="busy" :aria-busy="busy">
-    <aside>
-      <EditorKindSelect :model-value="editorKind" @update:model-value="emit('update:editorKind', $event)" />
-      <div class="tree-heading"><strong>场景层级</strong><button :disabled="!project || busy" @click="addWorld">＋ 世界</button></div>
+    <StudioSidebarContent><aside class="scene-browser" :inert="busy">
+      <div class="tree-heading"><strong>场景层级</strong></div>
       <input v-model="search" class="search" placeholder="搜索区域名称或 ID" aria-label="搜索场景区域" />
       <nav v-if="project" aria-label="场景层级">
         <template v-for="(item, index) in project.worlds" :key="index">
           <div v-if="showWorld(item)" class="tree-world">
-            <button class="tree-node" :class="{ active: world === item && !settings }" @click="choose('world', index)">世界 · {{ item.name || '未命名' }} <small>{{ item.id }}</small></button>
+            <button class="tree-node" :class="{ active: world === item }" @click="choose('world', index)">世界 · {{ item.name || '未命名' }} <small>{{ item.id }}</small></button>
             <template v-for="(area, areaIndex) in project.mainAreas" :key="areaIndex">
               <div v-if="area.worldId === item.id && (matches(item) || showMain(area))" class="tree-main">
-                <button class="tree-node" :class="{ active: main === area && !settings }" @click="choose('main', areaIndex)">一级 · {{ area.name || '未命名' }} <small>{{ area.id }}</small></button>
+                <button class="tree-node" :class="{ active: main === area }" @click="choose('main', areaIndex)">一级 · {{ area.name || '未命名' }} <small>{{ area.id }}</small></button>
                 <template v-for="(child, childIndex) in project.subAreas" :key="childIndex">
-                  <button v-if="child.mainAreaId === area.id && (matches(item) || matches(area) || matches(child))" class="tree-node tree-sub" :class="{ active: sub === child && !settings }" @click="choose('sub', childIndex)">二级 · {{ child.name || '未命名' }} <small>{{ child.id }}</small></button>
+                  <button v-if="child.mainAreaId === area.id && (matches(item) || matches(area) || matches(child))" class="tree-node tree-sub" :class="{ active: sub === child }" @click="choose('sub', childIndex)">二级 · {{ child.name || '未命名' }} <small>{{ child.id }}</small></button>
                 </template>
               </div>
             </template>
@@ -122,14 +137,25 @@ function exportVariables() {
         <template v-for="(area, index) in project.subAreas" :key="`orphan-sub-${index}`"><button v-if="!project.mainAreas.some(row => row.id === area.mainAreaId)" class="tree-node" @click="choose('sub', index)">未关联二级 · {{ area.name }}</button></template>
       </nav>
       <p class="aside-note">每个工作区固定一个场景，统一管理世界与区域。</p>
-    </aside>
+    </aside></StudioSidebarContent>
     <main>
-      <header class="page-header"><div><h2>场景编辑</h2><span role="status" class="save-status">{{ status }}</span></div><div class="actions"><RuntimeImportButton :disabled="busy" :import-file="importConfiguration" /><button :disabled="!project" :aria-pressed="settings" @click="settings = !settings">{{ settings ? '返回场景' : '结构体设置' }}</button><button class="primary" :disabled="!project || busy || !!issues.length" @click="exportVariables">导出场景数据</button></div></header>
-      <div v-if="project" class="scene-overview" aria-label="场景概览"><span><strong>{{ project.worlds.length }}</strong> 世界</span><span><strong>{{ project.mainAreas.length }}</strong> 一级区域</span><span><strong>{{ project.subAreas.length }}</strong> 二级区域</span><small>当前工作区 · 自动保存</small></div>
+      <header class="page-header"><div><h2>{{ selectedItem?.name || '场景概览' }}</h2><span role="status" class="save-status">{{ status }}</span></div><div class="actions"><RuntimeImportButton :disabled="busy" :import-file="importConfiguration" /><button class="primary" :disabled="!project || busy || !!issues.length" @click="exportVariables">导出场景数据</button></div></header>
+      <div class="scene-overview" aria-label="场景概览">
+        <template v-if="project"><span><strong>{{ project.worlds.length }}</strong> 世界</span><span><strong>{{ project.mainAreas.length }}</strong> 一级区域</span><span><strong>{{ project.subAreas.length }}</strong> 二级区域</span><small>当前工作区 · 自动保存</small></template>
+        <div class="actions scene-create-actions" aria-label="新增场景内容">
+          <div class="scene-view-switch" role="group" aria-label="场景编辑视图">
+            <button type="button" :aria-pressed="editorView === 'properties'" @click="editorView = 'properties'">场景属性</button>
+            <button type="button" :aria-pressed="editorView === 'graph'" @click="editorView = 'graph'">场景示意图</button>
+          </div>
+          <button type="button" :disabled="!project || busy" @click="addWorld">＋ 新增世界</button>
+          <button type="button" :disabled="!selectedParentWorld || busy" :title="selectedParentWorld ? `在「${selectedParentWorld.name}」中新增一级区域` : '请先选择一个世界或其下属区域'" @click="addMain()">＋ 新增一级区域</button>
+          <button type="button" class="primary" :disabled="!selectedParentMain || busy" :title="selectedParentMain ? `在「${selectedParentMain.name}」中新增二级区域` : '请先选择一个一级区域或其下属二级区域'" @click="addSub()">＋ 新增二级区域</button>
+        </div>
+      </div>
       <p v-if="error" class="error" role="alert">{{ error }} <button :disabled="busy" @click="retry().catch(() => undefined)">重试</button></p>
       <div v-if="issues.length" class="error" role="alert"><p v-for="issue in issues" :key="issue">{{ issue }}</p></div>
-      <section v-if="project && settings" class="card"><h3>导出结构体 ID</h3><p class="hint">对应千星编辑器中的结构体类型，不是世界或区域的 ID。</p><div class="field-grid"><label v-for="(label, key) in structLabels" :key="key">{{ label }}<input v-model="project.structIds[key]" inputmode="numeric" /></label></div></section>
-      <section v-else-if="project && (world || main || sub)" class="card">
+      <KeepAlive><SceneGraph v-if="project && editorView === 'graph'" :project="project" :selection="selected" @select="choose($event.kind, $event.index)" @edit="editGraphItem" /></KeepAlive>
+      <section v-if="editorView === 'properties' && project && (world || main || sub)" class="card">
         <div class="card-heading selection-heading"><div><span class="kind-badge">{{ selectedKindLabel }}</span><h3>{{ selectedItem?.name || '未命名' }}</h3><p class="breadcrumb">{{ breadcrumb || '未关联区域' }} <span>· ID {{ selectedItem?.id }}</span></p></div><button class="danger" @click="removeSelected">删除当前项</button></div>
         <h4>基本信息</h4>
         <template v-if="world">
@@ -160,14 +186,15 @@ function exportVariables() {
           </div>
         </template>
         <section v-if="world || main" class="children-section" aria-label="下级区域">
-          <div class="card-heading"><h4>{{ world ? '一级区域' : '二级区域' }} <span class="count-badge">{{ childAreas.length }}</span></h4><button v-if="world" @click="addMain(world)">＋ 一级区域</button><button v-else-if="main" @click="addSub(main)">＋ 二级区域</button></div>
+          <div class="card-heading"><h4>{{ world ? '一级区域' : '二级区域' }} <span class="count-badge">{{ childAreas.length }}</span></h4></div>
           <div v-if="childAreas.length" class="child-list"><button v-for="area in childAreas" :key="`${area.kind}-${area.index}`" class="child-item" @click="choose(area.kind, area.index)"><span>{{ area.name || '未命名' }}</span><small>ID {{ area.id }}</small><span aria-hidden="true">→</span></button></div>
           <p v-else class="hint">暂无下级区域，点击右上方按钮创建。</p>
         </section>
       </section>
-      <section v-else-if="project" class="card empty-state"><h3>开始编辑场景</h3><p class="hint">从左侧选择世界或区域，或创建一个新世界。</p><button :disabled="busy" @click="addWorld">＋ 新建世界</button></section>
+      <section v-else-if="editorView === 'properties' && project" class="card empty-state"><h3>开始编辑场景</h3><p class="hint">从左侧选择世界或区域，或创建一个新世界。</p><button :disabled="busy" @click="addWorld">＋ 新建世界</button></section>
     </main>
   </div>
+  </SectionLayout>
 </template>
 
 <style scoped>
@@ -184,7 +211,11 @@ header { margin-bottom:22px; } h2 { margin:0 0 6px; font-size:20px; } h3,h4 { ma
 .save-status { display:inline-block; }
 .scene-overview { display:flex; flex-wrap:wrap; align-items:center; gap:12px 24px; padding:12px 16px; margin-bottom:18px; border:1px solid #dbe3ef; border-radius:8px; background:#edf3fa; color:#64748b; font-size:12px; }
 .scene-overview strong { color:#315f98; font-size:18px; margin-right:6px; }
-.scene-overview small { margin-left:auto; }
+.scene-create-actions { margin-left:auto; justify-content:flex-end; }
+.scene-create-actions button { white-space:nowrap; }
+.scene-view-switch { display:flex; gap:3px; padding:3px; border:1px solid #d4d8f4; border-radius:8px; background:#ffffff90; }
+.scene-view-switch button { border:0; background:transparent; }
+.scene-view-switch button[aria-pressed="true"] { background:#e0eeff; color:#087fdf; }
 .selection-heading { padding-bottom:16px; border-bottom:1px solid #e7edf5; }
 .selection-heading h3 { display:inline; margin-left:10px; font-size:18px; }
 .kind-badge,.count-badge { display:inline-block; padding:3px 8px; border-radius:5px; color:#426da0; background:#eaf2ff; font-size:12px; font-weight:normal; }

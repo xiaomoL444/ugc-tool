@@ -59,7 +59,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", handleKeydown));
 
         <p class="struct-id-introduction">
           结构体的字段内容保持不变，导出时会把根结构体、字典和 StructList
-          中的类型引用统一替换为这里设置的 ID。本配置会跟随编辑器 JSON 保存。
+          中的类型引用统一替换为这里设置的 ID。本配置会随对话自动保存到当前工作区。
         </p>
 
         <div class="struct-id-fields">

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
-import { createStylePreset, useStylePresets, type StylePresetCategory } from "./stylePresets";
+import { createStylePreset, supportsCustomStylePresets, useStylePresets, type StylePresetCategory } from "./stylePresets";
 const props = defineProps<{ category: StylePresetCategory; title: string }>();
+const supportsCustom = computed(() => supportsCustomStylePresets(props.category));
 const valueLabel = computed(() => props.category === "cameras" ? "相机名称" : props.category === "booleans" ? "布尔值" : "类型值");
 const { presets, systemPresets, availablePresets, ready, error, status, retry, flush } = useStylePresets(props.category);
 const list = ref<HTMLElement>();
 async function add() {
+  if (!supportsCustom.value) return;
   presets.value.push(createStylePreset(props.category));
   await nextTick();
   list.value?.querySelector<HTMLElement>("article:last-child input")?.focus();
@@ -16,14 +18,15 @@ defineExpose({ flush });
 <template>
   <section class="style-preset-section" :aria-label="`${title}预设`">
     <header><div><h3>{{ title }}</h3><p>显示名称用于选择，{{ valueLabel }}按原文保存和导出。</p></div></header>
-    <p role="status">{{ status }}</p>
+    <p role="status">{{ supportsCustom ? status : '系统预设 · 只读' }}</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="retry().catch(() => undefined)">重试</button></p>
-    <p>当前工作区共用。修改或删除预设不会改写已配置的内容。</p>
+    <p v-if="supportsCustom">当前工作区共用。修改或删除预设不会改写已配置的内容。</p>
     <h4>系统预设 · 只读</h4>
     <div class="items system-items">
       <article v-for="preset in systemPresets" :key="preset.id"><div>显示名称<p>{{ preset.label || preset.value }}</p></div><div>{{ valueLabel }}<p>{{ preset.value }}</p></div><span>系统</span></article>
     </div>
     <p v-if="!systemPresets.length">暂无系统预设。</p>
+    <template v-if="supportsCustom">
     <header><h4>自定义预设</h4><button type="button" :disabled="!ready" @click="add">＋ 新建{{ title }}预设</button></header>
     <div ref="list" class="items">
       <article v-for="(preset, index) in presets" :key="preset.id">
@@ -35,6 +38,7 @@ defineExpose({ flush });
       </article>
     </div>
     <p v-if="ready && !presets.length">暂无自定义预设，可以点击新建添加。</p>
+    </template>
   </section>
 </template>
 

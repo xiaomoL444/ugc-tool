@@ -3,7 +3,7 @@ import { computed, ref, type HTMLAttributes } from "vue";
 import { NSelect } from "naive-ui";
 import { useStylePresets } from "../../../EntityPresetEditor/stylePresets";
 import type { PerformanceClip } from "../../types/DialogueNode";
-import { CAMERA_CLIP_COMPONENT_TEMPLATE } from "../../config/cameraClip";
+import { CAMERA_CLIP_COMPONENT_TEMPLATE, CAMERA_POSITION_PROPERTIES, CAMERA_ROTATION_PROPERTIES, normalizeCameraProperties } from "../../config/cameraClip";
 import { createClipComponent } from "../../config/clipComponentRegistry";
 import { createClipPropertyValues } from "../../utils/clipProperties";
 import CameraMotionEditor from "./CameraMotionEditor.vue";
@@ -24,7 +24,7 @@ const shots = computed(() => props.clip.components.filter(item => item.templateI
 // Match the final enabled camera component used by the existing exporter.
 const shot = computed(() => [...shots.value].reverse().find(item => item.enabled) ?? shots.value[0]);
 const viewpointEnabled = computed(() => shot.value?.cameraViewpointEnabled !== false);
-const values = computed(() => createClipPropertyValues(CAMERA_CLIP_COMPONENT_TEMPLATE.properties, shot.value?.properties));
+const values = computed(() => createClipPropertyValues(CAMERA_CLIP_COMPONENT_TEMPLATE.properties, normalizeCameraProperties(shot.value?.properties)));
 function update(key: string, value: unknown) {
   if (!shot.value) return;
   const id = shot.value.id;
@@ -35,7 +35,11 @@ function setViewpointEnabled(event: Event) {
   const id = shot.value?.id;
   props.clip.components = props.clip.components.map(item => item.id === id ? { ...item, cameraViewpointEnabled: (event.target as HTMLInputElement).checked } : item);
 }
-function mode(key: string) { return String((values.value[key] as Record<string, unknown>).type || "未设置"); }
+function mode(key: "positionData" | "rotationData") {
+  const type = String((values.value[key] as Record<string, unknown>).type || "未设置");
+  const definitions = key === "positionData" ? CAMERA_POSITION_PROPERTIES : CAMERA_ROTATION_PROPERTIES;
+  return definitions.find(field => field.key === "type")?.options?.find(option => option.value === type)?.label ?? type;
+}
 </script>
 
 <template>
@@ -67,7 +71,7 @@ function mode(key: string) { return String((values.value[key] as Record<string, 
 .camera-basics { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .camera-basics label { display: grid; gap: 7px; color: var(--timeline-muted, #91a4bc); font-size: 11px; }
 .motion-tabs { display: flex; gap: 6px; margin-top: 16px; padding: 4px; border-radius: 9px; background: var(--timeline-surface, #111b29); }
-.motion-tabs button { display: flex; flex: 1; align-items: center; justify-content: space-between; padding: 10px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--timeline-muted, #8da1bb); cursor: pointer; }
+.motion-tabs button { display: flex; flex: 1; min-width: 0; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; padding: 10px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--timeline-muted, #8da1bb); cursor: pointer; }
 .motion-tabs button[aria-pressed="true"] { background: var(--timeline-active, #2c405b); color: var(--timeline-active-text, #f0f5ff); box-shadow: 0 2px 5px #0002; }
 .motion-tabs small { color: var(--timeline-accent, #93b6df); font-size: 10px; }
 .viewpoint-toggle { display: flex; align-items: center; gap: 8px; margin: 16px 0; color: var(--timeline-text, #cdd9e8); font-size: 12px; }
@@ -76,11 +80,6 @@ function mode(key: string) { return String((values.value[key] as Record<string, 
 .viewpoint-empty { padding: 16px; border: 1px dashed var(--timeline-border, #35455c); border-radius: 8px; color: var(--timeline-muted, #91a4bd); font-size: 12px; line-height: 1.7; }
 .camera-editor :deep(button) { font-family: inherit; }
 .camera-editor :deep(button:focus-visible), .camera-editor input:focus-visible { outline: 2px solid var(--timeline-accent, #83b4ff); outline-offset: 2px; }
-.camera-editor :deep(.motion-modes) { display: flex; gap: 6px; margin: 14px 0 20px; }
-.camera-editor :deep(.motion-modes button) { flex: 1; min-width: 0; display: grid; gap: 5px; padding: 9px 2px; border: 1px solid var(--timeline-border, #35455c); border-radius: 7px; background: transparent; color: var(--timeline-muted, #a6b6cc); cursor: pointer; }
-.camera-editor :deep(.motion-modes button[aria-pressed="true"]) { background: var(--timeline-active, #253e5d); border-color: #73a7e9; color: var(--timeline-active-text, #dcecff); }
-.camera-editor :deep(.motion-modes strong) { font-size: 11px; font-weight: 500; }
-.camera-editor :deep(.motion-modes small) { font-size: 10px; opacity: .65; }
 .camera-editor :deep(.slot-heading) { display: flex; gap: 8px; align-items: center; margin-bottom: 9px; font-size: 11px; }
 .camera-editor :deep(.slot-heading small) { color: var(--timeline-subtle, #7d93af); margin-left: auto; }
 .camera-editor :deep(.slot-heading button), .camera-editor :deep(.remove-slot) { padding: 0; border: 0; background: none; color: var(--timeline-accent, #93b9ea); cursor: pointer; font-size: 10px; }

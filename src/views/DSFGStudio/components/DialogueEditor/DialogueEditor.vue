@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
-import SelectableList from "@/components/UI/List/SelectableList.vue";
+import StudioFileList from "../StudioFileList.vue";
+import StudioCreateDialog from "../StudioCreateDialog.vue";
+import type { StudioEditorKind } from "../studioSidebar";
+import StudioSidebarContent from "../StudioSidebarContent.vue";
 import { StorageClass } from "@/services/storage/storage";
 import { downloadJsonFile } from "@/utils/download";
 import { consola } from "consola";
-import Splitter from "primevue/splitter";
-import SplitterPanel from "primevue/splitterpanel";
 import {
   computed,
   inject,
@@ -24,7 +25,7 @@ import {
   ProjectID,
 } from "../../constant/constant";
 import { toast } from "vue-sonner";
-import { validateQxqyStructIds } from "./utils/qxqyStructWorkspace";
+import { useWorkspaceStructIds } from "../useWorkspaceStructIds";
 import {
   VueFlow,
   useVueFlow,
@@ -39,21 +40,20 @@ import useDragAndDrop, { DIALOGUE_NODE_GRID_SIZE } from "./useDnD";
 import GroupNode from "./GroupNode.vue";
 import ConditionBranchNode from "./ConditionBranchNode.vue";
 import GroupTimeline from "./GroupTimelineV3.vue";
+import TimelinePanel from "./components/TimelinePanel.vue";
 import DialogueTextPreview from "./DialogueTextPreview.vue";
 import { layoutDialogueGraph, type GraphNodeSize } from "./utils/dialogueGraphLayout";
 import { applyDialogueTextEdit, applyDialogueOptionIconEdit, type DialogueTextEdit } from "./utils/dialogueTextEditing";
-import EditorKindSelect from "../EditorKindSelect.vue";
 import { useEntityPresets } from "../EntityPresetEditor/useEntityPresets";
 import { useStylePresets } from "../EntityPresetEditor/stylePresets";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
+import { bindWorkspaceSaveLifecycle } from "../QuestEditor/workspaceSaveLifecycle";
 import { resolveTextPreviewGraphNodeId, type TextPreviewNavigationTarget } from "./utils/dialogueTextNavigation";
 import type {
   DialogueProject,
   FlowNodeData,
-  QxqyStructIds,
 } from "./types/FileStruct";
 import Entry from "./components/Entry.vue";
-import StructIdSettingsModal from "./components/StructIdSettingsModal.vue";
 import {
   createConditionBranchNode,
   createDialogueNode,
@@ -62,7 +62,6 @@ import {
 import {
   decodeDialogueProject,
   encodeDialogueProject,
-  toSerializableDialogueProject,
 } from "./utils/dialogueProjectCodec";
 import { exportQxqyPerformance } from "./utils/qxqyPerformanceExporter";
 import RuntimeImportButton from "../RuntimeImportButton.vue";
@@ -73,8 +72,8 @@ import {
   resolveGroupOutlets,
 } from "./utils/groupOutlets";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>(), { editorKind: "Dialogue" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
+withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "Dialogue" });
+const emit = defineEmits<{ "update:editorKind": [value: StudioEditorKind] }>();
 const { availablePresets: entityPresets, error: entityPresetsError, retry: retryEntityPresets } = useEntityPresets();
 const dialogueStylePresets = useStylePresets("dialogueStyles");
 provide("dialogueStyleOptions", dialogueStylePresets.options);
@@ -86,9 +85,12 @@ const {
 
 const dialogueProject = ref<DialogueProject>(); //读取文件后的对话内容
 const selectedGroupNodeId = ref("");
+const timelinePanelHeight = ref(368);
+const clipInspectorTarget = ref<HTMLElement>();
+const clipInspectorOpen = ref(false);
 const editorView = ref<"graph" | "text">("text");
 const arrangingGraph = ref(false);
-const structIdSettingsOpen = ref(false);
+const workspaceIds = useWorkspaceStructIds();
 const selectedGroupNode = computed(() =>
   selectedGroupNodeId.value && dialogueProject.value
     ? dialogueProject.value.dialogue.nodes[selectedGroupNodeId.value]
@@ -311,7 +313,7 @@ const saveQueue = createWorkspaceSaveQueue(
 );
 defineExpose({ prepareToLeave: async () => {
   if (fileBusy.value) throw new Error("对话文件正在读写，请稍后切换");
-  structIdSettingsOpen.value = false;
+
   selectedGroupNodeId.value = "";
   await nextTick();
   await saveQueue.flush();
@@ -335,7 +337,7 @@ async function RefreshDialogueFile() {
 async function SelectDialogueFile(id: string) {
   if (fileBusy.value) return;
   fileBusy.value = true;
-  structIdSettingsOpen.value = false;
+
   selectedGroupNodeId.value = "";
   const request = ++fileRequest;
   try {
@@ -344,7 +346,7 @@ async function SelectDialogueFile(id: string) {
     if (disposed || request !== fileRequest) return;
     loadingFile = true;
     selectedGroupNodeId.value = "";
-    structIdSettingsOpen.value = false;
+
     selectedDialogueFile.value = id;
     dialogueProject.value = loaded;
     loadingFile = false;
@@ -360,7 +362,7 @@ async function AddDialogueFile() {
   }
   const fileName = `${base}.json`;
   fileBusy.value = true;
-  structIdSettingsOpen.value = false;
+
   selectedGroupNodeId.value = "";
   try {
     const filePath = AssemblyPath(`/${fileName}`);
@@ -382,7 +384,7 @@ async function importConfiguration(file: File) {
       storage: storage.setProject(ProjectID), active: () => !disposed, flush: () => saveQueue.flush(),
       directory: `/${documentWorkspaceId}/${DialogueEditorID}` });
     if (!result) return;
-    loadingFile = true; selectedGroupNodeId.value = ""; structIdSettingsOpen.value = false;
+    loadingFile = true; selectedGroupNodeId.value = "";
     selectedDialogueFile.value = result.name; dialogueProject.value = result.project.project; loadingFile = false;
     newDialogueFileOpen.value = false;
     await RefreshDialogueFile();
@@ -404,7 +406,7 @@ async function DeleteDialogueFile(undoGroupId = "", isForce = false) {
   ) {
     const fileName = selectedDialogueFile.value;
     fileBusy.value = true;
-    structIdSettingsOpen.value = false;
+
     selectedGroupNodeId.value = "";
     fileRequest++;
     try {
@@ -413,33 +415,13 @@ async function DeleteDialogueFile(undoGroupId = "", isForce = false) {
       saveQueue.discard(AssemblyPath(`/${fileName}`));
       selectedDialogueFile.value = "";
       selectedGroupNodeId.value = "";
-      structIdSettingsOpen.value = false;
+
       dialogueProject.value = undefined;
       await RefreshDialogueFile();
       toast.success(`已删除 ${fileName}`);
     } catch (error) { consola.error(error); toast.error("对话删除失败，文件已保留"); }
     finally { fileBusy.value = false; }
   }
-}
-
-async function SaveDialogueFile() {
-  if (!selectedDialogueFile.value || !dialogueProject.value) return;
-
-  scheduleSave();
-  await saveQueue.flush();
-}
-
-function DownloadDialogueFile() {
-  if (!selectedDialogueFile.value || !dialogueProject.value) {
-    toast.warning("请先选择要下载的对话文件");
-    return;
-  }
-
-  downloadJsonFile(
-    toSerializableDialogueProject(dialogueProject.value),
-    selectedDialogueFile.value,
-  );
-  toast.success(`已下载 ${selectedDialogueFile.value}`);
 }
 
 function DownloadQxqyPerformanceFile() {
@@ -450,13 +432,10 @@ function DownloadQxqyPerformanceFile() {
 
   let result;
   try {
-    result = exportQxqyPerformance(dialogueProject.value);
+    result = exportQxqyPerformance(workspaceIds.dialogue(dialogueProject.value));
   } catch (error) {
     const message = error instanceof Error ? error.message : "结构体 ID 配置无效";
     toast.error(message);
-    structIdSettingsOpen.value = validateQxqyStructIds(
-      dialogueProject.value.exportSettings.qxqyStructIds,
-    ).length > 0;
     return;
   }
   if (!result.groupOrder.length) {
@@ -476,59 +455,34 @@ function DownloadQxqyPerformanceFile() {
   }
 }
 
-function ApplyStructIds(value: QxqyStructIds) {
-  if (!dialogueProject.value) return;
-  dialogueProject.value.exportSettings.qxqyStructIds = value;
-  structIdSettingsOpen.value = false;
-  toast.success("结构体 ID 设置已保存");
-}
-
-function HandleSaveShortcut(event: KeyboardEvent) {
-  if (
-    event.repeat ||
-    (!event.ctrlKey && !event.metaKey) ||
-    event.key.toLowerCase() !== "s"
-  ) {
-    return;
-  }
-
-  event.preventDefault();
-  DownloadDialogueFile();
-}
 
 onBeforeMount(async () => {
   await RefreshDialogueFile();
 });
 
-onMounted(() => window.addEventListener("keydown", HandleSaveShortcut));
+let removeSaveLifecycle: (() => void) | undefined;
+onMounted(() => {
+  removeSaveLifecycle = bindWorkspaceSaveLifecycle(saveQueue);
+});
 onBeforeUnmount(() => {
   disposed = true;
   fileRequest++;
+  removeSaveLifecycle?.();
   void saveQueue.flush().catch(() => undefined);
-  window.removeEventListener("keydown", HandleSaveShortcut);
 });
 </script>
 <template>
-  <Splitter :inert="fileBusy">
-    <SplitterPanel :size="15"><div class="editor-file-panel">
-      <EditorKindSelect :model-value="editorKind" @update:model-value="emit('update:editorKind', $event)" />
-      <SectionLayout title="对话文件">
-        <RuntimeImportButton :disabled="fileBusy" :import-file="importConfiguration" />
-        <SelectableList
+  <div class="dialogue-editor" :inert="fileBusy">
+    <StudioSidebarContent><div class="editor-file-panel" :inert="fileBusy">
+        <StudioFileList :disabled="fileBusy"
           @select="SelectDialogueFile"
           @add="newDialogueFileOpen = true"
           @delete="DeleteDialogueFile"
           :values="dialogueFiles"
           :selected-value="selectedDialogueFile"
-        ></SelectableList>
-        <form v-if="newDialogueFileOpen" class="new-dialogue-file" @submit.prevent="AddDialogueFile">
-          <input v-model="newDialogueFileName" aria-label="新对话文件名" placeholder="对话文件名" required />
-          <div><button type="submit">创建并打开</button><button type="button" @click="newDialogueFileOpen = false">取消</button></div>
-        </form>
-      </SectionLayout>
-    </div></SplitterPanel>
-    <SplitterPanel :size="85"
-      ><SectionLayout title="编辑区">
+        ><template #actions><RuntimeImportButton :disabled="fileBusy" :import-file="importConfiguration" /></template></StudioFileList>
+    </div></StudioSidebarContent>
+      <SectionLayout :title="selectedDialogueFile || '对话编辑'" class="dialogue-edit-section">
         <div
           v-if="selectedDialogueFile && dialogueProject"
           style="width: 100%; height: 100%"
@@ -536,23 +490,18 @@ onBeforeUnmount(() => {
           <div class="dialogue-workspace">
             <div class="dialogue-export-toolbar">
               <div class="dialogue-view-switch" role="group" aria-label="预览风格">
-                <button type="button" :aria-pressed="editorView === 'graph'" @click="ChangeEditorView('graph')">节点编辑</button>
                 <button type="button" :aria-pressed="editorView === 'text'" @click="ChangeEditorView('text')">文本编辑</button>
+                <button type="button" :aria-pressed="editorView === 'graph'" @click="ChangeEditorView('graph')">节点编辑</button>
               </div>
+              <span class="studio-save-note" title="修改自动保存到当前工作区">自动保存</span>
               <span v-if="editorView === 'graph'">右键平移 · 左键框选</span>
               <button v-if="editorView === 'graph'" type="button" :disabled="arrangingGraph" title="按连线从左到右排列全部节点，并适应画布" @click="ArrangeGraph">{{ arrangingGraph ? '排列中…' : '一键排列' }}</button>
-              <span>编辑器 JSON：Ctrl+S</span>
-              <button
-                type="button"
-                class="struct-id-settings-button"
-                @click="structIdSettingsOpen = true"
-              >
-                结构体 ID 设置
-              </button>
               <button type="button" @click="DownloadQxqyPerformanceFile">
                 导出千星演出
               </button>
             </div>
+            <div class="dialogue-editing-body">
+            <div class="dialogue-editing-stage">
             <div v-show="editorView === 'graph'" class="dnd-flow" @drop="onDrop">
               <Sidebar />
                <VueFlow
@@ -572,7 +521,7 @@ onBeforeUnmount(() => {
                 :is-valid-connection="IsValidConnection"
                 @node-click="SelectGraphNode"
                 @selection-end="FinishGraphSelection"
-                @pane-click="selectedGroupNodeId = ''"
+                @pane-click="() => { if (!clipInspectorOpen) selectedGroupNodeId = ''; }"
                 @contextmenu.prevent
                 @dragover="onDragOver"
                 @dragleave="onDragLeave"
@@ -630,31 +579,28 @@ onBeforeUnmount(() => {
             <DialogueTextPreview v-if="editorView === 'text'" :key="selectedDialogueFile" :project="dialogueProject" :entity-presets="entityPresets" :presets-error="entityPresetsError" @retry-presets="retryEntityPresets().catch(() => undefined)" @navigate="NavigateToPreviewNode"
               @edit="EditDialogueText" @option="EditDialogueOption" @option-icon="EditDialogueOptionIcon" @replace="dialogueProject = $event" />
 
-            <GroupTimeline
-              v-if="editorView === 'graph' && selectedGroupNode"
-              :node="selectedGroupNode"
-              @close="selectedGroupNodeId = ''"
-            />
-            <StructIdSettingsModal
-              v-if="structIdSettingsOpen"
-              :model-value="dialogueProject.exportSettings.qxqyStructIds"
-              @close="structIdSettingsOpen = false"
-              @save="ApplyStructIds"
-            />
-          </div></div></SectionLayout
-    ></SplitterPanel>
-  </Splitter>
+            <TimelinePanel v-if="editorView === 'graph' && selectedGroupNode" v-model="timelinePanelHeight">
+              <GroupTimeline :key="selectedDialogueFile + ':' + selectedGroupNode.id" :node="selectedGroupNode" :inspector-target="clipInspectorTarget"
+                @inspector-open="clipInspectorOpen = $event" @close="selectedGroupNodeId = ''" />
+            </TimelinePanel>
+            </div>
+            <div v-show="clipInspectorOpen && editorView === 'graph'" ref="clipInspectorTarget" class="dialogue-clip-inspector" aria-label="Clip 属性栏" :inert="fileBusy" />
+            </div>
+          </div></div>
+          <div v-else class="studio-empty"><h2>开始编写一段对话</h2><p>从左侧选择文件，或新建一段对话。</p><button type="button" @click="newDialogueFileOpen = true">＋ 新建对话文件</button></div>
+      </SectionLayout>
+    <StudioCreateDialog v-if="newDialogueFileOpen" v-model="newDialogueFileName" title="新建对话文件" label="新对话文件名" placeholder="输入对话文件名" submit-label="创建并打开" :busy="fileBusy" @submit="AddDialogueFile" @close="newDialogueFileOpen = false" />
+  </div>
 </template>
 
 <style scoped>
-.new-dialogue-file { padding: 8px; display: grid; gap: 6px; }
-.new-dialogue-file input { width: 100%; min-width: 0; box-sizing: border-box; padding: 6px; border: 1px solid #cbd7e6; border-radius: 4px; font: inherit; font-size: 12px; }
-.new-dialogue-file > div { display: flex; flex-wrap: wrap; gap: 4px; }
-.new-dialogue-file button { padding: 4px 7px; border: 1px solid #d4deec; border-radius: 4px; background: #f3f7fd; color: #557397; font-size: 11px; cursor: pointer; }
 @import "./main.css";
 
 .editor-file-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .editor-file-panel > .Section { flex: 1; min-height: 0; }
+.dialogue-editing-body { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.dialogue-editing-stage { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.dialogue-clip-inspector { position: absolute; z-index: 30; inset: 0 0 0 auto; width: clamp(340px, 32vw, 460px); max-width: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; border: 1px solid #cdd8ed; border-top: 3px solid #22a4e8; border-radius: 10px; background: #fff; box-shadow: -8px 0 24px #3b548321; }
 
 /* 22px 负责命中，中央约 10px 的圆点保持原来的视觉尺寸。 */
 :deep(.dnd-flow .vue-flow__handle) {

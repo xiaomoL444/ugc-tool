@@ -1,7 +1,7 @@
 import type { DialogueStyleDefinition } from "../types/DialogueNode";
 import { systemPresetConfig } from "../../EntityPresetEditor/systemPresetConfig";
 
-export const DEFAULT_DIALOGUE_STYLE_ID = "Default_UI";
+export const DEFAULT_DIALOGUE_STYLE_ID = "NOLOC_Default";
 
 const definitions = new Map<string, DialogueStyleDefinition>();
 

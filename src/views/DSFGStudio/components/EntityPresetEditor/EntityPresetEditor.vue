@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
-import EditorKindSelect from "../EditorKindSelect.vue";
+import SectionLayout from "@/components/Layout/SectionLayout.vue";
+import StudioSidebarContent from "../StudioSidebarContent.vue";
+import type { StudioEditorKind } from "../studioSidebar";
 import StylePresetSection from "./StylePresetSection.vue";
 import { stylePresetCategories } from "./stylePresets";
 import CustomPresetSection from "./CustomPresetSection.vue";
@@ -18,8 +20,8 @@ import { createPublicEventPreset, createPublicEventParameter, PUBLIC_EVENT_PARAM
 import { useSkillAnimationPresets } from "./useSkillAnimationPresets";
 import { createSkillAnimationPreset, getSkillAnimationConfigId } from "./skillAnimationPresets";
 
-withDefaults(defineProps<{ editorKind?: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene" }>(), { editorKind: "EntityPresets" });
-const emit = defineEmits<{ "update:editorKind": [value: "Dialogue" | "Quest" | "WalkTalk" | "EntityPresets" | "Scene"] }>();
+withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "EntityPresets" });
+const emit = defineEmits<{ "update:editorKind": [value: StudioEditorKind] }>();
 const { presets, systemPresets: systemEntities, ready, error, status, retry, flush: flushEntities } = useEntityPresets();
 const { presets: skillPresets, systemPresets: systemSkills, ready: skillsReady, error: skillsError, status: skillsStatus, retry: retrySkills, flush: flushSkills } = useSkillAnimationPresets();
 const { presets: publicPresets, systemPresets: systemPublicEvents, ready: publicReady, error: publicError, status: publicStatus, retry: retryPublic, flush: flushPublic } = usePublicEventPresets();
@@ -41,12 +43,11 @@ defineExpose({ prepareToLeave: flush });
 </script>
 
 <template>
-  <div class="entity-editor">
-    <EditorKindSelect :model-value="editorKind" @update:model-value="emit('update:editorKind', $event)" />
+  <SectionLayout title="预设设置" class="entity-editor">
     <div class="settings-layout">
-    <nav class="category-nav" aria-label="预设分类"><div class="nav-title">预设配置</div><button v-for="category in categories" :key="category.key" :class="{ active: activeCategory === category.key }" :aria-current="activeCategory === category.key ? 'page' : undefined" @click="activeCategory = category.key">{{ category.title }}</button><p>当前工作区<br />修改后自动保存</p></nav>
+    <StudioSidebarContent><nav class="category-nav" aria-label="预设分类"><div class="nav-title">预设配置</div><button v-for="category in categories" :key="category.key" :class="{ active: activeCategory === category.key }" :aria-current="activeCategory === category.key ? 'page' : undefined" @click="activeCategory = category.key">{{ category.title }}</button><p>当前工作区<br />修改后自动保存</p></nav></StudioSidebarContent>
     <main>
-      <header class="settings-header"><div><h2>预设设置</h2><p>管理当前工作区共用的预设。</p></div></header>
+      <header class="settings-header"><div><h2>{{ categories.find(category => category.key === activeCategory)?.title }}</h2><p>管理当前工作区共用的预设。</p></div></header>
       <section v-show="activeCategory === 'entities'" class="preset-section" aria-labelledby="entity-presets-title">
       <header><div><h3 id="entity-presets-title">预设实体</h3><p>保存常用人物，在对话的「添加对话」中一键创建空白台词。</p></div></header>
       <p class="status" role="status">{{ status }}</p>
@@ -134,7 +135,7 @@ defineExpose({ prepareToLeave: flush });
       <StylePresetSection v-for="category in stylePresetCategories" v-show="activeCategory === category.key" :key="category.key" ref="styleSections" :category="category.key" :title="category.title" />
     </main>
     </div>
-  </div>
+  </SectionLayout>
 </template>
 
 <style scoped>

@@ -56,6 +56,11 @@ function keydown(event: KeyboardEvent) {
       <span v-if="movable" class="line-grip" title="拖动调整组内顺序" aria-label="拖动台词排序">⠿</span>
     </div>
     <div class="line-body">
+      <div class="line-actions" role="group" aria-label="台词操作">
+        <button type="button" title="插入台词（Ctrl+Enter）" aria-label="插入台词" @click="emit('insert')">＋</button>
+        <button type="button" title="在节点图配置此句 Clip" @click="emit('configure')">Clip ↗</button>
+        <button type="button" class="delete-line" aria-label="删除对话" :title="line.clipCount ? `删除此句及附带的 ${line.clipCount} 个 Clip（带选项卡时保留选项与其他 Clip）` : '删除此句对话，可立即撤销'" @click="emit('remove')">删除</button>
+      </div>
       <template v-if="line.hasDialogue">
         <div class="line-identity">
           <span class="speaker-avatar" :class="{ 'has-alias': speakerAlias }" :title="avatarLabel">{{ avatarLabel }}</span>
@@ -72,24 +77,17 @@ function keydown(event: KeyboardEvent) {
       <div v-if="line.clipCount > 0" class="line-clip-summary">
         <button type="button" class="clip-count" :aria-label="`此句含 ${line.clipCount} 个演出 Clip，点击配置`" title="在节点图查看此句附带的 Clip" @click="emit('configure')">{{ line.clipCount }} 个 Clip ↗</button>
       </div>
-      <div class="line-actions">
-        <button type="button" :disabled="!canMoveUp" title="上移（Alt+↑）" aria-label="上移台词" @click="emit('move', -1)">↑</button>
-        <button type="button" :disabled="!canMoveDown" title="下移（Alt+↓）" aria-label="下移台词" @click="emit('move', 1)">↓</button>
-        <button type="button" title="插入台词（Ctrl+Enter）" aria-label="插入台词" @click="emit('insert')">＋</button>
-        <button type="button" title="在节点图配置此句 Clip" @click="emit('configure')">Clip ↗</button>
-        <button type="button" class="delete-line" aria-label="删除对话" :title="line.clipCount ? `删除此句及附带的 ${line.clipCount} 个 Clip（带选项卡时保留选项与其他 Clip）` : '删除此句对话，可立即撤销'" @click="emit('remove')">删除</button>
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.script-line { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; padding: 9px 12px 9px 6px; border-radius: 7px; }
+.script-line { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; padding: 9px 12px 9px 6px; border-radius: 7px; }
 .script-line:hover, .script-line:focus-within { background: #f7f9fc; }
 .line-gutter { display: flex; flex-direction: column; align-items: center; padding-top: 5px; color: #a1aaba; font-family: inherit; font-size: 11px; line-height: 1.5; }
 .line-grip { font-size: 20px; cursor: grab; opacity: .35; user-select: none; touch-action: none; }
-.script-line:hover .line-grip { opacity: 1; }
-.line-body { position: relative; min-width: 0; padding-bottom: 4px; }
+.script-line:hover .line-grip, .script-line:focus-within .line-grip { opacity: 1; }
+.line-body { min-width: 0; padding-bottom: 4px; }
 .line-identity { display: grid; grid-template-columns: auto minmax(40px, .8fr) minmax(45px, 1fr) minmax(84px, 1.15fr); align-items: center; gap: 4px; margin-bottom: 3px; }
 .repeat-speaker:not(:focus-within) .line-identity { display: none; }
 .speaker-avatar { display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; border: 1px solid hsl(var(--speaker-hue) 46% 80%); background: hsl(var(--speaker-hue) 65% 94%); border-radius: 50%; color: hsl(var(--speaker-hue) 38% 44%); font-size: 11px; }
@@ -104,8 +102,7 @@ input::placeholder, textarea::placeholder { color: #a6afbd; }
 .line-clip-summary { display: flex; justify-content: flex-end; margin-top: 2px; }
 .clip-count { color: #527da8; background: #edf3fa; }
 textarea { display: block; box-sizing: border-box; width: 100%; min-height: 32px; padding: 3px 7px; margin-left: -1px; border-left-color: hsl(var(--speaker-hue) 40% 88%); color: #334158; resize: none; overflow: hidden; font-size: 14px; line-height: 1.8; }
-.line-actions { position: absolute; right: 0; top: -13px; display: flex; gap: 1px; opacity: 0; background: #f7f9fc; border-radius: 4px; }
-.script-line:hover .line-actions, .script-line:focus-within .line-actions { opacity: 1; }
+.line-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-bottom: 6px; }
 button { padding: 2px 5px; border: 0; border-radius: 4px; color: #75839a; background: transparent; font-family: inherit; font-size: 11px; line-height: 1.7; cursor: pointer; }
 button:hover { color: #326baf; background: #e6eef9; }
 button:disabled { opacity: .25; cursor: default; }

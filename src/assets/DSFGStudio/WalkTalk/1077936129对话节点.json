@@ -1,7 +1,7 @@
 { 
    "type" : "Struct", 
    "struct_ype" : "basic", 
-   "name" : "[对话]对话节点", 
+   "name" : "[演出]对话", 
    "value" : [ 
       { 
          "key" : "style", 
@@ -57,7 +57,7 @@
          "param_type" : "Float", 
          "value" : { 
             "param_type" : "Float", 
-            "value" : "10.00"
+            "value" : "-1.00"
          }
       }
    ]

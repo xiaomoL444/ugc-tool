@@ -13,6 +13,10 @@ export const stylePresetCategories: { key: StylePresetCategory; title: string }[
   { key: "entityGetMethods", title: "实体获取方式" },
 ];
 
+export function supportsCustomStylePresets(category: StylePresetCategory) {
+  return category !== "booleans" && category !== "entityGetMethods";
+}
+
 export function createStylePreset(category: StylePresetCategory): StylePreset {
   return { ...systemPresetConfig[category].newItem, id: crypto.randomUUID() };
 }
@@ -46,5 +50,7 @@ export function useStylePresets(category: StylePresetCategory) {
     encode: (presets: StylePreset[]) => encodeStylePresets(category, presets),
     decode: (raw: string) => decodeStylePresets(category, raw),
   });
-  return { ...state, options: computed(() => getStylePresetOptions(state.availablePresets.value)) };
+  const availablePresets = computed(() => supportsCustomStylePresets(category)
+    ? state.availablePresets.value : [...state.systemPresets.value]);
+  return { ...state, availablePresets, options: computed(() => getStylePresetOptions(availablePresets.value)) };
 }

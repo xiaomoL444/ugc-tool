@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { DialogueProject } from "./types/FileStruct";
-import { buildDialogueTextPreview, isDialogueCollectionNode, type TextPreviewBlock } from "./utils/dialogueTextPreview";
+import { buildDialogueTextPreview, isDialogueCollectionNode, type TextPreviewBlock, type TextPreviewLine } from "./utils/dialogueTextPreview";
 import { layoutDialogueTextPreview } from "./utils/dialogueTextPreviewLayout";
 import { shouldShowDialogueSpeaker, type DialogueTextEdit } from "./utils/dialogueTextEditing";
 import { applyDialogueTextAction, type DialogueTextAction } from "./utils/dialogueTextActions";
 import { canUndoDialogueDeletion, captureDialogueDeletion } from "./utils/dialogueDeletionUndo";
 import DialogueTextLine from "./components/DialogueTextLine.vue";
+import DialogueMinimap from "./components/DialogueMinimap.vue";
+import type { MinimapRect } from "./utils/dialogueMinimap";
 import DialogueOptionText from "./components/DialogueOptionText.vue";
 import VisualConditionEditor from "./components/VisualConditionEditor.vue";
 import SelectOptionIcon from "./components/SelectOptionIcon.vue";
@@ -59,6 +61,32 @@ const placedBlocks = computed(() => layout.value.blocks.map((placed) => ({
 const viewport = ref<HTMLElement>();
 const surface = ref<HTMLElement>();
 const zoom = ref(1);
+const minimapViewport = ref<MinimapRect>({ x: 0, y: 0, width: 0, height: 0 });
+let minimapFrame = 0;
+function syncMinimapViewport() {
+  const view = viewport.value, canvas = surface.value;
+  if (!view || !canvas) return;
+  const viewRect = view.getBoundingClientRect(), canvasRect = canvas.getBoundingClientRect();
+  // DOM bounds account for padding and the centered canvas when zoomed out.
+  minimapViewport.value = {
+    x: (viewRect.left + view.clientLeft - canvasRect.left) / zoom.value,
+    y: (viewRect.top + view.clientTop - canvasRect.top) / zoom.value,
+    width: view.clientWidth / zoom.value, height: view.clientHeight / zoom.value,
+  };
+}
+function scheduleMinimapSync() {
+  if (disposed || minimapFrame) return;
+  minimapFrame = requestAnimationFrame(() => { minimapFrame = 0; syncMinimapViewport(); });
+}
+function navigateMinimap(position: { x: number; y: number }) {
+  const view = viewport.value;
+  if (!view) return;
+  syncMinimapViewport();
+  view.scrollBy({ left: (position.x - minimapViewport.value.x) * zoom.value,
+    top: (position.y - minimapViewport.value.y) * zoom.value, behavior: "auto" });
+  scheduleMinimapSync();
+}
+watch([layout, zoom], scheduleMinimapSync, { flush: "post" });
 const arrowId = `text-flow-arrow-${crypto.randomUUID()}`;
 const returnArrowId = `${arrowId}-return`;
 const lineCount = computed(() => preview.value.blocks.reduce(
@@ -80,10 +108,15 @@ function append(kind: "dialogue" | "select" | "condition", preset?: EntityPreset
 }
 const draggingLine = ref("");
 const dropLine = ref("");
-let lineDrag: { pointerId: number; x: number; y: number; element: HTMLElement } | undefined;
+const dragPreview = ref<{ line: TextPreviewLine; index: number; repeatSpeaker: boolean; left: number; top: number; width: number; scale: number }>();
+const dragCard = ref<HTMLElement>();
+let dropAnimation: Animation | undefined;
+let dragRevision = 0;
+let lineDrag: { pointerId: number; x: number; y: number; offsetX: number; offsetY: number; moved: boolean; element: HTMLElement } | undefined;
 const panning = ref(false);
 let pan: { pointerId: number; x: number; y: number; left: number; top: number } | undefined;
 function startPan(event: PointerEvent) {
+  if (lineDrag) return;
   const target = event.target as HTMLElement;
   if (event.button !== 1 && (event.button !== 0 || target.closest("article, button, input, textarea, select"))) return;
   if (!viewport.value) return;
@@ -122,6 +155,13 @@ async function act(action: DialogueTextAction) {
   await nextTick();
   measureBlocks();
   await nextTick();
+  // Reordering should keep the viewport where the user dropped the sentence.
+  // Do not compensate its position, scroll it into view, or open its inputs.
+  if (action.type === "move") {
+    const block = preview.value.blocks.find(item => item.nodeIds.includes(action.nodeId));
+    if (block) selectBlock(block.id);
+    return;
+  }
   if (result.focusBlockId && blockById.value.has(result.focusBlockId)) {
     focusBlock(result.focusBlockId);
   } else if (result.nodeId) {
@@ -154,18 +194,36 @@ function moveLine(block: TextPreviewBlock, index: number, delta: number) {
 function insertLine(id: string) { act({ type: "insert", nodeId: id, before: !movable(id) }); }
 function startLineDrag(event: PointerEvent, id: string) {
   if (event.button !== 0 || !(event.target as HTMLElement).closest(".line-grip")) return;
+  const block = preview.value.blocks.find(item => item.lines.some(line => line.nodeId === id));
+  if (!block || !movable(id) || block.lines.length < 2) return;
   event.preventDefault();
   event.stopPropagation();
+  endLineDrag();
+  dragRevision++;
+  dropAnimation?.cancel();
+  dropAnimation = undefined;
   draggingLine.value = id;
   const element = event.currentTarget as HTMLElement;
+  const rect = element.getBoundingClientRect();
+  const index = block.lines.findIndex(line => line.nodeId === id);
+  dragPreview.value = {
+    line: block.lines[index], index,
+    repeatSpeaker: !shouldShowDialogueSpeaker(block.lines, index) && !element.matches(":focus-within"),
+    left: rect.left, top: rect.top, width: rect.width / zoom.value, scale: zoom.value,
+  };
   element.setPointerCapture(event.pointerId);
-  lineDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, element };
+  lineDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+    offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top, moved: false, element };
 }
 function canDrop(block: TextPreviewBlock, id: string) {
   return id !== draggingLine.value && movable(id) && block.lines.some((line) => line.nodeId === draggingLine.value);
 }
 function dragLine(event: PointerEvent) {
-  if (!lineDrag || Math.hypot(event.clientX - lineDrag.x, event.clientY - lineDrag.y) < 4) return;
+  if (!lineDrag || event.pointerId !== lineDrag.pointerId || !dragPreview.value) return;
+  dragPreview.value.left = event.clientX - lineDrag.offsetX;
+  dragPreview.value.top = event.clientY - lineDrag.offsetY;
+  if (!lineDrag.moved && Math.hypot(event.clientX - lineDrag.x, event.clientY - lineDrag.y) < 4) return;
+  lineDrag.moved = true;
   const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-dialogue-id]");
   const id = element?.dataset.dialogueId;
   const block = preview.value.blocks.find((item) => item.lines.some((line) => line.nodeId === id));
@@ -176,15 +234,38 @@ function dragLine(event: PointerEvent) {
     else if (event.clientY > bounds.bottom - 36) viewport.value?.scrollBy(0, 16);
   }
 }
-function endLineDrag(commit = false) {
+async function endLineDrag(commit = false) {
   if (!lineDrag) return;
-  const action: DialogueTextAction | undefined = commit && dropLine.value
+  const revision = ++dragRevision;
+  const nodeId = draggingLine.value;
+  const from = dragCard.value?.getBoundingClientRect();
+  const action: DialogueTextAction | undefined = commit && lineDrag.moved && dropLine.value
     ? { type: "move", nodeId: draggingLine.value, targetId: dropLine.value } : undefined;
   const { element, pointerId } = lineDrag;
   lineDrag = undefined;
+  dragPreview.value = undefined;
   draggingLine.value = ""; dropLine.value = "";
   if (element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId);
-  if (action) act(action);
+  if (action) await act(action);
+  else await nextTick();
+  if (disposed || revision !== dragRevision || !from || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const target = surface.value?.querySelector<HTMLElement>(`[data-dialogue-id="${CSS.escape(nodeId)}"]`);
+  if (!target) return;
+  const to = target.getBoundingClientRect();
+  if (!to.width || !to.height) return;
+  // Animate from the floating card's screen position to the final layout,
+  // accounting for canvas zoom without moving the viewport.
+  const animation = target.animate([
+    { transform: `translate(${(from.left - to.left) / zoom.value}px, ${(from.top - to.top) / zoom.value}px) scale(${from.width / to.width}, ${from.height / to.height})`,
+      transformOrigin: "top left", background: "#fff", boxShadow: "0 16px 34px #263d6430, 0 4px 10px #263d641a", zIndex: 3 },
+    { transform: "translate(0, 0) scale(1)", transformOrigin: "top left", background: "#fff", boxShadow: "0 0 0 transparent", zIndex: 3 },
+  ], { duration: 220, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+  dropAnimation = animation;
+  animation.onfinish = () => { if (dropAnimation === animation) dropAnimation = undefined; };
+}
+function cancelLineDrag() { endLineDrag(); }
+function handleDragKey(event: KeyboardEvent) {
+  if (lineDrag && event.key === "Escape") { event.preventDefault(); endLineDrag(); }
 }
 function outletTarget(blockId: string, index: number) {
   return preview.value.edges.find((edge) => edge.source === blockId && edge.outletIndex === index)?.target ?? "";
@@ -228,6 +309,7 @@ function edgeDescription(id: string) {
 let observer: ResizeObserver | undefined;
 let disposed = false;
 function measureBlocks() {
+  scheduleMinimapSync();
   if (viewport.value) collectionWidth.value = Math.max(320, Math.min(560, viewport.value.clientWidth - 64));
   const next: Record<string, number> = {};
   for (const element of surface.value?.querySelectorAll<HTMLElement>("[data-text-block]") ?? []) {
@@ -247,6 +329,8 @@ async function observeBlocks() {
   measureBlocks();
 }
 onMounted(async () => {
+  window.addEventListener("keydown", handleDragKey);
+  window.addEventListener("blur", cancelLineDrag);
   selectBlock(preview.value.blocks.find((block) => block.reachable && block.lines.length)?.id ?? preview.value.blocks[0]?.id ?? "");
   observer = new ResizeObserver(measureBlocks);
   await observeBlocks();
@@ -258,8 +342,6 @@ onMounted(async () => {
 watch(collectionWidth, async () => {
   await nextTick();
   measureBlocks();
-  await nextTick();
-  if (!disposed) focusBlock(activeBlockId.value);
 });
 watch(preview, (value, previous) => {
   if (!value.blocks.some((block) => block.id === activeBlockId.value)) {
@@ -270,7 +352,11 @@ watch(preview, (value, previous) => {
 });
 onBeforeUnmount(() => {
   disposed = true;
+  if (minimapFrame) cancelAnimationFrame(minimapFrame);
+  dropAnimation?.cancel();
   endLineDrag();
+  window.removeEventListener("keydown", handleDragKey);
+  window.removeEventListener("blur", cancelLineDrag);
   observer?.disconnect();
 });
 </script>
@@ -302,7 +388,8 @@ onBeforeUnmount(() => {
     </div>
     <div class="text-editing-workspace">
     <div v-if="!preview.blocks.length" class="text-preview-empty"><p>从第一句对话开始。</p><button type="button" @click="act({ type: 'create' })">＋ 写下第一句</button></div>
-    <div v-else ref="viewport" class="text-preview-viewport" :class="{ 'is-panning': panning }" tabindex="0" aria-label="文本流程画布"
+    <div v-else class="text-canvas-panel">
+    <div ref="viewport" class="text-preview-viewport" :class="{ 'is-panning': panning, 'is-dragging-line': draggingLine }" tabindex="0" aria-label="文本流程画布" @scroll.passive="scheduleMinimapSync"
       @pointerdown="startPan" @pointermove="movePan" @pointerup="endPan" @pointercancel="endPan" @lostpointercapture="endPan">
       <div class="text-preview-size" :style="{ width: `${layout.width * zoom}px`, height: `${layout.height * zoom}px` }">
         <div ref="surface" class="text-preview-surface" :style="{ width: `${layout.width}px`, height: `${layout.height}px`, transform: `scale(${zoom})` }">
@@ -330,7 +417,9 @@ onBeforeUnmount(() => {
             </header>
             <h3 v-if="['entry', 'output', 'condition'].includes(placed.block.kind)" class="text-block-title">{{ placed.block.title }}</h3>
             <div v-if="placed.block.lines.some(line => line.hasDialogue)" class="text-block-lines">
-              <div v-for="(line, index) in placed.block.lines" :key="line.nodeId" :data-dialogue-id="line.nodeId" :class="{ 'line-drop-target': dropLine === line.nodeId }"
+              <div v-for="(line, index) in placed.block.lines" :key="line.nodeId" :data-dialogue-id="line.nodeId" class="text-line-slot"
+                :class="{ 'line-drag-source': draggingLine === line.nodeId, 'line-drop-target': dropLine === line.nodeId,
+                  'line-drop-after': dropLine === line.nodeId && index > placed.block.lines.findIndex(item => item.nodeId === draggingLine) }"
                 @pointerdown="startLineDrag($event, line.nodeId)" @pointermove="dragLine"
                 @pointerup="endLineDrag(true)" @pointercancel="endLineDrag()" @lostpointercapture="endLineDrag()">
                 <DialogueTextLine v-if="line.hasDialogue" :line="line" :speaker-alias="speakerAliases.get(line.speaker)" :index="index" :movable="movable(line.nodeId) && placed.block.lines.length > 1" :repeat-speaker="!shouldShowDialogueSpeaker(placed.block.lines, index)"
@@ -364,11 +453,11 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+    <DialogueMinimap :layout="layout" :blocks="preview.blocks" :viewport="minimapViewport" :active-block-id="activeBlockId" :zoom="zoom" @navigate="navigateMinimap" />
+    </div>
     <aside class="text-collection-panel" aria-label="集合操作">
       <template v-if="activeBlock">
         <header><span class="panel-eyebrow">当前选中</span><h3>{{ blockLabel(activeBlock) }}</h3><p>{{ activeBlock.kind === 'dialogue' ? `${activeBlock.lines.length} 句对话` : activeBlock.title }}</p></header>
-        <p v-if="activeBlock.kind === 'dialogue'" class="panel-hint">连续对话在此集合中编辑，附带的 Clip 显示在各句旁。</p>
-        <p v-else class="panel-hint">独立节点，保留自己的台词、选项或演出。</p>
         <label v-if="activeBlock.outlets.length > 1" class="panel-field">添加到哪个出口
           <select aria-label="添加到哪个出口" :value="activeOutletId" @change="chosenOutletId = ($event.target as HTMLSelectElement).value">
             <option v-for="outlet in activeBlock.outlets" :key="outlet.id" :value="outlet.id">{{ outlet.text || outlet.label }}</option>
@@ -402,18 +491,27 @@ onBeforeUnmount(() => {
         <button type="button" class="panel-secondary" @click="navigateToBlock(activeBlock)">在节点图配置 Clip ↗</button>
         <div v-if="activeBlock.kind !== 'entry'" class="panel-section">
           <button type="button" class="panel-secondary delete-content" @click="act({ type: 'delete-block', blockId: activeBlock.id })">删除{{ blockLabel(activeBlock) }}</button>
-          <p class="panel-hint">{{ activeBlock.kind === 'dialogue' ? '删除集合内全部对话及 Clip，并接回后续流程。' : '删除此节点及连线，保留下游集合；未接入流程的内容会标为散落文本。' }}</p>
         </div>
       </template>
       <div v-else class="panel-hint">选择画布中的集合或节点，再在这里添加内容。</div>
     </aside>
     </div>
+    <Teleport to="body">
+      <div v-if="dragPreview" class="line-drag-preview dsfg-typography" aria-hidden="true" inert
+        :style="{ width: `${dragPreview.width}px`, transform: `translate3d(${dragPreview.left}px, ${dragPreview.top}px, 0) scale(${dragPreview.scale})` }">
+        <div ref="dragCard" class="line-drag-card">
+          <DialogueTextLine :line="dragPreview.line" :speaker-alias="speakerAliases.get(dragPreview.line.speaker)"
+            :index="dragPreview.index" :repeat-speaker="dragPreview.repeatSpeaker" :movable="true" :can-move-up="false" :can-move-down="false" />
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
 <style scoped>
 .text-preview { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; color: #27354b; background: #f5f7fb; }
 .text-editing-workspace { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.text-canvas-panel { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
 .text-collection-panel { flex: 0 0 218px; padding: 18px 16px; box-sizing: border-box; overflow-y: auto; border-left: 1px solid #dce4ef; background: #fff; text-align: left; }
 .text-collection-panel header h3 { margin: 7px 0 3px; font-size: 16px; color: #344c70; }
 .text-collection-panel header p { margin: 0; color: #8a96a8; font-size: 12px; }
@@ -448,6 +546,8 @@ onBeforeUnmount(() => {
 .text-preview-viewport { flex: 1; min-height: 0; min-width: 0; overflow: auto; padding: 24px; outline-offset: -3px; background-image: radial-gradient(#dce3ee .8px, transparent .8px); background-size: 20px 20px; cursor: grab; overflow-anchor: none; }
 .text-preview-viewport.is-panning { cursor: grabbing; user-select: none; }
 .text-preview-viewport.is-panning * { cursor: grabbing !important; }
+.text-preview-viewport.is-dragging-line { user-select: none; }
+.text-preview-viewport.is-dragging-line :deep(*) { cursor: grabbing !important; }
 .text-preview-size { position: relative; margin: 0 auto; }
 .text-preview-surface { position: absolute; inset: 0 auto auto 0; transform-origin: top left; }
 .text-preview-connections { position: absolute; inset: 0; overflow: visible; }
@@ -468,7 +568,16 @@ onBeforeUnmount(() => {
 .text-preview select { border: 1px solid #e0e6ef; border-radius: 5px; padding: 5px; color: #78879a; background: #fff; font-size: 11px; cursor: pointer; }
 .text-preview-zoom .new-group-button { color: #fff; background: #477fb5; border-color: #477fb5; margin-right: 8px; }
 button.detached-legend { border: 0; border-radius: 3px; background: #fff6e6; font-size: 11px; cursor: pointer; padding: 2px 6px; }
-.line-drop-target { box-shadow: inset 0 2px #649ad7; }
+.text-line-slot { position: relative; border-radius: 7px; }
+.line-drag-source { background: #edf3fb; outline: 1px dashed #a9bfdc; outline-offset: -1px; }
+.line-drag-source :deep(.script-line) { opacity: .25; }
+.line-drop-target::after { content: ''; position: absolute; z-index: 2; top: -2px; left: 4px; right: 4px; height: 3px; border-radius: 3px; background: #4b8cda; box-shadow: 0 0 0 2px #e8f1ff; pointer-events: none; }
+.line-drop-target.line-drop-after::after { top: auto; bottom: -2px; }
+.line-drag-preview { position: fixed; top: 0; left: 0; z-index: 2000; transform-origin: top left; pointer-events: none; user-select: none; }
+.line-drag-card { border-radius: 8px; background: #fff; outline: 1px solid #a4c3eb; box-shadow: 0 16px 34px #263d6430, 0 4px 10px #263d641a; transform: translateY(-3px) scale(1.015); }
+.line-drag-preview :deep(.script-line) { background: #fff; }
+.line-drag-preview :deep(.line-grip) { opacity: 1; color: #417dc0; }
+@media (prefers-reduced-motion: reduce) { .line-drag-card { transform: none; } }
 .text-block-outlets input { display: block; width: 100%; box-sizing: border-box; border: 1px solid transparent; border-radius: 4px; padding: 4px; margin: 2px 0; background: transparent; color: #6f5837; font: inherit; font-size: 13px; }
 .text-block-outlets input:focus { outline: 1px solid #dfc89f; background: #fff; }
 .text-block-outlets select { max-width: 100%; width: 100%; margin-top: 4px; }

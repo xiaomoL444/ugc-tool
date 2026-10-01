@@ -44,8 +44,8 @@ type SelectedClip =
   | { kind: "select"; clip: SelectClip }
   | { kind: "performance"; line: PerformanceLine; clip: PerformanceClip };
 
-const props = defineProps<{ node: DialogueNode }>();
-const emit = defineEmits<{ close: [] }>();
+const props = defineProps<{ node: DialogueNode; inspectorTarget?: HTMLElement }>();
+const emit = defineEmits<{ close: []; inspectorOpen: [open: boolean] }>();
 const { availablePresets: publicEventPresets } = usePublicEventPresets();
 
 const viewportWidth = ref(918);
@@ -53,12 +53,11 @@ const timelineScrollRef = ref<HTMLElement>();
 let timelineResizeObserver: ResizeObserver | undefined;
 const labelWidth = 118;
 const selectedId = ref(props.node.dialogue?.id ?? "");
-const newLineType = ref<PerformanceLineType>("PublicEvent");
+const addLineMenu = ref<HTMLDetailsElement>();
 const sectionRef = ref<HTMLElement>();
 const editorOpen = ref(false);
 const hoveredClip = ref<SelectedClip>();
 const previewPosition = ref({ left: 0, top: 0 });
-const editorPosition = ref({ left: 0 });
 const lineDefinitions = getLineDefinitions().filter(
   (definition) => definition.removable && definition.type !== "Audio",
 ).sort((a, b) => {
@@ -66,9 +65,6 @@ const lineDefinitions = getLineDefinitions().filter(
   return priority(a.type) - priority(b.type);
 });
 
-const canAddLine = computed(
-  () => props.node.lines.length + 3 < props.node.timeline.maxLines,
-);
 const outletWarnings = computed(() =>
   getGroupOutletWarnings(props.node),
 );
@@ -91,6 +87,8 @@ const selectedClip = computed<SelectedClip | undefined>(() => {
   }
   return undefined;
 });
+
+watch(() => editorOpen.value && Boolean(selectedClip.value), open => emit("inspectorOpen", open), { immediate: true, flush: "sync" });
 
 const contentDuration = computed(() => getGroupTimelineEnd(props.node));
 const timelineDuration = computed(() =>
@@ -125,12 +123,24 @@ watch(
     selectedId.value = props.node.dialogue?.id ?? "";
     editorOpen.value = false;
     hoveredClip.value = undefined;
+    addLineMenu.value?.removeAttribute("open");
   },
 );
 
-function addLine() {
-  if (!canAddLine.value || !lineDefinitions.some(definition => definition.type === newLineType.value)) return;
-  props.node.lines.push(createPerformanceLine(newLineType.value));
+function closeLineMenu() {
+  addLineMenu.value?.removeAttribute("open");
+  addLineMenu.value?.querySelector("summary")?.focus();
+}
+
+function closeLineMenuOutside(event: PointerEvent) {
+  const menu = addLineMenu.value;
+  if (menu?.open && !event.composedPath().includes(menu)) menu.open = false;
+}
+
+function addLine(type: PerformanceLineType) {
+  if (!lineDefinitions.some(definition => definition.type === type)) return;
+  props.node.lines.push(createPerformanceLine(type));
+  closeLineMenu();
 }
 
 function addDialogueClip() {
@@ -175,15 +185,6 @@ function performanceClipLabel(clip: PerformanceClip) {
 
 function lineLabel(line: PerformanceLine) {
   return getLineDefinition(line.type)?.label ?? line.type;
-}
-
-function updateMaxLines(event: Event) {
-  const value = Number((event.target as HTMLInputElement).value);
-  if (!Number.isFinite(value)) return;
-  props.node.timeline.maxLines = Math.min(
-    64,
-    Math.max(props.node.lines.length + 3, Math.floor(value)),
-  );
 }
 
 function addPerformanceClip(line: PerformanceLine) {
@@ -236,35 +237,11 @@ function hidePreview() {
   hoveredClip.value = undefined;
 }
 
-function openEditor(event: MouseEvent, selected: SelectedClip) {
+function openEditor(_event: MouseEvent, selected: SelectedClip) {
   if (suppressClick) return;
-  const viewportGap = 12;
-  const editorWidth = Math.min(selected.kind === 'performance' && selected.clip.type === 'Camera' ? 420 : 335, window.innerWidth - viewportGap * 2);
-  const maximumLeft = Math.max(
-    viewportGap,
-    window.innerWidth - editorWidth - viewportGap,
-  );
   selectedId.value = selected.clip.id;
-  editorPosition.value = {
-    left: Math.min(
-      Math.max(viewportGap, event.clientX + 14),
-      maximumLeft,
-    ),
-  };
   hoveredClip.value = undefined;
   editorOpen.value = true;
-}
-
-function closeEditorFromOutside(event: PointerEvent) {
-  const target = event.target as HTMLElement | null;
-  if (
-    !editorOpen.value ||
-    target?.closest("[data-clip-editor]") ||
-    target?.closest("[data-timeline-clip]")
-  ) {
-    return;
-  }
-  editorOpen.value = false;
 }
 
 function updateStartTime(clip: TimelineClip, event: Event) {
@@ -467,7 +444,7 @@ function stopContinueDelayDrag() {
 let suppressClick = false;
 
 onMounted(() => {
-  window.addEventListener("pointerdown", closeEditorFromOutside);
+  window.addEventListener("pointerdown", closeLineMenuOutside, true);
   timelineResizeObserver = new ResizeObserver(() => {
     if (timelineScrollRef.value) viewportWidth.value = timelineScrollRef.value.clientWidth;
   });
@@ -477,11 +454,12 @@ onMounted(() => {
   }
 });
 onBeforeUnmount(() => {
+  window.removeEventListener("pointerdown", closeLineMenuOutside, true);
+  emit("inspectorOpen", false);
   timelineResizeObserver?.disconnect();
   stopDrag();
   stopResize();
   stopContinueDelayDrag();
-  window.removeEventListener("pointerdown", closeEditorFromOutside);
 });
 </script>
 
@@ -491,37 +469,16 @@ onBeforeUnmount(() => {
       <span class="timeline-eyebrow">GROUP TIMELINE</span>
 
       <div class="timeline-actions">
-        <label class="max-lines-control display-duration-control" title="设置可见宽度内的时长；清空后自动计算。超出部分可横向滚动查看。">
+        <label class="display-duration-control" title="设置可见宽度内的时长；清空后自动计算。超出部分可横向滚动查看。">
           显示时长（秒）
           <input type="number" min="0.1" step="0.1" aria-label="Timeline 显示时长（秒）" :placeholder="`自动（${timelineDuration}）`" :value="node.timeline.displayDuration ?? ''" @change="updateDisplayDuration" />
         </label>
-        <label class="max-lines-control">
-          Max Lines
-          <input
-            type="number"
-            min="3"
-            max="64"
-            :value="node.timeline.maxLines"
-            @input="updateMaxLines"
-          />
-        </label>
-        <select v-model="newLineType" aria-label="新增 Line 类型">
-          <option
-            v-for="definition in lineDefinitions"
-            :key="definition.type"
-            :value="definition.type"
-          >
-            {{ definition.label }}
-          </option>
-        </select>
-        <button
-          type="button"
-          class="primary-button"
-          :disabled="!canAddLine"
-          @click="addLine"
-        >
-          ＋ Line {{ node.lines.length + 3 }}/{{ node.timeline.maxLines }}
-        </button>
+        <details ref="addLineMenu" class="add-line-menu" @keydown.esc.prevent.stop="closeLineMenu">
+          <summary class="primary-button" aria-label="添加事件行">＋ 添加事件</summary>
+          <div class="add-line-options">
+            <button v-for="definition in lineDefinitions" :key="definition.type" type="button" @click="addLine(definition.type)">添加{{ definition.label }}</button>
+          </div>
+        </details>
         <button
           type="button"
           :disabled="!selectedClip"
@@ -826,15 +783,13 @@ onBeforeUnmount(() => {
       </small>
     </div>
 
-    <Teleport to="body">
+    <Teleport :to="inspectorTarget || 'body'">
       <aside
         v-if="editorOpen && selectedClip"
         data-clip-editor
         class="clip-editor-popover dsfg-typography"
-        :class="{ 'camera-popover': selectedClip.kind === 'performance' && selectedClip.clip.type === 'Camera' }"
-        :style="{
-          left: `${editorPosition.left}px`,
-        }"
+        :class="{ 'camera-popover': selectedClip.kind === 'performance' && selectedClip.clip.type === 'Camera', 'clip-editor-docked': inspectorTarget }"
+        aria-label="Clip 参数"
       >
         <header class="popover-header">
           <span>
@@ -851,7 +806,7 @@ onBeforeUnmount(() => {
           </button>
         </header>
 
-        <div class="popover-content">
+        <div :key="selectedClip.clip.id" class="popover-content">
           <DialogueClipEditor
             v-if="selectedClip.kind === 'dialogue'"
             :clip="selectedClip.clip"
@@ -991,38 +946,31 @@ onBeforeUnmount(() => {
   gap: 7px;
 }
 
-.max-lines-control {
+.display-duration-control {
   display: flex;
   gap: 5px;
   align-items: center;
   color: #64748b;
   font-size: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.max-lines-control input {
+.display-duration-control input {
   box-sizing: border-box;
-  width: 48px;
+  width: 140px;
   height: 30px;
-  padding: 0 5px;
+  flex-shrink: 0;
+  padding: 0 10px;
+  font-size: 12px;
   color: #334155;
   background: #fff;
   border: 1px solid #cbd7e6;
   border-radius: 5px;
 }
 
-.display-duration-control {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.display-duration-control input {
-  width: 140px;
-  flex-shrink: 0;
-  padding: 0 10px;
-  font-size: 12px;
-}
-
 .timeline-actions button,
+.timeline-actions summary,
 .timeline-actions select,
 .line-buttons button {
   height: 30px;
@@ -1044,6 +992,14 @@ onBeforeUnmount(() => {
   background: #2877c7;
   border-color: #1764b2;
 }
+
+.add-line-menu { position: relative; }
+.add-line-menu summary { display: flex; align-items: center; box-sizing: border-box; list-style: none; user-select: none; }
+.add-line-menu summary::-webkit-details-marker { display: none; }
+.add-line-options { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; display: grid; gap: 4px; width: 160px; padding: 6px; border: 1px solid #cbd7e6; border-radius: 8px; background: #fff; box-shadow: 0 8px 24px #35487420; }
+.add-line-options button { width: 100%; border-color: transparent; text-align: left; }
+.add-line-options button:hover { background: #edf3ff; color: #245a98; }
+.add-line-menu :is(summary, button):focus-visible { outline: 2px solid #54a8ff; outline-offset: 2px; }
 
 .timeline-body {
   position: relative;
@@ -1395,6 +1351,8 @@ onBeforeUnmount(() => {
 
 .clip-editor-popover {
   position: fixed;
+  top: 84px;
+  right: 12px;
   bottom: 12px;
   z-index: 1000;
   display: flex;
@@ -1468,6 +1426,9 @@ onBeforeUnmount(() => {
 .camera-popover .number-fields { display: flex; order: -1; gap: 12px; margin-bottom: 14px; }
 .camera-popover .number-fields label { min-width: 0; margin: 0; font-size: 11px; }
 .camera-popover .number-fields input { box-sizing: border-box; padding: 9px 10px; border: 1px solid #cbd7e6; border-radius: 7px; background: #fff; font-size: 12px; font-family: inherit; }
+.clip-editor-popover.clip-editor-docked { position: static; width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+.clip-editor-docked .popover-header { min-height: 48px; padding: 0 16px; background: #f5f8fe; font-size: 14px; }
+.clip-editor-docked .popover-content { flex: 1; padding: 16px; }
 
 .timeline-actions button:not(:disabled):hover, .line-buttons button:hover { background: #e6eefb; border-color: #94b8e8; }
 .timeline-actions .primary-button:not(:disabled):hover { color: #fff; background: #1e69b5; }
