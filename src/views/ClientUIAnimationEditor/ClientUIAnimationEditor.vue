@@ -16,7 +16,7 @@
         <button class="tool-button" aria-label="导入文件" :aria-expanded="importMenuOpen" aria-controls="client-ui-import-menu" @click.stop="toggleImportMenu">{{ psdImportBusy ? psdImportProgress : '导入' }} <span aria-hidden="true">⌄</span></button>
         <div v-if="importMenuOpen" id="client-ui-import-menu" class="import-menu">
           <button @click.stop="openProject"><b>导入 JSON</b><small>工程文件</small></button>
-          <button @click.stop="openGiaFile"><b>导入 Gia</b><small>客户端控件容器</small></button>
+          <button @click.stop="openGiaFile"><b>导入 GIA</b><small>自动识别容器 UI / 控件模板</small></button>
           <button :disabled="psdImportBusy" @click.stop="openPsdFile"><b>导入 PSD</b><small>{{ psdImportBusy ? psdImportProgress : 'Photoshop 图层文件' }}</small></button>
           <button :disabled="spineImportBusy" @click.stop="openSpineFolder"><b>导入 Spine 动画文件夹</b><small>{{ spineImportBusy ? '正在读取 Spine…' : 'skeleton.json + 原始图片 · 无需 .spine · Spine 3.8' }}</small></button>
         </div>
@@ -25,7 +25,7 @@
         <button class="tool-button" :disabled="!hasOpenDocument" aria-label="导出文件" :aria-expanded="exportMenuOpen" aria-controls="client-ui-export-menu" @click.stop="toggleExportMenu">导出 <span aria-hidden="true">⌄</span></button>
         <div v-if="exportMenuOpen" id="client-ui-export-menu" class="export-menu">
           <button :disabled="!hasOpenDocument" @click.stop="downloadProject"><b>导出 JSON</b><small>工程文件</small></button>
-          <button :disabled="!hasOpenDocument" title="导出当前控件树的基础参数为原生客户端 UI GIA" @click.stop="openGiaExport"><b>导出 Gia</b><small>容器控件</small></button>
+          <button :disabled="!hasOpenDocument" title="选择导出客户端容器 UI 或控件模板 GIA" @click.stop="openGiaExport"><b>导出 GIA</b><small>容器 UI / 控件模板</small></button>
         </div>
       </div>
       <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openControlTemplateLibrary">控件模板</button>
@@ -55,7 +55,7 @@
     </header>
 
     <ImageAssetLibrary v-if="imageLibraryOpen && selectedNode?.type === 'image'" :key="selectedId ?? ''" :selected-id="selectedNode.properties.imageId" @select="selectImageAsset" @close="imageLibraryOpen = false" />
-    <GiaExportDialog v-if="giaExportOpen" :project-name="projectName" :initial-index="originalGiaUIIndex(giaSource)" :count="nodes.length" :has-source="!!giaSource" :busy="giaExportBusy" :error="giaExportError" :notice="giaExportNotice" @close="giaExportOpen = false" @export="downloadGiaUI" @source="attachGiaSource" />
+    <GiaExportDialog v-if="giaExportOpen" :project-name="projectName" :initial-index="originalGiaUIIndex(giaSource)" :initial-kind="detectGiaAssetKind(giaSource?.document.json)" :count="nodes.length" :has-source="!!giaSource" :busy="giaExportBusy" :error="giaExportError" :notice="giaExportNotice" @close="giaExportOpen = false" @export="downloadGiaUI" @source="attachGiaSource" />
     <ControlTemplateLibrary v-if="templateLibraryOpen" :assets="controlTemplates" :selected-index="selectedNode?.type === 'reference' ? selectedNode.properties.referencedPrefabIndex : null" :selectable="selectedNode?.type === 'reference'" :device-index="templateDeviceIndex" @select="selectControlTemplate" @save="saveControlTemplate" @close="templateLibraryOpen = false" />
     <PrimitiveResourceLibrary v-if="primitiveResourceLibraryOpen" :key="keyframeDocumentEpoch" :assets="primitiveResources" :selected-id="selectedNode?.type === 'primitive' ? selectedNode.properties.imageResourceId ?? null : null" :selectable="selectedNode?.type === 'primitive'" :usage="primitiveResourceUsage" @save="savePrimitiveResource" @remove="removePrimitiveResource" @select="selectPrimitiveResource" @close="primitiveResourceLibraryOpen = false" />
     <div class="editor-body" :class="{ 'is-animations-collapsed': animationsPanelCollapsed }">
@@ -348,7 +348,7 @@ import type { PropertyGroup, PropertyGroupSnapshot } from "./propertyGroupAction
 import ControlPropertiesInspector from "./ControlPropertiesInspector.vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import { controlDefinitions, controlRegistry, createControlProperties, getControlDefinition } from "./controlRegistry";
-import { importGiaControls } from "./giaImporter";
+import { detectGiaAssetKind, giaAssetLabels, importGiaControls, type GiaAssetKind } from "./giaImporter";
 import { exportGiaUI, normalizeGiaExportSource, originalGiaUIIndex, createGiaExportBaseline, type GiaExportSource } from "./giaExporter";
 import GiaExportDialog from "./GiaExportDialog.vue";
 import PrimitiveImage from "./PrimitiveImage.vue";
@@ -724,14 +724,14 @@ const imageLibraryOpen = ref(false);
 const giaSource = shallowRef<GiaExportSource | null>(null);
 const giaExportOpen = ref(false), giaExportBusy = ref(false), giaExportError = ref(""), giaExportNotice = ref("");
 function openGiaExport() { exportMenuOpen.value = false; primitiveResourceLibraryOpen.value = false; templateLibraryOpen.value = false; imageLibraryOpen.value = false; giaExportError.value = ""; giaExportNotice.value = ""; giaExportOpen.value = true; }
-function downloadGiaUI(options: { name: string; uiIndex: number }) {
+function downloadGiaUI(options: { name: string; uiIndex: number; assetKind: GiaAssetKind }) {
   giaExportError.value = "";
   try {
     const result = exportGiaUI({ ...options, nodes: nodes.value, source: giaSource.value, deviceIndex: templateDeviceIndex.value });
     const url = URL.createObjectURL(new Blob([result.bytes.buffer as ArrayBuffer], { type: "application/octet-stream" }));
     const link = document.createElement("a"); link.href = url; link.download = `${options.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_") || "ClientUI"}.gia`; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    giaExportNotice.value = `已导出 ${result.controlCount} 个控件，二进制回读校验通过。`;
+    giaExportNotice.value = `已导出${giaAssetLabels[result.assetKind]} · ${result.controlCount} 个控件，二进制回读校验通过。`;
   } catch (error) { giaExportError.value = error instanceof Error ? error.message : "GIA 导出失败"; }
 }
 async function attachGiaSource(file: File) {
@@ -2607,7 +2607,7 @@ async function createGiaProject(file: File) {
     deviceMode: mode, previewPresetId: presetId, canvasWidth: width, canvasHeight: height,
     duration: 5, frameRate: 30, nodes: importedNodes, tweenTracks: [],
     giaSource: { document: imported.sourceDocument, deviceIndex: deviceIndex[mode] },
-    giaImportStatus: `GIA · ${imported.controls.length} 个控件 · ${deviceLabel}布局 · ${typeSummary}${imported.warnings.length ? ` · ${imported.warnings.join("；")}` : ""}`,
+    giaImportStatus: `GIA · ${giaAssetLabels[imported.assetKind]} · ${imported.controls.length} 个控件 · ${deviceLabel}布局 · ${typeSummary}${imported.warnings.length ? ` · ${imported.warnings.join("；")}` : ""}`,
   });
 }
 async function loadGiaFile(event: Event) {

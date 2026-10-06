@@ -1,13 +1,13 @@
 import { decode, encode, type ConverterDocument, type UgcValue } from "genshin-impact-ugc-file-converter-web";
 import { controlRegistry, createControlProperties } from "./controlRegistry";
-import { readGiaControls } from "./giaImporter";
+import { detectGiaAssetKind, giaAssetLabels, readGiaControls, type GiaAssetKind } from "./giaImporter";
 import type { ColorRGBA, ControlType, UINode } from "./types";
 import { toNativeExportNode } from "./primitiveControl";
 
 type Obj = Record<string, UgcValue>;
 export interface GiaExportSource { document: ConverterDocument; baseline?: UINode[]; deviceIndex: number }
-export interface GiaExportOptions { name: string; uiIndex: number; deviceIndex: number; nodes: UINode[]; source?: GiaExportSource | null }
-export interface GiaExportResult { bytes: Uint8Array; document: ConverterDocument; controlCount: number }
+export interface GiaExportOptions { name: string; uiIndex: number; assetKind?: GiaAssetKind; deviceIndex: number; nodes: UINode[]; source?: GiaExportSource | null }
+export interface GiaExportResult { bytes: Uint8Array; document: ConverterDocument; controlCount: number; assetKind: GiaAssetKind }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const obj = (value: UgcValue | undefined): Obj => value && typeof value === "object" && !Array.isArray(value) ? value as Obj : {};
 const list = (value: UgcValue | undefined): UgcValue[] => value === undefined ? [] : Array.isArray(value) ? value : [value];
@@ -84,6 +84,16 @@ function setHierarchy(raw: Obj, parentId: number | null, childIds: number[]) {
   if (parentId === null) delete meta["504"]; else meta["504"] = parentId;
   if (childIds.length) { raw["2"] = childIds.map(identity); meta["503"] = packIndices(childIds); }
   else { delete raw["2"]; delete meta["503"]; }
+}
+function setTemplateAttributes(raw: Obj, index: number, rootId: number) {
+  const meta = metadata(raw), attributes = list(meta["502"]).map(obj);
+  const indexAttribute = attributes.find(item => "12" in item);
+  if (indexAttribute) indexAttribute["12"] = { ...obj(indexAttribute["12"]), "501": index };
+  else attributes.push({ "12": { "501": index }, "501": 2, "502": 6 });
+  const relatedAttribute = attributes.find(item => "14" in item);
+  if (relatedAttribute) relatedAttribute["14"] = { ...obj(relatedAttribute["14"]), "501": packIndices([rootId]) };
+  else attributes.push({ "14": { "501": packIndices([rootId]) }, "501": 4, "502": 4 });
+  meta["502"] = attributes;
 }
 /** Only rewrite typed control identities, never arbitrary numbers such as image/template IDs. */
 function remapControlIdentities(value: UgcValue, ids: Map<number, number>) {
@@ -240,7 +250,7 @@ export function normalizeGiaExportSource(value: unknown): GiaExportSource | null
   return clone(source);
 }
 export function originalGiaUIIndex(source: GiaExportSource | null): number {
-  const primary = obj(obj(source?.document.json)["1"]);
+  const primary = obj(list(obj(source?.document.json)["1"])[0]);
   const value = obj(list(metadata(primary)["502"]).map(obj).find(item => "12" in item)?.["12"])["501"];
   return typeof value === "number" ? value : 1;
 }
@@ -262,7 +272,9 @@ export function createGiaExportBaseline(nodes: UINode[], canvasWidth: number, ca
 
 /** Export setup nodes only. Never bake the current animation preview into a native UI. */
 export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
-  if (!Number.isSafeInteger(options.uiIndex) || options.uiIndex < 0 || options.uiIndex > 2147483647) throw new Error("客户端 UI 索引必须是 0～2147483647 的整数");
+  const assetKind = options.assetKind ?? "containerUI";
+  if (assetKind !== "containerUI" && assetKind !== "controlTemplate") throw new Error("未知的 GIA 导出类型");
+  if (!Number.isSafeInteger(options.uiIndex) || options.uiIndex < 0 || options.uiIndex > 2147483647) throw new Error(`${giaAssetLabels[assetKind]}索引必须是 0～2147483647 的整数`);
   if (!options.nodes.length) throw new Error("控件树为空");
   const nodes = clone(options.nodes).map(toNativeExportNode), source = normalizeGiaExportSource(options.source);
   if (source?.baseline) source.baseline = source.baseline.map(toNativeExportNode);
@@ -270,25 +282,29 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
   const map = new Map(nodes.map(node => [node.id, node]));
   if (map.size !== nodes.length || nodes.some(node => node.parentId !== null && !map.has(node.parentId))) throw new Error("控件树有重复 ID 或缺失父控件");
   const roots = nodes.filter(node => !node.parentId);
-  if (roots.length !== 1 || roots[0].type !== "container") throw new Error("客户端 UI 必须有且仅有一个根容器");
+  if (roots.length !== 1) throw new Error(`${giaAssetLabels[assetKind]}必须有且仅有一个根控件`);
+  if (assetKind === "containerUI" && roots[0].type !== "container") throw new Error("客户端容器 UI 的根控件必须是容器；其他根控件请选择导出客户端控件模板");
   const visiting = new Set<string>(), visited = new Set<string>();
   function visit(node: UINode) { if (visiting.has(node.id)) throw new Error("控件层级存在循环"); if (visited.has(node.id)) return; visiting.add(node.id); if (node.parentId) visit(map.get(node.parentId)!); visiting.delete(node.id); visited.add(node.id); }
   nodes.forEach(visit);
-  const original = obj(source?.document.json), originalPrimary = obj(original["1"]);
-  const rawNodes = [...list(original["2"]).map(obj), ...(originalPrimary["5"] === 70 ? [originalPrimary] : [])];
+  const original = obj(source?.document.json), originalPrimary = obj(list(original["1"])[0]);
+  const sourceKind = detectGiaAssetKind(source?.document.json);
+  const rawNodes = [...list(original["2"]).map(obj), ...(sourceKind === "controlTemplate" ? [originalPrimary] : [])];
   const rawMap = new Map(rawNodes.map(raw => [Number(obj(raw["1"])["4"]), raw]));
   const baseline = new Map((source?.baseline ?? []).map(node => [node.id, node]));
   if (source && !source.baseline) throw new Error("缺少原始 GIA 的编辑基准，请重新导入原始 GIA");
   const oldIds = new Set((source?.baseline ?? []).map(node => Number(/^gia_node_(\d+)$/.exec(node.id)?.[1])));
   const dependencies = clone(list(original["2"]).map(obj).filter(raw => !oldIds.has(Number(obj(raw["1"])["4"]))));
-  // Reserve a contiguous block for every control plus the UI wrapper. External
+  // Reserve a contiguous block for controls and, for a UI, its wrapper. External
   // dependencies retain their identities, so move the whole block past a collision.
   let nextId = 1073741825;
   const reserved = dependencies.map(raw => Number(obj(raw["1"])["4"])).filter(Number.isFinite).sort((a, b) => a - b);
-  for (const id of reserved) if (id >= nextId && id <= nextId + nodes.length) nextId = id + 1;
-  if (!Number.isSafeInteger(nextId + nodes.length) || nextId + nodes.length > 2147483647) throw new Error("没有足够的连续控件 ID 可用于导出");
+  const lastOffset = nodes.length - (assetKind === "controlTemplate" ? 1 : 0);
+  for (const id of reserved) if (id >= nextId && id <= nextId + lastOffset) nextId = id + 1;
+  if (!Number.isSafeInteger(nextId + lastOffset) || nextId + lastOffset > 2147483647) throw new Error("没有足够的连续控件 ID 可用于导出");
   const ids = new Map(nodes.map(node => [node.id, nextId++] as const));
-  const primaryId = nextId;
+  const rootId = ids.get(roots[0].id)!;
+  const primaryId = assetKind === "controlTemplate" ? rootId : nextId;
   const remappedIds = new Map<number, number>();
   for (const node of nodes) {
     const old = /^gia_node_(\d+)$/.exec(node.id);
@@ -304,34 +320,48 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
       const raw = old ? clone(old) : createNativeControl(node, id);
       if (old) reindexNativeControl(raw, id, remappedIds);
       raw["5"] = 15;
-      if (!before || node.name !== before.name) { raw["3"] = `string:${node.name}`; const name = component(raw, 12); if (name) name["12"] = { ...obj(name["12"]), "501": `string:${node.name}` }; }
+      if (sourceKind === "controlTemplate" && node === roots[0] && assetKind === "containerUI") {
+        metadata(raw)["502"] = list(metadata(raw)["502"]).map(obj).filter(attribute => !("14" in attribute));
+      }
+      if (!before || node.name !== before.name || old === originalPrimary) { raw["3"] = `string:${node.name}`; const name = component(raw, 12); if (name) name["12"] = { ...obj(name["12"]), "501": `string:${node.name}` }; }
       const children = nodes.filter(child => child.parentId === node.id).slice().reverse().map(child => ids.get(child.id)!);
       setHierarchy(raw, node.parentId ? ids.get(node.parentId)! : null, children);
       writeLayout(raw, node, before, options.deviceIndex); writeProperties(raw, node, before); output.push(raw);
     } catch (error) { errors.push((error as Error).message); }
   }
   if (errors.length) throw new Error(errors.join("\n"));
-  const rootId = ids.get(roots[0].id)!;
-  const primary = originalPrimary["5"] === 21 ? clone(originalPrimary) : createNativeUI(primaryId, rootId, options.name, options.uiIndex);
-  if (originalPrimary["5"] === 21) reindexNativeControl(primary, primaryId, remappedIds);
-  primary["3"] = `string:${options.name}`;
-  const nameComponent = component(primary, 12); if (nameComponent) nameComponent["12"] = { ...obj(nameComponent["12"]), "501": `string:${options.name}` };
-  body(primary, 72)["501"] = rootId;
-  const attributes = list(metadata(primary)["502"]).map(obj), indexAttribute = attributes.find(item => "12" in item);
-  if (indexAttribute) indexAttribute["12"] = { ...obj(indexAttribute["12"]), "501": options.uiIndex };
-  metadata(primary)["502"] = attributes;
-  const rootAttribute = attributes.find(item => "14" in item);
-  if (rootAttribute) rootAttribute["14"] = { ...obj(rootAttribute["14"]), "501": packIndices([rootId]) };
-  primary["2"] = [rootId, ...nodes.filter(node => node.parentId === roots[0].id).slice().reverse().map(node => ids.get(node.id)!)].map(identity);
+  let primary: Obj;
+  if (assetKind === "controlTemplate") {
+    primary = output.find(raw => Number(obj(raw["1"])["4"]) === rootId)!;
+    primary["5"] = 70;
+    primary["3"] = `string:${options.name}`;
+    setTemplateAttributes(primary, options.uiIndex, rootId);
+  } else {
+    primary = originalPrimary["5"] === 21 ? clone(originalPrimary) : createNativeUI(primaryId, rootId, options.name, options.uiIndex);
+    if (originalPrimary["5"] === 21) reindexNativeControl(primary, primaryId, remappedIds);
+    primary["3"] = `string:${options.name}`;
+    const nameComponent = component(primary, 12); if (nameComponent) nameComponent["12"] = { ...obj(nameComponent["12"]), "501": `string:${options.name}` };
+    body(primary, 72)["501"] = rootId;
+    setTemplateAttributes(primary, options.uiIndex, rootId);
+    primary["2"] = [rootId, ...nodes.filter(node => node.parentId === roots[0].id).slice().reverse().map(node => ids.get(node.id)!)].map(identity);
+  }
   dependencies.forEach(raw => remapControlIdentities(raw, remappedIds));
   const document: ConverterDocument = source ? clone(source.document) : { filetype: "gia", dirtype: "Unknown", info: { "1": 1, "2": 806, "3": 3, "4": 1657 }, json: {}, dtype_csv: "" };
-  document.json = { ...original, "1": primary, "2": [...output, ...dependencies] };
+  document.json = { ...original, "1": primary, "2": [...output.filter(raw => raw !== primary), ...dependencies] };
+  if (source && sourceKind !== assetKind) {
+    // Moving the root between asset and member fields also moves unknown wire types.
+    const from = sourceKind === "controlTemplate" ? "1" : "2", to = from === "1" ? "2" : "1";
+    const moved = document.dtype_csv.split(/\r?\n/).filter(line => line.startsWith(`${from}/`))
+      .map(line => `${to}${line.slice(from.length)}`);
+    document.dtype_csv += `\n${moved.join("\n")}`;
+  }
   if (!source) (document.json as Obj)["5"] = "string:7.0.54";
   prepareEncoding(document);
   const bytes = encode(document, { type: "gia" });
   // Decode the actual bytes and verify topology and mapped values, not just JSON.
   const decoded = decode(bytes, { type: "gia" });
   const imported = readGiaControls(decoded.json, options.deviceIndex);
+  if (imported.assetKind !== assetKind || originalGiaUIIndex({ document: decoded, deviceIndex: options.deviceIndex }) !== options.uiIndex) throw new Error("导出校验失败：GIA 类型或索引不一致");
   const resultMap = new Map(imported.controls.map(control => [control.sourceNodeIndex, control]));
   for (const node of nodes) {
     const actual = resultMap.get(ids.get(node.id)!);
@@ -358,5 +388,5 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
       throw new Error(`导出校验失败：${node.name} 的 ${key} 不能在 GIA 中保持一致`);
     }
   }
-  return { bytes, document, controlCount: nodes.length };
+  return { bytes, document, controlCount: nodes.length, assetKind };
 }

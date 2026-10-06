@@ -3,6 +3,9 @@ import type { ColorRGBA, ControlType } from "./types";
 
 type GiaObject = Record<string, UgcValue>;
 
+export type GiaAssetKind = "containerUI" | "controlTemplate";
+export const giaAssetLabels: Record<GiaAssetKind, string> = { containerUI: "客户端容器 UI", controlTemplate: "客户端控件模板" };
+
 export interface GiaImportedLayout {
   active: boolean;
   scaleX: number;
@@ -34,6 +37,7 @@ export interface GiaImportedControl {
 }
 
 export interface GiaImportResult {
+  assetKind: GiaAssetKind;
   projectName: string;
   controls: GiaImportedControl[];
   warnings: string[];
@@ -328,14 +332,23 @@ export function importGiaControlTemplate(input: ArrayBuffer): GiaImportResult[] 
   return [0, 1, 2, 3].map(device => readGiaControls(document.json, device));
 }
 
+/** Native UI assets have a UI wrapper; template assets contain the root control. */
+export function detectGiaAssetKind(json: UgcValue | undefined): GiaAssetKind {
+  const primary = asObject(asArray(asObject(json)?.["1"])[0]);
+  if (primary && !componentOf(primary, "72") && primary["5"] !== 21
+    && (primary["5"] === 70 || componentOf(primary, "11"))) return "controlTemplate";
+  return "containerUI";
+}
+
 export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportResult {
   const root = asObject(json);
   if (!root) throw new Error("GIA 根数据不是对象");
   const rawNodes = asArray(root["2"]).map(asObject).filter((value): value is GiaObject => Boolean(value));
   // A template's primary entry is its root control; a UI project's primary
   // entry is just a wrapper. Only include entries with a real RectTransform.
-  const primary = asObject(root["1"]);
-  if (primary && componentOf(primary, "11") && !componentOf(primary, "72") && primary["5"] !== 21) rawNodes.unshift(primary);
+  const primary = asObject(asArray(root["1"])[0]);
+  const assetKind = detectGiaAssetKind(json);
+  if (primary && assetKind === "controlTemplate" && componentOf(primary, "11")) rawNodes.unshift(primary);
   const seen = new Set<number>();
   const warnings: string[] = [];
   const controls: GiaImportedControl[] = [];
@@ -349,7 +362,9 @@ export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportR
     const detected = controlTypeOf(node);
     const nameComponent = componentOf(node, "12");
     const componentName = decodeGiaText(asObject(nameComponent?.["12"])?.["501"]);
-    const name = decodeGiaText(node["3"], componentName || `Control_${sourceNodeIndex}`);
+    // A template's asset name and its root control's component name can differ.
+    const name = node === primary && assetKind === "controlTemplate" && componentName
+      ? componentName : decodeGiaText(node["3"], componentName || `Control_${sourceNodeIndex}`);
     if (!detected.known) warnings.push(`${name}：未识别具体控件组件，按容器保留层级`);
     controls.push({
       sourceNodeIndex,
@@ -368,9 +383,9 @@ export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportR
   if (unknownTextAlignments.length) {
     warnings.push(`文本对齐未识别（${unknownTextAlignments.map((control) => `${control.name} #${control.sourceNodeIndex}`).join("、")}）：未知的水平/垂直对齐值已标为未设置，请在属性面板核对`);
   }
-  const project = asObject(root["1"]);
   return {
-    projectName: decodeGiaText(project?.["3"], "Imported GIA UI"),
+    assetKind,
+    projectName: decodeGiaText(primary?.["3"], "Imported GIA UI"),
     controls: orderControls(controls),
     warnings,
   };
