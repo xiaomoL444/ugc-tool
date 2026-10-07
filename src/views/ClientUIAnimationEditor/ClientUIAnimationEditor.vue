@@ -1958,7 +1958,17 @@ function nodeStyle(node: UINode): CSSProperties {
   const typeColor = editorTypeColors[displayNode.type];
   const borderColor = isContainer || hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor);
   const backgroundColor = isContainer || hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, 0.12);
-  return { width: `${displayNode.width}px`, height: `${displayNode.height}px`, left: `${world.x - displayNode.width * displayNode.pivotX}px`, top: `${canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY)}px`, transform: `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`, transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) };
+  const left = world.x - displayNode.width * displayNode.pivotX;
+  const top = canvasHeight.value - world.y - displayNode.height * (1 - displayNode.pivotY);
+  const matrix = `matrix(${world.matrix.a}, ${-world.matrix.b}, ${-world.matrix.c}, ${world.matrix.d}, 0, 0)`;
+  // Keep the many filtered SVG sprites in one composited layer. Updating left/top
+  // invalidates their layout/paint on every drag even though the fit is unchanged.
+  const compositePrimitive = displayNode.type === "primitive";
+  return { width: `${displayNode.width}px`, height: `${displayNode.height}px`,
+    left: compositePrimitive ? "0px" : `${left}px`, top: compositePrimitive ? "0px" : `${top}px`,
+    transform: compositePrimitive ? `translate(${left}px, ${top}px) ${matrix}` : matrix,
+    willChange: compositePrimitive ? "transform" : undefined,
+    transformOrigin: `${displayNode.pivotX * 100}% ${(1 - displayNode.pivotY) * 100}%`, borderColor, backgroundColor, color: colorToCss(typeColor) };
 }
 function canvasOverlayPoint(x: number, y: number) {
   return { x: panX.value + (x - canvasWidth.value / 2) * zoom.value, y: panY.value + (canvasHeight.value / 2 - y) * zoom.value };
