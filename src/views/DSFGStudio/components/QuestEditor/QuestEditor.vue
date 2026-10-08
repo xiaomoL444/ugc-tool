@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import StudioSelectField from "../StudioSelectField.vue";
 import { inject, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 import { toast } from "vue-sonner";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
+import StudioHistoryToolbar from "../StudioHistoryToolbar.vue";
+import { useStudioDocumentHistory } from "../useStudioHistory";
 import type { StudioEditorKind } from "../studioSidebar";
 import { StorageClass } from "@/services/storage/storage";
 import { downloadTextFile } from "@/utils/download";
@@ -40,6 +43,13 @@ let disposed = false;
 let loading = false;
 let requestId = 0;
 let revision = 0;
+const historyElement = ref<HTMLElement>();
+const history = useStudioDocumentHistory({
+  project, element: historyElement, blocked: () => busy.value, label: "修改任务",
+  ownsTarget: target => !!target.closest?.(".quest-settings"),
+  afterRestore: () => { settingsOpen.value = false; },
+  onError: error => showError(error, "任务恢复失败"),
+});
 
 function showError(error: unknown, fallback: string) {
   console.error(error);
@@ -175,11 +185,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="quest-editor" :inert="busy" :aria-busy="busy">
+  <div ref="historyElement" class="quest-editor" :inert="busy" :aria-busy="busy">
       <SectionLayout title="任务编辑" class="quest-edit-section">
         <div class="quest-workspace" :class="{ 'is-busy': busy }" :aria-busy="busy">
           <header class="quest-file-toolbar">
             <span>{{ workspaceId }} <span class="workspace-label">/ 工作区任务</span></span><small role="status" :class="{ 'save-error': saveStatus === '保存失败' }">{{ saveStatus }}</small>
+            <StudioHistoryToolbar :history="history" :disabled="busy" />
             <button type="button" :disabled="!project || busy" @click="openSettings">任务设置</button>
             <RuntimeImportButton :disabled="busy || exporting" :import-file="importConfiguration" />
             <button type="button" class="primary" :disabled="!project || busy || exporting" @click="exportVariables">{{ exporting ? '导出中…' : '导出千星任务' }}</button>
@@ -190,10 +201,10 @@ onBeforeUnmount(() => {
               <h3>选择要沿用的旧任务</h3>
               <p>每个工作区现在只有一份任务配置。检测到多份旧文件，请选择一份沿用；其他原文件保留为备份，不会合并或删除。</p>
               <form class="legacy-choice" @submit.prevent="loadProject(legacySelection)">
-                <select v-model="legacySelection" aria-label="沿用旧任务文件" :disabled="busy">
+                <StudioSelectField v-model="legacySelection" aria-label="沿用旧任务文件" :disabled="busy">
                   <option disabled value="">请选择一份旧任务</option>
                   <option v-for="file in legacyFiles" :key="file" :value="file">{{ file }}</option>
-                </select>
+                </StudioSelectField>
                 <button type="submit" :disabled="busy || !legacySelection">沿用这份任务</button>
               </form>
             </template>

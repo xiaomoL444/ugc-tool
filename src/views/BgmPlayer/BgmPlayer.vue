@@ -44,6 +44,7 @@
                                     :aria-label="categoryName(group.category)">
                                     <h3 class="song-group-label">{{ categoryName(group.category) }}</h3>
                                     <ListButton v-for="item in group.songs" :key="item.id"
+                                        :data-bgm-id="item.id" :aria-current="item.id === selectedItem?.id ? 'true' : undefined"
                                         :is-selected="item.id == selectedItem?.id" v-on:update:selected="OnSelect(item)">
                                         <BgmInfoViewer :info="item"></BgmInfoViewer>
                                     </ListButton>
@@ -78,7 +79,7 @@
                     <!-- Begin -->
                     <iframe v-if="selectedItem" :title="t('bgmPlayer.ui.player')" frameborder="no" border="0" marginwidth="0" marginheight="0"
                         width="100%" height="86"
-                        :src="`//music.163.com/outchain/player?type=2&id=${selectedItem?.song_id}&auto=1&height=66`"></iframe>
+                        :src="`//music.163.com/outchain/player?type=2&id=${selectedItem?.song_id}&auto=${selectedAutoplay ? 1 : 0}&height=66`"></iframe>
                     <!-- End -->
                 </div>
             </SectionLayout>
@@ -384,12 +385,15 @@ import { useI18n } from "vue-i18n";
 import { createCachedText } from "@/i18n/cachedText";
 import { loadOssTranslations } from "@/i18n";
 import { normalizeBgmData } from "./utils/bgmData";
+import { useRoute } from "vue-router";
+import { toast } from "vue-sonner";
 
 function neteaseSongUrl(songId: number) {
     return `https://music.163.com/song?id=${songId}`;
 }
 
 const composer = useI18n({ useScope: "global" });
+const route = useRoute();
 const { t } = composer;
 const resourceText = createCachedText(composer);
 
@@ -419,8 +423,10 @@ async function loadData() {
 onMounted(loadData);
 
 const selectedId = ref<number>();
+const selectedAutoplay = ref(true);
 const selectedItem = computed(() => dataJson.value.find((item) => item.id === selectedId.value));
-function OnSelect(item: BgmInfo) {
+function OnSelect(item: BgmInfo, autoplay = true) {
+    selectedAutoplay.value = autoplay;
     selectedId.value = item.id;
 }
 
@@ -432,6 +438,34 @@ const availableVersions = computed(() =>
 );
 const expandedCategories = ref<number[]>([]);
 const songListRef = ref<HTMLElement | null>(null);
+
+watch([() => route.query.id, loading], async ([id, isLoading], _previous, onCleanup) => {
+    if (isLoading || loadError.value || id === undefined) return;
+    let cancelled = false;
+    onCleanup(() => { cancelled = true; });
+    const numericId = typeof id === "string" && /^\d+$/.test(id) ? Number(id) : NaN;
+    const item = Number.isSafeInteger(numericId)
+        ? dataJson.value.find((song) => song.id === numericId)
+        : undefined;
+    if (!item) {
+        selectedId.value = undefined;
+        toast.error(t("bgmPlayer.ui.deepLinkNotFound"));
+        return;
+    }
+    search.value = "";
+    selectedVersion.value = "";
+    if (!isCategoryExpanded(item.category)) {
+        expandedCategories.value = [...expandedCategories.value, item.category];
+    }
+    OnSelect(item, false);
+    await nextTick();
+    if (cancelled || selectedId.value !== item.id || route.query.id !== id) return;
+    const list = songListRef.value;
+    const button = list?.querySelector<HTMLElement>(`[data-bgm-id="${item.id}"]`);
+    if (list && button) {
+        list.scrollTo({ top: list.scrollTop + button.getBoundingClientRect().top - list.getBoundingClientRect().top - 10, behavior: "auto" });
+    }
+}, { immediate: true, flush: "post" });
 
 function categoryName(categoryId: number) {
     const key = categoryData.value[String(categoryId)];

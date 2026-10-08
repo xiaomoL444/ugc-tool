@@ -6,6 +6,8 @@
   "homePage.categories.editors": "编辑与生成",
   "homePage.categories.utilities": "实用工具",
   "homePage.categories.community": "外链",
+  "homePage.acknowledgements.title": "鸣谢列表",
+  "homePage.acknowledgements.description": "感谢为工具集提供帮助与支持的朋友们。",
   "announcements.title": "公告",
   "announcements.unreadCount": "有 {count} 条未读公告",
   "announcements.list": "公告列表",

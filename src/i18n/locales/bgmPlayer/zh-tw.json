@@ -27,5 +27,6 @@
   "bgmPlayer.ui.categoryFallback": "分類 {id}",
   "bgmPlayer.ui.uncategorized": "未分類",
   "bgmPlayer.ui.copy": "複製{title}",
-  "bgmPlayer.ui.metadataEntry": "{title}：{info}"
+  "bgmPlayer.ui.metadataEntry": "{title}：{info}",
+  "bgmPlayer.ui.deepLinkNotFound": "找不到連結指向的音樂"
 }

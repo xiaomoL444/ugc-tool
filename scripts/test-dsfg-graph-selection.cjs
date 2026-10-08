@@ -106,12 +106,14 @@ async function main() {
     let ticks = 0;
     let flushTick;
     const selectedGroupNodeId = { value: "previous-group" };
+    const clipInspectorOpen = { value: options.inspectorOpen ?? false };
     const nodesSelectionActive = { value: options.overlayActive ?? true };
     const selectionRef = {};
     const clicks = [];
     Object.defineProperty(selectionRef, "value", { get() { reads += 1; return selection; } });
     const context = vm.createContext({
       selectedGroupNodeId,
+      clipInspectorOpen,
       nodesSelectionActive,
       getSelectedNodes: selectionRef,
       nextTick() {
@@ -134,6 +136,7 @@ async function main() {
       get reads() { return reads; },
       get ticks() { return ticks; },
       selectedGroupNodeId,
+      clipInspectorOpen,
       nodesSelectionActive,
       clicks,
     };
@@ -179,10 +182,19 @@ async function main() {
     assert.equal(state.nodesSelectionActive.value, false);
   });
 
+  await test("An empty canvas click retains the Timeline when the Clip inspector was open", async () => {
+    const state = harness([], { inspectorOpen: true, deferTick: true });
+    const pending = state.finish();
+    state.clipInspectorOpen.value = false;
+    state.flush(); await pending;
+    assert.equal(state.selectedGroupNodeId.value, "previous-group");
+    assert.equal(state.clicks.length, 0);
+  });
+
   await test("Multiple selected nodes retain their draggable overlay and are not clicked individually", async () => {
     const selection = [structuredClone(groupNode), structuredClone(branchNode)];
     const original = structuredClone(selection);
-    const state = harness(selection);
+    const state = harness(selection, { inspectorOpen: true });
     await state.finish();
     assert.equal(state.selectedGroupNodeId.value, "");
     assert.equal(state.nodesSelectionActive.value, true);

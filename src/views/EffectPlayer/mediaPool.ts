@@ -1,26 +1,32 @@
 /** Retain paused media across virtual-list unmounts without keeping every effect forever. */
 export function createMediaPool<T extends { dispose(): void }>(maxIdle = 64) {
-  const entries = new Map<string, { value: T; users: number }>();
+  type Entry = { key: string; value: T };
+  // A live lease owns its media exclusively. Release order gives idle media a
+  // global LRU order, including separate instances of the same resource.
+  const idleEntries = new Set<Entry>();
   function trim() {
-    const idle = [...entries].filter(([, entry]) => entry.users === 0);
-    for (const [key, entry] of idle.slice(0, Math.max(0, idle.length - maxIdle))) {
-      entries.delete(key);
+    while (idleEntries.size > Math.max(0, maxIdle)) {
+      const entry = idleEntries.values().next().value!;
+      idleEntries.delete(entry);
       entry.value.dispose();
     }
   }
   return {
     acquire(key: string, create: () => T) {
-      const entry = entries.get(key) ?? { value: create(), users: 0 };
-      entries.delete(key);
-      entries.set(key, entry);
-      entry.users += 1;
+      let entry: Entry | undefined;
+      for (const candidate of idleEntries) {
+        if (candidate.key === key) { entry = candidate; break; }
+      }
+      entry ??= { key, value: create() };
+      idleEntries.delete(entry);
+      const leasedEntry = entry;
       let released = false;
       return {
-        value: entry.value,
+        value: leasedEntry.value,
         release() {
           if (released) return;
           released = true;
-          entry.users -= 1;
+          idleEntries.add(leasedEntry);
           trim();
         },
       };

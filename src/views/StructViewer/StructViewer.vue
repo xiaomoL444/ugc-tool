@@ -884,8 +884,6 @@ function copyCache() {
 const STORAGE_KEY = "xiaomoL444-Save";
 
 const SaveData = ref({ advancedDataStruct: [], structData: [] });
-const undoStack = ref([]);
-const redoStack = ref([]);
 // ✅ 增加一个“是否是手动修改”的标志
 let isProgrammaticChange = false;
 

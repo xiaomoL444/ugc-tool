@@ -33,10 +33,13 @@ export function updateClipStructField(definitions: ClipPropertyDefinition[], sou
   const next = createClipPropertyValues(definitions, { ...(isRecord(source) ? source : {}), [key]: value });
   for (const property of definitions) {
     if (property.type !== "struct-list" || property.itemLimitsWhen?.key !== key) continue;
-    const { max } = getClipListLimits(property, next);
+    const { min, max } = getClipListLimits(property, next);
     next[property.key] = (next[property.key] as unknown[]).slice(0, max);
+    const fields = getClipNestedProperties(property, next);
+    while ((next[property.key] as unknown[]).length < min) {
+      (next[property.key] as unknown[]).push(createClipPropertyValues(fields));
+    }
     if (property.propertiesWhen?.key === key) {
-      const fields = getClipNestedProperties(property, next);
       next[property.key] = (next[property.key] as unknown[]).map(item => {
         const slot = createClipPropertyValues(fields, item);
         for (const field of fields) {
@@ -71,7 +74,11 @@ export function createClipPropertyValues(
         createClipPropertyValues(property.properties ?? [], item),
       );
       const { min } = getClipListLimits(property, result);
-      while (items.length < min) items.push(createClipPropertyValues(property.properties ?? []));
+      // Explicitly saved lists (including empty lists) are data, not missing
+      // defaults. Apply editing limits only when the user changes the mode.
+      if (values[property.key] === undefined) {
+        while (items.length < min) items.push(createClipPropertyValues(property.properties ?? []));
+      }
       result[property.key] = items;
     } else {
       result[property.key] = value;

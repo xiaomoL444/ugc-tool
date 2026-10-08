@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from "vue";
+import StudioSelectField from "../StudioSelectField.vue";
+import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from "vue";
+import { studioEditorActiveKey } from "../studioSessionHistory";
 import { VueFlow, Handle, Position, MarkerType, useVueFlow, type Node, type Edge, type Connection, type NodeDragEvent, type NodeMouseEvent, type EdgeMouseEvent } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import { toast } from "vue-sonner";
@@ -11,6 +13,7 @@ import "@vue-flow/core/dist/theme-default.css";
 const props = defineProps<{ project: QuestProject; selection: QuestSelection | null }>();
 const emit = defineEmits<{ (event: "select", id: number): void; (event: "edit", id: number): void }>();
 const flowId = `quest-flow-${crypto.randomUUID()}`;
+const editorActive = inject(studioEditorActiveKey, () => true);
 const { fitView, zoomIn, zoomOut, panBy } = useVueFlow(flowId);
 const panning = ref(false);
 let cancelPan: (() => void) | undefined;
@@ -18,6 +21,7 @@ let cancelPan: (() => void) | undefined;
 // Group backgrounds also carry Vue Flow's no-pan class. Capture their left drags,
 // while leaving group headings, task cards and connection handles to native node interactions.
 function startCanvasPan(event: PointerEvent) {
+  if (!editorActive()) return;
   const target = event.target as Element | null;
   const groupBackground = target?.closest(".flow-group") && !target.closest(".group-heading");
   if (event.button !== 2 && !(event.button === 0 && groupBackground)) return;
@@ -49,6 +53,7 @@ function startCanvasPan(event: PointerEvent) {
   window.addEventListener("blur", cleanup);
 }
 onBeforeUnmount(() => cancelPan?.());
+watch(editorActive, active => { if (!active) cancelPan?.(); }, { flush: "sync" });
 const mainId = ref<number | null>(null);
 const page = ref(0);
 const nodes = ref<Node[]>([]);
@@ -61,7 +66,7 @@ const selectedSub = computed(() => props.selection?.kind === "sub" ? props.proje
 let fittedScope = "";
 let active = true;
 
-function fit() { void nextTick(() => { if (active) void fitView({ padding: .22, duration: 250, maxZoom: 1 }); }); }
+function fit() { void nextTick(() => { if (active && editorActive()) void fitView({ padding: .22, duration: 250, maxZoom: 1 }); }); }
 onActivated(() => { active = true; fit(); });
 onDeactivated(() => { active = false; cancelPan?.(); });
 function updateNodes(result: ReturnType<typeof buildQuestFlow>, reset = false) {
@@ -175,13 +180,13 @@ function removeLink() {
 <template>
   <section class="quest-flow" aria-label="任务衔接图">
     <header class="flow-toolbar">
-      <div class="scope-control"><strong>任务衔接</strong><select :value="mainId ?? ''" aria-label="衔接图主任务范围" @change="changeMain"><option value="">全部主任务</option><option v-for="main in project.mainQuests" :key="main.id" :value="main.id">{{ main.title || '未命名主任务' }} #{{ main.id }}</option></select></div>
+      <div class="scope-control"><strong>任务衔接</strong><StudioSelectField :value="mainId ?? ''" aria-label="衔接图主任务范围" @change="changeMain"><option value="">全部主任务</option><option v-for="main in project.mainQuests" :key="main.id" :value="main.id">{{ main.title || '未命名主任务' }} #{{ main.id }}</option></StudioSelectField></div>
       <div class="flow-controls"><button type="button" @click="arrange">整理布局</button><button type="button" @click="fit">适应画布</button><button type="button" aria-label="缩小任务图" @click="zoomOut()">−</button><button type="button" aria-label="放大任务图" @click="zoomIn()">＋</button></div>
     </header>
     <div class="flow-guide"><span class="legend-next">后续任务</span><span class="legend-failure">失败回溯</span><span>自由拖动子任务，外框自动包裹 · 拖动分组标题整体移动 · 双击子任务编辑属性</span></div>
     <p v-if="projection.omitted" class="flow-warning" role="status">当前图省略了 {{ projection.omitted }} 条连线，任务数据完整保留。可切换主任务或在任务属性中查看全部衔接。</p>
     <div class="flow-canvas" :class="{ 'is-panning': panning }" @pointerdown.capture="startCanvasPan" @contextmenu.prevent>
-      <VueFlow v-if="nodes.length" :id="flowId" v-model:nodes="nodes" v-model:edges="edges" :min-zoom=".15" :max-zoom="1.6" :delete-key-code="null" :edges-updatable="false" :pan-on-drag="[0]" fit-view-on-init
+      <VueFlow v-if="nodes.length" :id="flowId" v-model:nodes="nodes" v-model:edges="edges" :min-zoom=".15" :max-zoom="1.6" :delete-key-code="null" :disable-keyboard-a11y="!editorActive()" :edges-updatable="false" :pan-on-drag="[0]" fit-view-on-init
         @connect="connect" @node-click="selectNode" @node-double-click="editNode" @node-drag="dragStop" @node-drag-stop="dragStop" @edge-click="selectEdge" @pane-click="selectedEdge = undefined">
         <template #node-quest-group="slot">
           <div class="flow-group" :class="'group-' + slot.data.kind">
@@ -223,7 +228,7 @@ function removeLink() {
 .scope-control, .flow-controls, .selection-actions, .flow-pages { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .scope-control strong { font-size: 14px; margin-right: 6px; }
 button, select { font: inherit; font-size: 12px; color: #526c91; background: #fff; border: 1px solid #d6e1f3; border-radius: 6px; padding: 7px 10px; }
-select { max-width: 260px; }
+.studio-select-field { max-width: 260px; }
 button { cursor: pointer; }
 button:hover:not(:disabled) { background: #edf5ff; border-color: #94bce9; }
 button:disabled { opacity: .4; cursor: default; }

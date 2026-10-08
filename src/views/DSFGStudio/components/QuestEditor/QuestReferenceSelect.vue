@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { studioTreeSelectTheme } from "../studioSelectTheme";
+import "../../studioSelect.css";
 import { NTreeSelect } from "naive-ui";
 import type { TreeSelectOption } from "naive-ui";
 
@@ -23,7 +25,7 @@ function clickBehavior({ option }: { option: TreeSelectOption }): "toggleSelect"
 </script>
 
 <template>
-  <NTreeSelect
+  <NTreeSelect :theme-overrides="studioTreeSelectTheme" :menu-props="{ class: 'studio-select-menu' }"
     class="quest-reference-select"
     :value="modelValue" :options="options" :disabled="disabled"
     :aria-label="label" :placeholder="placeholder ?? '选择任务或搜索任务名 / ID'"

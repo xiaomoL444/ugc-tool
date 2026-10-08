@@ -153,13 +153,57 @@ async function main() {
   await test("Explicit Clip and node buttons navigate without stealing double-click text selection", () => {
     const lineElement = previewElements.find((node) => node.tag === "DialogueTextLine");
     const cardButton = previewElements.find((node) => directive(node, "on", "click")?.exp?.content === "navigateToBlock(placed.block)");
-    const outletButton = previewElements.find((node) => directive(node, "on", "click")?.exp?.content === "navigateToBlock(placed.block, undefined, true)");
-    for (const [element, event, expected] of [[cardButton, "click", [block()]], [lineElement, "configure", [block(), "B"]], [outletButton, "click", [block(), undefined, true]]]) {
+    for (const [element, event, expected] of [[cardButton, "click", [block()]], [lineElement, "configure", [block(), "B"]]]) {
       const handler = directive(element, "on", event);
       let args;
       vm.runInNewContext(handler.exp.content, { placed: { block: block() }, line: { nodeId: "B" }, navigateToBlock(...values) { args = values; } });
       assert.deepEqual(args, expected);
     }
+    const outletButton = withClass(previewElements, "outlet-focus");
+    let selected;
+    const context = { placed: { id: "collection" }, outlet: { id: "select:option" }, selectOutlet: (...args) => { selected = args; } };
+    vm.runInNewContext(directive(outletButton, "on", "click").exp.content, context);
+    assert.deepEqual(selected, ["collection", "select:option"]);
+  });
+  await test("Bottom ports select the exact connected or empty outlet for sidebar links and appending, without editing the graph", () => {
+    const { ref, computed } = require('vue');
+    const ports = withClass(previewElements, 'text-block-ports');
+    const port = withClass(previewElements, 'text-block-port');
+    assert.equal(port.tag, 'button');
+    assert.ok(directive(port, 'bind', 'aria-label'));
+    assert.ok(directive(port, 'bind', 'aria-pressed'));
+    assert.equal(ports.props.some(prop => prop.name === 'aria-hidden'), false);
+    assert.ok(modifiers(directive(port, 'on', 'click')).includes('stop'));
+    const blocks = freeze([{ id: 'choice', outlets: [1, 2, 3, 4].map(id => ({ id: `select:${id}` })) }, { id: 'dialogue', outlets: [{ id: 'next' }] }]);
+    const edges = freeze([{ source: 'choice', outletIndex: 1, target: 'branch-two' }]);
+    const calls = [];
+    const ctx = vm.createContext({ ref, computed, blockById: { value: new Map(blocks.map(item => [item.id, item])) },
+      preview: { value: { edges } }, act: action => calls.push(copy(action)), placed: { id: 'choice' }, outlet: { id: 'select:2' } });
+    const ast = ts.createSourceFile('preview.ts', preview.descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const names = ['activeBlockId', 'activeBlock', 'chosenOutletId', 'activeOutletId', 'currentOutletTarget'];
+    const declarations = ast.statements.filter(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(item => names.includes(item.name.getText(ast))));
+    vm.runInContext(transpile(declarations.map(node => node.getText(ast)).join('\n') + '\n' +
+      ['selectBlock', 'selectOutlet', 'outletTarget', 'append'].map(name => preview.functionText(name)).join('\n') +
+      '\nthis.state = { activeBlockId, chosenOutletId, activeOutletId, currentOutletTarget };', preview.filename), ctx);
+    const click = directive(port, 'on', 'click').exp.content;
+    vm.runInContext(click, ctx);
+    assert.equal(ctx.state.activeBlockId.value, 'choice');
+    assert.equal(ctx.state.activeOutletId.value, 'select:2');
+    assert.equal(ctx.state.currentOutletTarget.value, 'branch-two');
+    assert.equal(calls.length, 0);
+    ctx.append('dialogue');
+    assert.equal(calls[0].outletId, 'select:2');
+    ctx.outlet.id = 'select:4'; vm.runInContext(click, ctx);
+    assert.equal(ctx.state.currentOutletTarget.value, '');
+    ctx.append('dialogue');
+    assert.equal(calls[1].outletId, 'select:4');
+    ctx.selectOutlet('dialogue', 'next');
+    assert.equal(ctx.state.activeBlockId.value, 'dialogue');
+    assert.equal(ctx.state.activeOutletId.value, 'next');
+    ctx.selectOutlet('choice', 'missing'); ctx.selectOutlet('removed', 'next');
+    assert.equal(ctx.state.activeBlockId.value, 'dialogue');
+    assert.equal(ctx.state.chosenOutletId.value, 'next');
+    assert.equal(calls.length, 2, 'Only explicit append operations modify the project');
   });
   await test("Cards allow focus but leave Enter and double-click to the text inputs", () => {
     assert.ok(cardElement.props.some((property) => property.name === "tabindex" && property.value?.content === "0"));

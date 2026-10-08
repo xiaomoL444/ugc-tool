@@ -1,8 +1,8 @@
 {
   "effectPlayer.title": "Effect Preview",
   "effectPlayer.description": "Search, filter, and preview game effects",
-  "effectPlayer.search.label": "Search by ID, name, or tag:",
-  "effectPlayer.search.placeholder": "e.g. 10001001 / Cryo hit / Hit",
+  "effectPlayer.search.label": "Search by ID, name, tag, or description:",
+  "effectPlayer.search.placeholder": "e.g. Cryo hit / blue ring / metallic impact",
   "effectPlayer.loop.all": "All effects",
   "effectPlayer.loop.once": "Timed effects",
   "effectPlayer.loop.loop": "Looping effects",
@@ -55,5 +55,11 @@
   "effectPlayer.media.enableAudio": "Enable sound",
   "effectPlayer.media.errorSeparator": "; ",
   "effectPlayer.media.unavailable": "No preview available",
-  "effectPlayer.media.loading": "Loading preview…"
+  "effectPlayer.media.loading": "Loading preview…",
+  "effectPlayer.deepLink.notFound": "The linked effect was not found",
+  "effectPlayer.media.startPreview": "Play preview",
+  "effectPlayer.features.loading": "Loading asset descriptions…",
+  "effectPlayer.features.unavailable": "Descriptions are temporarily unavailable. Name and ID search and previews still work.",
+  "effectPlayer.features.stale": "The description update could not be checked. Previously loaded descriptions are shown.",
+  "effectPlayer.features.empty": "Descriptions have not been generated for this asset yet."
 }

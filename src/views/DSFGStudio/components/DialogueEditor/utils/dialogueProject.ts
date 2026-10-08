@@ -62,7 +62,7 @@ export function createDialogueClip(): DialogueClip {
   };
 }
 
-export function createFocusPushClip(startTime = 0): FocusPushClip {
+export function createFocusPushClip(startTime = 1): FocusPushClip {
   return {
     id: createId("focus-push"), startTime: nonNegativeNumber(startTime, 0),
     outputMode: "Self", sharedOutletIndex: 0,
@@ -84,6 +84,7 @@ export function createSelectClip(): SelectClip {
     startTime: 0,
     continueDelayTime: DEFAULT_CONTINUE_DELAY_TIME,
     options: [createSelectOption()],
+    params: [],
   };
 }
 
@@ -309,7 +310,7 @@ function normalizeDialogueClip(value: unknown): DialogueClip {
         ? source.id
         : fallback.id,
     style:
-      typeof source.style === "string" && source.style.trim()
+      typeof source.style === "string"
         ? source.style
         : DEFAULT_DIALOGUE_STYLE_ID,
     speaker: typeof source.speaker === "string" ? source.speaker : "",
@@ -343,7 +344,7 @@ function normalizeSelectClip(value: unknown): SelectClip {
     id:
       typeof source.id === "string" && source.id ? source.id : fallback.id,
     style:
-      typeof source.style === "string" && source.style.trim()
+      typeof source.style === "string"
         ? source.style
         : DEFAULT_SELECT_STYLE_ID,
     startTime: nonNegativeNumber(source.startTime, 0),
@@ -354,6 +355,9 @@ function normalizeSelectClip(value: unknown): SelectClip {
     options: Array.isArray(source.options)
       ? source.options.map(normalizeSelectOption)
       : fallback.options,
+    params: Array.isArray(source.params)
+      ? source.params.filter((param): param is string => typeof param === "string")
+      : [],
   };
 }
 
@@ -421,7 +425,7 @@ export function normalizePerformanceClip(
         ? source.name
         : "未命名 Clip",
     startTime: nonNegativeNumber(source.startTime, 0),
-    duration: isInstantPerformanceClip({ type }) ? 0 : Math.max(type === "PublicEvent" ? 0 : 0.1, nonNegativeNumber(source.duration, 1)),
+    duration: isInstantPerformanceClip({ type }) ? 0 : Math.max(type === "PublicEvent" || type === "Camera" ? 0 : 0.1, nonNegativeNumber(source.duration, 1)),
     components,
   };
 }
@@ -486,14 +490,17 @@ function normalizeGraphNode(node: Node): Node<FlowNodeData> {
       ? node.data.conditionBranchNodeId
       : node.id
     : undefined;
+  const annotation = isRecord(node.data) && typeof node.data.annotation === "string"
+    ? node.data.annotation
+    : undefined;
 
   return {
     ...node,
-    data: dialogueNodeId
-      ? { dialogueNodeId }
-      : conditionBranchNodeId
-        ? { conditionBranchNodeId }
-        : {},
+    data: {
+      ...(dialogueNodeId ? { dialogueNodeId } : {}),
+      ...(conditionBranchNodeId ? { conditionBranchNodeId } : {}),
+      ...(annotation !== undefined ? { annotation } : {}),
+    },
     deletable: isEntry ? false : node.deletable,
     draggable: isEntry ? false : node.draggable,
     sourcePosition: isOutput ? undefined : Position.Right,

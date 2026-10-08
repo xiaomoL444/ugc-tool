@@ -29,7 +29,7 @@ function editId(event: Event) {
     </button>
     <input type="number" class="icon-id" :aria-label="`${label} ID`" title="图标 ID，也可点击图片选择" :value="modelValue" min="0" max="2147483647" step="1" @change="editId" />
     <Teleport to="body">
-      <div v-if="open" class="option-icon-backdrop dsfg-typography" @click.self="open = false" @pointerdown.stop @keydown.stop>
+      <div v-if="open" data-clip-editor class="option-icon-backdrop dsfg-typography" @click.self="open = false" @pointerdown.stop @keydown.stop>
         <ImageAssetLibrary class="option-icon-library" :catalog="selectIconCatalog" :load-metadata="false" :selected-id="modelValue || null" @select="select" @close="open = false" />
       </div>
     </Teleport>

@@ -1,8 +1,8 @@
 {
   "effectPlayer.title": "エフェクトプレビュー",
   "effectPlayer.description": "ゲームのエフェクトを検索・絞り込み・プレビュー",
-  "effectPlayer.search.label": "ID・名前・タグで検索：",
-  "effectPlayer.search.placeholder": "例：10001001 / 氷元素の被撃 / 被撃",
+  "effectPlayer.search.label": "ID・名前・タグ・説明で検索：",
+  "effectPlayer.search.placeholder": "例：氷元素の被撃 / 青い光輪 / 金属の衝突音",
   "effectPlayer.loop.all": "すべて",
   "effectPlayer.loop.once": "時間制限あり",
   "effectPlayer.loop.loop": "ループ",
@@ -55,5 +55,11 @@
   "effectPlayer.media.enableAudio": "音声をオンにする",
   "effectPlayer.media.errorSeparator": "；",
   "effectPlayer.media.unavailable": "プレビューはありません",
-  "effectPlayer.media.loading": "プレビューを読み込み中…"
+  "effectPlayer.media.loading": "プレビューを読み込み中…",
+  "effectPlayer.deepLink.notFound": "リンク先のエフェクトが見つかりません",
+  "effectPlayer.media.startPreview": "プレビューを再生",
+  "effectPlayer.features.loading": "アセットの説明を読み込み中…",
+  "effectPlayer.features.unavailable": "説明は一時的に利用できません。名前・IDでの検索とプレビューは利用できます。",
+  "effectPlayer.features.stale": "説明の更新を確認できませんでした。前回読み込んだ説明を表示しています。",
+  "effectPlayer.features.empty": "このアセットの説明はまだ生成されていません。"
 }

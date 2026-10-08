@@ -1,0 +1,299 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { buildAgentPrompt as buildAgentPromptFromSource, runAssetAgent } from "./agent-runtime.mjs";
+import { settings, validateModelResult } from "./worker.mjs";
+import { TEST_SYSTEM_PROMPT, withPromptFetch } from "./system-prompt-fixture.mjs";
+const buildAgentPrompt = (request, config) => buildAgentPromptFromSource(request, config, TEST_SYSTEM_PROMPT);
+
+const config = () => settings({ UPSTREAM_URL: "https://provider.example/v1/chat/completions", MODEL: "mock-model",
+  UPSTREAM_API_KEY: "mock-key", VISITOR_HASH_SECRET: "mock-secret", INPUT_CNY_PER_MILLION: "5", OUTPUT_CNY_PER_MILLION: "20" });
+const request = (scope = "all") => ({ query: "再来点", scope, locale: "zh-CN", includeEffectAudio: true,
+  previousIds: ["effect:100"], messages: [{ role: "user", content: "来点爆炸特效" }, { role: "assistant", content: "已找到爆炸候选 effect:100" }] });
+const asset = { resourceId: "effect:101", kind: "effect", title: "黄色爆炸", description: "", keywords: [], suggestedUses: [], hasAudio: false };
+const call = (id, name, args) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+const response = (calls, result = { answer: "找到新的爆炸特效。", matches: [{ resourceId: "effect:101", reason: "名称匹配爆炸", matchType: "feature" }] }) =>
+  new Response(JSON.stringify({ choices: [{ finish_reason: calls ? "tool_calls" : "stop", message: calls ? { content: null, tool_calls: calls } : { content: JSON.stringify(result) } }],
+    usage: { prompt_tokens: 100, completion_tokens: 40 } }));
+
+test("more-results reasoning is passed to model and its rewritten query reaches the shared search tool", async () => {
+  const req = request(), cfg = config(); let rounds = 0, searched;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, { UPSTREAM_API_KEY: "mock-key" }, {
+    search: async args => { searched = args; return { catalogVersion: "v1", items: [asset], total: 1, mode: "keyword", nextCursor: null,
+      retrievalNotice: { code: "MUSIC_DESCRIPTION_MISSING" } }; },
+  }, validateModelResult, async (_url, options) => {
+    const sent = JSON.parse(options.body); rounds += 1;
+    if (rounds === 1) {
+      assert.equal(sent.tool_choice, "required"); assert.ok(sent.messages.at(-1).content.includes('"previousIds":["effect:100"]'));
+      assert.equal(Object.hasOwn(sent, "response_format"), false);
+      assert.equal(Object.hasOwn(sent, "thinking"), false, "Generic providers receive no unsolicited thinking option");
+      return response([call("search-1", "search_assets", { query: "爆炸", scope: "effect", excludeIds: ["effect:100"] })]);
+    }
+    assert.equal(sent.messages.at(-1).role, "tool"); assert.match(sent.messages.at(-1).content, /effect:101/);
+    assert.equal(JSON.parse(sent.messages.at(-1).content).retrievalNotice.code, "MUSIC_DESCRIPTION_MISSING");
+    return response(null);
+  });
+  assert.equal(searched.query, "爆炸"); assert.equal(searched.scope, "effect"); assert.deepEqual(searched.excludeIds, ["effect:100"]);
+  assert.equal(searched.limit, 10); assert.equal(result.rounds, 2); assert.equal(result.usage.prompt_tokens, 200);
+  assert.equal(result.retrievalMode, "keyword");
+});
+
+test("explicit user type and locale cannot be widened by model tool arguments", async () => {
+  const req = request("sound"), cfg = config(); let rounds = 0;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async args => {
+      assert.equal(args.scope, "sound"); assert.equal(args.locale, "zh-CN");
+      assert.equal(args.includeEffectAudio, true);
+      return { items: [asset], mode: "keyword" };
+    },
+  }, validateModelResult, async () => ++rounds === 1
+    ? response([call("search-1", "search_assets", { query: "爆炸", scope: "all", locale: "ru-RU", includeEffectAudio: false })])
+    : response(null, { answer: "目前只有视觉名称，无法确认声音。", matches: [] }));
+  assert.equal(result.records.size, 0); assert.deepEqual(result.result.matches, []);
+});
+
+test("effect audio is selected only with authoritative audio evidence and stays projected after detail reads", async () => {
+  const req = request("sound"), cfg = config(); let rounds = 0;
+  const audioAsset = { ...asset, hasAudio: true, audioMatch: true, description: "短促爆裂声" };
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async () => ({ items: [audioAsset] }),
+    assets: async () => ({ items: [{ ...asset, hasAudio: true, description: "黄色光团", fullDescription: "巨大黄色冲击视觉",
+      audioShortDescription: "短促爆裂声", audioDescription: "短促爆裂声，随后出现低频衰减尾音。", audioKeywords: ["爆裂"] }] }),
+  }, validateModelResult, async (_url, options) => {
+    rounds += 1; const sent = JSON.parse(options.body);
+    if (rounds === 1) return response([call("search-1", "search_assets", { query: "爆裂" })]);
+    if (rounds === 2) return response([call("details-1", "get_assets", { ids: ["effect:101"] })]);
+    assert.equal(sent.tool_choice, "none"); assert.deepEqual(sent.response_format, { type: "json_object" });
+    const detail = JSON.parse(sent.messages.find(message => message.role === "tool" && message.tool_call_id === "details-1").content).items[0];
+    assert.ok(detail.description.includes("短促爆裂声")); assert.equal(detail.description.includes("黄色光团"), false);
+    assert.ok(detail.audioDescription.includes("低频衰减尾音"));
+    assert.ok(detail.visualDescription.includes("黄色光团")); assert.ok(detail.visualDescription.includes("巨大黄色冲击视觉"));
+    return response(null, { answer: "这个特效有短促爆裂声。", matches: [{ resourceId: "effect:101", reason: "音轨描述为短促爆裂声", matchType: "feature" }] });
+  });
+  assert.equal(result.records.get("effect:101").audioMatch, true); assert.equal(result.rounds, 3);
+});
+
+test("detail tools provide full evidence and official DeepSeek disables thinking even when not configured", async () => {
+  const req = request(), cfg = { ...config(), upstream: "https://api.deepseek.com/chat/completions", model: "deepseek-flash" };
+  let rounds = 0;
+  await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async () => ({ items: [asset] }),
+    assets: async () => ({ items: [{ ...asset, shortDescription: "简短摘要", description: "详细描述的前言", fullDescription: "完整描述：先闪光，随后扩散烟尘。" }] }),
+  }, validateModelResult, async (_url, options) => {
+    const sent = JSON.parse(options.body); rounds += 1;
+    assert.deepEqual(sent.thinking, { type: "disabled" });
+    if (rounds === 1) return response([call("search-1", "search_assets", { query: "黄色爆炸", scope: "effect", matchOn: "visual" })]);
+    if (rounds === 2) return response([call("details-1", "get_assets", { ids: ["effect:101"] })]);
+    const details = JSON.parse(sent.messages.find(message => message.tool_call_id === "details-1").content).items[0].visualDescription;
+    assert.ok(details.includes("详细描述的前言")); assert.ok(details.includes("先闪光")); assert.equal(details.includes("简短摘要"), false);
+    return response(null);
+  });
+});
+
+test("effect audio scope and its fixed evidence survive tool arguments, detail reads and a disabled sound-expansion checkbox", async () => {
+  const req = { ...request("effect"), query: "帮我找一些有爆炸的音效的特效", matchOn: "audio", includeEffectAudio: false }, cfg = config();
+  let rounds = 0;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async args => {
+      assert.equal(args.scope, "effect"); assert.equal(args.matchOn, "audio"); assert.equal(args.includeEffectAudio, false);
+      assert.deepEqual(args.filters, { hasAudio: true });
+      return { items: [{ ...asset, hasAudio: true, audioMatch: true, description: "低频爆炸声" }] };
+    },
+    assets: async () => ({ items: [{ ...asset, hasAudio: true, description: "黄色烟尘扩散", fullDescription: "一道黄色光团炸开",
+      audioDescription: "低频爆炸声和短暂衰减", audioKeywords: ["爆炸", "低频"] }] }),
+  }, validateModelResult, async (_url, options) => {
+    const sent = JSON.parse(options.body); rounds += 1;
+    if (rounds === 1) {
+      assert.match(sent.messages[0].content, /TEST_PROMPT_SOURCE/);
+      assert.doesNotMatch(sent.messages[0].content, /RESULT(?:\\)?_LIMIT/);
+      assert.deepEqual(sent.tools.find(tool => tool.function.name === "search_assets").function.parameters.properties.matchOn.enum, ["any", "visual", "audio"]);
+      return response([call("audio-search", "search_assets", { query: "爆炸", scope: "sound", matchOn: "visual", filters: { hasAudio: true } })]);
+    }
+    if (rounds === 2) return response([call("audio-details", "get_assets", { ids: ["effect:101"] })]);
+    const details = JSON.parse(sent.messages.find(message => message.tool_call_id === "audio-details").content).items[0];
+    assert.equal(details.audioMatch, true); assert.match(details.description, /低频爆炸声/);
+    assert.match(details.visualDescription, /黄色烟尘/); assert.match(details.audioDescription, /短暂衰减/);
+    assert.deepEqual(details.audioKeywords, ["爆炸", "低频"]);
+    return response(null);
+  });
+  assert.equal(result.records.get("effect:101").audioMatch, true); assert.equal(result.rounds, 3);
+});
+
+test("visual effect details retain independent audio evidence without changing the matched visual facet", async () => {
+  const req = { ...request("effect"), query: "爆炸光团", matchOn: "visual" }, cfg = config(); let rounds = 0;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async () => ({ items: [{ ...asset, description: "黄色爆炸光团", hasAudio: true }] }),
+    assets: async () => ({ items: [{ ...asset, description: "黄色爆炸光团扩散", hasAudio: true, audioDescription: "风声呼啸", audioKeywords: ["呼啸"] }] }),
+  }, validateModelResult, async (_url, options) => {
+    rounds += 1;
+    if (rounds === 1) return response([call("visual-search", "search_assets", { query: "爆炸", matchOn: "visual" })]);
+    if (rounds === 2) return response([call("visual-details", "get_assets", { ids: ["effect:101"] })]);
+    const sent = JSON.parse(options.body), details = JSON.parse(sent.messages.find(message => message.tool_call_id === "visual-details").content).items[0];
+    assert.match(details.visualDescription, /黄色爆炸光团/); assert.equal(details.audioDescription, "风声呼啸");
+    assert.equal(details.audioMatch, undefined); return response(null);
+  });
+  assert.equal(result.records.get("effect:101").audioMatch, undefined);
+});
+
+test("detail reads cannot introduce IDs that were never returned by this turn's search", async () => {
+  const req = request(), cfg = config(); let rounds = 0, reads = 0;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    assets: async () => { reads += 1; return { items: [asset] }; },
+    search: async () => ({ items: [asset] }),
+  }, validateModelResult, async (_url, options) => {
+    rounds += 1; const sent = JSON.parse(options.body);
+    if (rounds === 1) return response([call("unobserved", "get_assets", { ids: ["effect:101"] })]);
+    if (rounds === 2) {
+      assert.equal(JSON.parse(sent.messages.at(-1).content).error.code, "UNOBSERVED_ASSET");
+      return response([call("search-now", "search_assets", { query: "爆炸", scope: "effect" })]);
+    }
+    return response(null);
+  });
+  assert.equal(reads, 0); assert.equal(result.records.size, 1);
+});
+
+test("missing effect soundtrack coverage is passed to the model without substituting sound or visual resources", async () => {
+  const req = { ...request("effect"), query: "特效里的爆炸音效", matchOn: "audio" }, cfg = config(); let rounds = 0;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async args => { assert.equal(args.matchOn, "audio"); return { items: [], retrievalNotice: { code: "EFFECT_AUDIO_DESCRIPTION_MISSING" } }; },
+  }, validateModelResult, async (_url, options) => {
+    rounds += 1;
+    if (rounds === 1) return response([call("missing-audio", "search_assets", { query: "爆炸", matchOn: "audio", searchType: "feature" })]);
+    const sent = JSON.parse(options.body);
+    assert.equal(JSON.parse(sent.messages.at(-1).content).retrievalNotice.code, "EFFECT_AUDIO_DESCRIPTION_MISSING");
+    return response(null, { answer: "特效音轨还没有特征资料，无法确认爆炸声。", matches: [] });
+  });
+  assert.deepEqual(result.result.matches, []); assert.equal(result.records.size, 0);
+});
+
+test("real soundtrack keywords remain evidence when prose is absent and visual keywords cannot replace them", async () => {
+  const req = { ...request("effect"), matchOn: "audio", includeEffectAudio: false }, cfg = config(); let rounds = 0;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async () => ({ items: [{ ...asset, hasAudio: true, audioMatch: true, keywords: ["低频爆炸"] },
+      { ...asset, resourceId: "effect:102", hasAudio: true, keywords: ["爆炸视觉"] }] }),
+  }, validateModelResult, async (_url, options) => {
+    rounds += 1;
+    if (rounds === 1) return response([call("keyword-audio", "search_assets", { query: "爆炸", matchOn: "audio" })]);
+    const sent = JSON.parse(options.body), items = JSON.parse(sent.messages.at(-1).content).items;
+    assert.deepEqual(items.map(item => item.resourceId), ["effect:101"]); assert.deepEqual(items[0].keywords, ["低频爆炸"]);
+    assert.equal(items[0].description, ""); return response(null);
+  });
+  assert.equal(result.records.size, 1);
+});
+
+test("actual retrieval mode follows the last successful search including keyword fallback", async () => {
+  const req = request(), cfg = config(); let rounds = 0, searches = 0;
+  const answer = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async () => ({ items: [asset], mode: ++searches === 1 ? "hybrid" : "keyword",
+      ...(searches === 2 ? { retrievalWarning: "VECTOR_RETRIEVAL_UNAVAILABLE" } : {}) }),
+  }, validateModelResult, async (_url, options) => {
+    const sent = JSON.parse(options.body); rounds += 1;
+    if (rounds < 3) return response([call(`search-${rounds}`, "search_assets", { query: rounds === 1 ? "爆炸" : "黄色爆炸" })]);
+    assert.ok(sent.messages.some(message => message.role === "tool" && message.content.includes("VECTOR_RETRIEVAL_UNAVAILABLE")));
+    return response(null);
+  });
+  assert.equal(answer.retrievalMode, "keyword");
+});
+
+test("unknown or unobserved final IDs and excess tool execution are rejected", async () => {
+  const req = request(), cfg = config(); let rounds = 0;
+  await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, { search: async () => ({ items: [] }) }, validateModelResult,
+    async () => ++rounds === 1 ? response([call("search-1", "search_assets", { query: "爆炸" })]) : response(null)), error => error.code === "UPSTREAM_RESPONSE_INVALID");
+  rounds = 0; let toolExecutions = 0;
+  await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, { search: async () => { toolExecutions += 1; return { items: [] }; } }, validateModelResult,
+    async () => response(Array.from({ length: 5 }, (_, index) => call(`tool-${index}`, "search_assets", { query: "爆炸" })))), error => error.code === "AGENT_LIMIT");
+  assert.equal(toolExecutions, 0);
+});
+
+test("unsupported tools have specific safe errors and are never automatically retried", async () => {
+  const req = request(), cfg = config(); let calls = 0;
+  await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {}, validateModelResult, async () => {
+    calls += 1; return new Response(JSON.stringify({ error: { message: "This model does not support tools; mock-secret" } }), { status: 400 });
+  }), error => error.code === "TOOLS_UNSUPPORTED" && !error.message.includes("mock-secret"));
+  assert.equal(calls, 1);
+  await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {}, validateModelResult,
+    async () => new Response('{"error":{"message":"unknown model"}}', { status: 400 })), error => error.code === "UPSTREAM_REJECTED");
+});
+
+test("prompt/tool transcript and complete turn deadline are bounded before another model request", async () => {
+  const req = request(), cfg = config();
+  assert.throws(() => buildAgentPrompt(req, { ...cfg, maxPromptBytes: 1 }), error => error.code === "PROMPT_TOO_LARGE");
+  await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), { ...cfg, agentTimeoutMs: 0 }, {}, {}, validateModelResult,
+    async () => { throw new Error("must not call"); }), error => error.code === "UPSTREAM_TIMEOUT");
+  let calls = 0;
+  await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, { catalog: async () => ({ coverage: "x".repeat(40000) }) }, validateModelResult,
+    async () => { calls += 1; return response([call("catalog-1", "get_asset_catalog", {})]); }), error => error.code === "PROMPT_TOO_LARGE");
+  assert.equal(calls, 1);
+});
+
+test("expanded agent result counts reach tools and final validation without increasing model rounds", async () => {
+  for (const [count, limit] of [[6, 10], [10, 10], [20, 20]]) {
+    const req = { ...request("effect"), resultLimit: limit };
+    const cfg = config(); let rounds = 0;
+    const items = Array.from({ length: count }, (_, index) => ({ ...asset, resourceId: `effect:${300 + index}`, title: `爆炸${index}` }));
+    const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+      search: async args => {
+        assert.equal(args.limit, limit);
+        return { items, mode: "keyword" };
+      },
+    }, validateModelResult, async (_url, options) => {
+      const sent = JSON.parse(options.body); rounds += 1;
+      assert.equal(sent.max_tokens, limit === 10 ? 1400 : 2400);
+      assert.match(sent.messages[0].content, new RegExp(`最多 ${limit} 条`));
+      const searchTool = sent.tools.find(tool => tool.function.name === "search_assets").function.parameters;
+      assert.equal(searchTool.properties.limit.maximum, 50);
+      assert.equal(searchTool.properties.limit.default, limit);
+      const detailsTool = sent.tools.find(tool => tool.function.name === "get_assets").function.parameters;
+      assert.equal(detailsTool.properties.ids.maxItems, 5);
+      if (rounds === 1) return response([call("search-expanded", "search_assets", { query: "爆炸" })]);
+      return response(null, { answer: "找到这些爆炸特效。", matches: items.map(item => ({ resourceId: item.resourceId, reason: "爆炸名称匹配", matchType: "feature" })) });
+    });
+    assert.equal(result.rounds, 2);
+    assert.deepEqual(result.result.matches.map(item => item.resourceId), items.map(item => item.resourceId));
+  }
+});
+
+test("expanded results keep the detail call at five resources and expose its safe error to the model", async () => {
+  const req = { ...request(), resultLimit: 20 }, cfg = config();
+  const items = Array.from({ length: 20 }, (_, index) => ({ ...asset, resourceId: `effect:${400 + index}` }));
+  let rounds = 0, detailReads = 0;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async args => { assert.equal(args.limit, 30); return { items }; },
+    assets: async () => { detailReads += 1; throw new Error("Must not execute a six-resource detail read"); },
+  }, validateModelResult, async (_url, options) => {
+    rounds += 1; const sent = JSON.parse(options.body);
+    if (rounds === 1) return response([call("search-twenty", "search_assets", { query: "爆炸", limit: 30 })]);
+    if (rounds === 2) return response([call("details-too-many", "get_assets", { ids: items.slice(0, 6).map(item => item.resourceId) })]);
+    assert.equal(sent.tool_choice, "none");
+    assert.equal(JSON.parse(sent.messages.find(message => message.tool_call_id === "details-too-many").content).error.code, "INVALID_REQUEST");
+    return response(null, { answer: "依据名称找到这些特效。", matches: items.map(item => ({ resourceId: item.resourceId, reason: "爆炸名称匹配", matchType: "feature" })) });
+  });
+  assert.equal(result.result.matches.length, 20);
+  assert.equal(detailReads, 0); assert.equal(result.rounds, 3);
+});
+
+
+test('fifty audio matches retain every trusted ID and audio evidence within the unchanged transcript budget', async () => {
+  const req = { ...request('effect'), resultLimit: 50, matchOn: 'audio' }, cfg = config();
+  const items = Array.from({ length: 50 }, (_, index) => ({ resourceId: `effect:${700 + index}`, kind: 'effect',
+    title: '蓝色光圈'.repeat(40), hasAudio: true, audioMatch: true, matchType: 'feature',
+    description: '沉重爆炸音轨'.repeat(100), shortDescription: '沉重爆炸音轨'.repeat(100),
+    keywords: Array.from({ length: 10 }, () => '真实低频音轨'.repeat(13)),
+    suggestedUses: Array.from({ length: 3 }, () => '仅为用途建议'.repeat(25)),
+  }));
+  let rounds = 0;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async args => { assert.equal(args.limit, 50); return { items, mode: 'keyword', total: 50 }; },
+  }, validateModelResult, async (_url, options) => {
+    rounds += 1; const sent = JSON.parse(options.body); assert.equal(sent.max_tokens, 5400);
+    assert.equal(sent.tools.find(item => item.function.name === 'get_assets').function.parameters.properties.ids.maxItems, 5);
+    if (rounds === 1) return response([call('search-fifty', 'search_assets', { query: '爆炸' })]);
+    assert.ok(new TextEncoder().encode(JSON.stringify({ messages: sent.messages, tools: sent.tools })).byteLength <= cfg.maxPromptBytes);
+    const summary = JSON.parse(sent.messages.find(item => item.role === 'tool').content);
+    assert.equal(summary.items.length, 50); assert.equal(summary.summariesShortened, true);
+    assert.deepEqual(summary.items.map(item => item.resourceId), items.map(item => item.resourceId));
+    assert.ok(summary.items.every(item => item.audioMatch === true && item.description.startsWith('沉重爆炸音轨') && item.matchType === 'feature'));
+    assert.ok(summary.items.every(item => item.suggestedUses.every(use => use.startsWith('仅为用途建议'))));
+    return response(null, { answer: '找到这些带爆炸音轨的特效。', matches: items.map(item => ({ resourceId: item.resourceId, reason: '音轨描述支持', matchType: 'feature' })) });
+  });
+  assert.equal(result.rounds, 2); assert.equal(result.result.matches.length, 50);
+});

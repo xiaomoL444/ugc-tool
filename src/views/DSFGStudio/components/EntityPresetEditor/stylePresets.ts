@@ -3,7 +3,7 @@ import { systemPresetConfig } from "./systemPresetConfig";
 import { useWorkspacePresets } from "./useWorkspacePresets";
 
 export type StylePresetCategory = "dialogueStyles" | "questStyles" | "walkTalkStyles" | "cameras" | "booleans" | "entityGetMethods";
-export interface StylePreset { id: string; label: string; value: string }
+export interface StylePreset { id: string; label: string; value: string; showTitle?: boolean }
 export const stylePresetCategories: { key: StylePresetCategory; title: string }[] = [
   { key: "dialogueStyles", title: "对话类型" },
   { key: "questStyles", title: "任务样式" },
@@ -33,6 +33,12 @@ export function decodeStylePresets(category: StylePresetCategory, raw: string): 
     if (!item || typeof item.id !== "string" || !item.id || ids.has(item.id)
       || typeof item.label !== "string" || typeof item.value !== "string") throw new Error("类型预设数据不完整，原文件已保留。");
     ids.add(item.id);
+    if (category === "dialogueStyles") {
+      if (item.showTitle !== undefined && typeof item.showTitle !== "boolean") throw new Error("对话类型的显示标题设置必须为布尔值，原文件已保留。");
+      const defaultShowTitle = systemPresetConfig.dialogueStyles.presets.find(preset => preset.value === item.value)?.showTitle
+        ?? systemPresetConfig.dialogueStyles.newItem.showTitle;
+      return { id: item.id, label: item.label, value: item.value, showTitle: item.showTitle ?? defaultShowTitle };
+    }
     return { id: item.id, label: item.label, value: item.value };
   });
 }
@@ -42,10 +48,11 @@ export function getStylePresetOptions(presets: StylePreset[]) {
     if (!item.value.trim() || seen.has(item.value)) return false;
     seen.add(item.value);
     return true;
-  }).map(item => ({ id: item.value, value: item.value, label: item.label.trim() || item.value }));
+  }).map(item => ({ id: item.value, value: item.value, label: item.label.trim() || item.value,
+    ...(typeof item.showTitle === "boolean" ? { showTitle: item.showTitle } : {}) }));
 }
 export function useStylePresets(category: StylePresetCategory) {
-  const state = useWorkspacePresets({
+  const state = useWorkspacePresets<StylePreset>({
     fileName: `${category}.json`, defaults: () => systemPresetConfig[category].presets,
     encode: (presets: StylePreset[]) => encodeStylePresets(category, presets),
     decode: (raw: string) => decodeStylePresets(category, raw),

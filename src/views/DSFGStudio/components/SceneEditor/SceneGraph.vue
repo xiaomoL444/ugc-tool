@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from "vue";
+import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from "vue";
+import { studioEditorActiveKey } from "../studioSessionHistory";
 import { VueFlow, Handle, Position, MarkerType, useVueFlow, type Node, type Edge, type NodeMouseEvent, type NodeDragEvent } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import type { SceneProject } from "./sceneProject";
@@ -10,6 +11,7 @@ import "@vue-flow/core/dist/theme-default.css";
 const props = defineProps<{ project: SceneProject; selection: SceneSelection }>();
 const emit = defineEmits<{ select: [selection: SceneSelection]; edit: [selection: SceneSelection] }>();
 const flowId = `scene-graph-${crypto.randomUUID()}`;
+const editorActive = inject(studioEditorActiveKey, () => true);
 const { fitView, zoomIn, zoomOut, panBy } = useVueFlow(flowId);
 const nodes = ref<Node[]>([]);
 const edges = ref<Edge[]>([]);
@@ -20,9 +22,10 @@ const panning = ref(false);
 let disposed = false;
 let active = true;
 let cancelPan: (() => void) | undefined;
-function fit() { void nextTick(() => { if (!disposed && active) void fitView({ padding: .18, duration: 250, maxZoom: 1 }); }); }
+function fit() { void nextTick(() => { if (!disposed && active && editorActive()) void fitView({ padding: .18, duration: 250, maxZoom: 1 }); }); }
 onActivated(() => { active = true; fit(); });
 onDeactivated(() => { active = false; cancelPan?.(); });
+watch(editorActive, active => { if (!active) cancelPan?.(); }, { flush: "sync" });
 function sync() {
   nodes.value = projection.value.boxes.map(box => ({ id: box.id, type: "scene-area", position: positions.get(box.id) ?? box.position,
     parentNode: box.parentId, width: box.width, height: box.height, data: box.data,
@@ -41,6 +44,7 @@ function editNode({ node }: NodeMouseEvent) { if (node.data.selection) emit("edi
 function remember({ node }: NodeDragEvent) { if (!node.parentNode) positions.set(node.id, { ...node.position }); }
 function isSelected(data: { selection?: SceneSelection }) { return data.selection?.kind === props.selection.kind && data.selection.index === props.selection.index; }
 function startPan(event: PointerEvent) {
+  if (!editorActive()) return;
   const target = event.target as Element | null;
   const background = target?.closest(".area-group") && !target.closest(".area-heading");
   if (event.button !== 2 && !(event.button === 0 && background)) return;
@@ -75,7 +79,7 @@ onBeforeUnmount(() => { disposed = true; cancelPan?.(); });
     <p class="graph-guide"><span class="link-legend">世界连接</span>拖动世界标题整体移动 · 空白区域或右键拖动画布 · 双击区域编辑属性</p>
     <p v-for="warning in projection.warnings" :key="warning" class="graph-warning" role="status">{{ warning }}</p>
     <div class="graph-canvas" :class="{ 'is-panning': panning }" @pointerdown.capture="startPan" @contextmenu.prevent>
-      <VueFlow v-if="nodes.length" :id="flowId" v-model:nodes="nodes" v-model:edges="edges" :min-zoom=".08" :max-zoom="1.6" :pan-on-drag="[0]" :delete-key-code="null" :nodes-connectable="false" :edges-updatable="false" :zoom-on-double-click="false" fit-view-on-init
+      <VueFlow v-if="nodes.length" :id="flowId" v-model:nodes="nodes" v-model:edges="edges" :min-zoom=".08" :max-zoom="1.6" :pan-on-drag="[0]" :delete-key-code="null" :disable-keyboard-a11y="!editorActive()" :nodes-connectable="false" :edges-updatable="false" :zoom-on-double-click="false" fit-view-on-init
         @node-click="selectNode" @node-double-click="editNode" @node-drag-stop="remember">
         <template #node-scene-area="slot">
           <div class="area-box" :class="['area-' + slot.data.kind, { 'area-group': slot.data.kind !== 'sub', 'is-selected': isSelected(slot.data), 'is-missing': slot.data.missing }]">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudioSelectField from "../StudioSelectField.vue";
 import { computed, nextTick, ref, watch } from "vue";
 import StudioSidebarContent from "../StudioSidebarContent.vue";
 import { toast } from "vue-sonner";
@@ -194,12 +195,8 @@ watch(() => selection.value ? `${selection.value.kind}:${selection.value.id}` : 
   inspector.value?.scrollTo({ top: 0 });
 });
 watch(() => props.project, () => {
-  selection.value = null;
-  search.value = "";
-  expanded.value = new Set(["unassigned"]);
-  subPages.value = {};
-  treePage.value = 0;
-  inspectorSection.value = "basic";
+  // Undo replaces the document but keeps selection/search on surviving tasks.
+  if (selection.value && !selectedItem.value) selection.value = null;
 });
 
 function toggle(key: string) {
@@ -474,13 +471,13 @@ function editFlowTask(id: number) {
             <p class="form-description">章节用于组织主任务。删除章节时，下属任务会移到直属主任务。</p>
           </template>
           <template v-else-if="selectedMain">
-            <label class="quest-field"><span>归属章节 <code>chapter</code></span><select :value="selectedMain.chapterId ?? ''" aria-label="归属章节" @change="changeChapter"><option value="">无章节 · 直属主任务</option><option v-for="chapter in project.chapters" :key="chapter.id" :value="chapter.id">{{ chapter.title || '未命名章节' }} #{{ chapter.id }}</option></select></label>
-            <label class="quest-field"><span>主任务样式 <code>style</code></span><select v-model="selectedMain.style" aria-label="选择主任务样式预设"><option v-if="!questStyleOptions.some(item => item.value === selectedMain?.style)" :value="selectedMain.style">{{ selectedMain.style || '未设置' }}（当前值）</option><option v-for="item in questStyleOptions" :key="item.value" :value="item.value">{{ item.label }}（{{ item.value }}）</option></select><small>从下拉框选择主任务样式。</small><small v-if="questStyleError" role="alert">{{ questStyleError }} <button type="button" @click="retryQuestStyles().catch(() => undefined)">重试样式预设</button></small></label>
+            <label class="quest-field"><span>归属章节 <code>chapter</code></span><StudioSelectField :value="selectedMain.chapterId ?? ''" aria-label="归属章节" @change="changeChapter"><option value="">无章节 · 直属主任务</option><option v-for="chapter in project.chapters" :key="chapter.id" :value="chapter.id">{{ chapter.title || '未命名章节' }} #{{ chapter.id }}</option></StudioSelectField></label>
+            <label class="quest-field"><span>主任务样式 <code>style</code></span><StudioSelectField v-model="selectedMain.style" aria-label="选择主任务样式预设"><option v-if="!questStyleOptions.some(item => item.value === selectedMain?.style)" :value="selectedMain.style">{{ selectedMain.style || '未设置' }}（当前值）</option><option v-for="item in questStyleOptions" :key="item.value" :value="item.value">{{ item.label }}（{{ item.value }}）</option></StudioSelectField><small>从下拉框选择主任务样式。</small><small v-if="questStyleError" role="alert">{{ questStyleError }} <button type="button" @click="retryQuestStyles().catch(() => undefined)">重试样式预设</button></small></label>
 
           </template>
           <template v-else-if="selectedSub">
             <section v-show="inspectorSection === 'basic'" class="form-card" aria-label="基本信息">
-            <label class="quest-field"><span>归属主任务 <code>mainQuestId</code></span><select :value="selectedSub.mainQuestId" aria-label="归属主任务" @change="changeMain"><option v-for="main in project.mainQuests" :key="main.id" :value="main.id">{{ parentLabel(main) }}</option></select></label>
+            <label class="quest-field"><span>归属主任务 <code>mainQuestId</code></span><StudioSelectField :value="selectedSub.mainQuestId" aria-label="归属主任务" @change="changeMain"><option v-for="main in project.mainQuests" :key="main.id" :value="main.id">{{ parentLabel(main) }}</option></StudioSelectField></label>
             <label class="quest-field"><span>任务描述 <code>desc</code></span><textarea v-model="selectedSub.description" aria-label="任务描述" rows="4" placeholder="填写任务描述" /></label>
             <label class="hidden-field"><input v-model="selectedSub.hidden" type="checkbox" role="switch" aria-label="隐藏任务" /><span>隐藏任务</span></label>
             </section>

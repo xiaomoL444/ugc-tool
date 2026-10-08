@@ -6,6 +6,8 @@
   "homePage.categories.editors": "Редактирование и генерация",
   "homePage.categories.utilities": "Утилиты",
   "homePage.categories.community": "Внешние ссылки",
+  "homePage.acknowledgements.title": "Благодарности",
+  "homePage.acknowledgements.description": "Спасибо всем, кто помогает развивать и поддерживать этот набор инструментов.",
   "announcements.title": "Объявления",
   "announcements.unreadCount": "Непрочитанных объявлений: {count}",
   "announcements.list": "Список объявлений",

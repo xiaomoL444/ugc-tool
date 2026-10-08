@@ -1,8 +1,8 @@
 {
   "effectPlayer.title": "Просмотр эффектов",
   "effectPlayer.description": "Поиск, фильтрация и просмотр игровых эффектов",
-  "effectPlayer.search.label": "Поиск по ID, названию или тегу:",
-  "effectPlayer.search.placeholder": "Например: 10001001 / Крио-удар / Удар",
+  "effectPlayer.search.label": "Поиск по ID, названию, тегу или описанию:",
+  "effectPlayer.search.placeholder": "Например: Крио-удар / синее кольцо / металлический удар",
   "effectPlayer.loop.all": "Все эффекты",
   "effectPlayer.loop.once": "Временные эффекты",
   "effectPlayer.loop.loop": "Зацикленные эффекты",
@@ -55,5 +55,11 @@
   "effectPlayer.media.enableAudio": "Включить звук",
   "effectPlayer.media.errorSeparator": "; ",
   "effectPlayer.media.unavailable": "Предпросмотр недоступен",
-  "effectPlayer.media.loading": "Загрузка предпросмотра…"
+  "effectPlayer.media.loading": "Загрузка предпросмотра…",
+  "effectPlayer.deepLink.notFound": "Эффект по этой ссылке не найден",
+  "effectPlayer.media.startPreview": "Воспроизвести предпросмотр",
+  "effectPlayer.features.loading": "Загрузка описаний ресурсов…",
+  "effectPlayer.features.unavailable": "Описания временно недоступны. Поиск по названию и ID, а также предпросмотр доступны.",
+  "effectPlayer.features.stale": "Не удалось проверить обновление описаний. Показаны ранее загруженные описания.",
+  "effectPlayer.features.empty": "Для этого ресурса ещё не созданы описания."
 }

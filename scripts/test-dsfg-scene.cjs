@@ -128,16 +128,19 @@ async function main() {
       for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename: file, id: 'scene-test', scoped: true }).errors, []);
       if (file.endsWith('SceneEditor.vue')) {
         const ast = ts.createSourceFile(file, descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-        const names = new Set(['world', 'main', 'sub', 'childAreas', 'breadcrumb']);
-        const code = ast.statements.filter(statement => ts.isVariableStatement(statement)
+        const names = new Set(['world', 'main', 'sub', 'selectedParentMain', 'selectedParentWorld', 'childAreas', 'breadcrumb']);
+        const handlers = new Set(['choose', 'addWorld', 'addMain', 'addSub']);
+        const code = ast.statements.filter(statement => (ts.isVariableStatement(statement)
           && statement.declarationList.declarations.some(declaration => names.has(declaration.name.getText(ast))))
+          || (ts.isFunctionDeclaration(statement) && handlers.has(statement.name?.text)))
           .map(statement => statement.getText(ast)).join('\n');
         const state = vue.ref({ worlds: [{ id: '5', name: '世界 A' }, { id: '8', name: '世界 B' }],
           mainAreas: [{ id: '9', name: '异地', worldId: '8' }, { id: '12', name: '区域 A', worldId: '5' }],
           subAreas: [{ id: '20', name: '地点 A', mainAreaId: '12' }] });
         const selection = vue.ref({ kind: 'world', index: 0 });
-        const derived = require('node:vm').runInNewContext(ts.transpileModule(code + '\n({ childAreas, breadcrumb });', { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText,
-          { computed: vue.computed, project: state, selected: selection });
+        const busy = vue.ref(false);
+        const derived = require('node:vm').runInNewContext(ts.transpileModule(code + '\n({ childAreas, breadcrumb, addWorld, addMain, addSub });', { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText,
+          { computed: vue.computed, project: state, selected: selection, busy, nextSceneId: model.nextSceneId });
         assert.equal(derived.childAreas.value.length, 1);
         assert.equal(derived.childAreas.value[0].index, 1, 'Child navigation must retain the original array index');
         assert.equal(derived.childAreas.value[0].kind, 'main');
@@ -149,6 +152,31 @@ async function main() {
         assert.equal(derived.childAreas.value.length, 0);
         state.value.mainAreas[1].worldId = '8';
         assert.equal(derived.breadcrumb.value, '世界 B / 区域 A / 地点 A');
+        derived.addSub();
+        assert.equal(state.value.subAreas.at(-1).mainAreaId, '12', 'Adding from a sub area creates a sibling');
+        assert.equal(selection.value.kind, 'sub');
+        derived.addMain();
+        assert.equal(state.value.mainAreas.at(-1).worldId, '8', 'Adding from a sub area uses its ancestor world');
+        assert.equal(selection.value.kind, 'main');
+        const newMainId = state.value.mainAreas.at(-1).id;
+        derived.addSub();
+        assert.equal(state.value.subAreas.at(-1).mainAreaId, newMainId);
+        derived.addWorld();
+        assert.equal(selection.value.kind, 'world');
+        const beforeSubCount = state.value.subAreas.length;
+        derived.addSub();
+        assert.equal(state.value.subAreas.length, beforeSubCount, 'A world has no implicit first main area');
+        const newWorldId = state.value.worlds.at(-1).id;
+        derived.addMain();
+        assert.equal(state.value.mainAreas.at(-1).worldId, newWorldId);
+        busy.value = true;
+        const beforeBusy = JSON.stringify(state.value);
+        derived.addWorld(); derived.addMain(); derived.addSub();
+        assert.equal(JSON.stringify(state.value), beforeBusy);
+        busy.value = false;
+        selection.value = { kind: 'sub', index: 999 };
+        derived.addMain(); derived.addSub();
+        assert.equal(JSON.stringify(state.value), beforeBusy, 'Missing parents must not create orphan areas');
         assert.ok(descriptor.template.content.includes('choose(area.kind, area.index)'));
         assert.ok(descriptor.template.content.includes('aria-label="世界连接点"'));
         assert.ok(descriptor.template.content.includes('aria-label="下级区域"'));

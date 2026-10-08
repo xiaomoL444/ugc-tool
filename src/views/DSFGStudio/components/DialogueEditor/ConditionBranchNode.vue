@@ -13,12 +13,17 @@ const props = withDefaults(
     node: ConditionBranchNode;
     edges?: Edge[];
     selected?: boolean;
+    exportIndex?: number;
+    annotation?: string;
   }>(),
   {
     edges: () => [],
     selected: false,
+    annotation: "",
   },
 );
+
+const emit = defineEmits<{ "update:annotation": [value: string] }>();
 
 const { updateNodeInternals } = useVueFlow();
 const outputSignature = computed(() =>
@@ -68,7 +73,10 @@ onMounted(refreshHandles);
 <template>
   <article class="condition-branch-node" :class="{ selected }">
     <header class="condition-header">
+      <span v-if="exportIndex !== undefined" class="export-index" :aria-label="`TimeLineGroup 索引 ${exportIndex}`" title="导出后的 TimeLineGroup 全局索引，从 0 开始，可用于播放调试">#{{ exportIndex }}</span>
       <span class="condition-kind">CONDITION</span>
+      <input class="nodrag graph-node-annotation" :value="annotation" aria-label="节点备注（仅编辑器显示，不参与导出）" title="节点备注仅保存在工程中，不参与演出导出" placeholder="备注…"
+        @input="emit('update:annotation', ($event.target as HTMLInputElement).value)" @pointerdown.stop @mousedown.stop @click.stop @keydown.stop />
       <button
         type="button"
         class="nodrag add-output-button"
@@ -172,6 +180,9 @@ onMounted(refreshHandles);
 </template>
 
 <style scoped>
+.export-index { flex-shrink: 0; padding: 2px 6px; border: 1px solid #d0c0e8; border-radius: 5px; color: #75519a; background: #fff; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.condition-header { gap: 7px; }
+.condition-kind { margin-right: auto; }
 .condition-branch-node {
   --dsfg-handle-fill: #9d79c5;
   --dsfg-handle-ring: #fff;
@@ -215,6 +226,23 @@ onMounted(refreshHandles);
   font-weight: 800;
   letter-spacing: 0.11em;
 }
+
+.graph-node-annotation {
+  box-sizing: border-box;
+  width: 58px;
+  min-width: 40px;
+  padding: 3px 5px;
+  color: #705b86;
+  background: #ffffffa8;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  outline: 0;
+  font: inherit;
+  font-size: 10px;
+}
+.graph-node-annotation::placeholder { color: #9687a8; }
+.graph-node-annotation:hover, .graph-node-annotation:focus { width: 112px; background: #fff; border-color: #cbb9df; }
+.graph-node-annotation:focus-visible { outline: 2px solid #9770c5; outline-offset: 1px; }
 
 .add-output-button {
   padding: 4px 7px;

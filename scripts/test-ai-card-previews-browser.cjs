@@ -1,0 +1,560 @@
+/* NODE_PATH=<bundled playwright modules> node scripts/test-ai-card-previews-browser.cjs [base URL] */
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { chromium } = require('playwright');
+const base = process.argv.slice(2).find(argument => !argument.startsWith('--')) || 'http://127.0.0.1:8080';
+const detailsOnly = process.argv.includes('--details-only');
+const outputDirectory = path.join(__dirname, '../tools/ai-search-service/.wrangler');
+const effect = { id: '64', duration: 12, isLoop: false, tagList: [], icon: '64.png', standPath: '64.mp4', tailPath: '64-tail.mp4', hasAudio: true, audioPath: '64.m4a' };
+const bgm = { id: 1, song_id: 2635292815, album_id: 250336341, time: 180000, minute: 3, second: 0, nameI18nKey: 'bgmPlayer.data.1', albumI18nKey: 'bgmPlayer.album.250336341', category: 101 };
+const longDescription = '远处先传来低沉的滚动雷声，随后响度逐渐上升，中段伴随密集而细碎的轰鸣，最后留下缓慢消散的低频尾音。声音没有对白和音乐，适合需要持续雷鸣的环境。完整描述应该在浮层中可以阅读，卡片里只占一行。' + '可以分辨多次雷鸣之间的细微间隔，音色由模糊的低频逐渐变得厚重，再回到远处的环境底噪。这段详细说明用于验证长资产资料可以通过浮层滚动完整阅读，而不展开整个卡片或移动聊天记录。'.repeat(4) + '<b>这是一段普通文本，不能变成 HTML。</b>';
+const detailKeywords = ['雷声', '低沉', '持续', '轰鸣', '自然环境', '阴沉', '雷雨前奏', '远处'];
+const detailUses = ['暴风雨场景', '紧张气氛', '夜间探索'];
+const detailReason = '完整匹配原因：低沉且持续的真实声音特征符合查询；尾音较长，可在原资产页进一步确认。';
+const cards = [
+  { kind: 'sound', id: '10001', title: '环境_雷声_低沉', description: longDescription, keywords: detailKeywords, suggestedUses: detailUses, matchReason: detailReason, matchType: 'feature', duration: 12 },
+  { kind: 'sound', id: '10002', title: '环境_雷声_短促', description: '另一段声音，用于检查切换试听会停止上一段。', duration: 12 },
+  { kind: 'effect', id: '64', title: '蓝色法阵', description: '蓝色光环与拖尾效果，悬停试听同步音轨。', duration: 12, hasAudio: true },
+  { kind: 'bgm', id: '1', title: '森林探索', description: '在结果卡片中展开音乐播放器。', duration: 180 },
+].map(card => ({ keywords: [], suggestedUses: [], ...card, resourceId: `${card.kind}:${card.id}`, href: '/ignored-history-url' }));
+const history = [
+  { id: 'preview-fixture', title: '预览验证', updatedAt: 2, contextStart: 0, messages: [
+    { id: 'preview-reply', role: 'assistant', status: 'complete', mode: 'basic', source: 'basic', content: '音效、特效与 BGM 可以直接预览，也可以复制名称和数字 ID。', cards },
+    { id: 'preview-repeat', role: 'assistant', status: 'complete', mode: 'basic', source: 'basic', content: '同一特效也可在另一条回复中独立预览。', cards: [cards[2]] },
+  ] },
+  { id: 'empty-fixture', title: '空白会话', updatedAt: 1, contextStart: 0, messages: [] },
+];
+
+function makeWav(seconds = 12, frequency = 180) {
+  const sampleRate = 22050;
+  const samples = seconds * sampleRate;
+  const bytes = Buffer.alloc(44 + samples * 2);
+  bytes.write('RIFF', 0); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write('WAVE', 8);
+  bytes.write('fmt ', 12); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(sampleRate, 24); bytes.writeUInt32LE(sampleRate * 2, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
+  bytes.write('data', 36); bytes.writeUInt32LE(samples * 2, 40);
+  for (let index = 0; index < samples; index++) {
+    const time = index / sampleRate;
+    const envelope = 0.1 + 0.5 * (0.5 + 0.5 * Math.sin(time * 1.7)) ** 2;
+    const wave = Math.sin(2 * Math.PI * frequency * time) + 0.2 * Math.sin(2 * Math.PI * (frequency + 73) * time);
+    bytes.writeInt16LE(Math.round(19000 * envelope * wave), 44 + index * 2);
+  }
+  return bytes;
+}
+const wav = makeWav();
+const secondWav = makeWav(12, 280);
+const effectArtwork = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="14" fill="#101d32"/><circle cx="50" cy="50" r="33" fill="none" stroke="#4ccaff" stroke-width="3"/><circle cx="50" cy="50" r="24" fill="none" stroke="#a7e7ff" stroke-width="2"/><path d="M50 13 72 69 20 35H80L28 69Z" fill="none" stroke="#70d5ff" stroke-width="2"/></svg>';
+const albumArtwork = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#5d806e"/><circle cx="76" cy="22" r="14" fill="#dedbbc"/><path d="M0 90 15 42 28 82 45 25 59 83 80 45 100 92Z" fill="#213e35"/></svg>';
+
+function fulfillWav(route, bytes) {
+  const range = /^bytes=(\d+)-(\d*)$/u.exec(route.request().headers().range || '');
+  const headers = { 'accept-ranges': 'bytes' };
+  if (!range) return route.fulfill({ contentType: 'audio/wav', headers, body: bytes });
+  const start = Number(range[1]);
+  const end = Math.min(bytes.length - 1, range[2] ? Number(range[2]) : bytes.length - 1);
+  if (start > end) return route.fulfill({ status: 416, headers: { ...headers, 'content-range': `bytes */${bytes.length}` } });
+  return route.fulfill({ status: 206, contentType: 'audio/wav', headers: { ...headers, 'content-range': `bytes ${start}-${end}/${bytes.length}` }, body: bytes.subarray(start, end + 1) });
+}
+
+async function install(context, state) {
+  await context.addInitScript(seed => {
+    localStorage.setItem('ugc-tools.ai-search.history.v1', JSON.stringify(seed));
+    window.__previewClipboard = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.__previewClipboard.push(value); } } });
+    // Keep all audio real: waveform decoding, metadata, seeking and playback
+    // below use generated WAV bytes. Stub only video decoding for this fixture.
+    const paused = new WeakMap();
+    Object.defineProperty(HTMLVideoElement.prototype, 'src', { configurable: true, get() { return this.dataset.testSrc || ''; }, set(value) { this.dataset.testSrc = value; } });
+    Object.defineProperty(HTMLVideoElement.prototype, 'paused', { configurable: true, get() { return paused.get(this) !== false; } });
+    Object.defineProperty(HTMLVideoElement.prototype, 'readyState', { configurable: true, get() { return 4; } });
+    Object.defineProperty(HTMLVideoElement.prototype, 'duration', { configurable: true, get() { return 12; } });
+    HTMLVideoElement.prototype.play = function() { paused.set(this, false); return Promise.resolve(); };
+    HTMLVideoElement.prototype.pause = function() { paused.set(this, true); };
+    HTMLVideoElement.prototype.load = function() {};
+  }, history);
+  await context.route('**/api/ai-search/**', route => {
+    state.apiRequests = (state.apiRequests || 0) + 1;
+    const endpoint = new URL(route.request().url()).pathname.split('/').at(-1);
+    if (endpoint === 'config') return route.fulfill({ json: { configured: false, available: false, retrieval: { available: true } } });
+    if (endpoint === 'catalog') return route.fulfill({ json: { catalogVersion: 'preview-browser-v1', counts: { total: 4 }, mode: 'keyword', coverage: { description: 1 } } });
+    if (endpoint === 'search') return route.fulfill({ json: { catalogVersion: 'preview-browser-v1', mode: 'keyword', total: 4, hasMore: false, coverage: { description: 1 }, items: cards } });
+    if (endpoint === 'assets') return route.fulfill({ json: { catalogVersion: 'preview-browser-v1', items: cards } });
+    state.modelRequests++;
+    return route.fulfill({ status: 500, body: 'No model call is expected for history previews.' });
+  });
+  await context.route('**/ugc-tool-data/**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    assert.ok(!pathname.endsWith('/AISearch/SystemPrompt.md'), 'History previews and basic searches do not download a model prompt');
+    if (pathname.endsWith('/EffectPlayer/data.json')) {
+      state.effectCatalogues++;
+      if (state.effectMetadataReady) await state.effectMetadataReady;
+      return route.fulfill({ json: { effectData: { 64: effect }, TagData: {} } });
+    }
+    if (pathname.endsWith('/BgmPlayer/data.json')) {
+      state.bgmCatalogues++;
+      return route.fulfill({ json: { musicData: [bgm], category: [] } });
+    }
+    if (pathname.includes('/SoundEffectPlayer/audio/')) return fulfillWav(route, pathname.includes('10002') ? secondWav : wav);
+    if (pathname.endsWith('/EffectPlayer/audio/64.m4a')) return fulfillWav(route, wav);
+    if (pathname.endsWith('/EffectPlayer/icon/64.png')) return route.fulfill({ contentType: 'image/svg+xml', body: effectArtwork });
+    if (pathname.endsWith('/BgmPlayer/album_pic/250336341.jpg')) return route.fulfill({ contentType: 'image/svg+xml', body: albumArtwork });
+    if (pathname.includes('/i18n/')) return route.fulfill({ json: {} });
+    return route.fulfill({ status: 404, body: 'Fixture asset not found.' });
+  });
+  await context.route('**/music.163.com/**', route => {
+    if (route.request().url().includes('/outchain/player')) state.musicFrames++;
+    return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:8px;background:#f9f8fd;color:#786096;font:13px sans-serif"><button type="button">▶</button> 森林探索 · 音乐播放器</body></html>' });
+  });
+}
+
+async function waitForCards(page) {
+  await page.locator('.chat-message').first().locator('.resource-card').first().waitFor();
+  await page.locator('.retrieval-status').waitFor();
+  await page.waitForFunction(() => !document.querySelector('.inline-notice')?.textContent?.includes('读取'));
+  assert.equal(await page.locator('.model-trigger').getAttribute('data-search-mode'), 'basic');
+}
+async function showPreviewPosition(page, position) {
+  const reply = page.locator('.chat-message').first();
+  const previous = reply.locator('.results-previous');
+  while (await previous.count() && await previous.isEnabled()) await previous.click();
+  const card = reply.locator(`.resource-card[data-result-position="${position}"]`);
+  for (let index = 0; !await card.count() && index < cards.length; index++) {
+    const next = reply.locator('.results-next');
+    assert.ok(await next.count() && await next.isEnabled(), `Preview result ${position} is reachable`);
+    await next.click();
+  }
+  await card.waitFor();
+  return card;
+}
+
+async function observeWaveformProgress(soundCard, milliseconds, blockTimeUpdates = false) {
+  return soundCard.locator('.sound-mini-preview').evaluate(async (preview, options) => {
+    const audio = preview.querySelector('audio');
+    const slider = preview.querySelector('.waveform');
+    const cursor = preview.querySelector('.waveform-cursor');
+    // Wait for the click/event render to settle before measuring visible motion.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const positions = new Set([slider.getAttribute('aria-valuenow')]);
+    const cursorPositions = new Set([cursor.style.left]);
+    let blockedTimeUpdates = 0;
+    const blockUpdate = event => {
+      blockedTimeUpdates++;
+      event.stopImmediatePropagation();
+    };
+    const observer = new MutationObserver(() => {
+      positions.add(slider.getAttribute('aria-valuenow'));
+      cursorPositions.add(cursor.style.left);
+    });
+    observer.observe(slider, { attributes: true, attributeFilter: ['aria-valuenow'] });
+    observer.observe(cursor, { attributes: true, attributeFilter: ['style'] });
+    if (options.blockTimeUpdates) audio.addEventListener('timeupdate', blockUpdate, true);
+    const startTime = audio.currentTime;
+    try {
+      await new Promise(resolve => setTimeout(resolve, options.milliseconds));
+      return {
+        positions: [...positions].map(Number),
+        cursorPositions: [...cursorPositions],
+        blockedTimeUpdates,
+        advancedSeconds: audio.currentTime - startTime,
+      };
+    } finally {
+      observer.disconnect();
+      audio.removeEventListener('timeupdate', blockUpdate, true);
+    }
+  }, { milliseconds, blockTimeUpdates });
+}
+
+async function testDesktop(browser) {
+  const state = { modelRequests: 0, effectCatalogues: 0, bgmCatalogues: 0, musicFrames: 0 };
+  let releaseEffectMetadata;
+  state.effectMetadataReady = new Promise(resolve => { releaseEffectMetadata = resolve; });
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1800, height: 1600 } });
+  await install(context, state);
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(`${base}/AISearch`);
+  await waitForCards(page);
+  const soundOne = page.locator('.resource-sound').nth(0);
+  const soundTwo = page.locator('.resource-sound').nth(1);
+  const effectCard = page.locator('.resource-effect').nth(0);
+  const repeatedEffect = page.locator('.resource-effect').nth(1);
+  const bgmCard = page.locator('.resource-bgm');
+  await soundOne.scrollIntoViewIfNeeded();
+  await soundOne.locator('.waveform-bars').first().waitFor();
+  await soundTwo.locator('.waveform-bars').first().waitFor();
+  const bars = await soundOne.locator('.waveform-bars').first().getAttribute('d');
+  assert.ok((bars.match(/M/g) || []).length >= 80, 'Decoded PCM produces a detailed waveform');
+  assert.ok(new Set(bars.match(/V[\d.]+/g)).size > 20, 'Waveform peaks reflect varying real sample amplitudes');
+  const slider = soundOne.locator('.waveform');
+  await page.waitForFunction(() => document.querySelector('.resource-sound .waveform')?.getAttribute('aria-disabled') === 'false');
+  const bounds = await slider.boundingBox();
+  await slider.click({ position: { x: bounds.width * 0.5, y: bounds.height * 0.5 } });
+  const seekState = await soundOne.locator('audio').evaluate(audio => ({ time: audio.currentTime, duration: audio.duration, ready: audio.readyState, source: audio.src, seekable: [...Array(audio.seekable.length)].map((_, index) => [audio.seekable.start(index), audio.seekable.end(index)]) }));
+  assert.ok(Math.abs(seekState.time - 6) < 0.4, `Waveform click seeks the real audio element: ${JSON.stringify(seekState)}`);
+  await soundOne.locator('.sound-mini-play').click();
+  await page.waitForFunction(() => !document.querySelectorAll('.resource-sound audio')[0].paused);
+  const smoothProgress = await observeWaveformProgress(soundOne, 450, true);
+  assert.ok(smoothProgress.blockedTimeUpdates >= 1, 'Native low-frequency timeupdate events were suppressed during the smoothness check');
+  assert.ok(smoothProgress.advancedSeconds > 0.25, 'The real WAV audio advances during the smoothness check');
+  assert.ok(smoothProgress.positions.length >= 8, `Waveform progress keeps updating while timeupdate is blocked: ${JSON.stringify(smoothProgress)}`);
+  assert.ok(smoothProgress.cursorPositions.length >= 8, 'The visible waveform cursor moves continuously rather than jumping on timeupdate');
+  assert.ok(smoothProgress.positions.every((position, index, positions) => index === 0 || position > positions[index - 1]), 'Playback progress moves forward without jitter');
+  await soundOne.locator('.sound-mini-play').click();
+  await page.waitForFunction(() => document.querySelectorAll('.resource-sound audio')[0].paused);
+  const pausedProgress = await observeWaveformProgress(soundOne, 300);
+  assert.equal(pausedProgress.positions.length, 1, 'Paused waveform progress is frozen');
+  assert.equal(pausedProgress.cursorPositions.length, 1, 'Paused waveform cursor is frozen');
+  assert.equal(pausedProgress.advancedSeconds, 0, 'Pausing stops real audio playback');
+  await soundOne.locator('.sound-mini-play').click();
+  await page.waitForFunction(() => !document.querySelectorAll('.resource-sound audio')[0].paused);
+  await soundTwo.locator('.sound-mini-play').click();
+  await page.waitForFunction(() => document.querySelectorAll('.resource-sound audio')[0].paused && !document.querySelectorAll('.resource-sound audio')[1].paused);
+
+  await effectCard.locator('h3').hover();
+  assert.equal(await soundTwo.locator('audio').evaluate(audio => audio.paused), false, 'A loading effect has not claimed audio yet');
+  releaseEffectMetadata();
+  await effectCard.scrollIntoViewIfNeeded();
+  await effectCard.locator('.preview-icon').waitFor();
+  await page.waitForFunction(() => [...document.querySelectorAll('.resource-sound audio')].every(audio => audio.paused));
+  await repeatedEffect.scrollIntoViewIfNeeded();
+  await repeatedEffect.hover();
+  await repeatedEffect.locator('.preview-icon').waitFor();
+  assert.equal(await effectCard.locator('video').count(), 2, 'The first visible effect retains both of its video panes');
+  assert.equal(await repeatedEffect.locator('video').count(), 2, 'A duplicate visible effect has independent video panes');
+  assert.equal(await page.locator('.resource-effect audio').count(), 2, 'A duplicate visible effect has independent audio elements');
+  const originalVideo = await effectCard.locator('video').first().elementHandle();
+  assert.match(await effectCard.locator('.preview-icon').getAttribute('src'), /\/EffectPlayer\/icon\/64\.png$/);
+  assert.equal(await effectCard.locator('.effect-video-links a[href$="/64.mp4"]').count(), 0, 'The main effect video has no separate external link');
+  assert.match(await effectCard.locator('.effect-video-links a').first().getAttribute('href'), /\/EffectPlayer\/webm\/64-tail\.mp4$/);
+  await effectCard.hover();
+  await page.waitForFunction(() => {
+    const audio = document.querySelector('.resource-effect audio');
+    return audio && !audio.muted && !audio.paused && [...document.querySelectorAll('.resource-sound audio')].every(sound => sound.paused);
+  });
+  await repeatedEffect.hover();
+  await page.waitForFunction(() => {
+    const card = document.querySelectorAll('.resource-effect')[1];
+    const audio = card?.querySelector('audio');
+    return audio && (!audio.paused && !audio.muted || card.querySelector('.audio-status')?.textContent?.includes('点击预览以开启声音'));
+  });
+  if (await repeatedEffect.locator('audio').evaluate(audio => audio.paused || audio.muted)) {
+    assert.equal(await repeatedEffect.locator('.audio-status').innerText(), '点击预览以开启声音', 'Blocked hover audio explains the required user gesture');
+    await repeatedEffect.locator('.effect-media').click();
+  }
+  try {
+    await page.waitForFunction(() => {
+      const effects = document.querySelectorAll('.resource-effect audio');
+      return effects.length === 2 && effects[0].paused && effects[0].muted && !effects[1].paused && !effects[1].muted;
+    }, undefined, { timeout: 5000 });
+  } catch (error) {
+    const tracks = await page.locator('.resource-effect audio').evaluateAll(elements => elements.map(audio => ({ paused: audio.paused, muted: audio.muted, time: audio.currentTime, ended: audio.ended,
+      ready: audio.readyState, hover: audio.closest('.resource-effect').matches(':hover'), suspended: audio.closest('.effect-media').__vueParentComponent.props.suspended,
+      state: audio.closest('.effect-media').__vueParentComponent.setupState.lease?.value?.state })));
+    throw new Error(`Duplicate effect audio did not switch: ${JSON.stringify(tracks)}`, { cause: error });
+  }
+  assert.equal(await originalVideo.evaluate(video => document.querySelectorAll('.resource-effect')[0].contains(video)), true, 'Hovering a duplicate card does not move the original video DOM');
+  await page.mouse.move(5, 5);
+  await page.waitForFunction(() => [...document.querySelectorAll('.resource-effect audio')].every(audio => audio.muted));
+  await effectCard.locator('.resource-copy-actions button').nth(0).click();
+  await effectCard.locator('.resource-copy-actions button').nth(1).click();
+  assert.deepEqual(await page.evaluate(() => window.__previewClipboard), ['64', '蓝色法阵'], 'Copy actions preserve the numeric asset ID and display name');
+
+  await bgmCard.scrollIntoViewIfNeeded();
+  await bgmCard.locator('.bgm-mini-preview').waitFor();
+  await bgmCard.locator('.bgm-preview-icon img').waitFor();
+  assert.match(await bgmCard.locator('.bgm-preview-icon img').getAttribute('src'), /\/BgmPlayer\/album_pic\/250336341\.jpg$/);
+  assert.equal(await bgmCard.locator('.bgm-preview-duration').innerText(), '3:00');
+  assert.equal(await page.locator('.bgm-player-wrap iframe').count(), 0, 'History does not mount external music players');
+  assert.equal(state.musicFrames, 0, 'History previews do not request NetEase before a click');
+  await bgmCard.locator('.bgm-preview-toggle').click();
+  await bgmCard.locator('iframe').waitFor();
+  assert.match(await bgmCard.locator('iframe').getAttribute('src'), /id=2635292815&auto=0&height=66$/);
+  await soundOne.locator('.sound-mini-play').click();
+  await page.waitForFunction(() => !document.querySelector('.bgm-player-wrap iframe'));
+  assert.equal(await bgmCard.locator('.bgm-preview-toggle').getAttribute('aria-expanded'), 'false', 'Starting a sound removes the external music player');
+  await soundOne.locator('.sound-mini-play').click();
+  await bgmCard.locator('.bgm-preview-toggle').click();
+  await page.frameLocator('.bgm-player-wrap iframe').getByRole('button', { name: '▶', exact: true }).waitFor();
+  await page.screenshot({ path: path.join(outputDirectory, 'ai-card-previews-desktop.png'), fullPage: true });
+
+  // A shorter scrolling surface makes the off-screen stop observable even
+  // when the large desktop viewport can otherwise display every result card.
+  await page.locator('.message-viewport').evaluate(viewport => { viewport.style.flex = '0 0 300px'; });
+  await bgmCard.scrollIntoViewIfNeeded();
+  if (await bgmCard.locator('iframe').count() === 0) await bgmCard.locator('.bgm-preview-toggle').click();
+  await repeatedEffect.scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => !document.querySelector('.bgm-player-wrap iframe'));
+  await page.locator('.message-viewport').evaluate(viewport => { viewport.style.removeProperty('flex'); });
+  await bgmCard.scrollIntoViewIfNeeded();
+  await bgmCard.locator('.bgm-preview-toggle').click();
+  const effectAudioHandles = await page.locator('.resource-effect audio').elementHandles();
+  await page.getByRole('button', { name: '空白会话', exact: true }).click();
+  assert.equal(await page.locator('.resource-card iframe').count(), 0, 'Changing conversations unmounts music players');
+  for (const audio of effectAudioHandles) {
+    assert.deepEqual(await audio.evaluate(element => ({ paused: element.paused, muted: element.muted, connected: element.isConnected })), { paused: true, muted: true, connected: false }, 'Changing conversations stops and parks each independent effect audio element');
+  }
+  await page.getByRole('button', { name: '预览验证', exact: true }).click();
+  await waitForCards(page);
+  await page.locator('.resource-bgm .bgm-mini-preview').waitFor();
+  assert.equal(await page.locator('.bgm-player-wrap iframe').count(), 0, 'Returning to history does not restart music');
+  await page.setViewportSize({ width: 780, height: 1600 });
+  await page.waitForFunction(() => document.querySelector('.chat-message')?.querySelectorAll('.resource-card').length === 2);
+  const reply = page.locator('.chat-message').first();
+  const beforePagingApi = state.apiRequests;
+  const pagingSound = await showPreviewPosition(page, 1);
+  await pagingSound.locator('.waveform-bars').first().waitFor();
+  const soundAudio = await pagingSound.locator('audio').elementHandle();
+  await pagingSound.locator('.sound-mini-play').click();
+  await page.waitForFunction(audio => !audio.paused, soundAudio);
+  await reply.locator('.results-next').click();
+  assert.deepEqual(await soundAudio.evaluate(audio => ({ paused: audio.paused, connected: audio.isConnected })), { paused: true, connected: false }, 'Changing result pages stops and unmounts real sound playback');
+  const pagingEffect = await showPreviewPosition(page, 3);
+  await pagingEffect.locator('.preview-icon').waitFor();
+  await pagingEffect.hover();
+  const pagingEffectAudio = await pagingEffect.locator('audio').elementHandle();
+  const pagingEffectHandle = await pagingEffect.elementHandle();
+  await page.waitForFunction(card => { const audio = card.querySelector('audio'); return audio && (!audio.paused && !audio.muted || card.querySelector('.audio-status')?.textContent?.includes('点击预览以开启声音')); }, pagingEffectHandle, { timeout: 5000 });
+  if (await pagingEffectAudio.evaluate(audio => audio.paused || audio.muted)) {
+    assert.equal(await pagingEffect.locator('.audio-status').innerText(), '点击预览以开启声音');
+    await pagingEffect.locator('.effect-media').click();
+  }
+  await page.waitForFunction(audio => !audio.paused && !audio.muted, pagingEffectAudio, { timeout: 5000 });
+  await reply.locator('.results-previous').click();
+  assert.deepEqual(await pagingEffectAudio.evaluate(audio => ({ paused: audio.paused, muted: audio.muted, connected: audio.isConnected })), { paused: true, muted: true, connected: false }, 'Changing result pages stops and parks the audible effect track');
+  const pagingMusic = await showPreviewPosition(page, 4);
+  await pagingMusic.locator('.bgm-preview-toggle').click();
+  await pagingMusic.locator('iframe').waitFor();
+  const musicFrame = await pagingMusic.locator('iframe').elementHandle();
+  await reply.locator('.results-previous').click();
+  assert.equal(await musicFrame.evaluate(frame => frame.isConnected), false, 'Changing result pages removes the external BGM player');
+  assert.equal(await reply.locator('iframe').count(), 0);
+  assert.equal(state.apiRequests, beforePagingApi, 'Page changes request no AI/search API calls');
+  await page.setViewportSize({ width: 1800, height: 1600 });
+  await page.waitForFunction(() => document.querySelector('.chat-message')?.querySelectorAll('.resource-card').length === 4);
+  assert.equal(state.effectCatalogues, 1, 'Effect metadata is shared across card remounts');
+  assert.equal(state.bgmCatalogues, 1, 'BGM metadata is shared across card remounts');
+  assert.equal(state.modelRequests, 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+}
+
+async function testMobile(browser) {
+  const state = { modelRequests: 0, effectCatalogues: 0, bgmCatalogues: 0, musicFrames: 0 };
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await install(context, state);
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(`${base}/AISearch`);
+  await waitForCards(page);
+  const reply = page.locator('.chat-message').first();
+  const beforeMobilePagingApi = state.apiRequests;
+  const visited = [];
+  for (let position = 1; position <= cards.length; position++) {
+    const card = await showPreviewPosition(page, position);
+    assert.equal(await reply.locator('.resource-card').count(), 1, 'Mobile previews show only one resource per reply page');
+    visited.push(await card.locator('.asset-link').getAttribute('href'));
+  }
+  assert.deepEqual(visited, ['/SoundEffectPlayer?id=10001', '/SoundEffectPlayer?id=10002', '/EffectPlayer?id=64', '/BgmPlayer?id=1'], 'Mobile pages retain all archived preview kinds and their original order');
+  assert.equal(state.apiRequests, beforeMobilePagingApi, 'Mobile history paging does not call search or model APIs');
+  const bgmCard = await showPreviewPosition(page, 4);
+  await bgmCard.scrollIntoViewIfNeeded();
+  await bgmCard.locator('.bgm-preview-toggle').click();
+  await bgmCard.locator('iframe').waitFor();
+  await page.frameLocator('.bgm-player-wrap iframe').getByRole('button', { name: '▶', exact: true }).waitFor();
+  const dimensions = await page.evaluate(() => {
+    const workspace = document.querySelector('.ai-search-workspace');
+    return { document: document.documentElement.scrollWidth, viewport: innerWidth, workspace: workspace.scrollWidth, client: workspace.clientWidth,
+      overflowingCards: [...document.querySelectorAll('.resource-card')].filter(card => card.scrollWidth > card.clientWidth + 1).length };
+  });
+  assert.ok(dimensions.document <= dimensions.viewport + 1, 'Mobile page has no horizontal overflow');
+  assert.ok(dimensions.workspace <= dimensions.client + 1, 'Mobile search workspace has no horizontal overflow');
+  assert.equal(dimensions.overflowingCards, 0, 'Mini previews fit mobile resource cards');
+  await page.screenshot({ path: path.join(outputDirectory, 'ai-card-previews-mobile.png'), fullPage: true });
+  assert.equal(state.modelRequests, 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+}
+
+async function assertDetailsContent(page) {
+  const popover = page.locator('.resource-details-popover');
+  await popover.waitFor();
+  assert.equal(await popover.getAttribute('role'), 'tooltip');
+  assert.equal(await popover.locator('.resource-details-description').innerText(), longDescription, 'The complete description remains readable as plain text');
+  assert.equal(await popover.locator('.resource-details-description b').count(), 0, 'Description markup is displayed as literal text');
+  assert.deepEqual(await popover.locator('.resource-details-keywords .resource-details-tags>span').allTextContents(), detailKeywords, 'All keywords are available in details');
+  assert.ok((await popover.locator('.match-reason').innerText()).includes(detailReason), 'Details include the complete matching reason');
+  assert.deepEqual(await popover.locator('.suggested-uses .use-tag').allTextContents(), detailUses, 'All suggested uses are available in details');
+  const geometry = await popover.evaluate(element => { const rect = element.getBoundingClientRect(); return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight, clippedParent: !!element.closest('.message-viewport') }; });
+  assert.equal(geometry.clippedParent, false, 'Details are teleported outside the scrolling message viewport');
+  assert.ok(geometry.left >= 0 && geometry.top >= 0 && geometry.right <= geometry.width + 1 && geometry.bottom <= geometry.height + 1, `Complete details stay inside the screen: ${JSON.stringify(geometry)}`);
+  return popover;
+}
+
+async function testDetailsDesktop(browser) {
+  const state = { modelRequests: 0, effectCatalogues: 0, bgmCatalogues: 0, musicFrames: 0 };
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1366, height: 900 } });
+  await install(context, state);
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  try {
+    await page.goto(`${base}/AISearch`);
+    await waitForCards(page);
+    const reply = page.locator('.chat-message').first();
+    const card = await showPreviewPosition(page, 1);
+    await card.locator('.waveform-bars').first().waitFor();
+    assert.ok(await reply.locator('.resource-card').count() >= 3, 'The compact desktop row fits at least three previews beside the independent history panel at 1366px');
+    assert.ok(await reply.locator('.resource-card').evaluateAll(elements => elements.every(element => element.scrollWidth <= element.clientWidth + 1 && [...element.querySelectorAll('.resource-mini-preview')].every(preview => preview.scrollWidth <= preview.clientWidth + 1))), 'Sound, effect and BGM previews fit the compact desktop card width');
+    assert.equal(await card.locator('.match-reason,.resource-tags,.suggested-uses').count(), 0, 'Long explanations and tags do not expand the default card');
+    assert.equal(await page.locator('.resource-details-popover').count(), 0);
+    const trigger = card.locator('.resource-details-trigger');
+    const summary = await trigger.locator('.resource-details-summary').evaluate(element => { const styles = getComputedStyle(element); return { whitespace: styles.whiteSpace, overflow: styles.overflow, ellipsis: styles.textOverflow, truncated: element.scrollWidth > element.clientWidth, height: element.getBoundingClientRect().height }; });
+    assert.deepEqual([summary.whitespace, summary.overflow, summary.ellipsis], ['nowrap', 'hidden', 'ellipsis'], 'The default description uses a single ellipsis line');
+    assert.ok(summary.truncated && summary.height <= 24);
+    const cardHeight = (await card.boundingBox()).height;
+    const scrollHeight = await page.locator('.message-viewport').evaluate(element => element.scrollHeight);
+    const beforeDetailsApi = state.apiRequests;
+    await trigger.hover();
+    const popover = await assertDetailsContent(page);
+    assert.equal(await trigger.getAttribute('aria-describedby'), await popover.getAttribute('id'), 'The focused or hovered trigger identifies its tooltip');
+    assert.ok(Math.abs((await card.boundingBox()).height - cardHeight) < 1, 'Showing complete details does not grow the card');
+    assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollHeight), scrollHeight, 'Showing details does not grow the scrolling message surface');
+    await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-desktop.png'), fullPage: true });
+    assert.equal(await popover.evaluate(element => getComputedStyle(element).pointerEvents), 'none', 'The description tooltip cannot intercept mouse or pen interaction');
+    const tooltipPoint = await popover.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const points = [{ x: bounds.left + 18, y: bounds.top + 18 }, { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }, { x: bounds.right - 18, y: bounds.bottom - 18 }];
+      return points.find(point => !document.elementFromPoint(point.x, point.y)?.closest('.resource-details-trigger'));
+    });
+    assert.ok(tooltipPoint, 'The fixture has a tooltip coordinate outside the original and adjacent description lines');
+    assert.equal(await page.evaluate(point => !!document.elementFromPoint(point.x, point.y)?.closest('.resource-details-popover'), tooltipPoint), false, 'Hit testing at the visible tooltip reaches content underneath');
+    await page.mouse.move(tooltipPoint.x, tooltipPoint.y);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'Leaving the summary for its tooltip closes it by the next frame, with no hover grace period');
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    await trigger.click();
+    await assertDetailsContent(page);
+    assert.equal(await trigger.evaluate(element => document.activeElement === element), true, 'The mouse click leaves focus on the summary');
+    await page.mouse.move(5, 5);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'A mouse click does not pin the tooltip after leaving the summary, even while the button remains focused');
+    assert.equal(await trigger.evaluate(element => document.activeElement === element), true);
+    await trigger.hover();
+    const firstTooltipId = await (await assertDetailsContent(page)).getAttribute('id');
+    const adjacentTrigger = reply.locator('.resource-card').nth(1).locator('.resource-details-trigger');
+    await adjacentTrigger.hover();
+    const adjacentTooltip = page.locator('.resource-details-popover');
+    await adjacentTooltip.waitFor();
+    assert.equal(await adjacentTooltip.count(), 1, 'Moving directly to another description leaves only its own tooltip');
+    assert.notEqual(await adjacentTooltip.getAttribute('id'), firstTooltipId);
+    assert.equal(await adjacentTooltip.locator('.resource-details-description').innerText(), cards[1].description, 'The adjacent description has no stale content from the prior tooltip');
+    await page.mouse.move(5, 5);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    assert.equal(await page.locator('.resource-details-popover').count(), 0);
+    // This same-task enter/leave leaves show() waiting on its first Vue tick,
+    // so it probes cancellation before the teleported panel can be positioned.
+    await trigger.evaluate(element => {
+      element.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      element.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
+    });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'A pending positioning promise cannot reopen details after an immediate leave');
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    await page.locator('#asset-query').focus();
+    await trigger.focus();
+    await assertDetailsContent(page);
+    await page.keyboard.press('Escape');
+    await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false', 'Escape closes details opened by keyboard focus');
+    await trigger.press('Enter');
+    await assertDetailsContent(page);
+    await page.keyboard.press('Escape');
+    await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
+    await page.keyboard.press('Tab');
+    await page.setViewportSize({ width: 1366, height: 480 });
+    await trigger.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(150);
+    await trigger.focus();
+    const scrollingDetails = await assertDetailsContent(page);
+    const keyboardScrollState = await scrollingDetails.evaluate(element => ({ scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }));
+    assert.ok(keyboardScrollState.scrollHeight > keyboardScrollState.clientHeight, 'The short viewport requires scrolling the complete details');
+    const messageScrollTop = await page.locator('.message-viewport').evaluate(element => element.scrollTop);
+    await page.keyboard.press('PageDown');
+    await page.waitForFunction(() => document.querySelector('.resource-details-popover')?.scrollTop > 0);
+    await page.keyboard.press('End');
+    assert.ok(await scrollingDetails.evaluate(element => element.scrollTop >= element.scrollHeight - element.clientHeight - 1), 'Keyboard End reaches the final detail content');
+    assert.ok(await scrollingDetails.locator('.use-tag').last().evaluate(element => element.getBoundingClientRect().bottom <= element.closest('.resource-details-popover').getBoundingClientRect().bottom), 'The final suggested use can be read after keyboard scrolling');
+    assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollTop), messageScrollTop, 'Details keyboard scrolling does not move the chat viewport');
+    assert.equal(await scrollingDetails.count(), 1, 'Scrolling inside complete details keeps the panel open');
+    await page.keyboard.press('Home');
+    assert.equal(await scrollingDetails.evaluate(element => element.scrollTop), 0);
+    await page.keyboard.press('Escape');
+    await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
+    await page.keyboard.press('Tab');
+    await page.setViewportSize({ width: 780, height: 900 });
+    await page.waitForFunction(() => document.querySelector('.chat-message')?.querySelectorAll('.resource-card').length === 2);
+    await trigger.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(150);
+    await trigger.focus();
+    const openDetails = await assertDetailsContent(page);
+    const oldPopover = await openDetails.elementHandle();
+    const oldTrigger = await trigger.elementHandle();
+    // Click the pagination control without moving focus first, so this probes
+    // destruction of an open teleported tooltip when its card is unmounted.
+    await reply.locator('.results-next').evaluate(button => button.click());
+    assert.equal(await oldPopover.evaluate(element => element.isConnected), false, 'Changing pages destroys an open teleported details panel');
+    assert.equal(await oldTrigger.evaluate(element => element.isConnected), false);
+    assert.equal(await page.locator('.resource-details-popover').count(), 0);
+    assert.equal(state.apiRequests, beforeDetailsApi, 'Opening, closing and paging details calls no AI/search API');
+    assert.equal(state.modelRequests, 0);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+}
+
+async function testDetailsMobile(browser) {
+  const state = { modelRequests: 0, effectCatalogues: 0, bgmCatalogues: 0, musicFrames: 0 };
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await install(context, state);
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  try {
+    await page.goto(`${base}/AISearch`);
+    await waitForCards(page);
+    const card = await showPreviewPosition(page, 1);
+    await card.locator('.waveform-bars').first().waitFor();
+    const beforeDetailsApi = state.apiRequests;
+    const trigger = card.locator('.resource-details-trigger');
+    const height = (await card.boundingBox()).height;
+    await trigger.tap();
+    await assertDetailsContent(page);
+    assert.ok(Math.abs((await card.boundingBox()).height - height) < 1, 'Tapping details does not expand a mobile card');
+    await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-mobile.png'), fullPage: true });
+    await page.locator('#asset-query').tap();
+    await page.locator('.resource-details-popover').waitFor({ state: 'hidden', timeout: 3000 });
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false', 'A tap outside closes pinned mobile details');
+    await trigger.tap();
+    const popover = await assertDetailsContent(page);
+    const oldPopover = await popover.elementHandle();
+    await page.locator('.chat-message').first().locator('.results-next').evaluate(button => button.click());
+    assert.equal(await oldPopover.evaluate(element => element.isConnected), false, 'Mobile paging destroys its open tooltip');
+    assert.equal(await page.locator('.resource-details-popover').count(), 0);
+    assert.equal(state.apiRequests, beforeDetailsApi);
+    assert.equal(state.modelRequests, 0);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+}
+
+(async () => {
+  await fs.mkdir(outputDirectory, { recursive: true });
+  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  try {
+    if (!detailsOnly) { await testDesktop(browser); await testMobile(browser); }
+    await testDetailsDesktop(browser);
+    await testDetailsMobile(browser);
+    console.log(detailsOnly ? 'PASS AISearch compact details: single-line ellipsis, complete plain text, all tags/reasons/uses, unclipped noninteractive tooltip, immediate pointer leave and no mouse pinning, adjacent/pending positioning cleanup, fixed card height, keyboard focus/Enter/scroll/Escape, mobile tap/outside and page cleanup, no AI/search calls.' : 'PASS AISearch card previews and compact details: real WAV waveform and seek, smooth cursor without timeupdate, frozen paused progress, exclusive audio playback, effect icon/video links/hover audio, copy ID/name, trusted BGM song/album IDs, lazy iframe, scroll/conversation/page cleanup, cached metadata, mobile one-card pages preserve result order, no API requests on paging, mobile layout, complete plain-text noninteractive tooltip with immediate pointer leave, keyboard/mobile access and fixed card height.');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

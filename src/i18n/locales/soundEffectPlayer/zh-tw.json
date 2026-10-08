@@ -3,8 +3,8 @@
   "soundEffectPlayer.ui.allVersions": "全部版本",
   "soundEffectPlayer.ui.selectSound": "選擇音效",
   "soundEffectPlayer.ui.player": "播放器",
-  "soundEffectPlayer.ui.searchLabel": "搜尋（名稱或 ID）：",
-  "soundEffectPlayer.ui.searchPlaceholder": "輸入關鍵字，按 Enter 跳至第一項",
+  "soundEffectPlayer.ui.searchLabel": "搜尋（名稱、ID、描述）：",
+  "soundEffectPlayer.ui.searchPlaceholder": "輸入名稱、描述或關鍵字，按 Enter 跳至第一項",
   "soundEffectPlayer.ui.resultCount": "{count} 項",
   "soundEffectPlayer.ui.collapseAll": "全部收合",
   "soundEffectPlayer.ui.expandAll": "全部展開",
@@ -32,5 +32,9 @@
   "soundEffectPlayer.ui.waveformHint": "點擊或拖曳定位",
   "soundEffectPlayer.ui.waveformLoading": "正在讀取音訊波形…",
   "soundEffectPlayer.ui.waveformFailed": "波形載入失敗，仍可點擊或拖曳定位",
-  "soundEffectPlayer.ui.copyHint": "點擊複製內容"
+  "soundEffectPlayer.ui.copyHint": "點擊複製內容",
+  "soundEffectPlayer.ui.featuresLoading": "正在讀取資產描述…",
+  "soundEffectPlayer.ui.featuresUnavailable": "描述檔案暫不可用，仍可依名稱、ID 搜尋與預覽。",
+  "soundEffectPlayer.ui.featuresStale": "描述更新檢查失敗，暫時顯示上次讀取的內容。",
+  "soundEffectPlayer.ui.featuresEmpty": "此資產暫未產生描述。"
 }

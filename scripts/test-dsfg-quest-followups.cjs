@@ -10,7 +10,7 @@ const filename = path.resolve(__dirname, "../src/views/DSFGStudio/components/Que
 const parsed = parse(fs.readFileSync(filename, "utf8"), { filename });
 const descriptor = parsed.descriptor;
 const ast = ts.createSourceFile(`${filename}.ts`, descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-const handlerNames = ["addNextQuest", "updateNextQuest", "moveNextQuest", "removeNextQuest", "removeSelected", "updateSubInteger"];
+const handlerNames = ["chooseNextQuest", "moveNextQuest", "removeNextQuest", "removeSelected", "updateSubInteger", "chooseFailureQuest", "removeFailureQuest"];
 const functions = handlerNames.map((name) => {
   const declaration = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
   assert.ok(declaration, `Actual QuestPanel handler missing: ${name}`);
@@ -28,7 +28,8 @@ function harness(ids = []) {
   const warnings = [];
   const sub = { id: 199, title: "当前子任务", nextQuestIds: [...ids], failureQuestId: -1, finishMainQuest: false, questProgress: 0 };
   const context = vm.createContext({
-    selectedSub: { value: sub }, nextQuestIdInput: { value: "" },
+    selectedSub: { value: sub },
+    subsById: { value: new Map([[0, { id: 0 }], [100, { id: 100 }], [199, sub]]) },
     toast: { warning: (message) => warnings.push(message) },
   });
   vm.runInContext(compiledHandlers, context, { filename, timeout: 1000 });
@@ -95,13 +96,28 @@ test("New scalar inputs are wired to sub-only fields with exact integer bounds a
   const failure = inputs.find((node) => attr(node, "aria-label") === "失败回溯任务 ID");
   const progress = inputs.find((node) => attr(node, "aria-label") === "任务进度");
   const finish = inputs.find((node) => attr(node, "aria-label") === "完成主任务");
-  for (const [node, key] of [[failure, "failureQuestId"], [progress, "questProgress"]]) {
+  assert.equal(failure, undefined, 'Rollback selection must not expose a manual ID input');
+  for (const [node, key] of [[progress, "questProgress"]]) {
     assert.ok(node); assert.equal(attr(node, "type"), "number"); assert.equal(attr(node, "step"), "1");
     assert.equal(attr(node, "min"), "-2147483648"); assert.equal(attr(node, "max"), "2147483647");
     assert.equal(directive(node, "on", "input").exp.content, `updateSubInteger('${key}', $event)`);
     assert.equal(directive(node, "on", "change").exp.content, `updateSubInteger('${key}', $event, true)`);
   }
   assert.equal(attr(finish, "type"), "checkbox"); assert.equal(directive(finish, "model").exp.content, "selectedSub.finishMainQuest");
+});
+
+test("Rollback task is chosen once by name, removable without deleting a task, and accepts ID zero", () => {
+  const { state, sub } = harness([100]);
+  state.chooseFailureQuest(null); state.chooseFailureQuest(9999); assert.equal(sub.failureQuestId, -1);
+  state.chooseFailureQuest(0); assert.equal(sub.failureQuestId, 0);
+  state.chooseFailureQuest(100); assert.equal(sub.failureQuestId, 0);
+  state.removeFailureQuest(); assert.equal(sub.failureQuestId, -1);
+  assert.equal(state.subsById.value.size, 3); assert.deepEqual(sub.nextQuestIds, [100]);
+  state.chooseFailureQuest(100); assert.equal(sub.failureQuestId, 100);
+  sub.failureQuestId = null; state.chooseFailureQuest(0); assert.equal(sub.failureQuestId, null);
+  state.removeFailureQuest(); assert.equal(sub.failureQuestId, -1);
+  sub.failureQuestId = 9999; state.removeFailureQuest(); assert.equal(sub.failureQuestId, -1);
+  state.selectedSub.value = undefined; state.chooseFailureQuest(0); state.removeFailureQuest(); assert.equal(sub.failureQuestId, -1);
 });
 test("Rollback and progress update immediately with zero, negatives and Int32 boundaries", () => {
   const { state, sub, warnings } = harness();
@@ -149,112 +165,52 @@ test("Main/sub deletion clears rollback targets along with follow-up slots; canc
     const before = JSON.stringify(cancelled.project); cancelled.state.removeSelected(); assert.equal(JSON.stringify(cancelled.project), before);
   }
 });
-test("Adding IDs preserves order, duplicates, zero, signed boundaries and complete future references", () => {
-  const { state, sub, warnings } = harness();
-  const values = ["199", "100", "0", "-1", "199", "9999", "-2147483648", "2147483647", " +000100 "];
-  for (const text of values) {
-    state.nextQuestIdInput.value = text;
-    state.addNextQuest();
-    assert.equal(state.nextQuestIdInput.value, "");
-  }
-  assert.deepEqual(sub.nextQuestIds, values.map(Number));
-  assert.deepEqual(warnings, []);
+test("Choosing follow-up tasks preserves order and zero while rejecting duplicates and invalid additions", () => {
+  const { state, sub } = harness([9999, null]);
+  for (const id of [199, 100, 0, 199]) state.chooseNextQuest(id);
+  state.chooseNextQuest(null); state.chooseNextQuest(9999);
+  assert.deepEqual(sub.nextQuestIds, [9999, null, 199, 100, 0]);
+  assert.deepEqual(JSON.parse(JSON.stringify(sub)).nextQuestIds, sub.nextQuestIds);
 });
 
-test("Invalid new IDs do not change the list or erase the input", () => {
-  for (const text of ["", " ", "-", "+", "1.5", "1e2", "0x10", "100,199", "NaN", "Infinity", "2147483648", "-2147483649"]) {
-    const { state, sub, warnings } = harness([100]);
-    state.nextQuestIdInput.value = text;
-    state.addNextQuest();
-    assert.deepEqual(sub.nextQuestIds, [100], text);
-    assert.equal(state.nextQuestIdInput.value, text);
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /Int32/);
-  }
+test("Duplicate additions and replacements leave the list unchanged, including ID zero", () => {
+  const { state, sub, warnings } = harness([0, 100, null, null]);
+  state.chooseNextQuest(0); state.chooseNextQuest(100);
+  state.chooseNextQuest(0, 1); state.chooseNextQuest(100, 2);
+  assert.deepEqual(sub.nextQuestIds, [0, 100, null, null]);
+  assert.equal(warnings.length, 4);
+  state.chooseNextQuest(0, 0); state.chooseNextQuest(null, 2);
+  assert.equal(warnings.length, 4, "Keeping the current selection is harmless");
+  state.chooseNextQuest(null, 0); state.chooseNextQuest(0, 2);
+  assert.deepEqual(sub.nextQuestIds, [null, 100, 0, null]);
+  state.removeNextQuest(1); state.chooseNextQuest(100);
+  assert.deepEqual(sub.nextQuestIds, [null, 0, null, 100]);
 });
 
-test("Adding the 100th ID succeeds and adding the 101st is blocked until removal", () => {
-  const { state, sub, warnings } = harness(Array.from({ length: 99 }, (_, index) => index));
-  state.nextQuestIdInput.value = "9999";
-  state.addNextQuest();
+test("Replacing and clearing a selection changes only its slot and preserves external references", () => {
+  const { state, sub } = harness([9999, null, 100]);
+  state.chooseNextQuest(0, 1);
+  assert.deepEqual(sub.nextQuestIds, [9999, 0, 100]);
+  state.chooseNextQuest(null, 2);
+  assert.deepEqual(sub.nextQuestIds, [9999, 0, null]);
+  state.chooseNextQuest(9999, 1);
+  assert.deepEqual(sub.nextQuestIds, [9999, 0, null]);
+  state.chooseNextQuest(199, 2);
+  assert.deepEqual(sub.nextQuestIds, [9999, 0, 199]);
+});
+
+test("The 100-item limit blocks additions but permits replacement and removal", () => {
+  const { state, sub } = harness(Array.from({ length: 99 }, (_, index) => index + 1));
+  state.chooseNextQuest(0);
   assert.equal(sub.nextQuestIds.length, 100);
-  assert.equal(sub.nextQuestIds[99], 9999);
-  state.nextQuestIdInput.value = "199";
-  const before = [...sub.nextQuestIds];
-  state.addNextQuest();
-  assert.deepEqual(sub.nextQuestIds, before);
-  assert.equal(state.nextQuestIdInput.value, "199");
-  state.removeNextQuest(50);
-  state.addNextQuest();
+  assert.equal(sub.nextQuestIds[99], 0);
+  state.chooseNextQuest(199);
   assert.equal(sub.nextQuestIds.length, 100);
-  assert.equal(sub.nextQuestIds[99], 199);
-  assert.equal(state.nextQuestIdInput.value, "");
-  assert.deepEqual(warnings, []);
-});
-
-test("Valid input events update the actual model immediately before any change or blur", () => {
-  const { state, sub, warnings } = harness([100, 199, 0]);
-  state.updateNextQuest(1, inputEvent("9999"));
-  assert.deepEqual(sub.nextQuestIds, [100, 9999, 0]);
-  assert.deepEqual(JSON.parse(JSON.stringify(sub)).nextQuestIds, [100, 9999, 0], "Saving while the input is focused sees the current ID");
-  state.updateNextQuest(0, inputEvent("-2147483648"));
-  state.updateNextQuest(2, inputEvent("2147483647"));
-  assert.deepEqual(sub.nextQuestIds, [-2147483648, 9999, 2147483647]);
-  state.updateNextQuest(1, inputEvent("0"), true);
-  assert.deepEqual(sub.nextQuestIds, [-2147483648, 0, 2147483647]);
-  assert.deepEqual(warnings, []);
-});
-
-test("Invalid intermediate input stays editable without warnings or overwriting saved IDs", () => {
-  for (const [text, numeric] of [["", NaN], ["-", NaN], ["1.5", 1.5], ["2147483648", 2147483648], ["-2147483649", -2147483649], ["Infinity", Infinity]]) {
-    const { state, sub, warnings } = harness([199]);
-    const event = inputEvent(text, numeric, text === "");
-    state.updateNextQuest(0, event);
-    assert.deepEqual(sub.nextQuestIds, [199]);
-    assert.equal(event.target.value, text);
-    assert.deepEqual(warnings, []);
-  }
-});
-
-test("Committing invalid input warns and restores the most recent valid ID", () => {
-  const { state, sub, warnings } = harness([199]);
-  state.updateNextQuest(0, inputEvent("100"));
-  const draft = inputEvent("", NaN, true);
-  state.updateNextQuest(0, draft);
-  assert.equal(draft.target.value, "");
-  assert.deepEqual(warnings, []);
-  state.updateNextQuest(0, draft, true);
-  assert.deepEqual(sub.nextQuestIds, [100]);
-  assert.equal(draft.target.value, "100");
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /Int32/);
-  state.updateNextQuest(0, inputEvent("-1"));
-  assert.deepEqual(sub.nextQuestIds, [-1]);
-});
-
-test("Explicitly empty numeric input immediately clears only its slot and can be refilled", () => {
-  const { state, sub, warnings } = harness([100, 199, 0]);
-  state.updateNextQuest(1, inputEvent(""));
-  assert.deepEqual(sub.nextQuestIds, [100, null, 0]);
-  assert.deepEqual(JSON.parse(JSON.stringify(sub)).nextQuestIds, [100, null, 0]);
-  state.updateNextQuest(1, inputEvent(""), true);
-  assert.deepEqual(sub.nextQuestIds, [100, null, 0]);
-  state.updateNextQuest(1, inputEvent("9999"));
-  assert.deepEqual(sub.nextQuestIds, [100, 9999, 0]);
-  assert.deepEqual(warnings, []);
-});
-
-test("Invalid committed input restores an existing null slot as empty rather than zero or null text", () => {
-  const { state, sub, warnings } = harness([null]);
-  const event = inputEvent("", NaN, true);
-  state.updateNextQuest(0, event);
-  assert.deepEqual(warnings, []);
-  state.updateNextQuest(0, event, true);
-  assert.deepEqual(sub.nextQuestIds, [null]);
-  assert.equal(event.target.value, "");
-  assert.equal(warnings.length, 1);
-  state.updateNextQuest(0, inputEvent("0"));
-  assert.deepEqual(sub.nextQuestIds, [0]);
+  state.chooseNextQuest(199, 0);
+  assert.equal(sub.nextQuestIds[0], 199);
+  state.removeNextQuest(50); state.chooseNextQuest(100);
+  assert.equal(sub.nextQuestIds.length, 100);
+  assert.equal(sub.nextQuestIds[99], 100);
 });
 
 test("Nullable rows can be reordered and explicitly removed without altering neighboring IDs", () => {
@@ -291,8 +247,8 @@ test("Removing a row deletes only its occurrence and supports an empty list", ()
 test("Out-of-range row actions are harmless and do not generate warnings", () => {
   const { state, sub, warnings } = harness([100, 199]);
   for (const index of [-1, 2, 100]) {
-    state.updateNextQuest(index, inputEvent("0"));
-    state.updateNextQuest(index, inputEvent("", NaN), true);
+    state.chooseNextQuest(0, index);
+    state.chooseNextQuest(null, index);
     state.removeNextQuest(index);
     state.moveNextQuest(index, 1);
   }
@@ -305,50 +261,25 @@ test("Out-of-range row actions are harmless and do not generate warnings", () =>
 test("All list actions are harmless if no sub quest is selected", () => {
   const { state, sub, warnings } = harness([100]);
   state.selectedSub.value = undefined;
-  state.nextQuestIdInput.value = "199";
-  state.addNextQuest();
-  state.updateNextQuest(0, inputEvent("0"));
-  state.updateNextQuest(0, inputEvent("", NaN), true);
+  state.chooseNextQuest(199);
+  state.chooseNextQuest(0, 0);
+  state.chooseNextQuest(null, 0);
   state.removeNextQuest(0);
   state.moveNextQuest(0, 1);
   assert.deepEqual(sub.nextQuestIds, [100]);
-  assert.equal(state.nextQuestIdInput.value, "199");
   assert.deepEqual(warnings, []);
 });
 
-test("Template binds input to immediate updates and change to explicit validation", () => {
-  const inputs = findElements(descriptor.template.ast, (node) => node.tag === "input" && Boolean(directive(node, "on", "input")?.exp.content.includes("updateNextQuest")));
-  assert.equal(inputs.length, 1);
-  const input = inputs[0];
-  assert.equal(directive(input, "on", "input").exp.content, "updateNextQuest(index, $event)");
-  assert.equal(directive(input, "on", "change").exp.content, "updateNextQuest(index, $event, true)");
-  const valueExpression = directive(input, "bind", "value").exp.content;
-  assert.equal(evaluate(valueExpression, { id: null }), "");
-  assert.equal(evaluate(valueExpression, { id: 0 }), 0);
-  assert.equal(evaluate(valueExpression, { id: 199 }), 199);
-  assert.equal(attr(input, "placeholder"), "空引用");
-  assert.equal(attr(input, "type"), "number");
-  assert.equal(attr(input, "step"), "1");
-  assert.equal(attr(input, "min"), "-2147483648");
-  assert.equal(attr(input, "max"), "2147483647");
-});
-
-test("Template enforces the add limit and supports Enter with its default action prevented", () => {
-  const section = findElements(descriptor.template.ast, (node) => attr(node, "class") === "next-quest-add")
-    .find(node => findElements(node, child => child.tag === "input").length);
-  assert.ok(section);
-  const controls = findElements(section, (node) => node.tag === "input" || node.tag === "button");
-  assert.equal(controls.length, 2);
-  for (const node of controls) {
-    const disabled = directive(node, "bind", "disabled").exp.content;
-    assert.equal(evaluate(disabled, { selectedSub: { nextQuestIds: Array(99) } }), false);
-    assert.equal(evaluate(disabled, { selectedSub: { nextQuestIds: Array(100) } }), true);
-  }
-  const input = controls.find((node) => node.tag === "input");
-  const keydown = directive(input, "on", "keydown");
-  assert.equal(keydown.exp.content, "addNextQuest");
-  assert.deepEqual(keydown.modifiers.map((modifier) => typeof modifier === "string" ? modifier : modifier.content).sort(), ["enter", "prevent"]);
-  assert.equal(directive(controls.find((node) => node.tag === "button"), "on", "click").exp.content, "addNextQuest");
+test("Follow-ups use only task pickers with indexed replacement and a capped add action", () => {
+  const section = findElements(descriptor.template.ast, node => attr(node, "class") === "next-quests")[0];
+  assert.equal(findElements(section, node => node.tag === "input").length, 0);
+  const pickers = findElements(section, node => node.tag === "QuestReferenceSelect");
+  assert.equal(pickers.length, 2);
+  assert.equal(directive(pickers[0], "on", "update:model-value").exp.content, "chooseNextQuest($event, index)");
+  assert.equal(directive(pickers[1], "on", "update:model-value").exp.content, "chooseNextQuest($event)");
+  const disabled = directive(pickers[1], "bind", "disabled").exp.content;
+  assert.equal(evaluate(disabled, { selectedSub: { nextQuestIds: Array(99) } }), false);
+  assert.equal(evaluate(disabled, { selectedSub: { nextQuestIds: Array(100) } }), true);
 });
 
 test("Template connects row move/remove controls and disables movement at either end", () => {
@@ -365,21 +296,12 @@ test("Template connects row move/remove controls and disables movement at either
   assert.equal(evaluate(down, values), true);
 });
 
-test("Changing the selected sub quest clears the unfinished add input", () => {
-  const watcher = ast.statements.find((node) => ts.isExpressionStatement(node)
-    && ts.isCallExpression(node.expression) && node.expression.expression.getText(ast) === "watch"
-    && node.expression.arguments[0].getText(ast) === "() => selectedSub.value?.id");
-  assert.ok(watcher, "Actual selected-sub watcher missing");
+test("Task selections write only to the currently selected sub quest", () => {
   const { state, sub } = harness([100]);
-  let observed, callback;
-  state.watch = (source, change) => { observed = source; callback = change; };
-  vm.runInContext(ts.transpileModule(watcher.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, state);
-  assert.equal(observed(), sub.id);
-  state.nextQuestIdInput.value = "9999";
-  state.selectedSub.value = { id: 200, nextQuestIds: [] };
-  assert.equal(observed(), 200);
-  callback();
-  assert.equal(state.nextQuestIdInput.value, "");
+  const other = { id: 200, nextQuestIds: [] };
+  state.selectedSub.value = other;
+  state.chooseNextQuest(199);
+  assert.deepEqual(other.nextQuestIds, [199]);
   assert.deepEqual(sub.nextQuestIds, [100]);
 });
 

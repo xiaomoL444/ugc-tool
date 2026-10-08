@@ -18,6 +18,13 @@ export function getDialogueStyles() {
   return [...definitions.values()];
 }
 
+/** 标题对应 Talker；缺失的自定义样式沿用新建预设默认值。 */
+export function dialogueStyleShowsTitle(id: string, styles: readonly DialogueStyleDefinition[] = getDialogueStyles()) {
+  return styles.find(style => style.id === id)?.showTitle
+    ?? systemPresetConfig.dialogueStyles.presets.find(style => style.value === id)?.showTitle
+    ?? systemPresetConfig.dialogueStyles.newItem.showTitle;
+}
+
 for (const preset of systemPresetConfig.dialogueStyles.presets) {
-  registerDialogueStyle({ id: preset.value, label: preset.label });
+  registerDialogueStyle({ id: preset.value, label: preset.label, showTitle: preset.showTitle });
 }

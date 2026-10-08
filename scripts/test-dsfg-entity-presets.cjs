@@ -30,7 +30,7 @@ async function main() {
     const script = compileScript(descriptor, { id: 'preset-settings' });
     assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'preset-settings', compilerOptions: { bindingMetadata: script.bindings } }).errors, []);
     for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename, id: 'preset-settings', scoped: true }).errors, []);
-    assert.match(source, /<h2>预设设置<\/h2>/);
+    assert.match(source, /<SectionLayout title="预设设置"/);
     assert.match(source, /<section[^>]*aria-labelledby="entity-presets-title"/);
     assert.match(source, /<h3 id="entity-presets-title">预设实体<\/h3>/);
     assert.match(source, /prepareToLeave: flush/);
@@ -56,14 +56,28 @@ async function main() {
   await test('Entity aliases migrate old files and preserve explicit values without replacing Talker', () => {
     const old = { id: 'old', talker: '原说话人', subtitle: '' };
     assert.equal(decode(encode([old]))[0].name, '原说话人');
-    const named = { ...old, name: '网页代号' };
+    const named = { ...old, name: '网页代号', guid: '', entityQuery: '' };
     assert.deepEqual(decode(encode([named])), [named]);
     assert.equal(decode(encode([{ ...named, name: '' }]))[0].name, '');
     assert.throws(() => decode(encode([{ ...named, name: 123 }])));
     const { systemPresetConfig } = require(path.join(base, 'systemPresetConfig.ts'));
     assert.deepEqual(systemPresetConfig.entities.presets.find(item => item.id === 'system-player-self'), {
-      id: 'system-player-self', name: '玩家自身', talker: '{1:ps.NICKNAME}', subtitle: '',
+      id: 'system-player-self', name: '玩家自身', talker: '{1:ps.NICKNAME}', subtitle: '', guid: '1086324738', entityQuery: '',
     });
+  });
+  await test('Entity GUID and query migrate missing fields and preserve exact strings and empty overrides', () => {
+    const old = { id: 'old', name: '门', talker: '', subtitle: '' };
+    assert.equal(createEntityPreset().guid, '');
+    assert.equal(createEntityPreset().entityQuery, '');
+    assert.deepEqual(decode(encode([old])), [{ ...old, guid: '', entityQuery: '' }]);
+    const filled = { ...old, guid: '18446744073709551615', entityQuery: '门/入口' };
+    assert.deepEqual(decode(encode([filled])), [filled]);
+    const player = { ...old, id: 'system-player-self' };
+    assert.equal(decode(encode([player]))[0].guid, '1086324738');
+    assert.equal(decode(encode([{ ...player, guid: '' }]))[0].guid, '');
+    for (const field of ['guid', 'entityQuery']) {
+      assert.throws(() => decode(encode([{ ...old, [field]: 123 }])));
+    }
   });
   const files = new Map();
   let fail = false;

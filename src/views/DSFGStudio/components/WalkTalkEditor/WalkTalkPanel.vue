@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudioSelectField from "../StudioSelectField.vue";
 import { ref } from "vue";
 import { toast } from "vue-sonner";
 import { addWalkTalkEntry, removeWalkTalkEntry, WALK_TALK_LIMIT, type WalkTalkProject } from "./walkTalkProject";
@@ -48,10 +49,10 @@ function remove(id: string, index: number) {
           <label class="talker-field">说话人<input v-model="entry.talker" :aria-label="`第 ${index + 1} 条说话人`" placeholder="说话人" /></label>
           <label class="subtitle-field">副标题<input v-model="entry.subtitle" :aria-label="`第 ${index + 1} 条副标题`" placeholder="可留空" /></label>
           <label class="content-field">台词内容<AutoGrowTextarea v-model="entry.content" :aria-label="`第 ${index + 1} 条内容`" placeholder="填写台词内容…" /></label>
-          <label class="style-field">样式<select v-model="entry.style" :title="entry.style" :aria-label="`第 ${index + 1} 条样式`">
+          <label class="style-field">样式<StudioSelectField v-model="entry.style" :title="entry.style" :aria-label="`第 ${index + 1} 条样式`">
             <option v-if="!WALK_TALK_STYLE_OPTIONS.some(option => option.value === entry.style)" :value="entry.style" disabled>{{ entry.style ? `${entry.style}（旧值）` : '未设置（旧值）' }}</option>
             <option v-for="option in WALK_TALK_STYLE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select></label>
+          </StudioSelectField></label>
           <label class="delay-field">推进延迟<span class="delay-input"><input v-model="entry.continueDelay" inputmode="decimal" :aria-label="`第 ${index + 1} 条推进延迟`" /><span>秒</span></span></label>
           <div class="card-actions" role="group" :aria-label="`第 ${index + 1} 条台词操作`">
             <button type="button" class="details-button" :class="{ 'has-details': entry.params }"

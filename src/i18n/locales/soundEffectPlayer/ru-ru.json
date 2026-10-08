@@ -3,8 +3,8 @@
   "soundEffectPlayer.ui.allVersions": "Все версии",
   "soundEffectPlayer.ui.selectSound": "Выбор звука",
   "soundEffectPlayer.ui.player": "Проигрыватель",
-  "soundEffectPlayer.ui.searchLabel": "Поиск (название или ID):",
-  "soundEffectPlayer.ui.searchPlaceholder": "Введите запрос; Enter — перейти к первому результату",
+  "soundEffectPlayer.ui.searchLabel": "Поиск (название, ID, описание):",
+  "soundEffectPlayer.ui.searchPlaceholder": "Введите название, описание или ключевое слово; Enter — к первому результату",
   "soundEffectPlayer.ui.resultCount": "Найдено: {count}",
   "soundEffectPlayer.ui.collapseAll": "Свернуть всё",
   "soundEffectPlayer.ui.expandAll": "Развернуть всё",
@@ -32,5 +32,9 @@
   "soundEffectPlayer.ui.waveformHint": "Нажмите или перетащите для перемотки",
   "soundEffectPlayer.ui.waveformLoading": "Загрузка звуковой волны…",
   "soundEffectPlayer.ui.waveformFailed": "Волна недоступна. Нажмите или перетащите для перемотки.",
-  "soundEffectPlayer.ui.copyHint": "Нажмите, чтобы скопировать"
+  "soundEffectPlayer.ui.copyHint": "Нажмите, чтобы скопировать",
+  "soundEffectPlayer.ui.featuresLoading": "Загрузка описаний ресурсов…",
+  "soundEffectPlayer.ui.featuresUnavailable": "Описания временно недоступны. Поиск по названию и ID, а также предпросмотр доступны.",
+  "soundEffectPlayer.ui.featuresStale": "Не удалось проверить обновление описаний. Показаны ранее загруженные описания.",
+  "soundEffectPlayer.ui.featuresEmpty": "Для этого ресурса ещё не созданы описания."
 }

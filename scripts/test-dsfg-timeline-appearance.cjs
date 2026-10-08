@@ -137,10 +137,10 @@ async function main() {
     vm.runInNewContext(run + "; addFocusPushClip(); addFocusPushClip();", {
       props: { node }, selectedId,
       getGroupTimelineEnd: () => 2,
-      createFocusPushClip: startTime => ({ id: "focus-" + ++count, startTime }),
+      createFocusPushClip: (startTime = 1) => ({ id: "focus-" + ++count, startTime }),
     });
     assert.equal(count, 1);
-    assert.deepEqual({ ...node.focusPush }, { id: "focus-1", startTime: 2 });
+    assert.deepEqual({ ...node.focusPush }, { id: "focus-1", startTime: 1 });
     assert.equal(selectedId.value, "focus-1");
     vm.runInNewContext(ts.transpileModule(functionText("deleteSelectedClip"), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText + "; deleteSelectedClip();", {
       props: { node }, selectedId, selectedClip: { value: { kind: "focusPush", clip: node.focusPush } },
@@ -150,12 +150,39 @@ async function main() {
     assert.equal(selectedId.value, "");
   });
 
-  test("Delay input and drag bounds continue using business duration, not viewport width", () => {
-    for (const name of ["updateContinueDelay", "startContinueDelayDrag", "clipDisplayDuration"]) {
-      const code = functionText(name);
-      assert.ok(code.includes("getFlowClipDuration(props.node, clip)"));
-      assert.equal(/innerWidth|clientWidth|timelineWidth|timelineDuration/.test(code), false);
+  test("Delay input and dragging extend beyond the old end with a stable scale and a zero lower bound", () => {
+    const handlers = ['beginTimelineGesture', 'isTimelineGesturePointer', 'timelineGestureDelta', 'listenTimelineGesture',
+      'finishTimelineGesture', 'stopTimelineGesture', 'stopDrag', 'stopResize', 'updateContinueDelay',
+      'startContinueDelayDrag', 'dragContinueDelay', 'stopContinueDelayDrag'].map(functionText).join('\n');
+    for (const kind of ['dialogue', 'select']) {
+      const clip = { id: kind, startTime: 1, continueDelayTime: 0.5 };
+      const context = { selectedId: { value: '' }, gestureViewport: { value: undefined },
+        hoveredClip: { value: undefined }, timelineScrollRef: { value: undefined },
+        timelineDuration: { value: 10 }, pixelsPerSecond: { value: 80 }, canvasDuration: { value: 10 },
+        window: { addEventListener() {}, removeEventListener() {}, setTimeout(fn) { fn(); } },
+      };
+      vm.createContext(context);
+      vm.runInContext('let dragging; let resizing; let continueDelayDragging; let suppressClick = false;\n' + ts.transpileModule(handlers, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, context);
+      context.startContinueDelayDrag({ button: 0, clientX: 100, preventDefault() {}, stopPropagation() {} }, clip);
+      assert.equal(context.gestureViewport.value.displayDuration, 10);
+      context.dragContinueDelay({ clientX: 460 });
+      assert.equal(clip.continueDelayTime, 5);
+      context.pixelsPerSecond.value = 40;
+      context.dragContinueDelay({ clientX: 1260 });
+      assert.equal(clip.continueDelayTime, 15);
+      context.dragContinueDelay({ clientX: 0 });
+      assert.equal(clip.continueDelayTime, 0);
+      context.stopContinueDelayDrag();
+      assert.equal(context.gestureViewport.value, undefined);
+      context.updateContinueDelay(clip, { target: { value: '120.25' } });
+      assert.equal(clip.continueDelayTime, 120.25);
+      context.updateContinueDelay(clip, { target: { value: 'Infinity' } });
+      assert.equal(clip.continueDelayTime, 120.25);
+      context.updateContinueDelay(clip, { target: { value: '-2' } });
+      assert.equal(clip.continueDelayTime, 0);
+      assert.equal(clip.startTime, 1);
     }
+    assert.ok(functionText('clipDisplayDuration').includes('getFlowClipDuration(props.node, clip)'));
     assert.ok(functionText("startResize").includes("clipDisplayDuration(clip)"));
     assert.equal(/props\.node\.timeline\.duration\s*=/.test(descriptor.scriptSetup.content), false);
   });
@@ -174,10 +201,34 @@ async function main() {
     module._compile(compiled.outputText, sourcePath);
   };
   try {
-    const { createDialogueNode, createSelectClip, createPerformanceClip, createEmptyDialogueProject, normalizeDialogueProject } = require(path.join(editor, "utils/dialogueProject.ts"));
+    const { createDialogueNode, createSelectClip, createPerformanceLine, createPerformanceClip, createEmptyDialogueProject, normalizeDialogueProject } = require(path.join(editor, "utils/dialogueProject.ts"));
+    const { encodeDialogueProject, decodeDialogueProject } = require(path.join(editor, "utils/dialogueProjectCodec.ts"));
     const { getGroupTimelineEnd, getFlowClipDuration, getGroupTimelineDisplayDuration } = require(path.join(editor, "utils/groupTimeline.ts"));
     const { exportQxqyPerformance } = require(path.join(editor, "utils/qxqyPerformanceExporter.ts"));
     const { createQxqyStructWorkspace } = require(path.join(editor, "utils/qxqyStructWorkspace.ts"));
+    test("Both event types can exceed 64 lines and survive reopening a legacy project without losing Clips", () => {
+      const group = createDialogueNode("unlimited");
+      assert.equal(Object.hasOwn(group.timeline, "maxLines"), false);
+      group.timeline.maxLines = 4;
+      const camera = createPerformanceClip("Camera");
+      group.lines[0].clips.push(camera);
+      const definitions = require(path.join(editor, "config/lineRegistry.ts")).getLineDefinitions();
+      const context = vm.createContext({ props: { node: group }, lineDefinitions: definitions.filter(definition => definition.removable && definition.type !== "Audio"), createPerformanceLine, closeLineMenu() {} });
+      vm.runInContext(ts.transpileModule(functionText("addLine"), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, context);
+      for (let i = 0; i < 130; i++) context.addLine(i % 2 ? "Custom" : "PublicEvent");
+      context.addLine("Camera"); context.addLine("Audio");
+      assert.equal(group.lines.length, 131);
+      assert.equal(group.lines.filter(line => line.type === "PublicEvent").length, 65);
+      assert.equal(group.lines.filter(line => line.type === "Custom").length, 65);
+      assert.equal(new Set(group.lines.map(line => line.id)).size, 131);
+      assert.equal(group.lines[0].clips[0], camera);
+      const project = createEmptyDialogueProject(); project.dialogue.nodes[group.id] = group;
+      const restored = decodeDialogueProject(encodeDialogueProject(project));
+      assert.equal(Object.hasOwn(restored.dialogue.nodes[group.id].timeline, "maxLines"), false);
+      assert.deepEqual(restored.dialogue.nodes[group.id].lines, group.lines);
+      assert.equal(JSON.parse(encodeDialogueProject(restored)).dialogue.nodes[group.id].timeline.maxLines, undefined);
+      assert.equal(group.timeline.maxLines, 4);
+    });
     test("Display duration adjusts the viewport without changing business duration and clears to auto", () => {
       const group = createDialogueNode("display");
       assert.equal(getGroupTimelineDisplayDuration(group), 10);

@@ -2,6 +2,7 @@ import { computed } from "vue";
 import type { CustomPresetTable } from "./customPresets";
 import { useCustomPresets } from "./customPresets";
 import { useEntityPresets } from "./useEntityPresets";
+import { getEntityPresetValueOptions } from "./entityPresets";
 import { useSkillAnimationPresets } from "./useSkillAnimationPresets";
 import { usePublicEventPresets } from "./usePublicEventPresets";
 import { stylePresetCategories, useStylePresets } from "./stylePresets";
@@ -14,6 +15,8 @@ export function referenceSources(tables: CustomPresetTable[]): PresetReference[]
     { value: "skillAnimations.configId", label: "技能动画 / 配置 ID", type: "ConfigReference" },
     { value: "entities.talker", label: "实体 / 人名", type: "String" },
     { value: "entities.subtitle", label: "实体 / 副标题", type: "String" },
+    { value: "entities.guid", label: "实体 / guid", type: "Guid" },
+    { value: "entities.entityQuery", label: "实体 / 实体查询", type: "String" },
     { value: "publicEvents.name", label: "公共事件 / 事件名", type: "String" },
     ...stylePresetCategories.map(category => ({ value: `${category.key}.value`, label: `${category.title} / 值`, type: category.key === "booleans" || category.key === "entityGetMethods" ? "Int32" as const : "String" as const })),
     ...tables.flatMap(table => table.fields.map(field => ({ value: `custom:${encodeURIComponent(table.id)}:${encodeURIComponent(field.id)}`, label: `${table.name || "未命名配置"} / ${field.name || "未命名字段"}`, type: field.type }))),
@@ -49,7 +52,13 @@ export function usePresetReferences() {
         .map(row => ({ label: `${row.name || "未命名记录"} · ${row.values[fieldId]}`, value: row.values[fieldId] })) ?? [];
     } else if (reference === "skillAnimations.configId") values = skills.availablePresets.value.map(row => ({ label: `${row.name} · ${row.configId}`, value: row.configId }));
     else if (reference === "publicEvents.name") values = events.availablePresets.value.map(row => ({ label: publicEventPresetLabel(row), value: row.name }));
-    else if (reference.startsWith("entities.")) values = entities.availablePresets.value.map(row => ({ label: row.name || row.talker, value: reference.endsWith("talker") ? row.talker : row.subtitle }));
+    else if (reference.startsWith("entities.")) {
+      if (reference === "entities.guid" || reference === "entities.entityQuery") {
+        return getEntityPresetValueOptions(entities.availablePresets.value, reference === "entities.guid" ? "guid" : "entityQuery");
+      }
+      const field = reference.slice("entities.".length) as "talker" | "subtitle" | "guid" | "entityQuery";
+      values = entities.availablePresets.value.map(row => ({ label: row.name || row.talker, value: row[field] }));
+    }
     else values = styles.find(item => reference === `${item.key}.value`)?.state.availablePresets.value.map(row => ({ label: row.label || row.value, value: row.value })) ?? [];
     // Multiple records may intentionally expose the same value; Select values must be unique.
     return values.filter((item, index) => (reference !== "booleans.value" || item.value === "0" || item.value === "1")

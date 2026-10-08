@@ -35,7 +35,7 @@ test("Main quest style is a dropdown bound directly to the selected main quest",
   const fields = find(descriptor.template.ast, (node) => attribute(node, "aria-label") === "选择主任务样式预设");
   assert.equal(fields.length, 1);
   const { node } = fields[0];
-  assert.equal(node.tag, "select");
+  assert.equal(node.tag, "StudioSelectField");
   assert.equal(directive(node, "model").exp.content, "selectedMain.style");
   assert.equal(attribute(node, "readonly"), undefined);
   assert.equal(attribute(node, "disabled"), undefined);

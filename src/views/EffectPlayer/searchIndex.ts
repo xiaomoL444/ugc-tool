@@ -26,6 +26,7 @@ export function buildEffectSearchIndex(
   tagData: Readonly<Record<string, string>>,
   localeMessages: readonly unknown[],
   sourceTagData: Readonly<Record<string, string>> = {},
+  featureTexts: ReadonlyMap<string, string> = new Map(),
 ): Map<string, string> {
   const translations = new Map<string, (string | undefined)[]>();
   const textsForKey = (key: string) => {
@@ -46,6 +47,7 @@ export function buildEffectSearchIndex(
       const key = effectTagKey(tagId, label);
       text.push(...textsForKey(key));
     }
+    text.push(featureTexts.get(String(item.id)));
     return [String(item.id), text.filter((value): value is string => typeof value === "string")
       .join("\n").toLowerCase()];
   }));

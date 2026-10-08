@@ -89,5 +89,14 @@ export const appRoutes: AppRoute[] = [
     title: "客户端UI粒子效果编辑器（test）",
     description:
       `客户端UI粒子效果编辑器`,
+  }, 
+  {
+    path: "/AISearch",
+    name: "AISearch",
+    title: "AI搜索",
+    titleKey: "aiSearch.title",
+    descriptionKey: "aiSearch.pageDescription",
+    description:
+      `AI搜索`,
   },
 ];

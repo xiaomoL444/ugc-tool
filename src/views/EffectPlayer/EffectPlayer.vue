@@ -50,6 +50,7 @@
         <div v-else-if="filteredEffects.length === 0" class="status-panel">{{ t('effectPlayer.empty') }}</div>
         <VVirtualList
           v-else
+          ref="effectListRef"
           class="effect-list"
           :items="rows"
           :item-size="itemSize"
@@ -63,6 +64,8 @@
                 :key="effect.id"
                 class="effect-card"
                 data-effect-card
+                :data-effect-id="effect.id"
+                :aria-current="effect.id === selectedEffect?.id ? 'true' : undefined"
                 @click="openModal(effect)"
               >
                 <button class="open-preview" type="button" :aria-label="t('effectPlayer.preview', { name: effectName(effect), id: effect.id })" @click.stop="openModal(effect)">
@@ -76,6 +79,9 @@
                 <div class="effect-meta">
                   <span v-if="effect.duration >= 0">{{ formatDuration(effect) }}</span>
                   <span>{{ t(effect.isLoop ? 'effectPlayer.loop.shortLoop' : 'effectPlayer.loop.shortOnce') }}</span>
+                </div>
+                <div class="effect-description" @click.stop>
+                  <AssetFeatureSummary v-if="featureParts(effect.id).length" :parts="featureParts(effect.id)" :locale="locale" />
                 </div>
                 <div class="card-tags">
                   <span
@@ -109,7 +115,7 @@
       <div class="modal-content">
         <button class="close-button" type="button" :aria-label="t('effectPlayer.close')" @click="closeModal">&times;</button>
         <div class="modal-body">
-          <EffectMedia :item="selectedEffect" :title="effectName(selectedEffect)" variant="modal" />
+          <EffectMedia :key="`${selectedEffect.id}-${selectedEffectStartPaused}`" :item="selectedEffect" :title="effectName(selectedEffect)" variant="modal" :start-paused="selectedEffectStartPaused" />
           <div class="modal-info">
             <h2 class="modal-title">
               <button class="copy-name" type="button" :title="t('effectPlayer.copyName')" @click="Clipboard(effectName(selectedEffect))">{{ effectName(selectedEffect) }}</button>
@@ -130,6 +136,13 @@
                 {{ tagName(tagId) }}
               </button>
             </div>
+            <div class="effect-feature-details">
+              <AssetFeaturePanel v-if="selectedFeatureParts.length" :parts="selectedFeatureParts" :locale="locale" />
+              <p v-else-if="featureStatus === 'ready'" class="feature-status">{{ t('effectPlayer.features.empty') }}</p>
+              <p v-if="featureStatus !== 'ready'" class="feature-status" role="status">
+                {{ t(`effectPlayer.features.${featureStatus === 'loading' ? 'loading' : featureStatus === 'stale' ? 'stale' : 'unavailable'}`) }}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -140,7 +153,8 @@
 <script setup lang="ts">
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import { Clipboard } from "@/utils/clipboard";
-import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
+import { useRoute } from "vue-router";
 import { createCachedText } from "@/i18n/cachedText";
 import { useI18n } from "vue-i18n";
 import { loadOssTranslations } from "@/i18n";
@@ -152,6 +166,9 @@ import { buildEffectTagGroups, matchesEffectTagGroups } from "./tagFilters";
 import { buildEffectSearchIndex } from "./searchIndex";
 import { effectNameKey, effectTagKey } from "./resourceKeys";
 import { createOss } from "@/utils/oss";
+import { loadAssetFeatures, type AssetFeatureCollection } from "@/utils/assetFeatures";
+import AssetFeatureSummary from "@/components/AssetFeatures/AssetFeatureSummary.vue";
+import AssetFeaturePanel from "@/components/AssetFeatures/AssetFeaturePanel.vue";
 import {
   EffectDataFile,
   EffectItem,
@@ -160,11 +177,16 @@ import {
 } from "./types/EffectData";
 
 const composer = useI18n({ useScope: "global" });
-const { t, messages } = composer;
+const route = useRoute();
+const { t, messages, locale } = composer;
 const resourceText = createCachedText(composer);
 const oss = createOss("EffectPlayer");
 const CARD_TAG_LIMIT = 4;
-const itemSize = 292;
+const itemSize = 318;
+const assetFeatures = shallowRef<AssetFeatureCollection | null>(null);
+const featuresLoading = ref(true);
+const featureStatus = computed(() => featuresLoading.value ? "loading" : assetFeatures.value?.status ?? "unavailable");
+const featureParts = (id: string) => assetFeatures.value?.get(id, locale.value) ?? [];
 
 const loopTabs = computed<{ value: EffectLoopFilter; label: string }[]>(() => [
   { value: "all", label: t("effectPlayer.loop.all") },
@@ -183,6 +205,9 @@ const search = ref("");
 const loopFilter = ref<EffectLoopFilter>("all");
 const selectedTagIds = ref<number[]>([]);
 const selectedEffect = shallowRef<EffectItem | null>(null);
+const selectedFeatureParts = computed(() => selectedEffect.value ? featureParts(selectedEffect.value.id) : []);
+const selectedEffectStartPaused = ref(false);
+const effectListRef = ref<InstanceType<typeof VVirtualList> | null>(null);
 // Catalogs are replaced as a whole; avoid proxying thousands of immutable records.
 const effectData = shallowRef<Record<string, EffectItem>>({});
 const tagData = shallowRef<Record<string, string>>({});
@@ -202,7 +227,7 @@ const tagGroups = computed(() => rawTagGroups.value
   })));
 
 const searchIndex = computed(() => buildEffectSearchIndex(
-  effects.value, tagData.value, Object.values(messages.value), sourceTagData.value,
+  effects.value, tagData.value, Object.values(messages.value), sourceTagData.value, assetFeatures.value?.searchText,
 ));
 
 const searchedEffects = computed(() => {
@@ -248,6 +273,30 @@ const statsText = computed(() => {
   return t("effectPlayer.stats.filtered", { label, shown, total });
 });
 
+watch([() => route.query.id, loading], async ([id, isLoading], _previous, onCleanup) => {
+  if (isLoading || id === undefined) return;
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
+  const item = typeof id === "string" && /^\d+$/.test(id)
+    ? effects.value.find((effect) => String(effect.id) === id)
+    : undefined;
+  if (!item) {
+    closeModal();
+    toast.error(t("effectPlayer.deepLink.notFound"));
+    return;
+  }
+  search.value = "";
+  loopFilter.value = "all";
+  audioFilter.value = "all";
+  versionFilter.value = "all";
+  selectedTagIds.value = [];
+  await nextTick();
+  if (cancelled || route.query.id !== id) return;
+  const index = rows.value.findIndex((row) => row.data.some((effect) => effect.id === item.id));
+  if (index >= 0) effectListRef.value?.scrollTo({ index, behavior: "auto", debounce: false });
+  openModal(item, true);
+}, { immediate: true, flush: "post" });
+
 onMounted(async () => {
   updateColumns();
   window.addEventListener("resize", updateColumns);
@@ -261,6 +310,9 @@ onMounted(async () => {
     tagData.value = data.TagData ?? {};
     sourceTagData.value = data.sourceTagData ?? {};
     tagCategories.value = data.category ?? {};
+    void loadAssetFeatures("EffectPlayer", effects.value).then((features) => {
+      assetFeatures.value = features;
+    }).catch(() => { assetFeatures.value = null; }).finally(() => { featuresLoading.value = false; });
     // Resource translations are optional and do not block the data/media list.
     void loadOssTranslations("EffectPlayer", "effectPlayer").then((results) => {
       for (const result of results) {
@@ -278,6 +330,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener("resize", updateColumns);
   window.removeEventListener("keydown", onKeydown);
+  closeModal();
 });
 
 function effectName(item: EffectItem) {
@@ -314,7 +367,8 @@ function toggleTag(tagId: number) {
   }
 }
 
-function openModal(item: EffectItem) {
+function openModal(item: EffectItem, startPaused = false) {
+  selectedEffectStartPaused.value = startPaused;
   selectedEffect.value = item;
   document.body.style.overflow = "hidden";
 }
@@ -550,6 +604,10 @@ function updateColumns() {
   color: #667;
 }
 
+.effect-description { height: 20px; flex: 0 0 20px; color: #596b82; font-size: 11px; }
+.effect-feature-details { margin-top: 14px; padding: 12px 14px; border-radius: 9px; background: #f4f8fe; text-align: left; }
+.feature-status { margin: 6px 0 0; color: #6e7a8c; font-size: 12px; line-height: 1.5; }
+
 .mini-tag {
   padding: 2px 7px;
   border-radius: 999px;
@@ -569,18 +627,18 @@ function updateColumns() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(8, 10, 16, 0.86);
+  background: rgba(33, 45, 66, 0.4);
 }
 
 .modal-content {
   position: relative;
   max-width: 96vw;
   max-height: 96vh;
-  background: #111218;
-  border: 2px solid #0ea2e5;
+  background: #fbfcff;
+  border: 1px solid #cbdcf0;
   border-radius: 16px;
   overflow: auto;
-  box-shadow: 0 0 40px rgba(14, 162, 229, 0.28);
+  box-shadow: 0 18px 56px rgba(39, 58, 91, 0.22);
 }
 
 .close-button {
@@ -591,8 +649,9 @@ function updateColumns() {
   height: 40px;
   border: 0;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.45);
-  color: #9fe7ff;
+  background: rgba(255, 255, 255, 0.94);
+  color: #536d8f;
+  box-shadow: 0 2px 8px rgba(39, 58, 91, 0.14);
   font-size: 2rem;
   line-height: 1;
   cursor: pointer;
@@ -608,9 +667,10 @@ function updateColumns() {
 }
 
 .modal-info {
-  min-width: 280px;
+  min-width: 0;
+  width: min(680px, calc(94vw - 36px));
   text-align: center;
-  color: #d7eef8;
+  color: #2f4058;
 }
 
 .modal-title {
@@ -626,19 +686,20 @@ function updateColumns() {
   margin: 0;
   display: inline-block;
   cursor: pointer;
-  background: linear-gradient(90deg, rgba(14, 162, 229, 0.24), rgba(14, 162, 229, 0.08));
-  border-left: 4px solid #0ea2e5;
+  background: #e9f4fd;
+  color: #246d9b;
+  border-left: 3px solid #81c6ed;
   padding: 8px 14px;
   border-radius: 6px;
 }
 
 .copy-name { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-.copy-name:hover { color: #73bfff; }
+.copy-name:hover { color: #187fc5; }
 .copy-name:focus-visible, .modal-id:focus-visible { outline: 2px solid #73bfff; outline-offset: 4px; }
 
 .modal-meta {
   margin: 12px 0;
-  color: #9bb;
+  color: #687a92;
 }
 
 .modal-tags {
@@ -646,14 +707,15 @@ function updateColumns() {
 }
 
 .modal-tags .tag-chip {
-  background: rgba(255, 255, 255, 0.08);
-  color: #d7eef8;
-  border-color: rgba(14, 162, 229, 0.4);
+  background: #f0f6fd;
+  color: #536d8f;
+  border-color: #d5e4f3;
 }
 
 .modal-tags .tag-chip.active {
-  background: rgba(14, 162, 229, 0.35);
-  color: #fff;
+  background: #dceeff;
+  color: #226e9e;
+  border-color: #9bc9eb;
 }
 
 @media (max-width: 600px) {

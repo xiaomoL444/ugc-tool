@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudioSelectField from "../StudioSelectField.vue";
 import { computed, inject, onBeforeUnmount, onMounted, ref, type Ref } from "vue";
 import type { StorageClass } from "@/services/storage/storage";
 import { ProjectID } from "../../constant/constant";
@@ -49,10 +50,10 @@ onBeforeUnmount(() => { disposed = true; });
 <template>
   <div class="area-select">
     <div class="area-select-row">
-      <select :value="modelValue" aria-label="所属一级区域" :disabled="busy || Boolean(error) || !options.length" @change="selectMainArea">
+      <StudioSelectField :value="modelValue" aria-label="所属一级区域" :disabled="busy || Boolean(error) || !options.length" @change="selectMainArea">
         <option v-if="!currentExists" :value="modelValue" disabled>{{ busy ? '正在读取一级区域' : error ? '当前一级区域' : '未匹配一级区域' }} · #{{ modelValue }}</option>
         <option v-for="area in options" :key="area.id" :value="area.id">{{ area.name }} · #{{ area.id }}</option>
-      </select>
+      </StudioSelectField>
       <button type="button" :disabled="busy" aria-label="刷新一级区域列表" @click="load">{{ busy ? '读取中…' : '刷新' }}</button>
     </div>
     <small v-if="error" class="area-warning" role="alert">{{ error }}；当前编号已保留，可刷新重试。</small>
@@ -68,7 +69,7 @@ onBeforeUnmount(() => { disposed = true; });
 .area-select { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .area-select-row { display: flex; gap: 6px; min-width: 0; }
 select, button { font: inherit; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; padding: 8px 10px; }
-select { flex: 1; width: 0; min-width: 0; }
+.studio-select-field { flex: 1; width: 0; min-width: 0; }
 button { flex-shrink: 0; cursor: pointer; }
 button:hover:not(:disabled) { background: #eff6ff; border-color: #93b4e1; }
 select:focus-visible, button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 1px; }

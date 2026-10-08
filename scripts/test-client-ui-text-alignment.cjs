@@ -48,6 +48,14 @@ async function main() {
   let passed = 0;
   async function test(name, check) { await check(); passed += 1; console.log(`PASS ${name}`); }
   try {
+    const imports = {};
+    for (const statement of ast.statements) {
+      if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue;
+      const source = statement.moduleSpecifier.text;
+      if (!source.startsWith("./") || source.endsWith(".vue") || source === "./imageAssets") continue;
+      const sourcePath = path.resolve(editor, `${source}.ts`);
+      if (fs.existsSync(sourcePath)) Object.assign(imports, require(sourcePath));
+    }
     const registry = require(path.join(editor, "controlRegistry.ts"));
     const tweenRegistry = require(path.join(editor, "tweenRegistry.ts"));
     const clipLayout = require(path.join(editor, "timelineClipLayout.ts"));
@@ -62,7 +70,7 @@ async function main() {
     function createEditor() {
       let savedProject;
       const context = vm.createContext({
-        ...vue, ...registry, ...tweenRegistry, ...clipLayout, ...importer, ...controlTemplates, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua,
+        ...imports, ...vue, ...registry, ...tweenRegistry, ...clipLayout, ...importer, ...controlTemplates, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua,
         inject: () => null,
         nextTick: () => Promise.resolve(),
         window: { alert(message) { assert.fail(message); } },
@@ -78,14 +86,16 @@ async function main() {
       const document = {
         filetype: "gia", dirtype: "Unknown", info: { "1": 0, "2": 0, "3": 0, "4": 0 }, dtype_csv: "",
         json: {
-          "1": { "3": "string:Text alignment regression" },
+          "1": { "3": "string:Text alignment regression", "5": 21, "19": { "1": { "505": [{ "11": {} }, { "72": {}, "503": { "73": { "501": 1 } } }] } } },
           "2": [
             { "1": { "4": 1 }, "2": texts.map((text) => ({ "4": text.sourceNodeIndex })), "3": "string:Root", "19": { "1": { "505": [{ "12": { "501": "string:Root" } }, { "78": {}, "503": { "79": {} } }] } } },
             ...texts.map((text) => ({ "1": { "4": text.sourceNodeIndex }, "3": "string:1", "19": { "1": { "504": 1, "505": [{ "12": { "501": "string:1" } }, { "74": {}, "503": { "75": { ...textBody, ...text.body } } }] } } })),
           ],
         },
       };
+      document.json["2"].forEach(node => { node["5"] = 15; node["19"]["1"]["505"].push({ "11": {} }); });
       if (rotations) {
+        document.json["2"][1]["19"]["1"]["505"].pop();
         document.json["2"][1]["19"]["1"]["505"].push({
           "11": {}, "503": { "13": { "12": { "501": rotations.map(([x, y, z], device) => ({
             "501": device, "502": { "508": { "1": x, "2": y, "3": z } },

@@ -3,8 +3,8 @@
   "soundEffectPlayer.ui.allVersions": "すべてのバージョン",
   "soundEffectPlayer.ui.selectSound": "効果音を選択",
   "soundEffectPlayer.ui.player": "プレーヤー",
-  "soundEffectPlayer.ui.searchLabel": "検索（名前・ID）：",
-  "soundEffectPlayer.ui.searchPlaceholder": "キーワードを入力し、Enter キーで最初の結果へ移動",
+  "soundEffectPlayer.ui.searchLabel": "検索（名前・ID・説明）：",
+  "soundEffectPlayer.ui.searchPlaceholder": "名前・説明・キーワードを入力し、Enter キーで最初の結果へ移動",
   "soundEffectPlayer.ui.resultCount": "{count} 件",
   "soundEffectPlayer.ui.collapseAll": "すべて折りたたむ",
   "soundEffectPlayer.ui.expandAll": "すべて展開",
@@ -32,5 +32,9 @@
   "soundEffectPlayer.ui.waveformHint": "クリックまたはドラッグで移動",
   "soundEffectPlayer.ui.waveformLoading": "波形を読み込み中…",
   "soundEffectPlayer.ui.waveformFailed": "波形を読み込めません。クリックまたはドラッグで移動できます。",
-  "soundEffectPlayer.ui.copyHint": "クリックしてコピー"
+  "soundEffectPlayer.ui.copyHint": "クリックしてコピー",
+  "soundEffectPlayer.ui.featuresLoading": "アセットの説明を読み込み中…",
+  "soundEffectPlayer.ui.featuresUnavailable": "説明は一時的に利用できません。名前・IDでの検索とプレビューは利用できます。",
+  "soundEffectPlayer.ui.featuresStale": "説明の更新を確認できませんでした。前回読み込んだ説明を表示しています。",
+  "soundEffectPlayer.ui.featuresEmpty": "このアセットの説明はまだ生成されていません。"
 }

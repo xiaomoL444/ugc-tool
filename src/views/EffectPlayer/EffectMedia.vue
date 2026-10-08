@@ -32,6 +32,9 @@
     <button v-if="mediaReady && variant === 'modal' && audioBlocked" class="enable-audio" type="button" @click.stop="enableAudio">
       {{ t('effectPlayer.media.enableAudio') }}
     </button>
+    <button v-if="hasMedia && startPaused && !interactionStarted" class="start-preview" type="button" @click.stop="startPreview">
+      {{ t('effectPlayer.media.startPreview') }}
+    </button>
   </div>
 </template>
 
@@ -48,13 +51,15 @@ const props = withDefaults(defineProps<{
   title: string;
   variant?: "card" | "modal";
   suspended?: boolean;
-}>(), { variant: "card", suspended: false });
+  startPaused?: boolean;
+}>(), { variant: "card", suspended: false, startPaused: false });
 const oss = createOss("EffectPlayer");
 const wrapRef = ref<HTMLElement | null>(null);
 const standHost = ref<HTMLElement | null>(null);
 const tailHost = ref<HTMLElement | null>(null);
 const audioHost = ref<HTMLElement | null>(null);
 const hovered = ref(false);
+const interactionStarted = ref(!props.startPaused);
 const visible = ref(props.variant === "modal");
 const pageVisible = ref(true);
 const lease = shallowRef<ReturnType<typeof acquireEffectMedia> | null>(null);
@@ -83,10 +88,12 @@ const iconUrl = computed(() => {
 });
 const hasMedia = computed(() => Boolean(props.item.standPath || props.item.tailPath || (props.item.hasAudio && props.item.audioPath)));
 watch(() => [props.item.id, props.item.icon], () => { iconFailed.value = false; });
-const active = computed(() => visible.value && pageVisible.value && !props.suspended);
+const available = computed(() => visible.value && pageVisible.value && !props.suspended);
+const active = computed(() => available.value && interactionStarted.value);
 const audible = computed(() => active.value && (props.variant === "modal" || hovered.value));
 const audioStatus = computed(() => {
   if (audioFailed.value) return t('effectPlayer.media.audioFailed');
+  if (!interactionStarted.value) return t('effectPlayer.media.audioOff');
   if (audioBlocked.value) return t(props.variant === 'modal' ? 'effectPlayer.media.audioOff' : 'effectPlayer.media.clickForAudio');
   return t(audible.value ? 'effectPlayer.media.audioOn' : 'effectPlayer.media.hoverForAudio');
 });
@@ -96,7 +103,7 @@ let destroyed = false;
 let setupVersion = 0;
 
 function updatePlayback() {
-  if (active.value && !lease.value) setupMedia();
+  if (available.value && !lease.value) setupMedia();
   lease.value?.value.controller.setActive(active.value && mediaReady.value);
   lease.value?.value.controller.setAudible(audible.value);
 }
@@ -126,14 +133,19 @@ function enterCard() {
   setHover(true);
 }
 function leaveCard() { setHover(false); }
+function startPreview() {
+  interactionStarted.value = true;
+  updatePlayback();
+}
 function enableAudio() {
   if (active.value && (hovered.value || props.variant === "modal")) lease.value?.value.controller.setAudible(true);
 }
 function visibilityChanged() { pageVisible.value = !document.hidden; }
-watch([active, audible, mediaReady], updatePlayback);
+watch([available, active, audible, mediaReady], updatePlayback);
 watch(() => [props.item.id, props.item.standPath, props.item.tailPath, props.item.hasAudio, props.item.audioPath], async () => {
   const version = ++setupVersion;
   releaseMedia();
+  interactionStarted.value = !props.startPaused;
   await nextTick();
   if (!destroyed && version === setupVersion) updatePlayback();
 });
@@ -184,5 +196,6 @@ onBeforeUnmount(() => {
 .audio-status { position: absolute; left: 6px; right: 64px; bottom: 6px; width: fit-content; padding: 3px 6px; border-radius: 5px; background: #111b; color: #d7eef8; font-size: 0.65rem; pointer-events: none; text-align: left; }
 .media-error { position: absolute; left: 0; right: 0; bottom: 30px; text-align: center; color: #c0c7d4; font-size: 0.75rem; }
 .enable-audio { position: absolute; bottom: 12px; right: 132px; border: 1px solid #73bfff; border-radius: 8px; padding: 8px 14px; color: white; background: #2366ab; font: inherit; cursor: pointer; }
+.start-preview { position: absolute; z-index: 2; inset: 50% auto auto 50%; transform: translate(-50%, -50%); border: 1px solid #73bfff; border-radius: 12px; padding: 12px 22px; background: #2366ab; color: white; font: inherit; cursor: pointer; }
 @media (max-width: 600px) { .effect-media.is-modal { height: min(44vh, 360px); } }
 </style>

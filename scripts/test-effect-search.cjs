@@ -117,4 +117,28 @@ const standardIndex = buildEffectSearchIndex([standardItem], {}, [
 for (const term of ["標準名", "標準エフェクト", "стандартный эффект"]) {
   assert.ok(standardIndex.get("5").includes(term), "Standard names in every loaded language are searchable");
 }
-console.log("PASS multilingual effect search, legacy/keyed data, custom resource keys, source names/tags, IDs, and reactive index updates");
+// Descriptions come from the shared sidecar loader, separate from name/tag translations.
+const featureTexts = ref(new Map([
+  ["10001", "蓝色光环\n藍色光環\nblue halo\n青い光輪\nсиний ореол\n清脆金属碰撞"],
+  ["20002", "orange sparks\n深沉轰鸣"],
+  ["99999", "orphan description"],
+]));
+let featureBuilds = 0;
+const featureIndex = computed(() => {
+  featureBuilds++;
+  return buildEffectSearchIndex(items.value, sourceTags, Object.values(i18n.global.messages.value), {}, featureTexts.value);
+});
+const featureSearch = (query) => items.value.filter(item => featureIndex.value.get(item.id)?.includes(query.toLowerCase())).map(item => item.id);
+for (const term of ["蓝色光环", "藍色光環", "BLUE HALO", "青い光輪", "СИНИЙ ОРЕОЛ", "清脆金属碰撞"]) {
+  assert.deepEqual(featureSearch(term), ["10001"], "All sidecar languages and separate audio descriptions remain searchable");
+}
+assert.deepEqual(featureSearch("orphan description"), [], "Feature records cannot create unrelated assets");
+assert.deepEqual(featureSearch("orange sparks"), ["20002"]);
+assert.equal(featureBuilds, 1, "Typing does not rebuild the feature-enriched index");
+featureTexts.value = new Map();
+assert.deepEqual(featureSearch("blue halo"), [], "Removing descriptions removes their search terms");
+assert.deepEqual(featureSearch("CryoHitSource"), ["10001"], "Names still work when features are unavailable");
+assert.deepEqual(featureSearch("30003"), ["30003"], "IDs still work when features are unavailable");
+assert.equal(featureBuilds, 2, "Replacing loaded features refreshes the index once");
+
+console.log("PASS multilingual effect search, descriptions/audio features, optional sidecars, legacy/keyed data, source names/tags, IDs, and reactive index updates");

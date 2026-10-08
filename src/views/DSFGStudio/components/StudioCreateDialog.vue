@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { studioEditorActiveKey } from "./studioSessionHistory";
 
 const props = withDefaults(defineProps<{
   modelValue: string;
@@ -12,6 +13,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ "update:modelValue": [value: string]; submit: []; close: [] }>();
 const dialog = ref<HTMLDialogElement>();
 const input = ref<HTMLInputElement>();
+const editorActive = inject(studioEditorActiveKey, () => true);
 const previousFocus = document.activeElement as HTMLElement | null;
 
 function close() {
@@ -27,12 +29,18 @@ function backdropClick(event: MouseEvent) {
       event.clientY < bounds.top || event.clientY > bounds.bottom) close();
 }
 onMounted(() => {
+  if (!editorActive()) return;
   dialog.value?.showModal();
   input.value?.focus();
 });
+watch(editorActive, active => {
+  if (!active) { dialog.value?.close(); emit("close"); }
+}, { flush: "sync" });
 onBeforeUnmount(() => {
   dialog.value?.close();
-  void nextTick(() => previousFocus?.focus());
+  void nextTick(() => {
+    if (previousFocus?.isConnected && !previousFocus.closest("[inert]") && previousFocus.getClientRects().length) previousFocus.focus();
+  });
 });
 </script>
 

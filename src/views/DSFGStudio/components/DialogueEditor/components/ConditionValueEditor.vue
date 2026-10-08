@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudioSelectField from "../../StudioSelectField.vue";
 import type { ConditionValue, ConditionValueSource } from "../types/VisualCondition";
 defineProps<{ modelValue: ConditionValue; label: string }>();
 const emit = defineEmits<{ "update:modelValue": [value: ConditionValue] }>();
@@ -15,12 +16,12 @@ function changeSource(event: Event) {
 <template>
   <fieldset class="condition-value">
     <legend>{{ label }}</legend>
-    <select :value="modelValue.source" :aria-label="`${label}来源`" @change="changeSource">
+    <StudioSelectField :value="modelValue.source" :aria-label="`${label}来源`" @change="changeSource">
       <option v-for="source in sources" :key="source.value" :value="source.value">{{ source.label }}</option>
-    </select>
-    <select v-if="modelValue.source === 'boolean'" :value="modelValue.value" :aria-label="`${label}布尔值`" @change="emit('update:modelValue', { ...modelValue, value: ($event.target as HTMLSelectElement).value })">
+    </StudioSelectField>
+    <StudioSelectField v-if="modelValue.source === 'boolean'" :value="modelValue.value" :aria-label="`${label}布尔值`" @change="emit('update:modelValue', { ...modelValue, value: ($event.target as HTMLSelectElement).value })">
       <option value="true">真</option><option value="false">假</option>
-    </select>
+    </StudioSelectField>
     <input v-else :value="modelValue.value" :aria-label="`${label}${['player', 'character', 'level'].includes(modelValue.source) ? '变量名' : '固定值'}`"
       :placeholder="['player', 'character', 'level'].includes(modelValue.source) ? '填写变量名' : '填写固定值'"
       :inputmode="modelValue.source === 'number' ? 'decimal' : 'text'"

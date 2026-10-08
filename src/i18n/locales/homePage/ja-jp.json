@@ -6,6 +6,8 @@
   "homePage.categories.editors": "編集・生成",
   "homePage.categories.utilities": "便利なツール",
   "homePage.categories.community": "外部リンク",
+  "homePage.acknowledgements.title": "謝辞",
+  "homePage.acknowledgements.description": "ツール集にご協力・ご支援くださった皆さまに感謝します。",
   "announcements.title": "お知らせ",
   "announcements.unreadCount": "未読のお知らせが {count} 件あります",
   "announcements.list": "お知らせ一覧",

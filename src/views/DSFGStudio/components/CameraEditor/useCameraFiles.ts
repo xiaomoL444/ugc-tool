@@ -3,9 +3,11 @@ import type { StorageClass } from "@/services/storage/storage";
 import { ProjectID } from "../../constant/constant";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
 import { bindWorkspaceSaveLifecycle } from "../QuestEditor/workspaceSaveLifecycle";
+import { studioEditorActiveKey } from "../studioSessionHistory";
 import { cameraFileName, createCameraProject, decodeCameraProject, encodeCameraProject, type CameraProject } from "./cameraProject";
 
 export function useCameraFiles() {
+  const editorActive = inject(studioEditorActiveKey, () => true);
   const storage = inject<StorageClass>("storage")!;
   const workspace = inject<Ref<string>>("selectedWorkspaceId")!.value;
   const directory = `/${workspace}/CameraEditor`;
@@ -97,6 +99,7 @@ export function useCameraFiles() {
     await queue.flush();
   }
   async function saveShortcut(event: KeyboardEvent) {
+    if (!editorActive()) return;
     if ((!event.ctrlKey && !event.metaKey) || event.key.toLowerCase() !== "s") return;
     event.preventDefault();
     if (!event.repeat && !busy.value && !disposed) await queue.flush().catch(() => undefined);

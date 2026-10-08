@@ -40,6 +40,8 @@ export interface DialogueDocument {
 export interface FlowNodeData {
   dialogueNodeId?: string;
   conditionBranchNodeId?: string;
+  /** Editor-only node note; never included in runtime exports. */
+  annotation?: string;
 }
 
 export interface FlowLayout {

@@ -1,7 +1,18 @@
 import type { PublicEventParamType, PublicEventPreset, PublicEventVisibilityRule } from "../../EntityPresetEditor/publicEventPresets";
 import type { PerformanceClip } from "../types/DialogueNode";
+import type { DialogueProject } from "../types/FileStruct";
 import { createClipComponent } from "../config/clipComponentRegistry";
+import { systemPresetConfig } from "../../EntityPresetEditor/systemPresetConfig";
 export interface PublicEventArgument { id: string; name: string; type: PublicEventParamType; value: string; reference?: string; visibleWhen?: PublicEventVisibilityRule[] }
+/** 为已保存的实体朝向动作提供新实体候选，不改写其参数值或显式来源。 */
+export function getPublicEventArgumentReference(clip: PerformanceClip, parameter: PublicEventArgument): string | undefined {
+  if (parameter.reference) return parameter.reference;
+  const properties = clip.components.find(item => item.templateId === "public.event")?.properties;
+  const preset = systemPresetConfig.publicEvents.presets.find(item => item.id === "public-set-object-entity-forward");
+  if (!preset || properties?.value !== preset.name) return undefined;
+  const reference = preset.parameters.find(item => item.id === parameter.id && item.type === parameter.type)?.reference;
+  return reference === "entities.guid" || reference === "entities.entityQuery" ? reference : undefined;
+}
 export function isPublicEventArgumentVisible(parameter: PublicEventArgument, parameters: PublicEventArgument[]): boolean {
   const rules = parameter.visibleWhen;
   if (!rules?.length) return true;
@@ -17,6 +28,33 @@ export function isPublicEventArgumentVisible(parameter: PublicEventArgument, par
 export function getPublicEventArguments(clip: PerformanceClip): PublicEventArgument[] {
   const parameters = clip.components.find(item => item.templateId === "public.event")?.properties.parameters;
   return Array.isArray(parameters) ? parameters : [];
+}
+/** 显示条件跟随当前预设；动作的值、事件名和参数结构仍保留创建时的快照。 */
+export function syncPublicEventVisibility(clip: PerformanceClip, presets: PublicEventPreset[]): boolean {
+  const properties = clip.components.find(item => item.templateId === "public.event")?.properties;
+  const preset = presets.find(item => item.id === properties?.presetId);
+  if (!preset) return false;
+  let changed = false;
+  for (const parameter of getPublicEventArguments(clip)) {
+    const definition = preset.parameters.find(item => item.id === parameter.id && item.type === parameter.type);
+    if (!definition || JSON.stringify(parameter.visibleWhen ?? []) === JSON.stringify(definition.visibleWhen ?? [])) continue;
+    if (definition.visibleWhen?.length) parameter.visibleWhen = definition.visibleWhen.map(rule => ({ ...rule }));
+    else delete parameter.visibleWhen;
+    changed = true;
+  }
+  return changed;
+}
+/** 包括尚未打开参数面板的公共事件，确保显示、保存与导出使用同一份条件。 */
+export function syncDialoguePublicEventVisibility(project: DialogueProject, presets: PublicEventPreset[]): boolean {
+  let changed = false;
+  for (const node of Object.values(project.dialogue.nodes)) {
+    for (const line of node.lines) {
+      for (const clip of line.clips) {
+        if (syncPublicEventVisibility(clip, presets)) changed = true;
+      }
+    }
+  }
+  return changed;
 }
 export function getPublicEventClipLabel(clip: PerformanceClip, presets: PublicEventPreset[]): string {
   const properties = clip.components.find(item => item.templateId === "public.event")?.properties;

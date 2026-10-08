@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import StudioSelectField from "../StudioSelectField.vue";
 import { computed, ref, watch } from "vue";
 import { toast } from "vue-sonner";
+import StudioHistoryToolbar from "../StudioHistoryToolbar.vue";
+import { useStudioDocumentHistory } from "../useStudioHistory";
 import { downloadTextFile } from "@/utils/download";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import StudioSidebarContent from "../StudioSidebarContent.vue";
@@ -35,6 +38,12 @@ const selectedParentMain = computed(() => main.value ?? (sub.value
 const selectedParentWorld = computed(() => world.value ?? (selectedParentMain.value
   ? project.value?.worlds.find(item => item.id === selectedParentMain.value!.worldId) : undefined));
 const selectedItem = computed(() => world.value ?? main.value ?? sub.value);
+const historyElement = ref<HTMLElement>();
+const history = useStudioDocumentHistory({
+  project, element: historyElement, blocked: () => busy.value, label: "修改场景",
+  afterRestore: () => { if (!selectedItem.value) choose("world", 0); },
+  onError: reason => toast.error(reason instanceof Error ? reason.message : "场景恢复失败"),
+});
 const selectedKindLabel = computed(() => world.value ? "世界" : main.value ? "一级区域" : "二级区域");
 const childAreas = computed(() => {
   if (!project.value) return [];
@@ -115,7 +124,7 @@ function exportVariables() {
 
 <template>
   <SectionLayout title="场景编辑" class="scene-edit-section">
-  <div class="scene-editor" :inert="busy" :aria-busy="busy">
+  <div ref="historyElement" class="scene-editor" :inert="busy" :aria-busy="busy">
     <StudioSidebarContent><aside class="scene-browser" :inert="busy">
       <div class="tree-heading"><strong>场景层级</strong></div>
       <input v-model="search" class="search" placeholder="搜索区域名称或 ID" aria-label="搜索场景区域" />
@@ -139,7 +148,7 @@ function exportVariables() {
       <p class="aside-note">每个工作区固定一个场景，统一管理世界与区域。</p>
     </aside></StudioSidebarContent>
     <main>
-      <header class="page-header"><div><h2>{{ selectedItem?.name || '场景概览' }}</h2><span role="status" class="save-status">{{ status }}</span></div><div class="actions"><RuntimeImportButton :disabled="busy" :import-file="importConfiguration" /><button class="primary" :disabled="!project || busy || !!issues.length" @click="exportVariables">导出场景数据</button></div></header>
+      <header class="page-header"><div><h2>{{ selectedItem?.name || '场景概览' }}</h2><span role="status" class="save-status">{{ status }}</span></div><div class="actions"><StudioHistoryToolbar :history="history" :disabled="busy" /><RuntimeImportButton :disabled="busy" :import-file="importConfiguration" /><button class="primary" :disabled="!project || busy || !!issues.length" @click="exportVariables">导出场景数据</button></div></header>
       <div class="scene-overview" aria-label="场景概览">
         <template v-if="project"><span><strong>{{ project.worlds.length }}</strong> 世界</span><span><strong>{{ project.mainAreas.length }}</strong> 一级区域</span><span><strong>{{ project.subAreas.length }}</strong> 二级区域</span><small>当前工作区 · 自动保存</small></template>
         <div class="actions scene-create-actions" aria-label="新增场景内容">
@@ -166,7 +175,7 @@ function exportVariables() {
           <section class="connections" aria-label="世界连接点">
           <div class="card-heading"><h4>世界连接点 <span class="count-badge">{{ world.contacts.length }}</span></h4><button :disabled="!contactWorldOptions(project, world).length" @click="addContact(world)">＋ 关联世界</button></div>
           <p class="hint">选择关联的目标世界，并配置对应点位坐标。每个目标世界只能关联一次。</p>
-          <div v-for="(point, index) in world.contacts" :key="index" class="contact-row"><label>目标世界<select v-model="point.key"><option v-if="!contactWorldOptions(project, world, point.key).some(target => target.id === point.key)" :value="point.key" disabled>无效关联 · {{ point.key }}</option><option v-for="target in contactWorldOptions(project, world, point.key)" :key="target.id" :value="target.id">{{ target.name }} · {{ target.id }}</option></select></label><label>X<input v-model="point.x" inputmode="decimal" /></label><label>Y<input v-model="point.y" inputmode="decimal" /></label><label>Z<input v-model="point.z" inputmode="decimal" /></label><button class="danger" @click="world.contacts.splice(index, 1)">删除</button></div>
+          <div v-for="(point, index) in world.contacts" :key="index" class="contact-row"><label>目标世界<StudioSelectField v-model="point.key"><option v-if="!contactWorldOptions(project, world, point.key).some(target => target.id === point.key)" :value="point.key" disabled>无效关联 · {{ point.key }}</option><option v-for="target in contactWorldOptions(project, world, point.key)" :key="target.id" :value="target.id">{{ target.name }} · {{ target.id }}</option></StudioSelectField></label><label>X<input v-model="point.x" inputmode="decimal" /></label><label>Y<input v-model="point.y" inputmode="decimal" /></label><label>Z<input v-model="point.z" inputmode="decimal" /></label><button class="danger" @click="world.contacts.splice(index, 1)">删除</button></div>
           <p v-if="!world.contacts.length" class="hint">暂无关联世界。请先创建其他世界，再添加连接点。</p>
           </section>
         </template>
@@ -174,14 +183,14 @@ function exportVariables() {
           <div class="field-grid">
           <label>一级区域 ID<input v-model="idDraft" inputmode="numeric" @blur="changeId(main, $event)" @keydown.enter="changeId(main, $event)" /></label>
           <label>区域名称<input v-model="main.name" /></label>
-          <label>所属世界<select v-model="main.worldId"><option v-for="item in project.worlds" :key="item.id" :value="item.id">{{ item.name }} · {{ item.id }}</option></select></label>
+          <label>所属世界<StudioSelectField v-model="main.worldId"><option v-for="item in project.worlds" :key="item.id" :value="item.id">{{ item.name }} · {{ item.id }}</option></StudioSelectField></label>
           </div>
         </template>
         <template v-if="sub">
           <div class="field-grid">
           <label>二级区域 ID<input v-model="idDraft" inputmode="numeric" @blur="changeId(sub, $event)" @keydown.enter="changeId(sub, $event)" /></label>
           <label>区域名称<input v-model="sub.name" /></label>
-          <label>所属一级区域<select v-model="sub.mainAreaId"><option v-for="item in project.mainAreas" :key="item.id" :value="item.id">{{ project.worlds.find(row => row.id === item.worldId)?.name }} / {{ item.name }} · {{ item.id }}</option></select></label>
+          <label>所属一级区域<StudioSelectField v-model="sub.mainAreaId"><option v-for="item in project.mainAreas" :key="item.id" :value="item.id">{{ project.worlds.find(row => row.id === item.worldId)?.name }} / {{ item.name }} · {{ item.id }}</option></StudioSelectField></label>
           <label>BGM（整数）<input v-model="sub.bgm" inputmode="numeric" /></label>
           </div>
         </template>

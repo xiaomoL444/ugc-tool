@@ -1,5 +1,6 @@
 import { compilePublicEventArguments } from "./publicEventParameters";
 import { normalizeCameraProperties } from "../config/cameraClip";
+import { dialogueStyleShowsTitle, getDialogueStyles } from "../config/dialogueStyleRegistry";
 import {
   VariableValue,
   VariableWorkspace,
@@ -7,6 +8,7 @@ import {
 } from "miliastra-variable";
 import type {
   DialogueClip,
+  DialogueStyleDefinition,
   DialogueNode,
   PerformanceClip,
   PerformanceLine,
@@ -83,6 +85,7 @@ interface TimedActionBucket {
 /** 将编辑器业务数据编译为可被千星奇域重新导入的 [演出]演出 结构体。 */
 export function exportQxqyPerformance(
   project: DialogueProject,
+  dialogueStyles: readonly DialogueStyleDefinition[] = getDialogueStyles(),
 ): QxqyPerformanceExportResult {
   const structIds = project.exportSettings.qxqyStructIds;
   const configurationErrors = validateQxqyStructIds(structIds);
@@ -139,6 +142,7 @@ export function exportQxqyPerformance(
       dataTables,
       warnings,
       structIds,
+      dialogueStyles,
     );
   });
 
@@ -221,6 +225,7 @@ function compileActionGroup(
   dataTables: Record<QxqyDataField, VariableValue[]>,
   warnings: string[],
   structIds: QxqyStructIds,
+  dialogueStyles: readonly DialogueStyleDefinition[],
 ) {
   const group = workspace.createDefault(structIds.actionGroup);
   const sourceClips = collectSourceClips(node);
@@ -273,6 +278,7 @@ function compileActionGroup(
       mapping,
       sourceClip,
       structIds,
+      dialogueStyles,
     );
     const dataIndex = dataTables[mapping.dataField].push(dataValue) - 1;
     appendTimedAction(
@@ -427,13 +433,15 @@ function createActionData(
   mapping: QxqyActionMapping,
   sourceClip: SourceClip,
   structIds: QxqyStructIds,
+  dialogueStyles: readonly DialogueStyleDefinition[],
 ) {
   const data = workspace.createDefault(structIds[mapping.dataStructKey]);
 
   if (mapping.dataField === "DialogueData" && "dialogue" in sourceClip) {
+    const showTitle = dialogueStyleShowsTitle(sourceClip.dialogue.style, dialogueStyles);
     data.value.style.setValue(sourceClip.dialogue.style);
-    data.value.talker.setValue(sourceClip.dialogue.speaker);
-    data.value.subtitle.setValue(sourceClip.dialogue.subtitle);
+    data.value.talker.setValue(showTitle ? sourceClip.dialogue.speaker : "");
+    data.value.subtitle.setValue(showTitle ? sourceClip.dialogue.subtitle : "");
     data.value.content.setValue(sourceClip.dialogue.content);
     data.value.continueDelay.setValue(
       sourceClip.dialogue.advanceMode === "PlayerInput"
@@ -460,7 +468,13 @@ function createActionData(
     data.value.icons.setValue(
       sourceClip.select.options.map((option) => String(option.icon)),
     );
-    data.value.params.setValue([]);
+    const params = sourceClip.select.params ?? [];
+    if (params.length > MAX_STRUCT_LIST_ITEMS) throw new Error("选项卡入参最多 100 项。");
+    data.value.params.setValue(params.map((value, index) => {
+      const text = value.trim().replace(/^\+/, "");
+      if (!isInt32String(text)) throw new Error(`选项卡「${sourceClip.node.name}」的第 ${index + 1} 个入参必须是 Int32 整数。`);
+      return String(Number(text));
+    }));
     return data;
   }
 
@@ -551,7 +565,7 @@ function writeCameraValue(target: VariableValue, value: unknown, path: string) {
     if (
       components.length !== 3 ||
       components.some((component) =>
-        !numberPattern.test(component) || !Number.isFinite(Number(component)),
+        !numberPattern.test(component) || !Number.isFinite(Math.fround(Number(component))),
       )
     ) throw invalid();
     target.setValue(components.join(","));
@@ -606,7 +620,8 @@ function clearCollection(collection: VariableValue) {
   while (collection.itemCount) collection.removeItem(collection.itemCount - 1);
 }
 
-function resolveGroupOrder(project: DialogueProject, warnings: string[]) {
+/** Shared by export and the graph's debug labels; indices are zero-based and global across chunks. */
+export function resolveGroupOrder(project: DialogueProject, warnings: string[] = []) {
   const graphNodeIds = project.graph.nodes
     .filter(
       (node) =>

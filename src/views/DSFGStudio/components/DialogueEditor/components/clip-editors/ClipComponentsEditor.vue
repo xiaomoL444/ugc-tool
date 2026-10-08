@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudioSelectField from "../../../StudioSelectField.vue";
 import { computed, ref, watch } from "vue";
 import {
   createClipComponent,
@@ -129,11 +130,11 @@ function updateString(component: ClipComponent, key: string, event: Event) {
     </article>
 
     <div class="add-component">
-      <select v-model="selectedTemplateId" aria-label="添加组件类型" :disabled="!availableTemplates.length">
+      <StudioSelectField v-model="selectedTemplateId" aria-label="添加组件类型" :disabled="!availableTemplates.length">
         <option v-for="template in availableTemplates" :key="template.id" :value="template.id">
           {{ template.name }}
         </option>
-      </select>
+      </StudioSelectField>
       <button type="button" :disabled="!selectedTemplateId" @click="addComponent">＋ 添加</button>
     </div>
   </section>

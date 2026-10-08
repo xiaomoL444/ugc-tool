@@ -6,7 +6,17 @@
       "titleKey": "homePage.categories.resources",
       "color": "#6279d9",
       "background": "#eef0ff",
-      "cards": [
+      "cards": [{
+          "id": "aisearch",
+          "href": "/AISearch",
+          "title": "AI搜索",
+          "titleKey": "aiSearch.title",
+          "description": "aisearch",
+          "descriptionKey": "aiSearch.pageDescription",
+          "icon": "AI",
+          "previewImages": [],
+          "badge": ""
+        },
         {
           "id": "bgm",
           "href": "/BgmPlayer",
@@ -15,6 +25,7 @@
           "description": "可在线播放千星奇域 7.1 版本之前的 BGM。",
           "descriptionKey": "app.bgmPlayerDescription",
           "icon": "♫",
+          "previewImages": [],
           "badge": "v7.1 Update"
         },
         {
@@ -25,6 +36,7 @@
           "description": "可在线播放千星奇域 7.0 版本之前的音效",
           "descriptionKey": "app.soundEffectPlayerDescription",
           "icon": "≋",
+          "previewImages": [],
           "badge": ""
         },
         {
@@ -35,6 +47,7 @@
           "description": "预览特效、图片、动画与声音",
           "descriptionKey": "app.effectPlayerDescription",
           "icon": "✦",
+          "previewImages": [],
           "badge": "v7.1 Update"
         }
       ]
@@ -68,6 +81,14 @@
           "title": "客户端UI动画编辑器",
           "description": "制作客户端界面动画",
           "icon": "▷"
+        },
+        {
+          "id": "vsfEditor",
+          "href": "/UIVfxEditor",
+          "title": "客户端粒子效果编辑器",
+          "description": "制作客户端界面动画",
+          "icon": "▷",
+          "badge": "TODO"
         },
         {
           "id": "text",
@@ -126,6 +147,42 @@
           "cover": "https://wiki.miliastra.dev/system_miliastra_wonderland.webp"
         }
       ]
+    }
+  ],
+  "acknowledgements": [
+    {
+      "id": "contributor",
+      "name": "@无边天下第一",
+      "description": "小地图场景映射计算制作",
+      "href": "https://space.bilibili.com/627980585"
+    },
+    {
+      "id": "contributor",
+      "name": "@百里问弦",
+      "description": "客户端UI动画编辑器参与",
+      "href": "https://space.bilibili.com/352927517"
+    },
+    {
+      "id": "repositories",
+      "name": "Miliastra-toolbox-primitive-shape",
+      "description": "客户端UI动画编辑器参考嘟嘟可老师的拟合工具，将图片转成拟合图元导入到lua中使用",
+      "href": "https://github.com/1475505/Miliastra-toolbox-primitive-shape"
+    },
+    {
+      "id": "repositories",
+      "name": "Genshin-Impact-UGC-File-Converter",
+      "description": "客户端UI动画编辑器参考该项目实现导入导出gia功能",
+      "href": "https://github.com/Nyagamon/Genshin-Impact-UGC-File-Converter"
+    },{
+      "id": "contributor",
+      "name": "@Damien",
+      "description": "Assisted in completing the update of special effect assets for version 7.1.",
+      "href": "https://wiki.miliastra.dev/"
+    },{
+      "id": "repositories",
+      "name": "qianxing-audio-library",
+      "description": "参考项目，提供了如何能够听音效的思路",
+      "href": "https://github.com/kunw32747-hue/qianxing-audio-library"
     }
   ]
 }

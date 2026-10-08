@@ -1,8 +1,8 @@
 {
   "effectPlayer.title": "特效预览",
   "effectPlayer.description": "搜索、筛选并预览游戏特效",
-  "effectPlayer.search.label": "搜索（可搜索 ID、名称、标签）：",
-  "effectPlayer.search.placeholder": "例如 10001001 / 冰元素受击 / 受击",
+  "effectPlayer.search.label": "搜索（ID、名称、标签、描述）：",
+  "effectPlayer.search.placeholder": "例如 冰元素受击 / 蓝色光环 / 金属碰撞声",
   "effectPlayer.loop.all": "全部特效",
   "effectPlayer.loop.once": "限时特效",
   "effectPlayer.loop.loop": "循环特效",
@@ -55,5 +55,11 @@
   "effectPlayer.media.enableAudio": "开启声音",
   "effectPlayer.media.errorSeparator": "、",
   "effectPlayer.media.unavailable": "暂无预览资源",
-  "effectPlayer.media.loading": "正在加载预览…"
+  "effectPlayer.media.loading": "正在加载预览…",
+  "effectPlayer.deepLink.notFound": "没有找到链接指向的特效",
+  "effectPlayer.media.startPreview": "播放预览",
+  "effectPlayer.features.loading": "正在读取资产描述…",
+  "effectPlayer.features.unavailable": "描述文件暂不可用，仍可按名称、ID 搜索和预览。",
+  "effectPlayer.features.stale": "描述更新检查失败，暂时显示上次读取的内容。",
+  "effectPlayer.features.empty": "此资产暂没有生成描述。"
 }

@@ -16,6 +16,9 @@ for(const fillType of ['horizontal','vertical','radial90','radial180','radial360
 }
 assert.match(imageFillMask({fillType:'horizontal',fillHorizontalType:'right',fillAmount:0.25}),/to left, #000 25%, transparent 25%/);
 assert.match(imageFillMask({fillType:'vertical',fillVerticalType:'top',fillAmount:0.5}),/to bottom, #000 50%/);
+assert.equal(imageFillMask({enableFill:false,fillType:'horizontal',fillAmount:0.5}),null);
+assert.match(imageFillMask({fillType:'radial90',fillClockwise:false,fillRadial90Type:'bottomLeft',fillAmount:0.5}),/from 90deg.*transparent 0deg 315deg, #000 315deg 360deg/);
+assert.match(imageFillMask({fillType:'radial360',fillClockwise:false,fillRadialType:'top',fillAmount:0.25}),/from 0deg.*transparent 0deg 270deg, #000 270deg 360deg/);
 for(const origin of ['bottomLeft','topLeft','topRight','bottomRight']) assert.match(imageFillMask({fillType:'radial90',fillRadial90Type:origin,fillAmount:0.5}),/45deg/);
 for(const origin of ['bottom','left','top','right']) {
   assert.match(imageFillMask({fillType:'radial180',fillRadialType:origin,fillAmount:0.5}),/90deg/);
@@ -46,20 +49,22 @@ assert.match(imageFeatherPreview({...feather,horizontalSoftRange:-213},200,100).
 assert.match(imageFeatherPreview({...feather,softEdgeMode:'pixel',softEdgeWidthX:8,softEdgeWidthY:8},200,100).maskImage,/#000 4%/);
 assert.equal(imageFeatherPreview({...feather,reverseMaskArea:true},200,100).maskComposite,'subtract, intersect');
 assert.equal(feather.horizontalSoftRange,80);
-const values = {...controlRegistry.image.createProperties(), enableSoftEdge:true,softEdgeMode:'pixel',fillType:'radial90',softEdgeWidthX:8,fillAmount:0.85};
+const values = {...controlRegistry.image.createProperties(), enableSoftEdge:true,softEdgeMode:'pixel',enableFill:true,fillType:'radial90',softEdgeWidthX:8,fillAmount:0.85};
 const keys = () => imageMaskFields(controlRegistry.image.fields,values).map(f=>f.key);
 assert.deepEqual(keys(),['enableMask']);
 values.enableMask = true;
 assert.ok(keys().includes('softEdgeWidthX')); assert.ok(!keys().includes('horizontalSoftRange'));
 assert.ok(keys().includes('fillRadial90Type')); assert.ok(!keys().includes('fillRadialType'));
+assert.ok(keys().includes('fillClockwise'));
 values.softEdgeMode = 'percentage';
 assert.ok(keys().includes('horizontalSoftRange')); assert.ok(!keys().includes('softEdgeWidthX'));
 for(const [shape,direction] of [['horizontal','fillHorizontalType'],['vertical','fillVerticalType'],['radial90','fillRadial90Type'],['radial180','fillRadialType'],['radial360','fillRadialType']]) {
   values.fillType = shape;
   assert.deepEqual(keys().filter(k=>['fillHorizontalType','fillVerticalType','fillRadial90Type','fillRadialType'].includes(k)),[direction]);
 }
-values.fillType='unused'; values.enableSoftEdge=false;
+values.enableFill=false; values.enableSoftEdge=false;
 assert.deepEqual(keys(),['enableMask','enableSoftEdge','__fillEnabled','reverseMaskArea']);
+assert.equal(values.fillType,'radial360','disabling fill retains the selected shape');
 values.enableMask=false;
 const saved=JSON.stringify(values); keys(); assert.equal(JSON.stringify(values),saved);
 assert.equal(values.softEdgeWidthX,8); assert.equal(values.fillAmount,0.85);

@@ -23,9 +23,84 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
   const { createWorkspaceSaveQueue } = require(path.resolve(__dirname, "../src/views/DSFGStudio/components/QuestEditor/workspaceSaveQueue.ts"));
+  const { bindWorkspaceSaveLifecycle } = require(path.resolve(__dirname, "../src/views/DSFGStudio/components/QuestEditor/workspaceSaveLifecycle.ts"));
   let passed = 0;
   const test = async (name, run) => { await run(); passed++; console.log(`PASS ${name}`); };
   const unexpectedError = (error) => { throw error; };
+  function browserEvents(queue) {
+    const target = new EventTarget(), page = new EventTarget();
+    page.visibilityState = "visible";
+    const cleanup = bindWorkspaceSaveLifecycle(queue, target, page);
+    return { target, page, cleanup, unload() {
+      const event = new Event("beforeunload", { cancelable: true });
+      Object.defineProperty(event, "returnValue", { value: undefined, writable: true });
+      target.dispatchEvent(event);
+      return event;
+    } };
+  }
+
+  await test("Refresh warns for debounced and in-flight edits, but not after saving", async () => {
+    const gate = deferred(), started = deferred(), writes = [];
+    const queue = createWorkspaceSaveQueue(async (...args) => {
+      writes.push(args); started.resolve(); await gate.promise;
+    }, unexpectedError, 10000);
+    const browser = browserEvents(queue);
+    assert.equal(browser.unload().defaultPrevented, false);
+    queue.schedule("a", "latest GUID");
+    const event = browser.unload();
+    assert.equal(event.defaultPrevented, true);
+    assert.equal(event.returnValue, "");
+    await started.promise;
+    assert.equal(queue.hasPendingChanges(), true);
+    assert.equal(browser.unload().defaultPrevented, true);
+    gate.resolve();
+    await queue.flush();
+    assert.deepEqual(writes, [["a", "latest GUID"]]);
+    assert.equal(queue.hasPendingChanges(), false);
+    assert.equal(browser.unload().defaultPrevented, false);
+    browser.cleanup();
+  });
+
+  await test("Backgrounding flushes immediately and lifecycle handlers are removed on unmount", async () => {
+    const started = deferred(), writes = [];
+    const queue = createWorkspaceSaveQueue(async (...args) => {
+      writes.push(args); started.resolve();
+    }, unexpectedError, 10000);
+    const browser = browserEvents(queue);
+    queue.schedule("a", "GUID before leaving");
+    browser.page.dispatchEvent(new Event("visibilitychange"));
+    assert.deepEqual(writes, []);
+    browser.page.visibilityState = "hidden";
+    browser.page.dispatchEvent(new Event("visibilitychange"));
+    await started.promise;
+    await queue.flush();
+    assert.deepEqual(writes, [["a", "GUID before leaving"]]);
+    browser.cleanup();
+    queue.schedule("a", "after unmount");
+    assert.equal(browser.unload().defaultPrevented, false);
+    browser.page.dispatchEvent(new Event("visibilitychange"));
+    await Promise.resolve();
+    assert.equal(writes.length, 1);
+    queue.discard();
+    assert.equal(queue.hasPendingChanges(), false);
+  });
+
+  await test("Failed browser-exit saves retain changes and keep warning until retry succeeds", async () => {
+    const failure = new Error("offline"), errors = [];
+    let fail = true;
+    const queue = createWorkspaceSaveQueue(async () => { if (fail) throw failure; }, error => errors.push(error), 10000);
+    const browser = browserEvents(queue);
+    queue.schedule("a", "unsaved GUID");
+    assert.equal(browser.unload().defaultPrevented, true);
+    await assert.rejects(queue.flush(), error => error === failure);
+    assert.equal(queue.hasPendingChanges(), true);
+    assert.deepEqual(errors, [failure]);
+    assert.equal(browser.unload().defaultPrevented, true);
+    fail = false;
+    await queue.flush();
+    assert.equal(browser.unload().defaultPrevented, false);
+    browser.cleanup();
+  });
 
   await test("Debounce keeps the latest snapshot of each file without dropping other files", async () => {
     const writes = [];

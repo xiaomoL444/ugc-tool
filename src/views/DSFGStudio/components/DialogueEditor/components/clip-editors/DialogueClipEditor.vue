@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudioSelectField from "../../../StudioSelectField.vue";
 import { computed, inject, type Ref } from "vue";
 import { normalizeDialogueInput, sanitizeDialogueInput, preventDialogueLineBreak } from "../../utils/dialogueTextInput";
 import type { DialogueClip } from "../../types/DialogueNode";
@@ -28,7 +29,7 @@ function moveParam(index: number, direction: number) {
   <div class="clip-fields">
     <label>
       对话样式
-      <select v-model="clip.style">
+      <StudioSelectField v-model="clip.style">
         <option v-if="!dialogueStyles.some(item => item.id === clip.style)" :value="clip.style">{{ clip.style || '未设置' }}（当前值）</option>
         <option
           v-for="style in dialogueStyles"
@@ -37,7 +38,7 @@ function moveParam(index: number, direction: number) {
         >
           {{ style.label }}（{{ style.id }}）
         </option>
-      </select>
+      </StudioSelectField>
     </label>
     <label>说话人<input v-model="clip.speaker" /></label>
     <label>台词内容<textarea v-model="content" rows="3" placeholder="换行请写 \n" @beforeinput="preventDialogueLineBreak" @input="sanitizeDialogueInput" /></label>
@@ -57,10 +58,10 @@ function moveParam(index: number, direction: number) {
     </section>
     <label>
       推进方式
-      <select v-model="clip.advanceMode">
+      <StudioSelectField v-model="clip.advanceMode">
         <option value="PlayerInput">玩家按下</option>
         <option value="None">不触发按下</option>
-      </select>
+      </StudioSelectField>
     </label>
     <small class="advance-hint">
       黄色标记控制 ContinueDelayTime；不触发按下时导出为 -1，且不生成出口。

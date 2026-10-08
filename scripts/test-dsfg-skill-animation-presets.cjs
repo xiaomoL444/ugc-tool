@@ -71,7 +71,7 @@ async function main() {
   const { useEntityPresets } = require(path.join(base, 'useEntityPresets.ts'));
   const { createEntityPreset } = require(path.join(base, 'entityPresets.ts'));
   for (const [category, hook, entry, field] of [
-    [systemPresetConfig.entities, useEntityPresets, { id: 'system-person', name: '人物代号', talker: '默认人物', subtitle: '' }, 'talker'],
+    [systemPresetConfig.entities, useEntityPresets, { id: 'system-person', name: '人物代号', talker: '默认人物', subtitle: '', guid: '', entityQuery: '' }, 'talker'],
     [systemPresetConfig.skillAnimations, useSkillAnimationPresets, { id: 'system-skill', name: '默认动画', configId: '123' }, 'name'],
   ]) {
     const originalDefaults = category.presets.splice(0, category.presets.length, entry);
@@ -117,8 +117,35 @@ async function main() {
   systemPresetConfig.skillAnimations.newItem.name = '';
   console.log('PASS entity and skill system entries stay readonly and available above independently saved custom entries');
 
-  const { useStylePresets, encodeStylePresets, decodeStylePresets, getStylePresetOptions } = require(path.join(base, 'stylePresets.ts'));
+  const { useStylePresets, encodeStylePresets, decodeStylePresets, getStylePresetOptions, supportsCustomStylePresets } = require(path.join(base, 'stylePresets.ts'));
+  const legacyDialogueStyles = systemPresetConfig.dialogueStyles.presets.map(({ showTitle, ...item }) => item);
+  assert.deepEqual(decodeStylePresets('dialogueStyles', encodeStylePresets('dialogueStyles', legacyDialogueStyles)), systemPresetConfig.dialogueStyles.presets);
+  const titleDefaults = decodeStylePresets('dialogueStyles', encodeStylePresets('dialogueStyles', [
+    { id: 'legacy', label: '旧自定义', value: 'Legacy' },
+    { id: 'enabled', label: '显示', value: 'Enabled', showTitle: true },
+    { id: 'disabled', label: '不显示', value: 'NOLOC_Default', showTitle: false },
+  ]));
+  assert.deepEqual(getStylePresetOptions(titleDefaults).map(item => item.showTitle), [false, true, false]);
+  assert.equal(require(path.join(base, 'stylePresets.ts')).createStylePreset('dialogueStyles').showTitle, false);
+  for (const invalid of ['false', 0, null]) assert.throws(() => decodeStylePresets('dialogueStyles', encodeStylePresets('dialogueStyles', [{ id: 'bad', label: '', value: 'Bad', showTitle: invalid }])));
+  for (const category of ['booleans', 'entityGetMethods']) {
+    assert.equal(supportsCustomStylePresets(category), false);
+    const file = `/fixed-${category}/${category}.json`;
+    const original = encodeStylePresets(category, [{ id: 'legacy-custom', label: '旧自定义', value: '99' }]);
+    files.set(file, original);
+    context = { storage, selectedWorkspaceId: vue.ref(`fixed-${category}`), mount: [], unmount: [] };
+    const instance = useStylePresets(category);
+    const hooks = context;
+    await hooks.mount[0]();
+    assert.deepEqual(instance.availablePresets.value, systemPresetConfig[category].presets);
+    assert.deepEqual(instance.options.value.map(item => item.value), ['0', '1']);
+    assert.equal(instance.presets.value[0].value, '99');
+    await instance.flush(); hooks.unmount[0]();
+    assert.equal(files.get(file), original, 'Loading fixed presets must preserve the legacy file');
+  }
+  console.log('PASS fixed categories expose only system choices and preserve legacy custom files');
   for (const category of ['dialogueStyles', 'questStyles', 'walkTalkStyles', 'cameras']) {
+    assert.equal(supportsCustomStylePresets(category), true);
     async function openStyles() {
       context = { storage, selectedWorkspaceId: vue.ref(`styles-${category}`), mount: [], unmount: [] };
       const instance = useStylePresets(category);
@@ -134,6 +161,14 @@ async function main() {
     const saved = await openStyles();
     assert.equal(saved.instance.options.value.at(-1).value, 'Custom_类型');
     assert.equal(saved.instance.options.value.at(-1).label, '自定义名称');
+    if (category === 'dialogueStyles') {
+      assert.equal(saved.instance.options.value.at(-1).showTitle, false);
+      saved.instance.presets.value[0].showTitle = true;
+      await saved.instance.flush();
+      const withTitle = await openStyles();
+      assert.equal(withTitle.instance.options.value.at(-1).showTitle, true);
+      withTitle.close();
+    }
     assert.notEqual(systemPresetConfig[category].presets[0].value, 'Custom_类型');
     saved.instance.presets.value = [];
     await saved.instance.flush(); saved.close();
@@ -144,7 +179,7 @@ async function main() {
     empty.close();
     const defaults = systemPresetConfig[category].presets;
     files.set(`/styles-${category}/${category}.json`, encodeStylePresets(category, [
-      ...defaults, { ...defaults[0], id: 'old-custom', value: 'User_Value' },
+      ...(category === 'dialogueStyles' ? legacyDialogueStyles : defaults), { ...defaults[0], id: 'old-custom', value: 'User_Value' },
     ]));
     const legacy = await openStyles();
     assert.deepEqual(legacy.instance.presets.value.map(item => item.value), ['User_Value']);

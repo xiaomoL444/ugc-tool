@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { studioSelectTheme } from "../../../studioSelectTheme";
+import "../../../../studioSelect.css";
 import { computed, ref, type HTMLAttributes } from "vue";
 import { NSelect } from "naive-ui";
 import { useStylePresets } from "../../../EntityPresetEditor/stylePresets";
@@ -11,7 +13,7 @@ import ClipComponentsEditor from "./ClipComponentsEditor.vue";
 
 const props = defineProps<{ clip: PerformanceClip }>();
 // The teleported menu belongs to this editor, not the outside-click area.
-const clipMenuProps: HTMLAttributes & { "data-clip-editor": string } = { "data-clip-editor": "" };
+const clipMenuProps: HTMLAttributes & { "data-clip-editor": string } = { "data-clip-editor": "", class: "studio-select-menu" };
 const { options: cameraPresets, ready, error, retry } = useStylePresets("cameras");
 const cameraOptions = computed(() => {
   const options = cameraPresets.value.map(item => ({ value: item.value, label: `${item.label} · ${item.value}` }));
@@ -45,7 +47,7 @@ function mode(key: "positionData" | "rotationData") {
 <template>
   <div class="camera-editor">
     <div v-if="shot" class="camera-basics">
-      <label>镜头名称<NSelect :value="String(values.cameraName ?? '')" :options="cameraOptions" :disabled="!ready" filterable
+      <label>镜头名称<NSelect :theme-overrides="studioSelectTheme" :value="String(values.cameraName ?? '')" :options="cameraOptions" :disabled="!ready" filterable
         :menu-props="clipMenuProps"
         placeholder="搜索镜头名称" aria-label="相机预设" @update:value="update('cameraName', $event)" /></label>
       <p v-if="error" class="camera-notice" role="alert">{{ error }} <button type="button" @click="retry().catch(() => undefined)">重试</button></p>

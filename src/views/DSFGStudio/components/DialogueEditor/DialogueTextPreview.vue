@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudioSelectField from "../StudioSelectField.vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { DialogueProject } from "./types/FileStruct";
 import { buildDialogueTextPreview, isDialogueCollectionNode, type TextPreviewBlock, type TextPreviewLine } from "./utils/dialogueTextPreview";
@@ -7,6 +8,8 @@ import { shouldShowDialogueSpeaker, type DialogueTextEdit } from "./utils/dialog
 import { applyDialogueTextAction, type DialogueTextAction } from "./utils/dialogueTextActions";
 import { canUndoDialogueDeletion, captureDialogueDeletion } from "./utils/dialogueDeletionUndo";
 import DialogueTextLine from "./components/DialogueTextLine.vue";
+import DialogueSpeakerPicker from "./components/DialogueSpeakerPicker.vue";
+import StudioSelect from "../StudioSelect.vue";
 import DialogueMinimap from "./components/DialogueMinimap.vue";
 import type { MinimapRect } from "./utils/dialogueMinimap";
 import DialogueOptionText from "./components/DialogueOptionText.vue";
@@ -16,7 +19,7 @@ import { DEFAULT_SELECT_ICON_ID } from "./config/selectStyleRegistry";
 import type { EntityPreset } from "../EntityPresetEditor/entityPresets";
 import { getTextPreviewNavigationTarget, type TextPreviewNavigationTarget } from "./utils/dialogueTextNavigation";
 
-const props = withDefaults(defineProps<{ project: DialogueProject; entityPresets?: EntityPreset[]; presetsError?: string }>(), { entityPresets: () => [], presetsError: "" });
+const props = withDefaults(defineProps<{ project: DialogueProject; entityPresets?: EntityPreset[]; presetsError?: string; managedHistory?: boolean }>(), { entityPresets: () => [], presetsError: "", managedHistory: false });
 const emit = defineEmits<{
   navigate: [target: TextPreviewNavigationTarget];
   edit: [edit: DialogueTextEdit];
@@ -27,6 +30,10 @@ const emit = defineEmits<{
 }>();
 const preview = computed(() => buildDialogueTextPreview(props.project));
 const namedPresets = computed(() => props.entityPresets.filter(preset => preset.talker.trim()));
+const speakerPickerNodeId = ref("");
+function selectSpeaker(talker: string) {
+  emit("edit", { nodeId: speakerPickerNodeId.value, field: "speaker", value: talker });
+}
 const speakerAliases = computed(() => {
   const aliases = new Map<string, string>();
   // Presets arrive system-first; use the first nonempty alias for an exact Talker match.
@@ -98,9 +105,22 @@ const activeBlockId = ref("");
 const activeBlock = computed(() => blockById.value.get(activeBlockId.value));
 const chosenOutletId = ref("");
 const activeOutletId = computed(() => activeBlock.value?.outlets.find((outlet) => outlet.id === chosenOutletId.value)?.id ?? activeBlock.value?.outlets[0]?.id ?? "");
+const outletOptions = computed(() => activeBlock.value?.outlets.map(outlet => ({ id: outlet.id, label: outlet.text || outlet.label })) ?? []);
+const currentOutletTarget = computed(() => activeBlock.value
+  ? outletTarget(activeBlock.value.id, activeBlock.value.outlets.findIndex(outlet => outlet.id === activeOutletId.value)) : "");
+const connectionOptions = computed(() => [
+  { id: "", label: "未连接" },
+  ...preview.value.blocks.filter(block => block.kind !== "entry" && (block.id !== activeBlock.value?.id || currentOutletTarget.value === block.id))
+    .map(target => ({ id: target.id, label: `${blockLabel(target)} · ${target.lines[0]?.content?.slice(0, 20) || target.title}` })),
+]);
 function selectBlock(id: string) {
   if (activeBlockId.value !== id) chosenOutletId.value = "";
   activeBlockId.value = id;
+}
+function selectOutlet(blockId: string, outletId: string) {
+  if (!blockById.value.get(blockId)?.outlets.some(outlet => outlet.id === outletId)) return;
+  selectBlock(blockId);
+  chosenOutletId.value = outletId;
 }
 function append(kind: "dialogue" | "select" | "condition", preset?: EntityPreset) {
   if (!activeBlock.value || !activeOutletId.value) return;
@@ -150,7 +170,7 @@ async function act(action: DialogueTextAction) {
   const result = applyDialogueTextAction(props.project, action);
   if (!result) return;
   const deleting = action.type === "delete" || action.type === "delete-outlet" || action.type === "delete-block";
-  deletedDialogue.value = deleting ? captureDialogueDeletion(props.project, result.project, id ?? "", "blockId" in action ? action.blockId : undefined) : undefined;
+  deletedDialogue.value = deleting && !props.managedHistory ? captureDialogueDeletion(props.project, result.project, id ?? "", "blockId" in action ? action.blockId : undefined) : undefined;
   emit("replace", result.project);
   await nextTick();
   measureBlocks();
@@ -375,10 +395,6 @@ onBeforeUnmount(() => {
         <button type="button" title="重置为 100%" aria-label="重置文本预览缩放" @click="changeZoom(1)">{{ Math.round(zoom * 100) }}%</button>
         <button type="button" aria-label="放大文本预览" :disabled="zoom >= 1.5" @click="changeZoom(zoom + 0.1)">＋</button>
         <button type="button" @click="fitWidth">适合宽度</button>
-        <select aria-label="聚焦集合或节点" :value="activeBlockId" @change="focusBlock(($event.target as HTMLSelectElement).value)">
-          <option value="" disabled>聚焦集合或节点…</option>
-          <option v-for="(block, index) in preview.blocks" :key="block.id" :value="block.id">{{ index + 1 }} · {{ block.title }}{{ !block.reachable ? ' · 散落' : '' }}</option>
-        </select>
       </div>
     </header>
     <div class="text-preview-legend">
@@ -426,6 +442,7 @@ onBeforeUnmount(() => {
                   :can-move-up="canMove(placed.block, index, -1)" :can-move-down="canMove(placed.block, index, 1)"
                   @edit="emit('edit', $event)" @move="moveLine(placed.block, index, $event)" @insert="insertLine(line.nodeId)"
                   @remove="act({ type: 'delete', nodeId: line.nodeId })"
+                  @pick-speaker="speakerPickerNodeId = line.nodeId"
                   @configure="navigateToBlock(placed.block, line.nodeId)" @add-dialogue="act({ type: 'add-dialogue', nodeId: line.nodeId })" />
               </div>
             </div>
@@ -437,7 +454,7 @@ onBeforeUnmount(() => {
                   <DialogueOptionText v-if="outlet.kind === 'select'" :model-value="outlet.text" @update:model-value="editOption(placed.block, outlet.id, $event)" />
                   <VisualConditionEditor v-else-if="outlet.kind === 'condition'" :model-value="outlet.text" :label="outlet.label"
                     @update:model-value="act({ type: 'edit-condition', nodeId: tailId(placed.block), outletId: outlet.id, condition: $event })" />
-                  <button class="outlet-focus" type="button" @click.stop="selectBlock(placed.id); chosenOutletId = outlet.id">{{ outlet.connected ? '已连接' : '未连接' }} · 从此出口添加</button>
+                  <button class="outlet-focus" type="button" :aria-pressed="activeBlockId === placed.id && activeOutletId === outlet.id" @click.stop="selectOutlet(placed.id, outlet.id)">{{ outlet.connected ? '已连接' : '未连接' }} · 从此出口添加</button>
                 </div>
                 <button v-if="outlet.connected" type="button" title="前往此分支" @click="focusBlock(outletTarget(placed.id, index))">↗</button>
                 <button v-if="outlet.kind === 'select' || outlet.kind === 'condition'" type="button" class="delete-content" :aria-label="outlet.kind === 'select' ? `删除选项 ${index + 1}` : `删除条件分支项 ${index + 1}`" title="删除此项及其连线，保留下游内容" @click="act({ type: 'delete-outlet', blockId: placed.block.id, outletId: outlet.id })">×</button>
@@ -445,9 +462,16 @@ onBeforeUnmount(() => {
             </ol>
             <p v-for="(warning, index) in placed.block.warnings" :key="index" class="text-flow-warning">{{ warning }}</p>
             <p v-if="placed.block.outlets.length === 1 && !placed.block.outlets[0].connected && ['next', 'entry'].includes(placed.block.outlets[0].kind)" class="text-flow-end">下一步未连接</p>
-            <div v-if="placed.block.outlets.length" class="text-block-ports" aria-hidden="true">
-              <span v-for="(outlet, index) in placed.block.outlets" :key="outlet.id" class="text-block-port" :class="{ 'port-unconnected': !outlet.connected }"
-                :style="{ left: `${(index + 1) / (placed.block.outlets.length + 1) * 100}%` }">{{ placed.block.outlets.length > 1 ? index + 1 : '' }}</span>
+            <div v-if="placed.block.outlets.length" class="text-block-ports" role="group" aria-label="选择后续出口">
+              <button v-for="(outlet, index) in placed.block.outlets" :key="outlet.id" type="button" class="text-block-port"
+                :class="{ 'port-unconnected': !outlet.connected, 'port-selected': activeBlockId === placed.id && activeOutletId === outlet.id, 'port-single': placed.block.outlets.length === 1 }"
+                :aria-pressed="activeBlockId === placed.id && activeOutletId === outlet.id"
+                :aria-label="`选择${blockLabel(placed.block)}的出口 ${index + 1}：${outlet.text || outlet.label}`"
+                :title="`出口 ${index + 1}：${outlet.text || outlet.label} · 点击设置后续连接`"
+                :style="{ left: `${(index + 1) / (placed.block.outlets.length + 1) * 100}%` }"
+                @pointerdown.stop @click.stop="selectOutlet(placed.id, outlet.id)">
+                <span class="port-marker" aria-hidden="true">{{ placed.block.outlets.length > 1 ? index + 1 : '' }}</span>
+              </button>
             </div>
           </article>
         </div>
@@ -456,12 +480,16 @@ onBeforeUnmount(() => {
     <DialogueMinimap :layout="layout" :blocks="preview.blocks" :viewport="minimapViewport" :active-block-id="activeBlockId" :zoom="zoom" @navigate="navigateMinimap" />
     </div>
     <aside class="text-collection-panel" aria-label="集合操作">
+      <label class="panel-field collection-navigator">定位集合或节点
+        <StudioSelectField aria-label="聚焦集合或节点" :value="activeBlockId" @change="focusBlock(($event.target as HTMLSelectElement).value)">
+          <option value="" disabled>聚焦集合或节点…</option>
+          <option v-for="(block, index) in preview.blocks" :key="block.id" :value="block.id">{{ index + 1 }} · {{ block.title }}{{ !block.reachable ? ' · 散落' : '' }}</option>
+        </StudioSelectField>
+      </label>
       <template v-if="activeBlock">
         <header><span class="panel-eyebrow">当前选中</span><h3>{{ blockLabel(activeBlock) }}</h3><p>{{ activeBlock.kind === 'dialogue' ? `${activeBlock.lines.length} 句对话` : activeBlock.title }}</p></header>
         <label v-if="activeBlock.outlets.length > 1" class="panel-field">添加到哪个出口
-          <select aria-label="添加到哪个出口" :value="activeOutletId" @change="chosenOutletId = ($event.target as HTMLSelectElement).value">
-            <option v-for="outlet in activeBlock.outlets" :key="outlet.id" :value="outlet.id">{{ outlet.text || outlet.label }}</option>
-          </select>
+          <StudioSelect label="添加到哪个出口" :model-value="activeOutletId" :options="outletOptions" @update:model-value="chosenOutletId = $event" />
         </label>
         <div class="panel-section">
           <span class="panel-eyebrow">添加对话</span>
@@ -482,10 +510,8 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="activeOutletId" class="panel-section">
           <label class="panel-field">后续连接
-            <select aria-label="连接到集合或节点" :value="outletTarget(activeBlock.id, activeBlock.outlets.findIndex(outlet => outlet.id === activeOutletId))" @change="act({ type: 'connect', blockId: activeBlock.id, outletId: activeOutletId, targetId: ($event.target as HTMLSelectElement).value })">
-              <option value="">未连接</option>
-              <option v-for="target in preview.blocks.filter(block => block.kind !== 'entry' && (block.id !== activeBlock!.id || outletTarget(activeBlock!.id, activeBlock!.outlets.findIndex(outlet => outlet.id === activeOutletId)) === block.id))" :key="target.id" :value="target.id">{{ blockLabel(target) }} · {{ target.lines[0]?.content?.slice(0, 20) || target.title }}</option>
-            </select>
+            <StudioSelect label="连接到集合或节点" :model-value="currentOutletTarget" :options="connectionOptions"
+              @update:model-value="act({ type: 'connect', blockId: activeBlock.id, outletId: activeOutletId, targetId: $event })" />
           </label>
         </div>
         <button type="button" class="panel-secondary" @click="navigateToBlock(activeBlock)">在节点图配置 Clip ↗</button>
@@ -496,6 +522,8 @@ onBeforeUnmount(() => {
       <div v-else class="panel-hint">选择画布中的集合或节点，再在这里添加内容。</div>
     </aside>
     </div>
+    <DialogueSpeakerPicker v-if="speakerPickerNodeId" :presets="entityPresets" :speaker="project.dialogue.nodes[speakerPickerNodeId]?.dialogue?.speaker ?? ''" :error="presetsError"
+      @select="selectSpeaker" @close="speakerPickerNodeId = ''" @retry="emit('retryPresets')" />
     <Teleport to="body">
       <div v-if="dragPreview" class="line-drag-preview dsfg-typography" aria-hidden="true" inert
         :style="{ width: `${dragPreview.width}px`, transform: `translate3d(${dragPreview.left}px, ${dragPreview.top}px, 0) scale(${dragPreview.scale})` }">
@@ -521,6 +549,7 @@ onBeforeUnmount(() => {
 .panel-hint { color: #8c98a9; font-size: 11px; line-height: 1.7; text-align: left; }
 .panel-section { display: grid; gap: 8px; padding: 16px 0; border-top: 1px solid #edf0f5; }
 .panel-field { display: grid; gap: 7px; font-size: 11px; color: #8a96a8; margin: 12px 0; }
+.collection-navigator { margin: 0 0 14px; padding-bottom: 14px; border-bottom: 1px solid #edf0f5; }
 .panel-field select { width: 100%; min-width: 0; }
 .panel-add-button { display: grid; gap: 6px; width: 100%; padding: 12px 10px; border: 1px solid #dce6f3; border-radius: 7px; text-align: left; color: #4b72a2; background: #f6f9fe; cursor: pointer; }
 .panel-add-button strong { font-size: 12px; font-weight: 600; }
@@ -531,15 +560,17 @@ onBeforeUnmount(() => {
 .text-node-summary { padding: 12px 20px; color: #8b97a8; font-size: 12px; text-align: left; }
 .block-action { --block-color: #77828e; background: #fafbfc; }
 .text-block-outlets .outlet-focus { padding-left: 0; text-align: left; }
-.text-preview-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 14px 18px 10px; background: #fff; }
-.text-preview-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; }
-.text-preview-summary strong { font-size: 15px; }
+.text-block-outlets .outlet-focus[aria-pressed="true"] { color: var(--block-color); font-weight: 600; }
+.text-preview-toolbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 16px 6px; overflow-x: auto; scrollbar-width: thin; background: #fff; }
+.text-preview-summary { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 10px; white-space: nowrap; }
+.text-preview-summary strong { flex-shrink: 0; font-size: 14px; }
+.text-preview-summary span { overflow: hidden; text-overflow: ellipsis; }
 .text-preview-summary span, .text-preview-legend { font-size: 12px; color: #78859a; }
-.text-preview-zoom { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.text-preview-zoom { display: flex; flex-shrink: 0; align-items: center; gap: 4px; white-space: nowrap; }
 .text-preview-zoom button { min-width: 30px; padding: 5px 9px; border: 1px solid #dbe2ec; border-radius: 6px; color: #425470; background: #fff; cursor: pointer; font-size: 12px; }
 .text-preview-zoom button:hover { background: #edf3fc; }
 .text-preview-zoom button:disabled { opacity: .35; cursor: default; }
-.text-preview-legend { display: flex; flex-wrap: wrap; gap: 18px; padding: 0 18px 12px; background: #fff; border-bottom: 1px solid #e5eaf2; }
+.text-preview-legend { display: flex; flex-shrink: 0; align-items: center; gap: 14px; padding: 0 16px 6px; overflow-x: auto; white-space: nowrap; scrollbar-width: thin; font-size: 11px; background: #fff; border-bottom: 1px solid #e5eaf2; }
 .return-legend { color: #8863b1; }
 .return-legend::before { content: ''; display: inline-block; width: 20px; margin-right: 6px; vertical-align: middle; border-top: 2px dashed #9871c4; }
 .detached-legend { color: #a3773b; }
@@ -564,7 +595,6 @@ onBeforeUnmount(() => {
 .text-block-header button, .text-block-outlets button { border: 0; border-radius: 5px; background: transparent; color: #788aa2; cursor: pointer; font-size: 11px; padding: 4px 6px; white-space: nowrap; }
 .text-block-header button:hover, .text-block-outlets button:hover { background: #e9f0fa; color: #326ba9; }
 .text-block-kind { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.text-preview-zoom select { max-width: 170px; }
 .text-preview select { border: 1px solid #e0e6ef; border-radius: 5px; padding: 5px; color: #78879a; background: #fff; font-size: 11px; cursor: pointer; }
 .text-preview-zoom .new-group-button { color: #fff; background: #477fb5; border-color: #477fb5; margin-right: 8px; }
 button.detached-legend { border: 0; border-radius: 3px; background: #fff6e6; font-size: 11px; cursor: pointer; padding: 2px 6px; }
@@ -599,9 +629,12 @@ button.detached-legend { border: 0; border-radius: 3px; background: #fff6e6; fon
 .text-block-outlets p { margin: 3px 0 0; font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .text-outlet-number { display: inline-flex; align-items: center; justify-content: center; width: 19px; height: 19px; flex-shrink: 0; border-radius: 5px; color: var(--block-color); background: #edf0f7; font-size: 11px; font-weight: 700; }
 .text-block-ports { position: absolute; bottom: 0; left: 0; width: 100%; }
-.text-block-port { position: absolute; top: 0; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; border-radius: 50%; box-sizing: border-box; background: var(--block-color); color: #fff; font-size: 10px; }
-.text-block-port:empty { min-width: 7px; height: 7px; }
-.text-block-port.port-unconnected { background: #fff; border: 1px solid #c4ccd7; color: #9aa5b3; }
+.text-block-port { position: absolute; top: 0; transform: translate(-50%, -50%); display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.port-marker { display: grid; place-items: center; width: 16px; height: 16px; border: 1px solid var(--block-color); border-radius: 50%; box-sizing: border-box; background: var(--block-color); color: #fff; font-size: 10px; line-height: 1; }
+.port-single .port-marker { width: 9px; height: 9px; }
+.port-unconnected .port-marker { background: #fff; border-color: #c4ccd7; color: #9aa5b3; }
+.text-block-port:hover .port-marker, .text-block-port.port-selected .port-marker { border-color: var(--block-color); background: var(--block-color); color: #fff; box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--block-color); }
+.text-block-port:focus-visible { outline: 2px solid var(--block-color); outline-offset: 2px; }
 .text-flow-warning { margin: 10px 16px 0; padding: 8px; border-radius: 5px; background: #fff7e6; color: #a9762c; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .text-flow-end { margin: 10px 18px 0; font-size: 11px; color: #929daa; }
 .text-preview-empty { flex: 1; display: grid; place-content: center; padding: 30px; font-size: 14px; color: #8a98ab; }

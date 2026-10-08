@@ -22,10 +22,19 @@ const props = withDefaults(defineProps<{
   node: DialogueNode;
   edges?: Edge[];
   selected?: boolean;
+  exportIndex?: number;
+  annotation?: string;
 }>(), {
   edges: () => [],
   selected: false,
+  annotation: "",
 });
+
+const emit = defineEmits<{ "update:annotation": [value: string] }>();
+
+function updateAnnotation(event: Event) {
+  emit("update:annotation", (event.target as HTMLInputElement).value);
+}
 
 const { updateNodeInternals } = useVueFlow();
 
@@ -90,7 +99,9 @@ const previewSegments = computed(() => {
 <template>
   <article class="group-node" :class="{ selected }">
     <header class="group-header">
-      <span class="group-kind">普通事件节点</span>
+      <span v-if="exportIndex !== undefined" class="export-index" :aria-label="`TimeLineGroup 索引 ${exportIndex}`" title="导出后的 TimeLineGroup 全局索引，从 0 开始，可用于播放调试">#{{ exportIndex }}</span>
+      <input class="nodrag group-kind graph-node-annotation" :value="annotation" aria-label="节点备注（仅编辑器显示，不参与导出）" :title="annotation || '点击填写节点备注，仅保存在工程中'" placeholder="普通事件节点"
+        @input="updateAnnotation" @pointerdown.stop @mousedown.stop @click.stop @keydown.stop />
       <div class="group-header-meta">
         <span
           v-if="outletWarnings.length"
@@ -205,10 +216,33 @@ const previewSegments = computed(() => {
 
 .group-header {
   border-radius: 9px 9px 0 0;
+  gap: 7px;
 }
+
+.graph-node-annotation {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 3px 5px;
+  color: #315b8e;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  outline: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+.graph-node-annotation::placeholder { color: inherit; opacity: 1; }
+.graph-node-annotation:hover, .graph-node-annotation:focus { background: #fff; border-color: #b9cdeb; }
+.graph-node-annotation:focus-visible { outline: 2px solid #488aeb; outline-offset: 1px; }
+.export-index { flex-shrink: 0; padding: 2px 6px; border: 1px solid #b9cdeb; border-radius: 5px; color: #315d99; background: #fff; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .group-header-meta {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 8px;
 }
@@ -241,6 +275,7 @@ const previewSegments = computed(() => {
 }
 
 .group-kind {
+  margin-right: auto;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;

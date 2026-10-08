@@ -1,0 +1,57 @@
+name = "ugc-ai-search"
+main = "worker.mjs"
+compatibility_date = "2025-04-01"
+
+[[durable_objects.bindings]]
+name = "SEARCH_LEDGER"
+class_name = "SearchLedger"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SearchLedger"]
+
+[vars]
+# Trusted base; fixed Player/features.json and Player/i18n/{locale}.json paths.
+ASSET_FEATURES_BASE_URL = "https://oss.xiaomol444.xyz/ugc-tool-data"
+# Public Markdown source; successful reads are cached for 60 seconds.
+SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPrompt.md"
+# Copy this file to wrangler.toml, then set your actual upstream/model/origin.
+UPSTREAM_URL = "https://YOUR-PROVIDER.example/v1/chat/completions"
+MODEL = "YOUR-MODEL-ID"
+MODEL_NAME = "网站免费模型"
+ALLOWED_ORIGINS = "https://YOUR-SITE.example,http://localhost:8080"
+GUEST_DAILY_LIMIT = "5"
+MONTHLY_BUDGET_CNY = "50"
+# Balance checks apply only when UPSTREAM_URL uses official api.deepseek.com.
+# Other providers have no equivalent balance protection in this template.
+MIN_BALANCE_CNY = "20"
+# Prices are required. Replace zero with the CURRENT actual provider prices in CNY/million tokens.
+# Zero intentionally keeps free service unavailable. Do not copy estimated prices as billing facts.
+INPUT_CNY_PER_MILLION = "0"
+OUTPUT_CNY_PER_MILLION = "0"
+COST_SAFETY_FACTOR = "1.25"
+MAX_CANDIDATES = "50"
+MAX_MESSAGES = "12"
+MAX_QUERY_LENGTH = "2000"
+MAX_PROMPT_BYTES = "30000"
+MAX_OUTPUT_TOKENS = "5400"
+MAX_CONCURRENCY = "4"
+UPSTREAM_TIMEOUT_MS = "30000"
+RETRIEVAL_MODE = "keyword"
+# Optional query embeddings require ASSET_VECTORIZE, its matching seeded namespace,
+# EMBEDDING_API_KEY and a positive current CNY/million-token price. Zero keeps them off.
+EMBEDDING_URL = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding"
+EMBEDDING_MODEL = "text-embedding-v4"
+EMBEDDING_DIMENSIONS = "1024"
+EMBEDDING_CNY_PER_MILLION = "0"
+EMBEDDING_DAILY_LIMIT = "20"
+
+# Add secrets using wrangler secret put; never put their values in this file:
+# UPSTREAM_API_KEY
+# VISITOR_HASH_SECRET
+# EMBEDDING_API_KEY (separate DashScope embedding key, never the chat/DeepSeek key)
+
+# Enable only after manually creating, indexing and seeding a matching Vectorize index:
+# [[vectorize]]
+# binding = "ASSET_VECTORIZE"
+# index_name = "ugc-assets-v4-1024"

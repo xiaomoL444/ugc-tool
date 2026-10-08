@@ -4,6 +4,11 @@ import enUSStructViewer from "./locales/structViewer/en-us.json";
 import zhTWStructViewer from "./locales/structViewer/zh-tw.json";
 import zhCNStructViewer from "./locales/structViewer/zh-cn.json";
 import ruRUBgmPlayer from "./locales/bgmPlayer/ru-ru.json";
+import zhCNAiSearch from "./locales/aiSearch/zh-cn.json";
+import zhTWAiSearch from "./locales/aiSearch/zh-tw.json";
+import enUSAiSearch from "./locales/aiSearch/en-us.json";
+import jaJPAiSearch from "./locales/aiSearch/ja-jp.json";
+import ruRUAiSearch from "./locales/aiSearch/ru-ru.json";
 import jaJPBgmPlayer from "./locales/bgmPlayer/ja-jp.json";
 import enUSBgmPlayer from "./locales/bgmPlayer/en-us.json";
 import zhTWBgmPlayer from "./locales/bgmPlayer/zh-tw.json";
@@ -52,11 +57,11 @@ export function createAppI18n(locale: AppLocale = defaultLocale) {
     ]),
     fallbackFormat: false,
     messages: {
-      "zh-CN": { ...zhCNCommon, ...zhCNStructViewer, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer, ...zhCNHomePage, ...zhCNBgmPlayer },
-      "en-US": { ...enUSCommon, ...enUSStructViewer, ...enUSEffectPlayer, ...enUSSoundEffectPlayer, ...enUSHomePage, ...enUSBgmPlayer },
-      "zh-TW": { ...zhTWCommon, ...zhTWStructViewer, ...zhTWEffectPlayer, ...zhTWSoundEffectPlayer, ...zhTWHomePage, ...zhTWBgmPlayer },
-      "ja-JP": { ...jaJPCommon, ...jaJPStructViewer, ...jaJPEffectPlayer, ...jaJPSoundEffectPlayer, ...jaJPHomePage, ...jaJPBgmPlayer },
-      "ru-RU": { ...ruRUCommon, ...ruRUStructViewer, ...ruRUEffectPlayer, ...ruRUSoundEffectPlayer, ...ruRUHomePage, ...ruRUBgmPlayer },
+      "zh-CN": { ...zhCNCommon, ...zhCNStructViewer, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer, ...zhCNHomePage, ...zhCNBgmPlayer, ...zhCNAiSearch },
+      "en-US": { ...enUSCommon, ...enUSStructViewer, ...enUSEffectPlayer, ...enUSSoundEffectPlayer, ...enUSHomePage, ...enUSBgmPlayer, ...enUSAiSearch },
+      "zh-TW": { ...zhTWCommon, ...zhTWStructViewer, ...zhTWEffectPlayer, ...zhTWSoundEffectPlayer, ...zhTWHomePage, ...zhTWBgmPlayer, ...zhTWAiSearch },
+      "ja-JP": { ...jaJPCommon, ...jaJPStructViewer, ...jaJPEffectPlayer, ...jaJPSoundEffectPlayer, ...jaJPHomePage, ...jaJPBgmPlayer, ...jaJPAiSearch },
+      "ru-RU": { ...ruRUCommon, ...ruRUStructViewer, ...ruRUEffectPlayer, ...ruRUSoundEffectPlayer, ...ruRUHomePage, ...ruRUBgmPlayer, ...ruRUAiSearch },
     },
   });
 }

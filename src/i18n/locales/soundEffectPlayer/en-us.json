@@ -3,8 +3,8 @@
   "soundEffectPlayer.ui.allVersions": "All versions",
   "soundEffectPlayer.ui.selectSound": "Select a sound",
   "soundEffectPlayer.ui.player": "Player",
-  "soundEffectPlayer.ui.searchLabel": "Search (name or ID):",
-  "soundEffectPlayer.ui.searchPlaceholder": "Enter keywords; press Enter to jump to the first result",
+  "soundEffectPlayer.ui.searchLabel": "Search (name, ID, description):",
+  "soundEffectPlayer.ui.searchPlaceholder": "Enter a name, description, or keyword; Enter jumps to the first result",
   "soundEffectPlayer.ui.resultCount": "{count} results",
   "soundEffectPlayer.ui.collapseAll": "Collapse all",
   "soundEffectPlayer.ui.expandAll": "Expand all",
@@ -32,5 +32,9 @@
   "soundEffectPlayer.ui.waveformHint": "Click or drag to seek",
   "soundEffectPlayer.ui.waveformLoading": "Loading waveform…",
   "soundEffectPlayer.ui.waveformFailed": "Waveform unavailable. Click or drag to seek.",
-  "soundEffectPlayer.ui.copyHint": "Click to copy"
+  "soundEffectPlayer.ui.copyHint": "Click to copy",
+  "soundEffectPlayer.ui.featuresLoading": "Loading asset descriptions…",
+  "soundEffectPlayer.ui.featuresUnavailable": "Descriptions are temporarily unavailable. Name and ID search and previews still work.",
+  "soundEffectPlayer.ui.featuresStale": "The description update could not be checked. Previously loaded descriptions are shown.",
+  "soundEffectPlayer.ui.featuresEmpty": "Descriptions have not been generated for this asset yet."
 }

@@ -27,5 +27,6 @@
   "bgmPlayer.ui.categoryFallback": "Категория {id}",
   "bgmPlayer.ui.uncategorized": "Без категории",
   "bgmPlayer.ui.copy": "Копировать: {title}",
-  "bgmPlayer.ui.metadataEntry": "{title}: {info}"
+  "bgmPlayer.ui.metadataEntry": "{title}: {info}",
+  "bgmPlayer.ui.deepLinkNotFound": "Музыка по этой ссылке не найдена"
 }

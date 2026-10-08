@@ -1,8 +1,8 @@
 {
   "effectPlayer.title": "特效預覽",
   "effectPlayer.description": "搜尋、篩選並預覽遊戲特效",
-  "effectPlayer.search.label": "搜尋（可搜尋 ID、名稱、標籤）：",
-  "effectPlayer.search.placeholder": "例如 10001001 / 冰元素受擊 / 受擊",
+  "effectPlayer.search.label": "搜尋（ID、名稱、標籤、描述）：",
+  "effectPlayer.search.placeholder": "例如 冰元素受擊 / 藍色光環 / 金屬碰撞聲",
   "effectPlayer.loop.all": "全部特效",
   "effectPlayer.loop.once": "限時特效",
   "effectPlayer.loop.loop": "循環特效",
@@ -55,5 +55,11 @@
   "effectPlayer.media.enableAudio": "開啟音效",
   "effectPlayer.media.errorSeparator": "；",
   "effectPlayer.media.unavailable": "暫無預覽資源",
-  "effectPlayer.media.loading": "正在載入預覽…"
+  "effectPlayer.media.loading": "正在載入預覽…",
+  "effectPlayer.deepLink.notFound": "找不到連結指向的特效",
+  "effectPlayer.media.startPreview": "播放預覽",
+  "effectPlayer.features.loading": "正在讀取資產描述…",
+  "effectPlayer.features.unavailable": "描述檔案暫不可用，仍可依名稱、ID 搜尋與預覽。",
+  "effectPlayer.features.stale": "描述更新檢查失敗，暫時顯示上次讀取的內容。",
+  "effectPlayer.features.empty": "此資產暫未產生描述。"
 }

@@ -29,13 +29,25 @@
       <router-link to="/debugpanel">debugpanle</router-link>
       <router-link to="/OverSeaUpload">海外上传工具</router-link>
     </nav>
-    <div>
-      <router-link to="/">{{ t('app.home') }}</router-link>
-      <h3 style="color: #0005; width: 100%; position: relative;">——{{ t('app.onlineTools') }}——</h3>
-      <router-link v-for="route in appRoutes" :key="route.path" :to="route.path">
-        {{ route.titleKey ? t(route.titleKey) : route.title }}
-      </router-link>
-    </div>
+    <nav class="sidebar-navigation" :aria-label="t('app.navigation')">
+      <router-link to="/" @click="CloseSidebar">{{ t('app.home') }}</router-link>
+      <section v-for="category in navigationCategories" :key="category.id" class="sidebar-category"
+        :aria-labelledby="`sidebar-category-${category.id}`"
+        :style="{ '--category-color': category.color, '--category-background': category.background }">
+        <h3 :id="`sidebar-category-${category.id}`" class="sidebar-category-title">
+          {{ displayText(category.title, category.titleKey) }}
+        </h3>
+        <template v-for="card in category.cards" :key="card.id">
+          <a v-if="isExternalLink(card.href)" :href="card.href" target="_blank" rel="noopener noreferrer"
+            @click="CloseSidebar">
+            {{ displayText(card.title, card.titleKey) }}
+          </a>
+          <router-link v-else :to="card.href" @click="CloseSidebar">
+            {{ displayText(card.title, card.titleKey) }}
+          </router-link>
+        </template>
+      </section>
+    </nav>
   </div>
 
 </template>
@@ -213,10 +225,14 @@ nav a.router-link-exact-active {
   top: 0;
   left: 0;
 
-  width: 250px;
+  box-sizing: border-box;
+  width: min(310px, 100vw);
   height: 100%;
 
   padding: 30px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
 
   background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(14px);
@@ -230,6 +246,10 @@ nav a.router-link-exact-active {
   transition: transform .35s cubic-bezier(.2, .8, .2, 1);
 
   z-index: 1001;
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none;
 }
 
 /* 展开 */
@@ -250,6 +270,57 @@ nav a.router-link-exact-active {
 .sidebar a:hover {
   opacity: .7;
 }
+
+.sidebar-navigation {
+  padding: 0;
+}
+
+.sidebar-category {
+  margin-top: 22px;
+}
+
+.sidebar-category-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  color: var(--category-color);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.sidebar-category-title::before,
+.sidebar-category-title::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid currentColor;
+  opacity: .35;
+}
+
+.sidebar-category a {
+  margin-top: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.sidebar-category a + a {
+  margin-top: 6px;
+}
+
+.sidebar-category a:hover,
+.sidebar-category a.router-link-exact-active {
+  background: var(--category-background);
+  color: var(--category-color);
+  opacity: 1;
+}
+
+.sidebar a:focus-visible {
+  outline: 2px solid var(--category-color, #6a5acd);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
 </style>
 
 <script setup lang="ts">
@@ -264,7 +335,25 @@ import PanelLayout from './components/Layout/PanelLayout.vue'
 import StorageSettings from './components/StorageSettings.vue'
 import { DesktopStorageError } from './services/storage/desktopStorage'
 import { StorageSyncPausedError } from './services/storage/storage'
-import { appRoutes } from './configs/routes'
+import homePageData from './configs/homePage.json'
+
+interface NavigationCard {
+  id: string;
+  href: string;
+  title: string;
+  titleKey?: string;
+}
+
+interface NavigationCategory {
+  id: string;
+  title: string;
+  titleKey?: string;
+  color: string;
+  background: string;
+  cards: NavigationCard[];
+}
+
+const navigationCategories: NavigationCategory[] = homePageData.categories
 
 const route = useRoute()
 onErrorCaptured((error) => {
@@ -273,7 +362,9 @@ onErrorCaptured((error) => {
     return false
   }
 })
-const { t } = useI18n({ useScope: 'global' })
+const { t, te } = useI18n({ useScope: 'global' })
+const displayText = (value: string, key?: string) => key && te(key) ? t(key) : value
+const isExternalLink = (href: string) => /^(?:https?:)?\/\//i.test(href)
 const pageTitle = computed(() => typeof route.meta.titleKey === 'string'
   ? t(route.meta.titleKey)
   : String(route.meta.title || t('app.defaultTitle')))

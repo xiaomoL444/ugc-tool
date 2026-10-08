@@ -2,6 +2,9 @@
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import { downloadTextFile } from "@/utils/download";
 import { toast } from "vue-sonner";
+import { ref } from "vue";
+import StudioHistoryToolbar from "../StudioHistoryToolbar.vue";
+import { useStudioDocumentHistory } from "../useStudioHistory";
 import StudioFileList from "../StudioFileList.vue";
 import StudioSidebarContent from "../StudioSidebarContent.vue";
 import StudioCreateDialog from "../StudioCreateDialog.vue";
@@ -15,6 +18,11 @@ withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "Ca
 const { project, files, selectedFile, creating, newName, busy, status, error,
   refreshFiles, selectFile, createFile, deleteFile, prepareToLeave, flush } = useCameraFiles();
 const workspaceIds = useWorkspaceStructIds();
+const historyElement = ref<HTMLElement>();
+const history = useStudioDocumentHistory({
+  project, element: historyElement, blocked: () => busy.value, label: "修改镜头",
+  onError: reason => toast.error(reason instanceof Error ? reason.message : "镜头恢复失败"),
+});
 defineExpose({ prepareToLeave });
 function updateDuration(event: Event) {
   if (!project.value) return;
@@ -32,7 +40,7 @@ function exportCamera() {
 </script>
 
 <template>
-  <div class="camera-file-editor" :inert="busy">
+  <div ref="historyElement" class="camera-file-editor" :inert="busy">
     <StudioSidebarContent>
       <div class="camera-file-sidebar" :inert="busy">
         <div class="studio-sidebar-heading"><strong>镜头文件</strong></div>
@@ -44,6 +52,7 @@ function exportCamera() {
       <div class="camera-file-workspace">
         <header class="camera-file-toolbar">
           <span class="save-status" role="status">{{ status }}</span>
+          <StudioHistoryToolbar :history="history" :disabled="busy" />
           <label v-if="project" class="duration-field">时长（秒）<input type="number" min="0.1" step="0.1" aria-label="镜头时长（秒）" :value="project.clip.duration" @change="updateDuration" /></label>
           <button v-if="project" type="button" class="primary" @click="exportCamera">导出千星镜头</button>
         </header>

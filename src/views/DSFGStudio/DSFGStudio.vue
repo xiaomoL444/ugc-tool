@@ -5,6 +5,7 @@ import {
   reactive,
   computed,
   ref,
+  nextTick,
   onMounted,
   onBeforeUnmount,
   provide,
@@ -26,6 +27,9 @@ import { SCENE_FILE, createSceneProject, encodeSceneProject } from "./components
 import StudioIcon from "./components/StudioIcon.vue";
 import StudioCreateDialog from "./components/StudioCreateDialog.vue";
 import StudioWorkspaceSelect from "./components/StudioWorkspaceSelect.vue";
+import StudioEditorSession from "./components/StudioEditorSession.vue";
+import StudioHistoryToolbar from "./components/StudioHistoryToolbar.vue";
+import { createStudioSessionHistory, studioSessionHistoryKey } from "./components/studioSessionHistory";
 import { studioSidebarKey, type StudioEditorKind } from "./components/studioSidebar";
 import WorkspaceStructIdSettings from "./components/WorkspaceStructIdSettings.vue";
 import { createWorkspaceStructIds, loadWorkspaceStructIds, encodeWorkspaceStructIds, validateWorkspaceStructIds,
@@ -37,7 +41,25 @@ const storage = inject<StorageClass>("storage")!.setProject(ProjectID); //储存
 
 const workspaceIds = ref<string[]>([]); //工作区的所有id
 const selectedWorkspaceId = ref(""); //选择的工作区
-const editorRef = ref<{ prepareToLeave: () => Promise<void> }>();
+const workspaceMemoryKey = `${ProjectID}:lastWorkspaceId`;
+function readLastWorkspaceId(): string {
+  try { return localStorage.getItem(workspaceMemoryKey) || ""; }
+  catch (error) { consola.warn("无法读取上次选择的工作区", error); return ""; }
+}
+function rememberWorkspace(id: string): void {
+  try {
+    if (id) localStorage.setItem(workspaceMemoryKey, id);
+    else localStorage.removeItem(workspaceMemoryKey);
+  } catch (error) { consola.warn("无法记住当前工作区", error); }
+}
+const studioElement = ref<HTMLElement>();
+const editorSessions = new Map<StudioEditorKind, { prepareToLeave: () => Promise<void> }>();
+const visitedEditors = ref<StudioEditorKind[]>(["Dialogue"]);
+function setEditorRef(kind: StudioEditorKind, instance: unknown) {
+  if (instance) editorSessions.set(kind, instance as { prepareToLeave: () => Promise<void> });
+  else editorSessions.delete(kind);
+}
+const activeEditor = () => editorSessions.get(selectedFunction.value);
 const switchingEditor = ref(false);
 const creatingWorkspace = ref(false);
 const newWorkspaceName = ref("");
@@ -53,6 +75,48 @@ const structSettingsOpen = ref(false);
 const structSettingsError = ref("");
 const structSettings = ref<WorkspaceStructIdState>({ ids: createWorkspaceStructIds(), candidates: {}, warnings: [] });
 const workspaceStructIds = computed(() => structSettings.value.ids);
+const sessionHistory = createStudioSessionHistory({
+  currentEditor: () => selectedFunction.value,
+  switchEditor: activateEditor,
+  blocked: () => switchingEditor.value || structSettingsOpen.value || !selectedWorkspaceId.value,
+});
+provide(studioSessionHistoryKey, sessionHistory);
+async function runSessionHistory(action: "undo" | "redo") {
+  try { await sessionHistory[action](); }
+  catch (error) { toast.error(error instanceof Error ? error.message : "编辑历史恢复失败"); }
+}
+const shellHistory = {
+  canUndo: sessionHistory.canUndo, canRedo: sessionHistory.canRedo,
+  undo: () => runSessionHistory("undo"), redo: () => runSessionHistory("redo"),
+};
+let pointerHeld = false;
+function trackPointer(event: PointerEvent) { if (event.button === 0) pointerHeld = true; }
+function releasePointer() { pointerHeld = false; }
+function historyShortcut(event: KeyboardEvent) {
+  const key = event.key.toLowerCase(), target = event.target as Element | null;
+  if (event.defaultPrevented || event.isComposing || event.altKey || (!event.ctrlKey && !event.metaKey)
+    || !["z", "y"].includes(key) || pointerHeld || sessionHistory.busy.value || switchingEditor.value || structSettingsOpen.value
+    || !selectedWorkspaceId.value || target?.closest?.("input:not([type='checkbox']):not([type='radio']):not([type='range']), textarea, [contenteditable]:not([contenteditable='false']), [role='dialog'], dialog")
+    || (!studioElement.value?.contains(target) && target !== document.body && target !== document.documentElement
+      && !target?.closest?.("[data-clip-editor], .studio-select-menu"))) return;
+  event.preventDefault(); event.stopPropagation();
+  if (!event.repeat) void runSessionHistory(key === "y" || event.shiftKey ? "redo" : "undo");
+}
+onMounted(() => {
+  window.addEventListener("keydown", historyShortcut, true);
+  window.addEventListener("pointerdown", trackPointer, true);
+  window.addEventListener("pointerup", releasePointer, true);
+  window.addEventListener("pointercancel", releasePointer, true);
+  window.addEventListener("blur", releasePointer);
+});
+onBeforeUnmount(() => {
+  sessionHistory.dispose();
+  window.removeEventListener("keydown", historyShortcut, true);
+  window.removeEventListener("pointerdown", trackPointer, true);
+  window.removeEventListener("pointerup", releasePointer, true);
+  window.removeEventListener("pointercancel", releasePointer, true);
+  window.removeEventListener("blur", releasePointer);
+});
 provide(workspaceStructIdsKey, { ids: workspaceStructIds, error: structSettingsError });
 async function readStructSettings(workspaceId: string) {
   try {
@@ -64,10 +128,11 @@ async function readStructSettings(workspaceId: string) {
   }
 }
 async function openStructSettings() {
-  if (!selectedWorkspaceId.value || switchingEditor.value) return;
+  if (!selectedWorkspaceId.value || switchingEditor.value || sessionHistory.busy.value) return;
   switchingEditor.value = true;
   try {
-    await editorRef.value?.prepareToLeave();
+    sessionHistory.finishRegistered();
+    await activeEditor()?.prepareToLeave();
     await readStructSettings(selectedWorkspaceId.value);
     structSettingsOpen.value = true;
   } catch (error) { toast.error(error instanceof Error ? error.message : "暂时无法打开设置"); }
@@ -107,7 +172,7 @@ async function RefreshWorkspace() {
 /**
  * 添加工作区
  */
-async function AddWorkspace(undoGroupId = "", isForce = false) {
+async function AddWorkspace() {
   if (addingWorkspace.value) return;
   const inputId = newWorkspaceName.value.trim();
   if (/[<>:"/\\|?*\u0000-\u001f]/.test(inputId) || inputId === "." || inputId === "..") { toast.warning("工作区名称不能包含路径或特殊字符"); return; }
@@ -135,9 +200,8 @@ async function AddWorkspace(undoGroupId = "", isForce = false) {
  * 删除工作区
  * @param index 删除的工作区的序号
  */
-async function DelectWorkspace(undoGroupId = "", isForce = false) {
-  if (switchingEditor.value) return;
-  undoGroupId = undoGroupId || crypto.randomUUID();
+async function DelectWorkspace(isForce = false) {
+  if (switchingEditor.value || sessionHistory.busy.value) return;
 
   if (selectedWorkspaceId.value == "") {
     toast.warning("未选择任何工作区");
@@ -150,10 +214,13 @@ async function DelectWorkspace(undoGroupId = "", isForce = false) {
   ) {
     switchingEditor.value = true;
     try {
-      await editorRef.value?.prepareToLeave();
+      sessionHistory.finishRegistered();
+      await activeEditor()?.prepareToLeave();
       const workspaceId = selectedWorkspaceId.value;
       await storage.setProject(ProjectID).trash(`/${workspaceId}`);
       selectedWorkspaceId.value = "";
+      rememberWorkspace("");
+      sessionHistory.clear(); visitedEditors.value = [selectedFunction.value];
       await RefreshWorkspace();
     } catch (error) { consola.error(error); toast.error("工作区删除失败，当前编辑内容已保留"); }
     finally { switchingEditor.value = false; }
@@ -163,12 +230,10 @@ async function DelectWorkspace(undoGroupId = "", isForce = false) {
 /**
  * 切换工作区
  * @param index 点击的工作区
- * @param enableUndoHistory 是否开启记载回撤功能
  * @param isForce 是否强制切换
  */
-async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
-  if (switchingEditor.value) return;
-  undoGroupId = undoGroupId || crypto.randomUUID();
+async function ChangeWorkspace(id: string, isForce = false) {
+  if (switchingEditor.value || sessionHistory.busy.value) return;
   consola.info(`切换工作区：${id}`);
 
   const oldValue = selectedWorkspaceId.value;
@@ -180,9 +245,13 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
 
   switchingEditor.value = true;
   try {
-    await editorRef.value?.prepareToLeave();
+    sessionHistory.finishRegistered();
+    await activeEditor()?.prepareToLeave();
     await readStructSettings(id);
+    sessionHistory.clear();
+    visitedEditors.value = [selectedFunction.value];
     selectedWorkspaceId.value = id;
+    rememberWorkspace(id);
     structSettingsOpen.value = false;
     if (structSettingsError.value || validateWorkspaceStructIds(structSettings.value.ids).length) {
       toast.warning("请通过工作区菜单设置结构体 ID；旧配置存在冲突或读取问题。");
@@ -192,26 +261,40 @@ async function ChangeWorkspace(id: string, undoGroupId = "", isForce = false) {
 }
 
 async function ChangeEditorKind(kind: StudioEditorKind) {
-  if (switchingEditor.value || selectedFunction.value === kind) return;
+  if (switchingEditor.value || sessionHistory.busy.value || selectedFunction.value === kind) return;
+  const before = selectedFunction.value;
+  try {
+    sessionHistory.finishRegistered();
+    await activateEditor(kind);
+    sessionHistory.recordSwitch(before, kind);
+  } catch (error) { consola.error(error); toast.error(error instanceof Error ? error.message : "保存失败，暂未切换编辑器"); }
+}
+
+async function activateEditor(kind: StudioEditorKind) {
+  if (selectedFunction.value === kind) return;
+  if (switchingEditor.value) throw new Error("正在切换编辑器，请稍后重试。");
   switchingEditor.value = true;
   try {
-    await editorRef.value?.prepareToLeave();
+    await activeEditor()?.prepareToLeave();
+    if (!visitedEditors.value.includes(kind)) visitedEditors.value.push(kind);
     selectedFunction.value = kind;
-  } catch (error) { consola.error(error); toast.error("保存失败，暂未切换编辑器"); }
+    await nextTick();
+  }
   finally { switchingEditor.value = false; }
 }
 
 onBeforeMount(async () => {
+  await RefreshWorkspace();
   //如果工作区的长度为0则执行初始化操作
-  if ((await storage.getFolders("/")).length == 0) {
+  if (workspaceIds.value.length == 0) {
     consola.info("结构体编辑页面无存档，进行初始创建中");
     await storage.mkdir("/默认工作区");
     await storage.writeFile(`/默认工作区/${SCENE_FILE}`, encodeSceneProject(createSceneProject()));
+    await RefreshWorkspace();
   }
-  //加载完毕后触发一次刷新工作区
-  await ChangeWorkspace((await storage.getFolders("/"))[0], "", true);
-
-  await RefreshWorkspace();
+  const rememberedId = readLastWorkspaceId();
+  const initialId = workspaceIds.value.includes(rememberedId) ? rememberedId : workspaceIds.value[0];
+  if (initialId) await ChangeWorkspace(initialId, true);
   selectedFunction.value = "Dialogue";
 });
 
@@ -229,7 +312,7 @@ const functionViewMap: Record<StudioEditorKind, Component> = {
 </script>
 
 <template>
-  <div class="dsfg-typography dsfg-studio" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor || structSettingsOpen">
+  <div ref="studioElement" class="dsfg-typography dsfg-studio" :class="{ 'editor-switching': switchingEditor }" :inert="switchingEditor || structSettingsOpen || sessionHistory.busy.value">
     <aside class="studio-sidebar" aria-label="工作区与编辑内容">
       <div class="studio-workspace-picker">
         <StudioWorkspaceSelect :model-value="selectedWorkspaceId" :workspaces="workspaceIds" :disabled="addingWorkspace || switchingEditor" @select="selectWorkspace" />
@@ -247,9 +330,12 @@ const functionViewMap: Record<StudioEditorKind, Component> = {
       <p v-if="!selectedWorkspaceId" class="studio-sidebar-placeholder">选择或新建工作区开始编辑</p>
     </aside>
     <main class="studio-main" aria-label="编辑区">
-        <component v-if="selectedWorkspaceId && sidebarTarget" ref="editorRef" :is="functionViewMap[selectedFunction]"
-          :key="`${selectedWorkspaceId}:${selectedFunction}`" :editor-kind="selectedFunction"
-          @update:editor-kind="ChangeEditorKind" />
+      <div v-if="selectedWorkspaceId" class="studio-session-history"><StudioHistoryToolbar compact session-toolbar :history="shellHistory" /></div>
+        <template v-if="selectedWorkspaceId && sidebarTarget">
+          <StudioEditorSession v-for="kind in visitedEditors" :key="`${selectedWorkspaceId}:${kind}`"
+            :ref="instance => setEditorRef(kind, instance)" :active="selectedFunction === kind" :editor="functionViewMap[kind]" :kind="kind"
+            @update:editor-kind="ChangeEditorKind" />
+        </template>
         <div v-else class="studio-empty"><StudioIcon name="folder" :size="44" /><h2>从一个工作区开始</h2><p>在左侧选择工作区，或创建一个新的工作区。</p><button type="button" @click="creatingWorkspace = true">＋ 新建工作区</button></div>
     </main>
     <StudioCreateDialog v-if="creatingWorkspace" v-model="newWorkspaceName" title="新建工作区" label="工作区名称" placeholder="输入工作区名称" :busy="addingWorkspace" @submit="AddWorkspace()" @close="creatingWorkspace = false" />

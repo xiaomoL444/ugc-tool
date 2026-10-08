@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import StudioSelectField from "./StudioSelectField.vue";
+import StudioHistoryToolbar from "./StudioHistoryToolbar.vue";
+import { useStudioHistory } from "./useStudioHistory";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { createWorkspaceStructIds, STRUCT_ID_GROUPS, WORKSPACE_STRUCT_ID_FIELDS, validateWorkspaceStructIds,
   type WorkspaceStructIds, type WorkspaceStructIdState, type StructIdCandidate } from "./workspaceStructIds";
@@ -10,6 +13,17 @@ const draft = ref({ ...props.state.ids });
 const candidates = ref<Record<string, StructIdCandidate[]>>({ ...props.state.candidates });
 const busy = ref(false), error = ref(""), importMessage = ref("");
 const fileInput = ref<HTMLInputElement>(), dialog = ref<HTMLElement>();
+const history = useStudioHistory({
+  session: false,
+  element: dialog, blocked: () => busy.value || !!props.loadError, label: "修改结构体 ID",
+  capture: () => JSON.stringify({ ids: draft.value, candidates: candidates.value, importMessage: importMessage.value }),
+  restore: snapshot => {
+    const state = JSON.parse(snapshot);
+    draft.value = state.ids; candidates.value = state.candidates; importMessage.value = state.importMessage;
+    error.value = "";
+  },
+  onError: reason => { error.value = reason instanceof Error ? reason.message : String(reason); },
+});
 const previousFocus = document.activeElement as HTMLElement | null;
 const errors = computed(() => validateWorkspaceStructIds(draft.value));
 const fieldsFor = (group: string) => WORKSPACE_STRUCT_ID_FIELDS.filter(field => field.group === group);
@@ -60,7 +74,7 @@ onBeforeUnmount(() => previousFocus?.focus());
   <Teleport to="body">
     <div class="workspace-ids-backdrop dsfg-typography" @click.self="close" @keydown="keydown">
       <form ref="dialog" class="workspace-ids" role="dialog" aria-modal="true" aria-labelledby="workspace-ids-title" tabindex="-1" :aria-busy="busy" @submit.prevent="save">
-        <header><div><span>{{ workspace }}</span><h2 id="workspace-ids-title">设置结构体 ID</h2></div><button type="button" :disabled="busy" aria-label="关闭结构体 ID 设置" @click="close">×</button></header>
+        <header><div><span>{{ workspace }}</span><h2 id="workspace-ids-title">设置结构体 ID</h2></div><StudioHistoryToolbar local :history="history" :disabled="busy || !!loadError" /><button type="button" :disabled="busy" aria-label="关闭结构体 ID 设置" @click="close">×</button></header>
         <p class="intro">此工作区的演出对话、边走边说、任务和场景统一使用以下 ID。保存后对所有文件生效。</p>
         <div v-if="loadError" class="error" role="alert">{{ loadError }} <button type="button" @click="emit('retry')">重新读取</button></div>
         <fieldset :disabled="busy || !!loadError">
@@ -72,7 +86,7 @@ onBeforeUnmount(() => previousFocus?.focus());
             <div class="fields"><div v-for="field in fieldsFor(group)" :key="field.key" class="field">
               <label :for="`struct-${field.key}`">{{ field.label }}<small>{{ field.description }}</small></label>
               <input :id="`struct-${field.key}`" v-model="draft[field.key]" :aria-label="`${group} · ${field.label} ID`" inputmode="numeric" autocomplete="off" placeholder="填写结构体 ID" />
-              <select v-if="candidates[field.key]?.length > 1" v-model="draft[field.key]" :aria-label="`${group} · ${field.label} 候选 ID`"><option disabled value="">存在不同 ID，请选择或手动填写</option><option v-for="candidate in candidates[field.key]" :key="candidate.id" :value="candidate.id">{{ candidate.id }} · {{ candidate.source }}</option></select>
+              <StudioSelectField v-if="candidates[field.key]?.length > 1" v-model="draft[field.key]" :aria-label="`${group} · ${field.label} 候选 ID`"><option disabled value="">存在不同 ID，请选择或手动填写</option><option v-for="candidate in candidates[field.key]" :key="candidate.id" :value="candidate.id">{{ candidate.id }} · {{ candidate.source }}</option></StudioSelectField>
             </div></div>
           </section>
         </fieldset>

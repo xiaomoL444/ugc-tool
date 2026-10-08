@@ -1,0 +1,7 @@
+/* Shared by native-option adapters, searchable presets and hierarchical quest selectors. */
+.studio-select-field { min-width: 0; max-width: 100%; text-align: left; }
+.studio-select-menu { border: 1px solid #e9e5f7; min-width: 220px; max-width: min(420px, calc(100vw - 24px)); }
+.studio-select-menu .n-base-select-option { border-radius: 8px; }
+.studio-select-menu .n-base-select-option__content { white-space: normal !important; overflow-wrap: anywhere; line-height: 1.5; }
+.studio-select-menu .n-tree-node-content { border-radius: 8px; }
+.studio-select-menu .n-tree-node-content__text { white-space: normal; overflow-wrap: anywhere; }

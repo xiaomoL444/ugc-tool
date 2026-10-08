@@ -36,6 +36,7 @@ async function main() {
     function harness(options = {}) {
       const data = new Map(options.data ?? []), calls = [], errors = [], downloads = [], exposed = {}, stops = [];
       const workspace = vue.ref("original");
+      const active = vue.ref(true);
       let mounted, unmounted, saves;
       const storage = {
         setProject(id) { calls.push(["scope", id]); return this; },
@@ -48,8 +49,12 @@ async function main() {
       };
       const bindings = {
         ...model, ...exporter, Error, console: { error() {} },
+        useWorkspaceStructIds: () => ({ walkTalk: project => project }),
+        // History gestures are covered separately; this harness isolates file I/O.
+        useStudioDocumentHistory: () => ({}),
         ref: vue.ref, watch: (...args) => { const stop = vue.watch(...args); stops.push(stop); return stop; },
-        inject: key => key === "storage" ? storage : workspace,
+        studioEditorActiveKey: Symbol('studioEditorActive'),
+        inject: key => key === "storage" ? storage : key === "selectedWorkspaceId" ? workspace : () => active.value,
         onMounted: callback => { mounted = callback; }, onBeforeUnmount: callback => { unmounted = callback; },
         defineProps: () => ({}), withDefaults: (props, defaults) => ({ ...defaults, ...props }), defineEmits: () => () => {},
         defineExpose: api => Object.assign(exposed, api),
@@ -61,8 +66,8 @@ async function main() {
         ...options.bindings,
       };
       const context = vm.createContext(bindings);
-      vm.runInContext(`${script}\nglobalThis.api = { project, files, selectedFile, creating, newName, busy, saveStatus, fileError, settingsOpen, settingsDraft, settingsError, refreshFiles, selectFile, createFile, deleteFile, exportVariables, openSettings, applySettings, saveShortcut };`, context, { filename, timeout: 2000 });
-      const result = { ...context.api, data, storage, workspace, calls, errors, downloads, exposed, mount: () => mounted(), unmount: () => unmounted(), flush: () => saves.flush(), close: async () => { stops.forEach(stop => stop()); unmounted(); try { await saves.flush(); } catch { saves.discard(); } } };
+      vm.runInContext(`${script}\nglobalThis.api = { project, files, selectedFile, creating, newName, busy, saveStatus, fileError, refreshFiles, selectFile, createFile, deleteFile, exportVariables, saveShortcut };`, context, { filename, timeout: 2000 });
+      const result = { ...context.api, data, storage, workspace, active, calls, errors, downloads, exposed, mount: () => mounted(), unmount: () => unmounted(), flush: () => saves.flush(), close: async () => { stops.forEach(stop => stop()); unmounted(); try { await saves.flush(); } catch { saves.discard(); } } };
       harnesses.push(result);
       return result;
     }
@@ -73,7 +78,7 @@ async function main() {
     async function test(name, check) { await check(); passed++; console.log(`PASS ${name}`); }
 
     await test("editor and panel compile with their actual Vue templates", () => {
-      for (const name of ["WalkTalkEditor.vue", "WalkTalkPanel.vue"]) {
+      for (const name of ["WalkTalkEditor.vue", "WalkTalkPanel.vue", "AutoGrowTextarea.vue"]) {
         const filename = path.join(directory, name), result = parse(fs.readFileSync(filename, "utf8"), { filename });
         assert.deepEqual(result.errors, []);
         const script = compileScript(result.descriptor, { id: name });
@@ -81,7 +86,7 @@ async function main() {
         for (const style of result.descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename, id: name, scoped: true }).errors, []);
       }
     });
-    await test("compact cards left-align labels and retain editable timing, params and grouped actions", () => {
+    await test("compact rows retain editable fields, automatic text height and grouped actions", () => {
       const file = path.join(directory, "WalkTalkPanel.vue");
       const panel = parse(fs.readFileSync(file, "utf8")).descriptor;
       const css = compileStyle({ source: panel.styles[0].content, filename: file, id: 'walk-talk-appearance' });
@@ -94,12 +99,14 @@ async function main() {
       }
       assert.equal(declarations('.walk-talk-panel')['text-align'], 'left');
       assert.equal(declarations('label')['text-align'], 'left');
-      assert.equal(declarations('.card-title')['text-align'], 'left');
-      assert.equal(declarations('.delay-input input').width, '100px');
+      assert.equal(declarations('.dialogue-row').display, 'grid');
+      assert.equal(declarations('.delay-input input').width, '58px');
+      assert.ok(panel.template.content.includes('<AutoGrowTextarea v-model="entry.content"'));
+      assert.ok(panel.template.content.includes('@pointerdown="start($event, entry.id)"'));
       assert.ok(panel.template.content.includes('v-model="entry.continueDelay"'));
       assert.ok(panel.template.content.includes('v-model="entry.params"'));
       assert.ok(panel.template.content.includes('class="card-actions" role="group"'));
-      assert.ok(panel.styles[0].content.includes('@media (max-width: 540px)'));
+      assert.ok(panel.styles[0].content.includes('@container (max-width: 540px)'));
     });
     await test("style is a bound dropdown with registered choices and a read-only legacy fallback", () => {
       const panel = parse(fs.readFileSync(path.join(directory, "WalkTalkPanel.vue"), "utf8")).descriptor;
@@ -108,11 +115,118 @@ async function main() {
       visit(panel.template.ast);
       const binding = (node, name) => node.props.find(prop => prop.type === 7 && prop.name === name);
       const styleFields = nodes.filter(node => binding(node, "model")?.exp?.content === "entry.style");
-      assert.equal(styleFields.length, 1); assert.equal(styleFields[0].tag, "select");
+      assert.equal(styleFields.length, 1); assert.equal(styleFields[0].tag, "StudioSelectField");
       const options = styleFields[0].children.filter(node => node.type === 1 && node.tag === "option");
       assert.equal(binding(options[1], "for").exp.content, "option in WALK_TALK_STYLE_OPTIONS");
       assert.ok(options[0].props.some(prop => prop.type === 6 && prop.name === "disabled"));
       assert.ok(binding(options[0], "if").exp.content.includes("option.value === entry.style"));
+    });
+    function dragHarness() {
+      const file = path.join(directory, "useWalkTalkReorder.ts");
+      const source = ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+      const code = ts.transpileModule(source.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(source)).join("\n").replace("export function", "function"), {
+        compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.None },
+      }).outputText;
+      const project = vue.ref(model.createWalkTalkProject());
+      for (const content of ["A", "B", "C"]) model.addWalkTalkEntry(project.value).content = content;
+      const originals = [...project.value.entries], listeners = new Map(), frames = new Map();
+      const active = vue.ref(true), stops = [];
+      let serial = 0, unmount;
+      const list = { scrollTop: 0, getBoundingClientRect: () => ({ left: 0, right: 800, top: 0, bottom: 300, height: 300 }),
+        querySelectorAll: () => project.value.entries.map((entry, i) => ({ dataset: { entryId: entry.id }, getBoundingClientRect: () => ({ top: i * 80 - list.scrollTop, height: 70 }) })) };
+      const context = vm.createContext({ ref: vue.ref, watch: (...args) => { stops.push(vue.watch(...args)); }, onBeforeUnmount: fn => { unmount = fn; },
+        studioEditorActiveKey: Symbol('studioEditorActive'), inject: () => () => active.value,
+        moveWalkTalkEntry: model.moveWalkTalkEntry, project, list: { value: list },
+        window: { addEventListener: (type, fn) => listeners.set(type, fn), removeEventListener: type => listeners.delete(type) },
+        requestAnimationFrame: fn => { frames.set(++serial, fn); return serial; }, cancelAnimationFrame: id => frames.delete(id),
+      });
+      vm.runInContext(`${code}\nglobalThis.api = useWalkTalkReorder(() => project.value, list);`, context);
+      const event = (x, y, extra = {}) => ({ clientX: x, clientY: y, pointerId: 1, button: 0, isPrimary: true, preventDefault() {}, ...extra });
+      return { api: context.api, project, originals, list, listeners, frames, active,
+        start(index) { context.api.start(event(15, index * 80 + 20, { currentTarget: { focus() {}, closest: () => ({ getBoundingClientRect: () => ({ left: 0, top: index * 80, width: 800 }) }) } }), project.value.entries[index].id); },
+        fire(type, x, y, extra) { listeners.get(type)?.(event(x, y, extra)); },
+        tick() { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(fn => fn()); },
+        order: () => project.value.entries.map(entry => entry.content).join(""),
+        close() { unmount(); stops.forEach(stop => stop()); },
+      };
+    }
+    await test("drag previews without mutating drafts, then moves original entries in both directions", () => {
+      const h = dragHarness();
+      h.originals[0].continueDelay = "-"; h.originals[0].params = "2, 3";
+      h.start(0); h.fire("pointermove", 20, 270);
+      assert.equal(h.order(), "ABC"); assert.equal(h.api.draggingId.value, h.originals[0].id);
+      h.fire("pointerup", 20, 270);
+      assert.equal(h.order(), "BCA"); assert.equal(h.project.value.entries[2], h.originals[0]);
+      assert.equal(h.project.value.entries[2].continueDelay, "-"); assert.equal(h.project.value.entries[2].params, "2, 3");
+      h.start(2); h.fire("pointermove", 20, 5); h.fire("pointerup", 20, 5);
+      assert.equal(h.order(), "ABC"); assert.equal(h.listeners.size, 0); assert.equal(h.frames.size, 0);
+      h.close();
+    });
+    await test("same-slot drops, handle clicks, cancelled gestures and drops outside preserve order", () => {
+      const h = dragHarness();
+      h.start(1); h.fire("pointerup", 15, 100); assert.equal(h.order(), "ABC");
+      h.start(1); h.fire("pointermove", 20, 102); h.fire("pointerup", 20, 102); assert.equal(h.order(), "ABC");
+      for (const cancel of ["keydown", "pointercancel", "blur", "pointerup"]) {
+        h.start(0); h.fire("pointermove", 20, 270);
+        h.fire(cancel, 900, 270, { key: "Escape" });
+        assert.equal(h.order(), "ABC"); assert.equal(h.api.draggingId.value, "");
+        assert.equal(h.listeners.size, 0); assert.equal(h.frames.size, 0);
+      }
+      h.close();
+    });
+    await test("drag scrolls near list edges and cancels cleanly when the document changes or unmounts", async () => {
+      const h = dragHarness();
+      h.start(0); h.fire("pointermove", 20, 290); h.tick(); assert.ok(h.list.scrollTop > 0);
+      h.fire("pointerup", 20, 290, { pointerId: 2 }); assert.notEqual(h.api.draggingId.value, "");
+      h.project.value = model.createWalkTalkProject(); await vue.nextTick();
+      assert.equal(h.api.draggingId.value, ""); assert.equal(h.listeners.size, 0); assert.equal(h.frames.size, 0);
+      model.addWalkTalkEntry(h.project.value); model.addWalkTalkEntry(h.project.value);
+      h.start(0); h.fire("pointermove", 20, 120); h.close();
+      assert.equal(h.listeners.size, 0); assert.equal(h.frames.size, 0);
+    });
+    await test("Hiding the module cancels drag listeners and disables reorder shortcuts", () => {
+      const h = dragHarness();
+      h.start(0); h.fire("pointermove", 20, 270);
+      h.active.value = false;
+      assert.equal(h.order(), "ABC"); assert.equal(h.api.draggingId.value, "");
+      assert.equal(h.listeners.size, 0); assert.equal(h.frames.size, 0);
+      let prevented = 0;
+      h.api.keyboardMove({ key: "ArrowDown", altKey: true, preventDefault() { prevented++; } }, h.originals[0].id);
+      h.start(0);
+      assert.equal(prevented, 0); assert.equal(h.order(), "ABC"); assert.equal(h.listeners.size, 0);
+      h.active.value = true;
+      h.start(0); assert.ok(h.listeners.size > 0);
+      h.close();
+    });
+    await test("keyboard reorder moves the focused entry and respects first and last boundaries", () => {
+      const h = dragHarness(), id = h.originals[0].id;
+      const event = key => ({ key, altKey: true, preventDefault() {} });
+      h.api.keyboardMove(event("ArrowUp"), id); assert.equal(h.order(), "ABC");
+      h.api.keyboardMove(event("ArrowDown"), id); assert.equal(h.order(), "BAC");
+      h.api.keyboardMove(event("ArrowDown"), id); assert.equal(h.order(), "BCA");
+      h.api.keyboardMove(event("ArrowDown"), id); assert.equal(h.order(), "BCA");
+      h.close();
+    });
+    await test("textarea grows and shrinks for input, restored content and width changes, then releases its observer", async () => {
+      const panel = parse(fs.readFileSync(path.join(directory, "AutoGrowTextarea.vue"), "utf8")).descriptor;
+      const source = ts.createSourceFile("textarea.ts", panel.scriptSetup.content, ts.ScriptTarget.Latest, true);
+      const code = ts.transpileModule(source.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(source)).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.None } }).outputText;
+      const props = vue.reactive({ modelValue: "short" }), emitted = [];
+      const element = { clientWidth: 400, offsetHeight: 36, clientHeight: 34, scrollHeight: 34, style: {} };
+      let mount, unmount, callback, disconnected = false, stop;
+      const context = vm.createContext({ defineProps: () => props, defineEmits: () => (...args) => emitted.push(args),
+        ref: () => ({ value: element }), nextTick: vue.nextTick, watch: (...args) => { stop = vue.watch(...args); },
+        onMounted: fn => { mount = fn; }, onBeforeUnmount: fn => { unmount = fn; },
+        ResizeObserver: class { constructor(fn) { callback = fn; } observe() {} disconnect() { disconnected = true; } },
+      });
+      vm.runInContext(`${code}\nglobalThis.inputText = input;`, context);
+      mount(); assert.equal(element.style.height, "36px");
+      element.scrollHeight = 100; context.inputText({ target: { value: "long text" } });
+      assert.deepEqual(emitted, [["update:modelValue", "long text"]]); assert.equal(element.style.height, "102px");
+      element.scrollHeight = 34; props.modelValue = "shorter"; await vue.nextTick(); await vue.nextTick();
+      assert.equal(element.style.height, "36px");
+      element.scrollHeight = 78; callback([{ contentRect: { width: 150 } }]); assert.equal(element.style.height, "80px");
+      unmount(); stop(); assert.equal(disconnected, true);
     });
     await test("missing directory is empty, not a failing storage-provider retry", async () => {
       const h = harness(); await h.refreshFiles();
@@ -174,18 +288,23 @@ async function main() {
       const failed = await open({ storage: { async trash() { throw new Error("trash failed"); } } }); await failed.deleteFile();
       assert.equal(failed.selectedFile.value, "a.json"); assert.equal(failed.data.size, 2); assert.equal(failed.project.value.entries[0].content, "original A");
     });
-    await test("structure settings cancel without mutation and apply only valid IDs", async () => {
-      const h = await open(); h.openSettings(); h.settingsDraft.value.sequence = "9";
+    await test("workspace IDs govern exports without overwriting the file's legacy metadata", async () => {
+      const h = await open({ bindings: { useWorkspaceStructIds: () => ({ walkTalk: project => ({ ...project, structIds: { sequence: "9", dialogue: "10" } }) }) } });
+      h.exportVariables();
+      const variable = JSON.parse(h.downloads[0][0]);
+      assert.equal(variable.structId, "9");
+      assert.equal(variable.value[0].value.structId, "10");
       assert.equal(h.project.value.structIds.sequence, "1077936171");
-      h.settingsDraft.value.dialogue = "9"; h.applySettings(); assert.equal(h.settingsOpen.value, true);
-      h.settingsDraft.value.dialogue = "10"; h.applySettings();
-      assert.deepEqual(plain(h.project.value.structIds), { sequence: "9", dialogue: "10" }); assert.equal(h.settingsOpen.value, false);
-      await h.flush(); assert.equal(model.decodeWalkTalkProject(h.data.get(aPath)).structIds.sequence, "9");
+      assert.ok(!descriptor.template.content.includes('openSettings'));
     });
     await test("Ctrl+S saves to the workspace without downloading; runtime export remains available", async () => {
       const h = await open(); h.project.value.entries[0].continueDelay = "7.25";
       let prevented = 0;
       const event = { ctrlKey: true, metaKey: false, key: "s", repeat: false, preventDefault: () => prevented++ };
+      h.active.value = false;
+      await h.saveShortcut(event); assert.equal(prevented, 0);
+      assert.equal(JSON.parse(h.data.get(aPath)).entries[0].continueDelay, "0.00");
+      h.active.value = true;
       await h.saveShortcut(event); assert.equal(prevented, 1); assert.equal(h.downloads.length, 0);
       assert.equal(JSON.parse(h.data.get(aPath)).entries[0].continueDelay, "7.25");
       assert.ok(!descriptor.template.content.includes("downloadProject"));

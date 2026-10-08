@@ -70,17 +70,21 @@ export function importQxqyPerformance(text: string) {
             node.dialogue = { ...createDialogueClip(), style: source.style, speaker: source.talker, subtitle: source.subtitle, content: source.content, nodeGraphEvent: source.prams,
               startTime: action.time, advanceMode: delay === -1 ? "None" : "PlayerInput", continueDelayTime: Math.max(0, delay), autoContinue };
           } else if (action.actionType === "NOLOC_DIALOG_SELECT") {
-            assertImport(!node.select && source.content.length === source.icons.length && !source.params.length, `Group ${index} 的选项数据无法无损还原（重复 Clip、列表不匹配或含额外 params）`);
-            node.select = { ...createSelectClip(), style: source.style, startTime: action.time, continueDelayTime: duration,
+            assertImport(!node.select && source.content.length === source.icons.length, `Group ${index} 的选项数据无法无损还原（重复 Clip或列表不匹配）`);
+            node.select = { ...createSelectClip(), style: source.style, startTime: action.time, continueDelayTime: duration, params: source.params,
               options: source.content.map((content: string, i: number) => ({ ...createSelectOption(), content, icon: Number(source.icons[i]) })) };
           } else {
             assertImport(Number(source.duration) === duration, `Group ${index} 镜头时长与 ActionClip 不一致`);
             const line = createPerformanceLine("Camera"), clip = createPerformanceClip("Camera", action.time);
-            clip.duration = duration; clip.components[0].properties = source;
+            clip.duration = duration;
+            // New cameras omit viewpoints by default; imported runtime data already
+            // specifies whether one is configured and must not inherit that default.
+            clip.components[0].cameraViewpointEnabled = source.rotationData.type !== "" ||
+              source.rotationData.slot.length > 0 || source.rotationData.snapToTarget;
             // Numeric editor properties must be numbers, GUID/config identifiers remain strings.
             const convert = (value: any, key = ""): any => Array.isArray(value) ? value.map(item => convert(item)) : value && typeof value === "object"
               ? Object.fromEntries(Object.entries(value).map(([name, item]) => [name, convert(item, name)]))
-              : key === "space" ? Number(value) : value;
+              : key === "space" || key === "orbitRadius" ? Number(value) : value;
             clip.components[0].properties = normalizeCameraProperties(convert(source)) as Record<string, unknown>; line.clips.push(clip); node.lines.push(line);
           }
         } else if (action.actionType === "NOLOC_FOCUSPUSH") {

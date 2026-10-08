@@ -1,0 +1,4 @@
+wrangler.toml
+.dev.vars
+.wrangler/
+.vector-seed/

@@ -1,8 +1,17 @@
 # 流程出口导出
 
+## 运行时配置导入
+
+导入逐项还原台词、选项卡、镜头、自定义触发、公共事件、条件分支和强制跳过，恢复触发时间、参数类型、出口顺序及结构体 ID。未支持的动作、错误引用和无法按当前 Timeline 表达的数据会明确报错，不保存部分结果。运行时配置没有画布位置、备注或预设参数名称，这些编辑元数据无法从运行时文件恢复。
+
+镜头的视点开关从 `rotationData` 判断：只有类型为空、点位列表为空且 `snapToTarget` 为 false 时视为未配置，不能套用新建镜头的关闭默认值。GUID 以字符串保存，坐标空间和环绕半径转换为编辑器数字；所有点位字段及顺序继续保留。保存或重新打开不补写已明确为空的点位列表，不把空样式替换成默认样式，也不抬高导入镜头的原始持续时间。点位数量限制在用户主动切换镜头模式时应用。
+
+`node scripts/test-dsfg-dialogue-import.cjs` 覆盖所有镜头模式及点位属性、台词/选项/公共事件的各类型参数、分支和出口、跨 100 项分块，以及导入后的保存、重新打开和再次导出。
+
 ActionClip 已同步 V2.0 新定义，字段顺序为 `actionType`、`duration`、`stringParams`、`intParams`、`guidParams`、`configParams`、`prefabParams`。新增三个列表的类型分别为 `GuidList`、`ConfigReferenceList`、`EntityReferenceList`；现有动作未使用它们时按空列表导出，原有参数含义保持不变。ActionGroup 内嵌的默认 ActionClip 同步为七个字段。
 
 普通 Group 与条件分支节点都会生成一个 ActionGroup，并共用 `groupOrder` 中的全局编号。
+节点图的普通事件和条件分支标题显示 `#索引`，作为运行时 TimeLineGroup 播放调试索引，对应导出 `ActionGroup` 表的零基全局编号。界面与导出共用 `resolveGroupOrder`，连线、出口顺序及节点增删后重新计算；开始／结束节点不占编号，未连接节点也按导出追加顺序显示。超过 100 项分块仍使用全局编号，不对 100 取余；标签只读，不写入工程。
 从开始节点出发，按节点出口从上到下的顺序遍历；条件节点可以作为编号 0。
 ActionGroup 表仍按每 100 项拆成一个字典项，NextGroup 保存的是全局编号，不是块内编号。
 
@@ -30,7 +39,7 @@ NextGroup 的槽位规则对条件分支、选项卡及普通对话出口一致�
 
 ## Focus Push（强制跳过）
 
-固定 Focus Push 行最多保存一个 Clip，拖动 Clip 设置触发时间。点击后可以选择输出方式，旧工程默认使用独立出口。
+固定 Focus Push 行最多保存一个 Clip，新添加时默认位于 1 秒处，拖动 Clip 设置触发时间。点击后可以选择输出方式，旧工程默认使用独立出口。
 
 - 独立出口：节点图增加一个 `focus-push` 出口，可与 Dialogue 或 Select 出口并存。目标写入 `NextGroup` 的新增槽位，`intParams[0]` 指向这个槽位，`stringParams[0] = NOLOC_Self`。
 - 共用出口：不增加节点图出口或 `NextGroup` 槽位。参数下拉框显示现有出口的零基序号和玩家按下 / 选项文本，`intParams[0]` 保存所选序号，`stringParams[0] = NOLOC_Shared`。不存在可用出口或序号越界时提示重新选择并阻止导出。
@@ -50,5 +59,7 @@ NextGroup 的槽位规则对条件分支、选项卡及普通对话出口一致�
 Custom Clip 使用单行输入框填写字符串，时间轴 Clip 标题直接显示该字符串，导出 `NOLOC_TRIGGERCUSTOME`，原样写入 `stringParams[0]`，`intParams` 为空，不引用外部数据表。输入不支持换行，支持空字符串和空格；仅设置触发时间，持续时间固定为 0。编辑数据沿用 `custom.data.properties.value`，可读取旧 Clip 的值。
 
 ## Public Event（公共事件）
+
+Timeline 的 Clip 移动、边缘拉伸及内部延迟拖动共用手势快照：按下时固定显示时长与每秒像素比例，坐标变化包含横向滚动增量，手势期间画布只扩展不缩短。松手后恢复自动适配，避免 Clip 末端改变自动时长后反过来改变拖动坐标。取消指针、窗口失焦、切换 Group 或卸载面板均结束手势并清理监听。
 
 Public Event Line 支持多个可设置持续时间的 Clip，默认 1 秒，允许 0 秒，旧文件的 0 秒保持不变。面板持续时间和 Timeline 片段长度共用 clip.duration，参与时间轴结束时间计算，导出 `NOLOC_TRIGGERPUBLIC` 的 `duration` 使用该值。预设定义事件名和带名称、类型、默认值的参数，Clip 内填写每个参数。事件名占 `stringParams[0]`，字符串参数从第 1 项开始；Int32、Guid、ConfigReference、EntityReference 分别写入 `intParams`、`guidParams`、`configParams`、`prefabParams`，各自从第 0 项开始。每个列表上限 100 项，因此最多 99 个字符串参数。

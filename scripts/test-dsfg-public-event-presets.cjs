@@ -93,10 +93,23 @@ async function main() {
   const event = { ...a, parameters: [{ ...a.parameters[0], reference: reference.value }] };
   assert.deepEqual(decode(encode([event])), [event]);
   files.set('/Refs/CustomPresets.json', customApi.encodeCustomPresets([table]));
+  const { encodeEntityPresets } = require(path.join(base, 'entityPresets.ts'));
+  files.set('/Refs/EntityPresets.json', encodeEntityPresets([
+    { id: 'door', name: '门', talker: '', subtitle: '', guid: '18446744073709551615', entityQuery: '门/入口' },
+    { id: 'empty', name: '空草稿', talker: '', subtitle: '', guid: '', entityQuery: '' },
+    { id: 'invalid', name: '无效 GUID', talker: '', subtitle: '', guid: 'abc', entityQuery: '   ' },
+  ]));
   context = { storage, selectedWorkspaceId: vue.ref('Refs'), mount: [], unmount: [] };
   const refs = referencesApi.usePresetReferences();
   await Promise.all(context.mount.map(hook => hook()));
   assert.equal(refs.ready.value, true);
+  assert.deepEqual(refs.options('entities.guid', 'Guid'), [
+    { label: '玩家自身 · 1086324738', value: '1086324738' },
+    { label: '门 · 18446744073709551615', value: '18446744073709551615' },
+  ]);
+  assert.deepEqual(refs.options('entities.entityQuery', 'String'), [{ label: '门 · 门/入口', value: '门/入口' }]);
+  assert.deepEqual(refs.options('entities.guid', 'String'), []);
+  assert.deepEqual(refs.options('entities.entityQuery', 'Guid'), []);
   assert.deepEqual(refs.options(reference.value, 'Guid'), [{ label: '角色 A · 18446744073709551615', value: '18446744073709551615' }]);
   assert.deepEqual(refs.options(reference.value, 'Int32'), []);
   assert.deepEqual(refs.options('custom:missing:guid', 'Guid'), []);
@@ -134,7 +147,24 @@ async function main() {
   const objectForward = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_SetObjectEntityFoward');
   assert.equal(objectForward.alias, '触发实体朝向（仅物件）');
   assert.deepEqual(objectForward.parameters.map(item => item.type), ['Int32', 'Int32', 'Guid', 'String', 'Int32', 'Guid', 'String']);
-  assert.deepEqual(objectForward.parameters.map(item => item.reference), ['booleans.value', 'entityGetMethods.value', undefined, undefined, 'entityGetMethods.value', undefined, undefined]);
+  assert.deepEqual(objectForward.parameters.map(item => item.reference), ['booleans.value', 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery', 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery']);
+  const { getPublicEventArgumentReference, applyPublicEventPreset, getPublicEventArguments, compilePublicEventArguments } = require(path.join(base, '../DialogueEditor/utils/publicEventParameters.ts'));
+  const clip = { components: [{ templateId: 'public.event', properties: {} }] };
+  applyPublicEventPreset(clip, objectForward);
+  const args = getPublicEventArguments(clip);
+  ['1', '0', '1086324738', '', '1', '', '门/入口'].forEach((value, i) => { args[i].value = value; });
+  assert.deepEqual(compilePublicEventArguments(objectForward.name, args).guidParams, ['1086324738', '0']);
+  assert.deepEqual(compilePublicEventArguments(objectForward.name, args).stringParams, [objectForward.name, '', '门/入口']);
+  for (const index of [2, 3, 5, 6]) {
+    delete args[index].reference;
+    const before = JSON.stringify(clip);
+    assert.equal(getPublicEventArgumentReference(clip, args[index]), index === 2 || index === 5 ? 'entities.guid' : 'entities.entityQuery');
+    assert.equal(JSON.stringify(clip), before);
+  }
+  args[2].reference = 'custom:characters:guid';
+  assert.equal(getPublicEventArgumentReference(clip, args[2]), 'custom:characters:guid');
+  applyPublicEventPreset(clip, objectForward);
+  assert.equal(getPublicEventArguments(clip)[2].value, '1086324738');
   assert.deepEqual(decode(encode([objectForward])), [objectForward]);
   const resetCamera = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_ResetCamera');
   assert.deepEqual(resetCamera.parameters.map(item => [item.name, item.type, item.reference, item.defaultValue]), [['是否立即到达', 'Int32', 'booleans.value', '0']]);

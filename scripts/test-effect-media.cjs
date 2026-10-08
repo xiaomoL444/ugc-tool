@@ -179,18 +179,61 @@ async function main() {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/views/EffectPlayer/mediaPool.ts', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText, poolContext);
-  const pool = poolContext.exports.createMediaPool(2);
+  const createPool = poolContext.exports.createMediaPool;
   let created = 0, disposed = 0;
-  const factory = () => ({ id: ++created, time: 1.5, dispose() { disposed++; } });
-  const a = pool.acquire('a', factory); a.release();
-  const again = pool.acquire('a', factory);
-  assert.equal(again.value, a.value, 'Returning to a page reuses the same media instance');
+  const factory = () => ({ id: ++created, time: 1.5, disposals: 0, dispose() { this.disposals++; disposed++; } });
+
+  // Repeated cards must never move or control one another's active media.
+  const exclusivePool = createPool(0);
+  const firstActive = exclusivePool.acquire('same-effect', factory);
+  const secondActive = exclusivePool.acquire('same-effect', factory);
+  assert.notEqual(firstActive.value, secondActive.value, 'Concurrent cards with the same ID own independent media');
+  firstActive.release();
+  assert.equal(firstActive.value.disposals, 1);
+  assert.equal(secondActive.value.disposals, 0, 'Releasing one card cannot dispose another active card');
+  firstActive.release();
+  assert.equal(firstActive.value.disposals, 1, 'Release is idempotent even after eviction');
+  secondActive.release();
+  assert.equal(secondActive.value.disposals, 1);
+
+  const pool = createPool(2);
+  const a = pool.acquire('same-effect', factory);
+  const b = pool.acquire('same-effect', factory);
+  a.release();
+  const again = pool.acquire('same-effect', factory);
+  assert.equal(again.value, a.value, 'Returning to a card reuses an idle media instance');
   assert.equal(again.value.time, 1.5);
-  const b = pool.acquire('b', factory); b.release();
-  const d = pool.acquire('d', factory); d.release();
-  const e = pool.acquire('e', factory); e.release();
-  assert.equal(disposed, 1, 'Only least-recently-used idle media is evicted');
-  assert.equal(pool.acquire('a', factory).value, again.value, 'An active media instance cannot be evicted');
-  console.log('PASS shared longest-track loops, hover mute, drift correction, suspension, buffering, errors, autoplay, cleanup');
+  assert.notEqual(again.value, b.value, 'Idle reuse does not take a concurrently active instance');
+  a.release();
+  const third = pool.acquire('same-effect', factory);
+  assert.notEqual(third.value, again.value, 'A stale release cannot free a reacquired lease');
+  assert.notEqual(third.value, b.value);
+  again.release();
+  b.release();
+  const idleA = pool.acquire('same-effect', factory);
+  const idleB = pool.acquire('same-effect', factory);
+  assert.equal(idleA.value, a.value);
+  assert.equal(idleB.value, b.value, 'Multiple idle instances of one ID remain independently reusable');
+  assert.notEqual(idleA.value, idleB.value);
+
+  // Idle capacity and LRU ordering apply across IDs; active leases are exempt.
+  const lruPool = createPool(2);
+  const lruA = lruPool.acquire('a', factory); lruA.release();
+  const lruB = lruPool.acquire('b', factory); lruB.release();
+  const recentA = lruPool.acquire('a', factory); recentA.release();
+  const lruC = lruPool.acquire('c', factory); lruC.release();
+  assert.equal(lruB.value.disposals, 1, 'Reusing an idle resource refreshes its LRU order');
+  assert.equal(lruA.value.disposals, 0);
+  assert.equal(lruC.value.disposals, 0);
+  const liveA = lruPool.acquire('a', factory);
+  const liveD = lruPool.acquire('d', factory);
+  const lruE = lruPool.acquire('e', factory); lruE.release();
+  const lruF = lruPool.acquire('f', factory); lruF.release();
+  assert.equal(lruC.value.disposals, 1, 'The global idle limit evicts the least recently released resource');
+  assert.equal(liveA.value.disposals, 0, 'An active media instance cannot be evicted');
+  assert.equal(liveD.value.disposals, 0);
+  assert.equal(disposed, 4, 'Only released media is disposed under cache pressure');
+  third.release(); idleA.release(); idleB.release(); liveA.release(); liveD.release();
+  console.log('PASS shared longest-track loops, hover mute, drift correction, suspension, buffering, errors, autoplay, cleanup, exclusive media leases, idle LRU');
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

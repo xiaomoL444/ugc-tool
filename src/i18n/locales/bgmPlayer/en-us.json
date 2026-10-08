@@ -27,5 +27,6 @@
   "bgmPlayer.ui.categoryFallback": "Category {id}",
   "bgmPlayer.ui.uncategorized": "Uncategorized",
   "bgmPlayer.ui.copy": "Copy {title}",
-  "bgmPlayer.ui.metadataEntry": "{title}: {info}"
+  "bgmPlayer.ui.metadataEntry": "{title}: {info}",
+  "bgmPlayer.ui.deepLinkNotFound": "The linked music asset was not found"
 }

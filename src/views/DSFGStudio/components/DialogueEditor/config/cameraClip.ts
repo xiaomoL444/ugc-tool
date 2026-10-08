@@ -13,9 +13,11 @@ export const CAMERA_SLOT_PROPERTIES: ClipPropertyDefinition[] = [
   { key: "vector3", label: "Vector3", type: "vector3", defaultValue: "0,0,0", step: 0.01,
     visibleWhen: { key: "pointType", values: ["NOLOC_Vector3"] } },
   { key: "guid", label: "GUID", type: "string", defaultValue: "0",
+    entityPresetField: "guid",
     description: "整数 ID，以文本保存，避免大整数精度丢失。",
     visibleWhen: { key: "pointType", values: ["NOLOC_Guid"] } },
   { key: "entity", label: "实体", type: "string", defaultValue: "",
+    entityPresetField: "entityQuery",
     visibleWhen: { key: "pointType", values: ["NOLOC_Entity"] } },
   { key: "attachmentPoint", label: "挂接点", type: "string", defaultValue: "GI_RootNode",
     visibleWhen: { key: "pointType", values: ["NOLOC_Guid", "NOLOC_Entity"] } },
@@ -29,17 +31,30 @@ export const CAMERA_SLOT_PROPERTIES: ClipPropertyDefinition[] = [
 const CAMERA_POSITION_SLOT_PROPERTIES = CAMERA_SLOT_PROPERTIES.map(property =>
   property.key === "space" ? { ...property, visibleWhen: { key: "pointType", values: ["NOLOC_Guid", "NOLOC_Entity"] } } : property,
 );
-
-/** 视点额外支持以旋转值确定目标位置，仍写入 PositionSlot.vector3。 */
-export const CAMERA_VIEWPOINT_SLOT_PROPERTIES: ClipPropertyDefinition[] = CAMERA_SLOT_PROPERTIES.map(property => {
-  if (property.key === "space") return { ...property, visibleWhen: { key: "pointType", values: ["NOLOC_Guid", "NOLOC_Entity", "NOLOC_Rot"] } };
-  if (property.key === "pointType") return { ...property, options: [...(property.options ?? []), { label: "NOLOC_Rot（旋转）", value: "NOLOC_Rot" }] };
-  if (property.key === "vector3") return { ...property, visibleWhen: { key: "pointType", values: ["NOLOC_Vector3", "NOLOC_Rot"] } };
+const CAMERA_LINEAR_POSITION_SLOT_PROPERTIES = CAMERA_POSITION_SLOT_PROPERTIES.map(property =>
+  property.key === "offset" ? { ...property, visibleWhen: { key: "pointType", values: ["NOLOC_Vector3", "NOLOC_Guid", "NOLOC_Entity"] } } : property,
+);
+const CAMERA_FOLLOW_SLOT_PROPERTIES = CAMERA_POSITION_SLOT_PROPERTIES.map(property => {
+  if (property.key === "pointType") return { ...property, defaultValue: "NOLOC_Guid",
+    options: property.options?.filter(option => option.value !== "NOLOC_Vector3"),
+  };
+  if (property.key === "vector3") return { ...property, visibleWhen: { key: "pointType", values: [] } };
   return property;
 });
-const CAMERA_TARGET_VIEWPOINT_SLOT_PROPERTIES = CAMERA_VIEWPOINT_SLOT_PROPERTIES.map(property =>
-  property.key === "pointType" ? { ...property, options: property.options?.filter(option => option.value !== "NOLOC_Rot") } : property,
-);
+
+/** 固定角度只提供 Vector3 与旋转；保留隐藏字段用于存档和导出。 */
+export const CAMERA_VIEWPOINT_SLOT_PROPERTIES: ClipPropertyDefinition[] = CAMERA_SLOT_PROPERTIES.map(property => {
+  if (property.key === "space") return { ...property, visibleWhen: { key: "pointType", values: ["NOLOC_Rot"] } };
+  if (property.key === "pointType") return { ...property, options: [
+    ...(property.options ?? []).filter(option => option.value === "NOLOC_Vector3"),
+    { label: "NOLOC_Rot（旋转）", value: "NOLOC_Rot" },
+  ] };
+  if (property.key === "vector3") return { ...property, visibleWhen: { key: "pointType", values: ["NOLOC_Vector3", "NOLOC_Rot"] } };
+  if (property.visibleWhen) return { ...property, visibleWhen: { ...property.visibleWhen,
+    values: property.visibleWhen.values.filter(value => value !== "NOLOC_Guid" && value !== "NOLOC_Entity"),
+  } };
+  return property;
+});
 
 function slotProperty(properties = CAMERA_SLOT_PROPERTIES): ClipPropertyDefinition {
   return {
@@ -54,6 +69,10 @@ export const CAMERA_POSITION_PROPERTIES: ClipPropertyDefinition[] = [
     options: [{ label: "固定位置", value: "NOLOC_Fixed" }, { label: "线性移动", value: "NOLOC_Linear" },
       { label: "跟随", value: "NOLOC_Follow" }, { label: "环绕", value: "NOLOC_Orbit" }] },
   { ...slotProperty(CAMERA_POSITION_SLOT_PROPERTIES), defaultValue: [{}], minItems: 1, maxItems: 1,
+    propertiesWhen: { key: "type", cases: {
+      NOLOC_Linear: CAMERA_LINEAR_POSITION_SLOT_PROPERTIES,
+      NOLOC_Follow: CAMERA_FOLLOW_SLOT_PROPERTIES,
+    } },
     itemLimitsWhen: { key: "type", cases: {
       NOLOC_Fixed: { min: 1, max: 1 }, NOLOC_Follow: { min: 1, max: 1 }, NOLOC_Orbit: { min: 1, max: 1 }, NOLOC_Linear: { min: 1, max: 2 },
     } }, description: "固定位置、跟随、环绕使用 1 个点位；线性移动使用终点和可选起点。未填写起点时获取当前位置。切换为单点位类型时保留第一个点位。" },
@@ -73,7 +92,10 @@ export const CAMERA_ROTATION_PROPERTIES: ClipPropertyDefinition[] = [
     options: [{ label: "固定角度", value: "NOLOC_Fixed" }, { label: "线性移动", value: "NOLOC_Linear" },
       { label: "固定视点位置", value: "NOLOC_LookAt" }] },
   { ...slotProperty(CAMERA_VIEWPOINT_SLOT_PROPERTIES), defaultValue: [{}], minItems: 1, maxItems: 1,
-    propertiesWhen: { key: "type", cases: { NOLOC_Linear: CAMERA_TARGET_VIEWPOINT_SLOT_PROPERTIES, NOLOC_LookAt: CAMERA_TARGET_VIEWPOINT_SLOT_PROPERTIES } },
+    propertiesWhen: { key: "type", cases: {
+      NOLOC_Linear: CAMERA_POSITION_SLOT_PROPERTIES,
+      NOLOC_LookAt: CAMERA_POSITION_SLOT_PROPERTIES,
+    } },
     itemLimitsWhen: { key: "type", cases: {
       NOLOC_Fixed: { min: 1, max: 1 }, NOLOC_Linear: { min: 1, max: 2 }, NOLOC_LookAt: { min: 1, max: 1 },
     } }, description: "固定角度、固定视点位置使用 1 个点位；线性移动使用终点和可选起点。未填写起点时获取当前位置。切换为单点位类型时保留第一个点位。" },

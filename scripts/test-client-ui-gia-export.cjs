@@ -73,6 +73,28 @@ async function main() {
     imageProperties[1].properties.fillAmount = .715;
     assert.throws(() => exportGiaUI({ name:'invalid', uiIndex:32, deviceIndex:0, nodes:imageProperties }), /整数百分比/);
     console.log('PASS image type and mask numeric fields: percent conversion, float widths, zero/full values, unknown field preservation and precision validation');
+    const nestedMasks = [node('container', 'mask-root'), node('image', 'outer-mask', 'mask-root'), node('image', 'inner-mask', 'outer-mask'), node('text', 'masked-content', 'inner-mask')];
+    nestedMasks[1].properties.enableMask = true; nestedMasks[2].properties.enableMask = true;
+    nestedMasks[1].properties.imageColor.a = 0;
+    for (const sourceKind of ['containerUI', 'controlTemplate']) {
+      const originalOutput = exportGiaUI({ name: '嵌套遮罩', uiIndex: 40, assetKind: sourceKind, deviceIndex: 0, nodes: nestedMasks });
+      const originalImport = importGiaControls(buffer(originalOutput.bytes)), baseline = importedNodes(originalImport);
+      for (const targetKind of ['containerUI', 'controlTemplate']) {
+        for (const enabled of [true, false]) {
+          const changed = clone(baseline); changed.filter(n => n.type === 'image').forEach(n => { n.properties.enableMask = enabled; });
+          const result = exportGiaUI({ name: '遮罩往返', uiIndex: 41, assetKind: targetKind, deviceIndex: 0, nodes: changed,
+            source: { document: originalImport.sourceDocument, baseline, deviceIndex: 0 } });
+          for (let device = 0; device < 4; device++) {
+            const reread = importGiaControls(buffer(result.bytes), device).controls;
+            assert.deepEqual(reread.filter(c => c.type === 'image').map(c => c.properties.enableMask), [enabled, enabled]);
+            assert.equal(reread[1].properties.imageColor.a, 0, 'a transparent parent retains its mask data');
+            assert.equal(reread[2].parentSourceNodeIndex, reread[1].sourceNodeIndex, 'nested-mask hierarchy is retained');
+            assert.equal(reread[3].parentSourceNodeIndex, reread[2].sourceNodeIndex);
+          }
+        }
+      }
+    }
+    console.log('PASS transparent and nested mask switches enabled/disabled through both source/target formats and all four device layouts');
     const references = [node("container", "reference-root"), node("reference", "reference", "reference-root"), node("uiAnimation", "effect", "reference-root")];
     references[1].properties.referencedPrefabIndex = 1073746851;
     references[2].properties.animationId = 10001145;
@@ -153,8 +175,11 @@ async function main() {
     assert.equal(shifted.document.json['1']['1']['4'], 1073741830);
     assert.equal(shifted.document.json['2'][3]['1']['4'], 1073741826, 'external dependency reserves its existing identity');
     console.log('PASS sparse imported IDs are renumbered contiguously, including wrapper, owners and hierarchy; asset IDs and provenance stay intact');
-    const invalid = clone(fresh); invalid[1].properties.enableMask = true;
-    assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: invalid }), /启用遮罩/);
+    const clippedNodes = clone(fresh); clippedNodes[1].properties.enableMask = true;
+    const maskedOutput = exportGiaUI({ name: "Masked", uiIndex: 1, deviceIndex: 0, nodes: clippedNodes });
+    assert.equal(importGiaControls(buffer(maskedOutput.bytes)).controls.find(c => c.type === 'image').properties.enableMask, true);
+    const invalid = clone(fresh); invalid[1].properties.imageSource = 'item';
+    assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: invalid }), /图片来源/);
     assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: [node("container", "gia_node_123")] }), /原始 GIA/);
     const badTree = clone(fresh); badTree[1].parentId = "missing";
     assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: badTree }), /父控件/);
@@ -165,8 +190,8 @@ async function main() {
         const props = original.controls.find(c => c.type === 'image').properties;
         assert.equal(props.imageType, 'stretch'); assert.equal(props.fillAmount, .71);
         assert.equal(props.softEdgeWidthX, 8); assert.equal(props.softEdgeWidthY, 8);
-        assert.equal(props.enableMask, undefined, 'unverified switches are not inferred');
-        assert.equal(props.horizontalSoftRange, undefined, 'unverified ranges are not inferred');
+        assert.equal(typeof props.enableMask, 'boolean', 'the native image-mask switch is mapped');
+        assert.equal(props.horizontalSoftRange, 85, 'the native percentage feather range is mapped');
       }
       const nodes = original.controls.map(control => { const l = control.layout; return node(control.type, `gia_node_${control.sourceNodeIndex}`, control.parentSourceNodeIndex === null ? null : `gia_node_${control.parentSourceNodeIndex}`, {
         name: control.name, active: l.active, scaleX: l.scaleX, scaleY: l.scaleY, scaleZ: l.scaleZ,

@@ -30,6 +30,7 @@ export type DialogueStyleId = string;
 export interface DialogueStyleDefinition {
   id: DialogueStyleId;
   label: string;
+  showTitle?: boolean;
   description?: string;
 }
 
@@ -73,6 +74,8 @@ export interface SelectClip {
   /** Clip 内部延迟标记；外层结束时间始终由 Group Timeline 派生。 */
   continueDelayTime: number;
   options: SelectOption[];
+  /** 选项卡整数入参，保留输入草稿，导出为 params: Int32List。 */
+  params: string[];
 }
 
 /** 编辑时将 content/icon 成对保存，导出时再拆成两个平行列表。 */
@@ -149,6 +152,8 @@ export interface ClipPropertyDefinition {
   step?: number;
   options?: ClipPropertyOption[];
   description?: string;
+  /** 从工作区实体预设复制字段值，仍允许手动输入。 */
+  entityPresetField?: "guid" | "entityQuery";
   /** 根据同一层级的另一个字段控制显示；隐藏时保留已填写的数据。 */
   visibleWhen?: { key: string; values: Array<string | number | boolean> };
   /** 嵌套结构体的字段；struct-list 时表示每个列表元素的字段。 */

@@ -25,7 +25,7 @@ async function main() {
 
   try {
     const { createEmptyDialogueProject, createFocusPushClip, normalizeDialogueProject, createDialogueNode, createSelectClip, createPerformanceClip, createConditionBranchNode, createConditionBranchOutput } = require(path.join(editorDirectory, "utils/dialogueProject.ts"));
-    const { exportQxqyPerformance } = require(path.join(editorDirectory, "utils/qxqyPerformanceExporter.ts"));
+    const { exportQxqyPerformance, resolveGroupOrder } = require(path.join(editorDirectory, "utils/qxqyPerformanceExporter.ts"));
     const { createQxqyStructWorkspace, createDefaultQxqyStructIds } = require(path.join(editorDirectory, "utils/qxqyStructWorkspace.ts"));
     const { selectOutletId, FOCUS_PUSH_OUTLET_ID, resolveGroupOutlets } = require(path.join(editorDirectory, "utils/groupOutlets.ts"));
     let passed = 0;
@@ -61,6 +61,7 @@ async function main() {
     function entry(source, to) { connect(source, source.dialogue.entryNodeId, "output", to); }
     function exported(source) {
       const result = exportQxqyPerformance(source);
+      assert.deepEqual(resolveGroupOrder(source), result.groupOrder, 'Graph debug indices must match the actual exported global order');
       const parsed = createQxqyStructWorkspace(source.exportSettings.qxqyStructIds).parse(JSON.parse(result.json));
       assert.deepEqual(parsed.issues, []);
       const groups = table(parsed.value.ActionGroup);
@@ -89,6 +90,89 @@ async function main() {
       assert.equal(value.NextGroup.value.length, conditions.length);
     }
 
+    test("Graph debug order remains available with invalid Clip values and never edits the project", () => {
+      const source = createEmptyDialogueProject();
+      const a = group(source, 'debug-a'); const b = group(source, 'debug-b');
+      entry(source, a.id); connect(source, a.id, 'next', b.id);
+      a.dialogue.nodeGraphEvent = ['unfinished'];
+      const before = JSON.stringify(source);
+      assert.deepEqual(resolveGroupOrder(source), ['debug-a', 'debug-b']);
+      assert.equal(JSON.stringify(source), before);
+      assert.throws(() => exportQxqyPerformance(source), /Int32/);
+    });
+    test("Dialogue styles control exported titles without clearing saved drafts, including custom workspace settings", () => {
+      const source = createEmptyDialogueProject();
+      const node = group(source, 'title-style'); entry(source, node.id);
+      Object.assign(node.dialogue, { speaker: '标题人名', subtitle: '副标题', content: '台词' });
+      const { getDialogueStyles } = require(path.join(editorDirectory, 'config/dialogueStyleRegistry.ts'));
+      const styles = getDialogueStyles();
+      assert.deepEqual(styles.filter(style => style.showTitle).map(style => style.id), ['NOLOC_Default', 'NOLOC_BottomDialog']);
+      function check(style, expected, options) {
+        node.dialogue.style = style;
+        const before = JSON.stringify(source);
+        const result = exportQxqyPerformance(source, options);
+        const parsed = createQxqyStructWorkspace(source.exportSettings.qxqyStructIds).parse(JSON.parse(result.json));
+        assert.deepEqual(parsed.issues, []);
+        const fields = table(parsed.value.DialogueData)[0].value;
+        assert.equal(fields.talker.value, expected ? '标题人名' : '');
+        assert.equal(fields.subtitle.value, expected ? '副标题' : '');
+        assert.equal(fields.content.value, '台词');
+        assert.equal(fields.style.value, style);
+        assert.equal(JSON.stringify(source), before);
+      }
+      for (const style of styles) check(style.id, style.showTitle);
+      check('Custom_UI', false);
+      check('Custom_UI', true, [...styles, { id: 'Custom_UI', label: '自定义', showTitle: true }]);
+      check('Custom_UI', false, [...styles, { id: 'Custom_UI', label: '自定义', showTitle: false }]);
+      check('NOLOC_Default', true);
+      const restored = normalizeDialogueProject(JSON.parse(JSON.stringify(source)));
+      assert.equal(restored.dialogue.nodes[node.id].dialogue.speaker, '标题人名');
+      assert.equal(restored.dialogue.nodes[node.id].dialogue.subtitle, '副标题');
+    });
+
+    test("Select params preserve drafts and ordered Int32 values, with legacy defaults and length validation", () => {
+      const source = createEmptyDialogueProject();
+      const node = group(source, "select-params", 2); entry(source, node.id);
+      assert.deepEqual(node.select.params, []);
+      node.select.params = ['0', '-2147483648', '2147483647', ' +002 ', '0'];
+      const restored = normalizeDialogueProject(JSON.parse(JSON.stringify(source)));
+      assert.deepEqual(restored.dialogue.nodes[node.id].select.params, node.select.params);
+      const values = exported(restored);
+      const params = table(values.parsed.value.DialogueSelectData)[0].value.params;
+      assert.equal(params.type, 'Int32List');
+      assert.deepEqual(params.value, ['0', '-2147483648', '2147483647', '2', '0']);
+      for (const invalid of ['', '-', '1.5', '2147483648', '-2147483649', 'NaN', '1e2']) {
+        node.select.params = ['1', invalid, '2'];
+        assert.deepEqual(normalizeDialogueProject(JSON.parse(JSON.stringify(source))).dialogue.nodes[node.id].select.params, node.select.params);
+        assert.throws(() => exported(source), /第 2 个入参必须是 Int32/);
+      }
+      node.select.params = Array(100).fill('0');
+      assert.equal(table(exported(source).parsed.value.DialogueSelectData)[0].value.params.itemCount, 100);
+      node.select.params.push('0'); assert.throws(() => exported(source), /选项卡入参最多 100 项/);
+      delete node.select.params;
+      assert.deepEqual(normalizeDialogueProject(source).dialogue.nodes[node.id].select.params, []);
+      assert.deepEqual(table(exported(source).parsed.value.DialogueSelectData)[0].value.params.value, []);
+    });
+    test("Select editor compiles and reorders integer drafts without changing option contents", () => {
+      const { parse, compileScript, compileTemplate, compileStyle } = require('@vue/compiler-sfc');
+      const vm = require('node:vm');
+      const filename = path.join(editorDirectory, 'components/clip-editors/SelectClipEditor.vue');
+      const { descriptor, errors } = parse(fs.readFileSync(filename, 'utf8'), { filename });
+      assert.deepEqual(errors, []);
+      const compiled = compileScript(descriptor, { id: 'select-params-test' });
+      assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'select-params-test', compilerOptions: { bindingMetadata: compiled.bindings } }).errors, []);
+      for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename, id: 'select-params-test', scoped: style.scoped }).errors, []);
+      const ast = ts.createSourceFile('select.ts', descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+      const script = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(ast)).join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+      const clip = createSelectClip(), before = structuredClone(clip.options);
+      clip.params = ['1', '', '-2'];
+      const context = vm.createContext({ defineProps: () => ({ clip }), getSelectStyles: () => [] });
+      vm.runInContext(script, context);
+      context.moveParam(0, -1); context.moveParam(2, 1); assert.deepEqual(clip.params, ['1', '', '-2']);
+      context.moveParam(0, 1); assert.deepEqual(clip.params, ['', '1', '-2']);
+      context.moveParam(2, -1); assert.deepEqual(clip.params, ['', '-2', '1']);
+      assert.deepEqual(clip.options, before);
+    });
     test("Dialogue params preserve ordered integer inputs through reload and reject invalid slots", () => {
       const source = createEmptyDialogueProject();
       const node = group(source, "params"); entry(source, "params");
@@ -390,6 +474,7 @@ async function main() {
 
     test("Object entity forward event preserves its seven parameters in typed export lists", () => {
       const { applyPublicEventPreset, isPublicEventArgumentVisible, compilePublicEventArguments } = require(path.join(editorDirectory, "utils/publicEventParameters.ts"));
+      const { encodeDialogueProject, decodeDialogueProject } = require(path.join(editorDirectory, "utils/dialogueProjectCodec.ts"));
       const { systemPresetConfig } = require(path.join(editorDirectory, "../EntityPresetEditor/systemPresetConfig.ts"));
       const source = createEmptyDialogueProject();
       const node = group(source, "forward"); entry(source, node.id);
@@ -418,6 +503,19 @@ async function main() {
       assert.deepEqual(resetByString.intParams, ['0', '1', '0']);
       assert.deepEqual(resetByString.guidParams, ['0', '0']);
       assert.deepEqual(resetByString.stringParams, ['NOLOC_SetObjectEntityFoward', 'actor', '']);
+      // Hidden fields must survive the actual editor save/reopen path, even
+      // though the runtime export intentionally substitutes zero for them.
+      args[5].value = '1073741825';
+      const reopened = decodeDialogueProject(encodeDialogueProject(source)).dialogue.nodes[node.id].lines.find(line => line.id === 'forward-line').clips[0];
+      const reopenedArgs = reopened.components[0].properties.parameters;
+      assert.equal(reopenedArgs[2].value, '18446744073709551615');
+      assert.equal(reopenedArgs[5].value, '1073741825');
+      reopenedArgs[0].value = '1'; reopenedArgs[1].value = '0'; reopenedArgs[4].value = '0';
+      assert.equal(isPublicEventArgumentVisible(reopenedArgs[2], reopenedArgs), true);
+      assert.equal(isPublicEventArgumentVisible(reopenedArgs[5], reopenedArgs), true);
+      applyPublicEventPreset(reopened, systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_SetObjectEntityFoward'));
+      assert.equal(reopened.components[0].properties.parameters[2].value, '18446744073709551615');
+      assert.equal(reopened.components[0].properties.parameters[5].value, '1073741825');
       args[0].value = '1'; args[1].value = '1'; args[4].value = '0';
       assert.deepEqual(visible(), ['object-forward-boolean', 'object-forward-method-1', 'object-forward-string-1', 'object-forward-method-2', 'object-forward-guid-2']);
       assert.deepEqual(compilePublicEventArguments('NOLOC_SetObjectEntityFoward', args).stringParams, ['NOLOC_SetObjectEntityFoward', 'actor', '']);

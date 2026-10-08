@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { contactLinks } from "@/configs/contactLinks";
 import homePageData from "@/configs/homePage.json";
@@ -12,6 +13,7 @@ interface HomeCard {
   descriptionKey?: string;
   icon: string;
   cover?: string;
+  previewImages?: string[];
   credit?: string;
   badge?: string;
   badgeKey?: string;
@@ -24,9 +26,21 @@ interface HomeCategory {
   background: string;
   cards: HomeCard[];
 }
+interface HomeAcknowledgement {
+  id: string;
+  name: string;
+  description: string;
+  href?: string;
+}
 const categories: HomeCategory[] = homePageData.categories;
+const acknowledgements: HomeAcknowledgement[] = homePageData.acknowledgements;
 const { t, te } = useI18n({ useScope: "global" });
 const displayText = (value: string, key?: string) => key && te(key) ? t(key) : value;
+const failedPreviewImages = ref(new Set<string>());
+const cardPreviews = (card: HomeCard) => (card.previewImages ?? [])
+  .map(src => src.trim())
+  .filter(src => src && !failedPreviewImages.value.has(src))
+  .slice(0, 3);
 </script>
 
 <template>
@@ -51,6 +65,11 @@ const displayText = (value: string, key?: string) => key && te(key) ? t(key) : v
           </legend>
           <div class="card-grid">
             <a v-for="card in category.cards" :key="card.id" class="tool-card" :href="card.href">
+              <span v-if="cardPreviews(card).length" class="card-previews" aria-hidden="true">
+                <img v-for="(preview, index) in cardPreviews(card)" :key="`${index}:${preview}`"
+                  class="card-preview-image" :src="preview" alt="" loading="lazy" decoding="async"
+                  @error="failedPreviewImages.add(preview)" />
+              </span>
               <span class="card-icon" aria-hidden="true">
                 <img v-if="card.cover" :src="card.cover" alt="" loading="lazy" />
                 <span v-else>{{ card.icon }}</span>
@@ -69,6 +88,25 @@ const displayText = (value: string, key?: string) => key && te(key) ? t(key) : v
             </a>
           </div>
         </fieldset>
+        <details v-if="acknowledgements.length" class="acknowledgements-card" aria-labelledby="acknowledgements-title">
+          <summary class="acknowledgements-heading">
+            <span class="acknowledgements-icon" aria-hidden="true">♡</span>
+            <div>
+              <h2 id="acknowledgements-title">{{ t('homePage.acknowledgements.title') }}</h2>
+              <p>{{ t('homePage.acknowledgements.description') }}</p>
+            </div>
+            <span class="acknowledgements-chevron" aria-hidden="true"></span>
+          </summary>
+          <ul class="acknowledgements-list">
+            <li v-for="acknowledgement in acknowledgements" :key="acknowledgement.id">
+              <a v-if="acknowledgement.href" :href="acknowledgement.href" target="_blank" rel="noopener noreferrer">
+                {{ acknowledgement.name }}
+              </a>
+              <span v-else class="acknowledgements-name">{{ acknowledgement.name }}</span>
+              <p v-if="acknowledgement.description">{{ acknowledgement.description }}</p>
+            </li>
+          </ul>
+        </details>
       </div>
     <section v-if="contactLinks.length" class="contact-section" aria-labelledby="contact-title">
       <h2 id="contact-title">{{ t('homePage.ui.contactTitle') }}</h2>
@@ -161,6 +199,8 @@ const displayText = (value: string, key?: string) => key && te(key) ? t(key) : v
   gap: 16px;
 }
 .tool-card {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 18px;
@@ -184,6 +224,46 @@ const displayText = (value: string, key?: string) => key && te(key) ? t(key) : v
 .tool-card:focus-visible {
   outline: 3px solid var(--category-color);
   outline-offset: 3px;
+}
+.card-previews {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  opacity: 0.22;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 25%, #000 75%);
+  mask-image: linear-gradient(90deg, transparent 25%, #000 75%);
+}
+.card-preview-image {
+  position: absolute;
+  top: 50%;
+  right: -20px;
+  width: 64%;
+  max-width: 360px;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: center;
+  border: 2px solid #fff;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px #24345b30;
+  transform: translateY(-50%) rotate(-11deg);
+}
+.card-preview-image:nth-child(2) {
+  right: -36px;
+  transform: translateY(calc(-50% + 32px)) rotate(-11deg);
+}
+.card-preview-image:nth-child(3) {
+  right: -52px;
+  transform: translateY(calc(-50% + 64px)) rotate(-11deg);
+}
+.card-icon,
+.card-content,
+.card-arrow {
+  position: relative;
+  z-index: 1;
 }
 .card-icon {
   display: grid;
@@ -257,6 +337,107 @@ const displayText = (value: string, key?: string) => key && te(key) ? t(key) : v
 .card-grid > :only-child {
   grid-column: 1 / -1;
 }
+.acknowledgements-card {
+  min-width: 0;
+  padding: 20px;
+  border: 1.5px solid #d795a6;
+  border-radius: 12px;
+  background: #fff2f5;
+  color: #253455;
+  text-align: left;
+}
+.acknowledgements-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.acknowledgements-heading::-webkit-details-marker {
+  display: none;
+}
+.acknowledgements-heading:focus-visible {
+  outline: 3px solid #b45b76;
+  outline-offset: 6px;
+}
+.acknowledgements-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.acknowledgements-chevron {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-right: 2px solid #b45b76;
+  border-bottom: 2px solid #b45b76;
+  transform: rotate(-45deg);
+}
+.acknowledgements-card[open] .acknowledgements-chevron {
+  transform: rotate(45deg);
+}
+.acknowledgements-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #ffffffdf;
+  color: #b45b76;
+  font-size: 32px;
+}
+.acknowledgements-heading h2 {
+  margin: 0;
+  color: #b45b76;
+  font-size: 20px;
+  line-height: 1.5;
+}
+.acknowledgements-card p {
+  margin: 6px 0 0;
+  color: #697795;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.acknowledgements-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 12px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.acknowledgements-list li {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #ffffff;
+  border-radius: 10px;
+  background: #ffffffdf;
+  overflow-wrap: anywhere;
+}
+.acknowledgements-list li p {
+  white-space: pre-line;
+}
+.acknowledgements-name,
+.acknowledgements-list a {
+  color: #253455;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.acknowledgements-list a {
+  text-decoration-color: #d795a6;
+  text-underline-offset: 3px;
+}
+.acknowledgements-list a:hover {
+  color: #b45b76;
+}
+.acknowledgements-list a:focus-visible {
+  outline: 3px solid #b45b76;
+  outline-offset: 3px;
+  border-radius: 2px;
+}
 @media (max-width: 1100px) {
   .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -267,8 +448,12 @@ const displayText = (value: string, key?: string) => key && te(key) ? t(key) : v
   .welcome p { font-size: 14px; }
   .category { padding: 12px; }
   .category h2 { font-size: 18px; }
+  .acknowledgements-card { padding: 16px; }
+  .acknowledgements-heading { gap: 12px; }
+  .acknowledgements-heading h2 { font-size: 18px; }
   .card-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .tool-card { padding: 16px; gap: 14px; }
+  .card-previews { display: none; }
   .card-heading {
   display: flex;
   align-items: center;

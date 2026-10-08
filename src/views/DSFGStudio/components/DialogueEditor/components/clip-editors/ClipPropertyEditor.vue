@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import StudioSelectField from "../../../StudioSelectField.vue";
+import EntityPresetValueInput from "../../../EntityPresetEditor/EntityPresetValueInput.vue";
+import { computed, ref } from "vue";
 import type { ClipPropertyDefinition } from "../../types/DialogueNode";
 import { createClipPropertyValues, getClipListLimits, getClipNestedProperties, isClipPropertyVisible, updateClipStructField } from "../../utils/clipProperties";
 
@@ -28,6 +30,7 @@ const vectorParts = computed(() => {
   const parts = String(value.value ?? "0,0,0").split(",");
   return [0, 1, 2].map((index) => parts[index]?.trim() || "0");
 });
+const vectorDrafts = ref<Record<number, string>>({});
 const selectedOptionIndex = computed(() =>
   props.property.options?.findIndex((option) => option.value === value.value) ?? -1,
 );
@@ -59,12 +62,34 @@ function updateOption(event: Event) {
   if (option) emit("update:modelValue", option.value);
 }
 
+function readVectorFloat(text: string): number | undefined {
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return undefined;
+  const number = Number(text);
+  if (!Number.isFinite(Math.fround(number))) return undefined;
+  return Math.min(props.property.max ?? Infinity, Math.max(props.property.min ?? -Infinity, number));
+}
+
 function updateVector(index: number, event: Event) {
-  const number = readNumber(event);
+  const input = event.target as HTMLInputElement;
+  // 保存输入草稿，使负号、-0、小数点和未完成的指数不被重新渲染吞掉。
+  if (!/^[+-]?\d*\.?\d*(?:[eE][+-]?\d*)?$/.test(input.value)) {
+    input.value = vectorDrafts.value[index] ?? vectorParts.value[index];
+    return;
+  }
+  vectorDrafts.value[index] = input.value;
+  const number = readVectorFloat(input.value);
   if (number === undefined) return;
   const parts = [...vectorParts.value];
   parts[index] = String(number);
   emit("update:modelValue", parts.join(","));
+}
+
+function finishVectorInput(index: number, event: Event) {
+  // 清空、未完成的负号/指数以及溢出值不写入工程，离开时恢复已保存值。
+  const input = event.target as HTMLInputElement;
+  const number = readVectorFloat(input.value);
+  delete vectorDrafts.value[index];
+  input.value = number === undefined ? vectorParts.value[index] : String(number);
 }
 
 function updateStructField(key: string, fieldValue: unknown) {
@@ -163,13 +188,12 @@ function moveItem(index: number, offset: number) {
         <label v-for="(axis, index) in ['X', 'Y', 'Z']" :key="axis">
           <span :class="`axis-${axis.toLowerCase()}`">{{ axis }}</span>
           <input
-            type="number"
+            type="text"
+            inputmode="decimal"
             :aria-label="`${property.label} ${axis}`"
-            :value="vectorParts[index]"
-            :min="property.min"
-            :max="property.max"
-            :step="property.step ?? 'any'"
+            :value="vectorDrafts[index] ?? vectorParts[index]"
             @input="updateVector(index, $event)"
+            @blur="finishVectorInput(index, $event)"
           />
         </label>
       </div>
@@ -186,13 +210,15 @@ function moveItem(index: number, offset: number) {
         :step="property.step ?? 'any'"
         @input="updateNumber"
       />
-      <select v-else-if="property.type === 'select'" :value="selectedOptionIndex" @change="updateOption">
+      <StudioSelectField v-else-if="property.type === 'select'" :value="selectedOptionIndex" @change="updateOption">
         <option v-if="selectedOptionIndex < 0" :value="-1" disabled>
           {{ value === '' || value == null ? '未设置，请选择' : `未识别：${String(value)}` }}
         </option>
         <option v-for="(option, index) in property.options" :key="index" :value="index">{{ option.label }}</option>
-      </select>
+      </StudioSelectField>
       <textarea v-else-if="property.type === 'text'" :value="String(value ?? '')" rows="2" @input="updateText" />
+      <EntityPresetValueInput v-else-if="property.entityPresetField" :field="property.entityPresetField"
+        :label="property.label" :model-value="String(value ?? '')" @update:model-value="emit('update:modelValue', $event)" />
       <input v-else :value="String(value ?? '')" @input="updateText" />
     </label>
   </div>

@@ -18,6 +18,7 @@ import {
   Ref,
   ref,
   watch,
+  watchEffect,
 } from "vue";
 import {
   DialogueEditorID,
@@ -45,6 +46,8 @@ import DialogueTextPreview from "./DialogueTextPreview.vue";
 import { layoutDialogueGraph, type GraphNodeSize } from "./utils/dialogueGraphLayout";
 import { applyDialogueTextEdit, applyDialogueOptionIconEdit, type DialogueTextEdit } from "./utils/dialogueTextEditing";
 import { useEntityPresets } from "../EntityPresetEditor/useEntityPresets";
+import { usePublicEventPresets } from "../EntityPresetEditor/usePublicEventPresets";
+import { syncDialoguePublicEventVisibility } from "./utils/publicEventParameters";
 import { useStylePresets } from "../EntityPresetEditor/stylePresets";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
 import { bindWorkspaceSaveLifecycle } from "../QuestEditor/workspaceSaveLifecycle";
@@ -54,6 +57,10 @@ import type {
   FlowNodeData,
 } from "./types/FileStruct";
 import Entry from "./components/Entry.vue";
+import { useDialogueHistory } from "./useDialogueHistory";
+import { studioEditorActiveKey, studioSessionHistoryKey } from "../studioSessionHistory";
+import { useDialogueGraphClipboard } from "./useDialogueGraphClipboard";
+import { pasteDialogueGraphNodes, type DialogueGraphClipboard } from "./utils/dialogueGraphClipboard";
 import {
   createConditionBranchNode,
   createDialogueNode,
@@ -63,7 +70,7 @@ import {
   decodeDialogueProject,
   encodeDialogueProject,
 } from "./utils/dialogueProjectCodec";
-import { exportQxqyPerformance } from "./utils/qxqyPerformanceExporter";
+import { exportQxqyPerformance, resolveGroupOrder } from "./utils/qxqyPerformanceExporter";
 import RuntimeImportButton from "../RuntimeImportButton.vue";
 import { commitRuntimeImport } from "../runtimeImportStorage";
 import { importQxqyPerformance } from "./utils/qxqyPerformanceImporter";
@@ -74,8 +81,11 @@ import {
 
 withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "Dialogue" });
 const emit = defineEmits<{ "update:editorKind": [value: StudioEditorKind] }>();
+const editorActive = inject(studioEditorActiveKey, () => true);
+const studioSession = inject(studioSessionHistoryKey, undefined);
 const { availablePresets: entityPresets, error: entityPresetsError, retry: retryEntityPresets } = useEntityPresets();
 const dialogueStylePresets = useStylePresets("dialogueStyles");
+const publicEventPresets = usePublicEventPresets();
 provide("dialogueStyleOptions", dialogueStylePresets.options);
 
 const {
@@ -84,6 +94,14 @@ const {
 } = useVueFlow();
 
 const dialogueProject = ref<DialogueProject>(); //读取文件后的对话内容
+watchEffect(() => {
+  if (dialogueProject.value && publicEventPresets.ready.value) {
+    syncDialoguePublicEventVisibility(dialogueProject.value, publicEventPresets.availablePresets.value);
+  }
+}, { flush: "sync" });
+const exportedGroupIndices = computed(() => new Map(
+  dialogueProject.value ? resolveGroupOrder(dialogueProject.value).map((id, index) => [id, index] as const) : [],
+));
 const selectedGroupNodeId = ref("");
 const timelinePanelHeight = ref(368);
 const clipInspectorTarget = ref<HTMLElement>();
@@ -106,6 +124,12 @@ function AddConditionBranchNode(nodeId: string) {
   if (!dialogueProject.value) return;
   dialogueProject.value.dialogue.conditionBranches[nodeId] =
     createConditionBranchNode(nodeId);
+}
+
+function UpdateGraphNodeAnnotation(graphNodeId: string, annotation: string) {
+  const graphNode = dialogueProject.value?.graph.nodes.find((node) => node.id === graphNodeId);
+  if (!graphNode) return;
+  graphNode.data = { ...graphNode.data, annotation };
 }
 
 const { onDragOver, onDrop, onDragLeave, isDragOver } =
@@ -171,11 +195,16 @@ function ChangeEditorView(view: "graph" | "text", arrange = true) {
 
 function ApplyGraphLayout(project: DialogueProject) {
   const sizes = new Map<string, GraphNodeSize>();
+  const outletOrder = new Map<string, string[]>();
   for (const node of project.graph.nodes) {
     const dimensions = findNode(node.id)?.dimensions;
     if (dimensions) sizes.set(node.id, dimensions);
+    const group = project.dialogue.nodes[node.data?.dialogueNodeId ?? node.id];
+    const branch = project.dialogue.conditionBranches[node.data?.conditionBranchNodeId ?? node.id];
+    if (group) outletOrder.set(node.id, resolveGroupOutlets(group).outlets.map(outlet => outlet.id));
+    else if (branch) outletOrder.set(node.id, branch.outputs.map(output => output.id));
   }
-  project.graph.nodes = layoutDialogueGraph(project.graph, sizes);
+  project.graph.nodes = layoutDialogueGraph(project.graph, sizes, outletOrder);
 }
 
 async function ArrangeGraph() {
@@ -240,6 +269,7 @@ async function NavigateToPreviewNode(target: TextPreviewNavigationTarget) {
 }
 
 async function FinishGraphSelection() {
+  const inspectorWasOpen = clipInspectorOpen.value;
   // 等待框选产生的 selected 状态同步后，再决定是否打开 Timeline。
   await nextTick();
   const selectedNodes = getSelectedNodes.value;
@@ -247,7 +277,7 @@ async function FinishGraphSelection() {
     // 单选不保留群组选框遮罩，避免挡住节点的引脚和参数输入框。
     nodesSelectionActive.value = false;
     SelectGraphNode({ node: selectedNodes[0] });
-  } else {
+  } else if (selectedNodes.length > 1 || !inspectorWasOpen) {
     selectedGroupNodeId.value = "";
   }
 }
@@ -261,6 +291,50 @@ let loadingFile = false;
 let fileRequest = 0;
 let listRequest = 0;
 const fileBusy = ref(false);
+const dialogueEditorElement = ref<HTMLElement>();
+const dialogueHistory = useDialogueHistory({
+  project: dialogueProject,
+  element: dialogueEditorElement,
+  blocked: () => fileBusy.value || arrangingGraph.value,
+  afterRestore: () => { selectedGroupNodeId.value = ""; clipInspectorOpen.value = false; },
+  onError: error => toast.error(error instanceof Error ? error.message : "对话历史恢复失败"),
+});
+
+useDialogueGraphClipboard({
+  project: dialogueProject,
+  element: dialogueEditorElement,
+  enabled: () => editorActive() && editorView.value === "graph" && !fileBusy.value && !arrangingGraph.value && !dialogueHistory.busy.value,
+  selectedNodeIds: () => getSelectedNodes.value.map(node => node.id),
+  paste: PasteGraphNodes,
+  onCopy: count => toast.success(`已复制 ${count} 个节点`),
+  onError: error => toast.error(error instanceof Error ? error.message : "节点复制或粘贴失败"),
+});
+
+function PasteGraphNodes(clipboard: DialogueGraphClipboard, offset: number) {
+  if (!dialogueProject.value) return false;
+  const result = pasteDialogueGraphNodes(dialogueProject.value, clipboard, offset);
+  dialogueHistory.finish();
+  dialogueHistory.begin("paste");
+  try {
+    removeSelectedNodes(getSelectedNodes.value);
+    removeSelectedEdges(getSelectedEdges.value);
+    nodesSelectionActive.value = false;
+    clipInspectorOpen.value = false;
+    dialogueProject.value = result.project;
+    selectedGroupNodeId.value = result.nodeIds.length === 1 && result.project.dialogue.nodes[result.nodeIds[0]] ? result.nodeIds[0] : "";
+  } finally { dialogueHistory.end("paste"); }
+  void FocusPastedNodes(dialogueProject.value, result.nodeIds).catch(error => { consola.error(error); });
+  return true;
+}
+
+async function FocusPastedNodes(project: DialogueProject, nodeIds: string[]) {
+  await nextTick();
+  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  if (disposed || dialogueProject.value !== project || editorView.value !== "graph") return;
+  const nodes = nodeIds.map(id => findNode(id)).filter((node): node is NonNullable<typeof node> => !!node);
+  addSelectedNodes(nodes);
+  await fitView({ nodes: nodeIds, padding: 0.3, maxZoom: 1, duration: 200 });
+}
 
 function AssemblyPath(path: string) {
   return `/${documentWorkspaceId}/${DialogueEditorID}${path}`;
@@ -313,10 +387,11 @@ const saveQueue = createWorkspaceSaveQueue(
 );
 defineExpose({ prepareToLeave: async () => {
   if (fileBusy.value) throw new Error("对话文件正在读写，请稍后切换");
-
-  selectedGroupNodeId.value = "";
+  dialogueHistory.finish();
   await nextTick();
   await saveQueue.flush();
+  selectedGroupNodeId.value = "";
+  clipInspectorOpen.value = false;
 } });
 
 function scheduleSave() {
@@ -349,6 +424,10 @@ async function SelectDialogueFile(id: string) {
 
     selectedDialogueFile.value = id;
     dialogueProject.value = loaded;
+    // Vue Flow snaps loaded positions during rendering; this is the load baseline.
+    await nextTick();
+    if (disposed || request !== fileRequest) return;
+    dialogueHistory.reset();
     loadingFile = false;
   } catch (error) { consola.error(error); toast.error("读取对话失败，原有内容已保留"); }
   finally { fileBusy.value = false; loadingFile = false; }
@@ -385,15 +464,18 @@ async function importConfiguration(file: File) {
       directory: `/${documentWorkspaceId}/${DialogueEditorID}` });
     if (!result) return;
     loadingFile = true; selectedGroupNodeId.value = "";
-    selectedDialogueFile.value = result.name; dialogueProject.value = result.project.project; loadingFile = false;
+    selectedDialogueFile.value = result.name; dialogueProject.value = result.project.project;
+    await nextTick();
+    if (disposed) return;
+    dialogueHistory.reset();
+    loadingFile = false;
     newDialogueFileOpen.value = false;
     await RefreshDialogueFile();
     if (!disposed) { toast.success(`已新增「${result.name}」`); toast.warning(result.project.warnings.join("；")); }
   } finally { loadingFile = false; if (!disposed) fileBusy.value = false; }
 }
-async function DeleteDialogueFile(undoGroupId = "", isForce = false) {
+async function DeleteDialogueFile(isForce = false) {
   if (fileBusy.value) return;
-  undoGroupId = undoGroupId || crypto.randomUUID();
 
   if (selectedDialogueFile.value == "") {
     toast.warning("未选择任何对话文件");
@@ -417,6 +499,7 @@ async function DeleteDialogueFile(undoGroupId = "", isForce = false) {
       selectedGroupNodeId.value = "";
 
       dialogueProject.value = undefined;
+      dialogueHistory.reset();
       await RefreshDialogueFile();
       toast.success(`已删除 ${fileName}`);
     } catch (error) { consola.error(error); toast.error("对话删除失败，文件已保留"); }
@@ -424,7 +507,7 @@ async function DeleteDialogueFile(undoGroupId = "", isForce = false) {
   }
 }
 
-function DownloadQxqyPerformanceFile() {
+async function DownloadQxqyPerformanceFile() {
   if (!selectedDialogueFile.value || !dialogueProject.value) {
     toast.warning("请先选择要导出的对话文件");
     return;
@@ -432,7 +515,16 @@ function DownloadQxqyPerformanceFile() {
 
   let result;
   try {
-    result = exportQxqyPerformance(workspaceIds.dialogue(dialogueProject.value));
+    if (!dialogueStylePresets.ready.value) {
+      await dialogueStylePresets.retry();
+      if (!dialogueStylePresets.ready.value) throw new Error(dialogueStylePresets.error.value || "对话样式预设正在读取，请稍后重试导出。");
+    }
+    if (!publicEventPresets.ready.value) {
+      await publicEventPresets.retry();
+      if (!publicEventPresets.ready.value) throw new Error(publicEventPresets.error.value || "公共事件预设正在读取，请稍后重试导出。");
+    }
+    syncDialoguePublicEventVisibility(dialogueProject.value, publicEventPresets.availablePresets.value);
+    result = exportQxqyPerformance(workspaceIds.dialogue(dialogueProject.value), dialogueStylePresets.options.value);
   } catch (error) {
     const message = error instanceof Error ? error.message : "结构体 ID 配置无效";
     toast.error(message);
@@ -472,7 +564,7 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <div class="dialogue-editor" :inert="fileBusy">
+  <div ref="dialogueEditorElement" class="dialogue-editor" :inert="fileBusy || dialogueHistory.busy.value">
     <StudioSidebarContent><div class="editor-file-panel" :inert="fileBusy">
         <StudioFileList :disabled="fileBusy"
           @select="SelectDialogueFile"
@@ -493,8 +585,12 @@ onBeforeUnmount(() => {
                 <button type="button" :aria-pressed="editorView === 'text'" @click="ChangeEditorView('text')">文本编辑</button>
                 <button type="button" :aria-pressed="editorView === 'graph'" @click="ChangeEditorView('graph')">节点编辑</button>
               </div>
+              <div v-if="!studioSession" class="dialogue-history-tools" data-dialogue-history-tools role="group" aria-label="编辑历史">
+                <button type="button" title="撤销 · Ctrl+Z" :disabled="!dialogueHistory.canUndo.value || arrangingGraph" @pointerdown.prevent @click="dialogueHistory.undo">撤销</button>
+                <button type="button" title="重做 · Ctrl+Shift+Z / Ctrl+Y" :disabled="!dialogueHistory.canRedo.value || arrangingGraph" @pointerdown.prevent @click="dialogueHistory.redo">重做</button>
+              </div>
               <span class="studio-save-note" title="修改自动保存到当前工作区">自动保存</span>
-              <span v-if="editorView === 'graph'">右键平移 · 左键框选</span>
+              <span v-if="editorView === 'graph'">右键平移 · 左键框选 · Ctrl+C / Ctrl+V 复制粘贴</span>
               <button v-if="editorView === 'graph'" type="button" :disabled="arrangingGraph" title="按连线从左到右排列全部节点，并适应画布" @click="ArrangeGraph">{{ arrangingGraph ? '排列中…' : '一键排列' }}</button>
               <button type="button" @click="DownloadQxqyPerformanceFile">
                 导出千星演出
@@ -516,8 +612,8 @@ onBeforeUnmount(() => {
                    DIALOGUE_NODE_GRID_SIZE,
                    DIALOGUE_NODE_GRID_SIZE,
                  ]"
-                 :delete-key-code="editorView === 'graph' ? ['Backspace', 'Delete'] : null"
-                 :disable-keyboard-a11y="editorView !== 'graph'"
+                 :delete-key-code="editorActive() && editorView === 'graph' ? ['Backspace', 'Delete'] : null"
+                 :disable-keyboard-a11y="!editorActive() || editorView !== 'graph'"
                 :is-valid-connection="IsValidConnection"
                 @node-click="SelectGraphNode"
                 @selection-end="FinishGraphSelection"
@@ -538,6 +634,9 @@ onBeforeUnmount(() => {
                   "
                   :edges="dialogueProject.graph.edges"
                   :selected="props.selected"
+                  :export-index="exportedGroupIndices.get(props.data.dialogueNodeId)"
+                  :annotation="props.data.annotation"
+                  @update:annotation="UpdateGraphNodeAnnotation(props.id, $event)"
                 />
               </template>
 
@@ -557,6 +656,9 @@ onBeforeUnmount(() => {
                   "
                   :edges="dialogueProject.graph.edges"
                   :selected="props.selected"
+                  :export-index="exportedGroupIndices.get(props.data.conditionBranchNodeId)"
+                  :annotation="props.data.annotation"
+                  @update:annotation="UpdateGraphNodeAnnotation(props.id, $event)"
                 />
               </template>
 
@@ -576,7 +678,7 @@ onBeforeUnmount(() => {
             </div>
 
             <p v-if="dialogueStylePresets.error.value" role="alert">{{ dialogueStylePresets.error.value }} <button type="button" @click="dialogueStylePresets.retry().catch(() => undefined)">重试对话类型预设</button></p>
-            <DialogueTextPreview v-if="editorView === 'text'" :key="selectedDialogueFile" :project="dialogueProject" :entity-presets="entityPresets" :presets-error="entityPresetsError" @retry-presets="retryEntityPresets().catch(() => undefined)" @navigate="NavigateToPreviewNode"
+            <DialogueTextPreview v-if="editorView === 'text'" :key="selectedDialogueFile" :project="dialogueProject" managed-history :entity-presets="entityPresets" :presets-error="entityPresetsError" @retry-presets="retryEntityPresets().catch(() => undefined)" @navigate="NavigateToPreviewNode"
               @edit="EditDialogueText" @option="EditDialogueOption" @option-icon="EditDialogueOptionIcon" @replace="dialogueProject = $event" />
 
             <TimelinePanel v-if="editorView === 'graph' && selectedGroupNode" v-model="timelinePanelHeight">
@@ -598,6 +700,10 @@ onBeforeUnmount(() => {
 
 .editor-file-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .editor-file-panel > .Section { flex: 1; min-height: 0; }
+.dialogue-history-tools { display: flex; flex: 0 0 auto; gap: 6px; }
+.dialogue-history-tools button { border: 1px solid #ced3f3; background: #ffffffc9; color: #6554c9; }
+.dialogue-history-tools button:hover:not(:disabled) { background: #f0edff; border-color: #aa9ee8; }
+.dialogue-history-tools button:disabled { opacity: .4; cursor: default; }
 .dialogue-editing-body { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .dialogue-editing-stage { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .dialogue-clip-inspector { position: absolute; z-index: 30; inset: 0 0 0 auto; width: clamp(340px, 32vw, 460px); max-width: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; border: 1px solid #cdd8ed; border-top: 3px solid #22a4e8; border-radius: 10px; background: #fff; box-shadow: -8px 0 24px #3b548321; }

@@ -2,6 +2,9 @@
 import { inject, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 import { toast } from "vue-sonner";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
+import StudioHistoryToolbar from "../StudioHistoryToolbar.vue";
+import { useStudioDocumentHistory } from "../useStudioHistory";
+import { studioEditorActiveKey } from "../studioSessionHistory";
 import StudioFileList from "../StudioFileList.vue";
 import StudioCreateDialog from "../StudioCreateDialog.vue";
 import type { StudioEditorKind } from "../studioSidebar";
@@ -21,6 +24,7 @@ import { importWalkTalk } from "./walkTalkImporter";
 withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "WalkTalk" });
 const emit = defineEmits<{ "update:editorKind": [value: StudioEditorKind] }>();
 const storage = inject<StorageClass>("storage")!;
+const editorActive = inject(studioEditorActiveKey, () => true);
 const workspace = inject<Ref<string>>("selectedWorkspaceId")!;
 const directory = `/${workspace.value}/WalkTalkEditor`;
 const project = ref<WalkTalkProject>();
@@ -37,6 +41,11 @@ let loading = false;
 let requestId = 0;
 let listRequestId = 0;
 let revision = 0;
+const historyElement = ref<HTMLElement>();
+const history = useStudioDocumentHistory({
+  project, element: historyElement, blocked: () => busy.value, label: "修改边走边说",
+  onError: error => { showError(error); },
+});
 
 function showError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -50,7 +59,6 @@ const saveQueue = createWorkspaceSaveQueue(async (path, data) => {
 }, error => { saveStatus.value = "保存失败"; showError(error); });
 defineExpose({ prepareToLeave: () => {
   if (busy.value) return Promise.reject(new Error("边走边说文件正在读写，请稍后切换"));
-
   return saveQueue.flush();
 } });
 watch(project, () => {
@@ -153,6 +161,7 @@ function exportVariables() {
   } catch (error) { showError(error); }
 }
 async function saveShortcut(event: KeyboardEvent) {
+  if (!editorActive()) return;
   if (event.repeat || (!event.ctrlKey && !event.metaKey) || event.key.toLowerCase() !== "s") return;
   event.preventDefault();
   if (busy.value || disposed || !project.value || !selectedFile.value) return;
@@ -168,7 +177,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="walk-talk-editor" :inert="busy">
+  <div ref="historyElement" class="walk-talk-editor" :inert="busy">
     <StudioSidebarContent>
       <div class="file-panel" :inert="busy">
           <StudioFileList :disabled="busy" :values="files" :selected-value="selectedFile" @select="selectFile" @add="creating = true" @delete="deleteFile">
@@ -180,7 +189,7 @@ onBeforeUnmount(() => {
     </StudioSidebarContent>
       <SectionLayout :title="selectedFile || '边走边说'" class="walk-talk-edit-section">
         <div class="workspace-panel">
-          <header class="file-toolbar"><span>{{ selectedFile || '未选择文件' }}</span><small>{{ saveStatus }}</small><button v-if="selectedFile && project" type="button" class="primary" :disabled="busy" @click="exportVariables">导出千星边走边说</button></header>
+          <header class="file-toolbar"><span>{{ selectedFile || '未选择文件' }}</span><small>{{ saveStatus }}</small><StudioHistoryToolbar :history="history" :disabled="busy" /><button v-if="selectedFile && project" type="button" class="primary" :disabled="busy" @click="exportVariables">导出千星边走边说</button></header>
           <WalkTalkPanel v-if="project" :key="selectedFile" :project="project" />
           <div v-else class="empty"><h3>一段按顺序播放的台词</h3><p>从左侧选择文件，或创建一份新的边走边说列表。</p><button type="button" class="primary" @click="creating = true">＋ 新建边走边说</button></div>
         </div>

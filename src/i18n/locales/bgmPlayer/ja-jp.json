@@ -27,5 +27,6 @@
   "bgmPlayer.ui.categoryFallback": "カテゴリ {id}",
   "bgmPlayer.ui.uncategorized": "未分類",
   "bgmPlayer.ui.copy": "{title}をコピー",
-  "bgmPlayer.ui.metadataEntry": "{title}：{info}"
+  "bgmPlayer.ui.metadataEntry": "{title}：{info}",
+  "bgmPlayer.ui.deepLinkNotFound": "リンク先の音楽素材が見つかりません"
 }

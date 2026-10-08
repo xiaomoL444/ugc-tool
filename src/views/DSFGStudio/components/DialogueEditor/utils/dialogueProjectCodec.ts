@@ -44,11 +44,11 @@ function serializeNode(node: Node<FlowNodeData>): Node<FlowNodeData> {
     id: node.id,
     type: node.type,
     position: { x: node.position.x, y: node.position.y },
-    data: node.data?.dialogueNodeId
-      ? { dialogueNodeId: node.data.dialogueNodeId }
-      : node.data?.conditionBranchNodeId
-        ? { conditionBranchNodeId: node.data.conditionBranchNodeId }
-        : {},
+    data: {
+      ...(node.data?.dialogueNodeId ? { dialogueNodeId: node.data.dialogueNodeId } : {}),
+      ...(node.data?.conditionBranchNodeId ? { conditionBranchNodeId: node.data.conditionBranchNodeId } : {}),
+      ...(typeof node.data?.annotation === "string" ? { annotation: node.data.annotation } : {}),
+    },
     sourcePosition: node.sourcePosition,
     targetPosition: node.targetPosition,
     deletable: node.deletable,

@@ -84,11 +84,13 @@ function editorHarness(sfc, names, options = {}) {
   };
   const bindings = {
     storage, saveQueue, calls, errors, scheduled, exposed, Error,
+    dialogueHistory: { reset() { calls.push(["reset-history"]); } },
     ProjectID: "DSFGStudio", DialogueEditorID: "DialogueEditor",
     workspace: ref("original"), workspaceId: ref("original"), disposed: false,
     busy: ref(false), fileBusy: ref(false), loading: false, loadingFile: false,
     requestId: 0, fileRequest: 0, listRequestId: 0, listRequest: 0, revision: 0,
     project: ref({ title: "original" }), dialogueProject: ref({ title: "original" }),
+    workspaceIds: { quest: project => project, dialogue: project => project },
     files: ref([]), dialogueFiles: ref([]), selectedFile: ref("a.json"), selectedDialogueFile: ref("a.json"),
     selectedGroupNodeId: ref("group"), settingsOpen: ref(false), structIdSettingsOpen: ref(false),
     newName: ref("new"), creating: ref(false), saveStatus: ref("old"), exporting: ref(false),
@@ -118,6 +120,8 @@ function parentHarness(options = {}) {
     toast: { error: (...args) => errors.push(args), warning() {} },
     storage: { setProject() { return this; }, async trash(file) { events.push(["trash", file]); } },
     async RefreshWorkspace() { events.push("refresh"); },
+    async readStructSettings() {}, structSettingsOpen: ref(false), structSettingsError: ref(""),
+    structSettings: ref({ ids: {} }), validateWorkspaceStructIds: () => [],
     ...options,
   });
   return { context, events, errors };
@@ -151,17 +155,19 @@ async function main() {
     }
   });
 
-  await test("Both editor selectors remain available above the single Quest panel or Dialogue file list", () => {
+  await test("The shared sidebar owns workspace and feature navigation while editors keep their save guards", () => {
+    const tabs = execute(studio, [], {}, [variableText(studio, "editorTabs"), "this.tabs = editorTabs;"]).tabs;
+    assert.deepEqual(plain(tabs).map(tab => tab.value), ["Dialogue", "Quest", "Camera", "Scene", "EntityPresets"]);
+    const shell = studio.descriptor.template.content;
+    assert.match(shell, /<StudioWorkspaceSelect/);
+    assert.match(readSfc("components/StudioWorkspaceSelect.vue").descriptor.template.content, /aria-label="选择工作区"/);
+    assert.match(shell, /ChangeEditorKind\('WalkTalk'\)/);
+    assert.match(shell, /ref="sidebarTarget"/);
     for (const sfc of [quest, dialogue]) {
-      const select = findElement(sfc.descriptor.template.ast, "EditorKindSelect");
-      assert.ok(select);
-      const siblings = select.ancestors.at(-1).children;
-      const sectionIndex = siblings.findIndex((node) => node.type === 1 && node.tag === "SectionLayout");
-      assert.ok(sectionIndex > siblings.indexOf(select.node));
-      assert.equal(attr(siblings[sectionIndex], "title"), sfc === quest ? "任务编辑区" : "对话文件");
+      assert.equal(findElement(sfc.descriptor.template.ast, "EditorKindSelect"), undefined);
     }
-    const select = findElement(kindSelect.descriptor.template.ast, "select").node;
-    assert.deepEqual(select.children.filter((node) => node.type === 1).map((node) => attr(node, "value")), ["Dialogue", "Quest", "WalkTalk", "Scene", "EntityPresets"]);
+    const select = findElement(kindSelect.descriptor.template.ast, "StudioSelectField").node;
+    assert.deepEqual(select.children.filter((node) => node.type === 1).map((node) => attr(node, "value")), ["Dialogue", "Quest", "Camera", "WalkTalk", "Scene", "EntityPresets"]);
     const emitted = [];
     const handler = execute(kindSelect, ["change"], { props: { modelValue: "Dialogue" }, emit: (...args) => emitted.push(args) });
     const event = { target: { value: "Quest" } };
@@ -172,6 +178,14 @@ async function main() {
     assert.deepEqual(emitted.at(-1), ["update:modelValue", "WalkTalk"]);
   });
 
+  await test("Workspace dropdown retains the current selection until the guarded switch completes", () => {
+    const requested = [];
+    const handler = execute(studio, ["selectWorkspace"], { selectedWorkspaceId: ref("original"), ChangeWorkspace: id => requested.push(id) });
+    handler.selectWorkspace("next");
+    assert.deepEqual(requested, ["next"]);
+    assert.equal(handler.selectedWorkspaceId.value, "original");
+  });
+
   await test("Parent component key recreates the editor for either workspace or editor kind changes", () => {
     const component = findElement(studio.descriptor.template.ast, "component").node;
     const key = directive(component, "bind", "key").exp.content;
@@ -180,7 +194,7 @@ async function main() {
     assert.notEqual(evaluate("a", "Dialogue"), evaluate("a", "Quest"));
     assert.equal(attr(component, "ref"), "editorRef");
     assert.equal(directive(component, "on", "update:editor-kind").exp.content, "ChangeEditorKind");
-    assert.equal(directive(findElement(studio.descriptor.template.ast, "Splitter").node, "bind", "inert").exp.content, "switchingEditor");
+    assert.equal(directive(findElement(studio.descriptor.template.ast, "div").node, "bind", "inert").exp.content, "switchingEditor || structSettingsOpen");
   });
 
   await test("Dialogue and Quest save handlers capture immutable paths and serialized snapshots", () => {
@@ -222,11 +236,11 @@ async function main() {
       await assert.rejects(state.exposed.prepareToLeave(), /正在读写/);
       state[busyName].value = false;
       state.settingsOpen.value = true;
-      state.structIdSettingsOpen.value = true;
+
       let finished = false;
       const pending = state.exposed.prepareToLeave().then(() => { finished = true; });
       await Promise.resolve(); assert.equal(finished, false);
-      assert.equal(state[sfc === quest ? "settingsOpen" : "structIdSettingsOpen"].value, false, "Teleported settings close before leaving");
+      if (sfc === quest) assert.equal(state.settingsOpen.value, false, "Task settings close before leaving");
       if (sfc === dialogue) assert.equal(state.selectedGroupNodeId.value, "", "Timeline popovers close before leaving");
       gate.resolve(); await pending; assert.equal(finished, true);
       state.saveQueue.flush = async () => { throw new Error("storage failed"); };
@@ -248,7 +262,7 @@ async function main() {
       assert.equal(state[selectionName].value, "new.json");
       assert.equal(state[busyName].value, false);
       assert.deepEqual(state.calls.filter((entry) => entry[0] === "read"), [["read", `/original/${label === "Quest" ? "QuestEditor" : "DialogueEditor"}/new.json`]]);
-      assert.equal(directive(findElement(sfc.descriptor.template.ast, "Splitter").node, "bind", "inert").exp.content, busyName);
+      assert.equal(directive(findElement(sfc.descriptor.template.ast, "div").node, "bind", "inert").exp.content, sfc === dialogue ? 'fileBusy || dialogueHistory.busy.value' : busyName);
     });
 
     await test(`${label} file selection keeps current model on a save failure`, async () => {
@@ -567,34 +581,26 @@ async function main() {
     assert.equal(state.project.value, before); assert.equal(state.exporting.value, false); assert.equal(state.errors.length, 1);
   });
 
-  for (const sfc of [dialogue]) {
-    const label = sfc === quest ? "Quest" : "Dialogue";
-    await test(`${label} Ctrl+S downloads locally and teardown removes exactly the registered shortcut`, async () => {
+    await test("Dialogue registers no JSON download shortcut and retains save lifecycle cleanup", async () => {
       const mounted = [], unmount = [], added = [], removed = [];
-      let downloads = 0, prevented = 0, flushes = 0;
-      const shortcut = sfc === quest ? "saveShortcut" : "HandleSaveShortcut";
-      const state = editorHarness(sfc, [shortcut], {
+      let flushes = 0, bound = 0, cleaned = 0;
+      const state = editorHarness(dialogue, [], {
         saveQueue: { async flush() { flushes++; } },
-        extra: [callsText(sfc, "onMounted"), callsText(sfc, "onBeforeUnmount")],
+        extra: ["let removeSaveLifecycle;", callsText(dialogue, "onMounted"), callsText(dialogue, "onBeforeUnmount")],
         bindings: {
           onMounted(callback) { mounted.push(callback); }, onBeforeUnmount(callback) { unmount.push(callback); },
-          loadProject: async () => undefined,
-          downloadProject() { downloads++; }, DownloadDialogueFile() { downloads++; },
+          bindWorkspaceSaveLifecycle() { bound++; return () => { cleaned++; }; },
           window: { addEventListener: (...args) => added.push(args), removeEventListener: (...args) => removed.push(args) },
         },
       });
       mounted.forEach((callback) => callback());
-      assert.equal(added.length, 1); assert.equal(added[0][0], "keydown");
-      const send = (options) => added[0][1]({ key: "s", repeat: false, ctrlKey: false, metaKey: false, preventDefault() { prevented++; }, ...options });
-      send({ ctrlKey: true }); send({ key: "S", metaKey: true }); send({}); send({ ctrlKey: true, repeat: true });
-      assert.equal(downloads, 2); assert.equal(prevented, 2);
+      assert.equal(added.length, 0); assert.equal(bound, 1);
+      assert.doesNotMatch(dialogue.descriptor.template.content, /编辑器 JSON|Ctrl\+S(?![a-z])/i);
       unmount.forEach((callback) => callback());
-      assert.equal(removed.length, 1); assert.equal(removed[0][0], "keydown");
-      assert.equal(removed[0][1], added[0][1]);
+      assert.equal(removed.length, 0); assert.equal(cleaned, 1);
       assert.equal(state.disposed, true); assert.equal(flushes, 1);
       await Promise.resolve();
     });
-  }
   console.log(`\n${passed} DSFG Quest integration tests passed.`);
 }
 

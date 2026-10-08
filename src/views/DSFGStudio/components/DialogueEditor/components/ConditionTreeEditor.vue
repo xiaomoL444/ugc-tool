@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudioSelectField from "../../StudioSelectField.vue";
 import { createConditionComparison, createConditionGroup, type VisualCondition, type ComparisonOperator } from "../types/VisualCondition";
 import ConditionValueEditor from "./ConditionValueEditor.vue";
 const props = withDefaults(defineProps<{ modelValue: VisualCondition; depth?: number }>(), { depth: 0 });
@@ -24,9 +25,9 @@ function remove(index: number) {
 <template>
   <div v-if="modelValue.kind === 'group'" class="condition-group">
     <header><strong>{{ depth ? '（ 条件组 ）' : '条件组合' }}</strong>
-      <select :value="modelValue.operator" aria-label="条件组连接方式" @change="emit('update:modelValue', { ...modelValue, operator: ($event.target as HTMLSelectElement).value as 'and' | 'or' })">
+      <StudioSelectField :value="modelValue.operator" aria-label="条件组连接方式" @change="emit('update:modelValue', { ...modelValue, operator: ($event.target as HTMLSelectElement).value as 'and' | 'or' })">
         <option value="and">且：全部满足</option><option value="or">或：任一满足</option>
-      </select>
+      </StudioSelectField>
     </header>
     <div v-for="(child, index) in modelValue.children" :key="child.id" class="condition-child">
       <span v-if="index" class="connector">{{ modelValue.operator === 'and' ? '且 AND' : '或 OR' }}</span>
@@ -39,9 +40,9 @@ function remove(index: number) {
   </div>
   <div v-else class="condition-comparison">
     <ConditionValueEditor :model-value="modelValue.left" label="左值" @update:model-value="emit('update:modelValue', { ...modelValue, left: $event })" />
-    <label class="comparison-label">比较关系<select :value="modelValue.operator" aria-label="比较关系" @change="emit('update:modelValue', { ...modelValue, operator: ($event.target as HTMLSelectElement).value as ComparisonOperator })">
+    <label class="comparison-label">比较关系<StudioSelectField :value="modelValue.operator" aria-label="比较关系" @change="emit('update:modelValue', { ...modelValue, operator: ($event.target as HTMLSelectElement).value as ComparisonOperator })">
       <option v-for="operator in comparisons" :key="operator.value" :value="operator.value">{{ operator.label }}</option>
-    </select></label>
+    </StudioSelectField></label>
     <ConditionValueEditor :model-value="modelValue.right" label="右值" @update:model-value="emit('update:modelValue', { ...modelValue, right: $event })" />
   </div>
 </template>

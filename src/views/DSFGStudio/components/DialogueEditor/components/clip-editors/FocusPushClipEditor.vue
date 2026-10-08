@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudioSelectField from "../../../StudioSelectField.vue";
 import { computed } from "vue";
 import type { DialogueNode, FocusPushClip } from "../../types/DialogueNode";
 import { resolveGroupOutlets } from "../../utils/groupOutlets";
@@ -23,20 +24,20 @@ const hasSelectedOutlet = computed(() =>
   <div class="focus-push-settings">
     <label>
       输出方式
-      <select v-model="clip.outputMode" aria-label="Focus Push 输出方式">
+      <StudioSelectField v-model="clip.outputMode" aria-label="Focus Push 输出方式">
         <option value="Self">独立出口</option>
         <option value="Shared">共用出口</option>
-      </select>
+      </StudioSelectField>
     </label>
     <template v-if="clip.outputMode === 'Shared'">
       <label>
         共用的出口
-        <select v-model="clip.sharedOutletIndex" :disabled="!sharedOutlets.length" aria-label="Focus Push 共用出口">
+        <StudioSelectField v-model="clip.sharedOutletIndex" :disabled="!sharedOutlets.length" aria-label="Focus Push 共用出口">
           <option v-if="!hasSelectedOutlet" :value="clip.sharedOutletIndex" disabled>请选择有效出口</option>
           <option v-for="outlet in sharedOutlets" :key="outlet.index" :value="outlet.index">
             {{ outlet.index }} · {{ outlet.label }}
           </option>
-        </select>
+        </StudioSelectField>
       </label>
       <p v-if="!sharedOutlets.length" class="warning">暂无可共用的出口，请启用玩家按下推进，或添加 Select 选项。</p>
       <p v-else-if="!hasSelectedOutlet" class="warning">原出口序号已不可用，请重新选择。</p>

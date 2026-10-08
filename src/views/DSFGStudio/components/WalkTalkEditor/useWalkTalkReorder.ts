@@ -1,8 +1,10 @@
-import { onBeforeUnmount, ref, watch, type Ref } from "vue";
+import { inject, onBeforeUnmount, ref, watch, type Ref } from "vue";
 import { moveWalkTalkEntry, type WalkTalkProject } from "./walkTalkProject";
+import { studioEditorActiveKey } from "../studioSessionHistory";
 
 /** Pointer movement previews an insertion; only a completed drop changes the project. */
 export function useWalkTalkReorder(project: () => WalkTalkProject, list: Ref<HTMLElement | undefined>) {
+  const editorActive = inject(studioEditorActiveKey, () => true);
   const draggingId = ref("");
   const beforeId = ref<string | null>(null);
   const validDrop = ref(false);
@@ -85,7 +87,7 @@ export function useWalkTalkReorder(project: () => WalkTalkProject, list: Ref<HTM
   function pointerCancel(event: PointerEvent) { if (event.pointerId === pending?.pointerId) cancel(); }
   function keydown(event: KeyboardEvent) { if (event.key === "Escape") { event.preventDefault(); cancel(); } }
   function start(event: PointerEvent, id: string) {
-    if (event.button !== 0 || !event.isPrimary || project().entries.length < 2) return;
+    if (!editorActive() || event.button !== 0 || !event.isPrimary || project().entries.length < 2) return;
     const handle = event.currentTarget as HTMLElement;
     const row = handle.closest<HTMLElement>("[data-entry-id]");
     if (!row) return;
@@ -102,13 +104,14 @@ export function useWalkTalkReorder(project: () => WalkTalkProject, list: Ref<HTM
     frame = requestAnimationFrame(scroll);
   }
   function keyboardMove(event: KeyboardEvent, id: string) {
-    if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+    if (!editorActive() || !event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
     cancel();
     moveWalkTalkEntry(project(), id, event.key === "ArrowUp" ? -1 : 1);
     announcement.value = `台词当前位置：第 ${project().entries.findIndex(entry => entry.id === id) + 1} 条`;
   }
   watch(project, cancel);
+  watch(editorActive, active => { if (!active) cancel(); }, { flush: "sync" });
   onBeforeUnmount(cancel);
   return { draggingId, beforeId, validDrop, ghost, announcement, start, keyboardMove };
 }

@@ -34,6 +34,63 @@ async function main() {
       return { project: c.project, ids: [a.nodeId, b.nodeId, c.nodeId] };
     }
     const lineIds = (project) => preview(project).blocks.filter((block) => block.lines.length).map((block) => block.lines.map((line) => line.nodeId));
+    test('Speaker picker searches preset aliases and Talkers, and changes only the selected sentence name through save/reload', () => {
+      const vue = require('vue');
+      const vm = require('node:vm');
+      const { parse, compileScript, compileTemplate, compileStyle } = require('@vue/compiler-sfc');
+      const filename = path.join(base, '../components/DialogueSpeakerPicker.vue');
+      const descriptor = parse(fs.readFileSync(filename, 'utf8'), { filename }).descriptor;
+      for (const relative of ['../components/DialogueSpeakerPicker.vue', '../../StudioSelect.vue', '../components/DialogueStyleSelect.vue', '../components/DialogueTextLine.vue', '../DialogueTextPreview.vue']) {
+        const file = path.join(base, relative);
+        const sfc = parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor;
+        const script = compileScript(sfc, { id: 'speaker-test' });
+        assert.deepEqual(compileTemplate({ source: sfc.template.content, filename: file, id: 'speaker-test', compilerOptions: { bindingMetadata: script.bindings } }).errors, []);
+        sfc.styles.forEach(style => assert.deepEqual(compileStyle({ source: style.content, filename: file, id: 'speaker-test', scoped: true }).errors, []));
+      }
+      const ast = ts.createSourceFile(filename, descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+      const script = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(ast)).join('\n'), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+      }).outputText;
+      const props = vue.reactive({ presets: [
+        { id: 'one', name: '派蒙代号', talker: 'NOLOC_Paimon', subtitle: '预设副标题' },
+        { id: 'two', name: '旅行者', talker: 'NOLOC_Player', subtitle: '' },
+        { id: 'draft', name: '未完成', talker: '  ', subtitle: '' },
+      ], speaker: '', error: '' });
+      const before = JSON.stringify(props);
+      const events = [], mounted = [], unmounted = [], scope = vue.effectScope(), active = vue.ref(true);
+      const context = vm.createContext({ ...vue, defineProps: () => props, defineEmits: () => (...args) => events.push(args), onMounted: fn => mounted.push(fn),
+        studioEditorActiveKey: Symbol('studioEditorActive'), inject: () => () => active.value, onBeforeUnmount: fn => unmounted.push(fn) });
+      scope.run(() => vm.runInContext(`${script}\nglobalThis.picker = { search, results, dialog, select };`, context));
+      const picker = context.picker;
+      let opened = 0, closed = 0;
+      picker.dialog.value = { showModal() { opened++; }, close() { closed++; } };
+      mounted.forEach(fn => fn());
+      assert.equal(opened, 1);
+      assert.equal(picker.results.value.length, 2);
+      picker.search.value = ' 派蒙 ';
+      assert.equal(picker.results.value[0].id, 'one');
+      picker.search.value = 'noloc_PLAYER';
+      assert.equal(picker.results.value[0].id, 'two');
+      picker.search.value = 'missing';
+      assert.equal(picker.results.value.length, 0);
+      assert.equal(events.length, 0, 'Searching never changes the dialogue');
+      picker.select(props.presets[0]);
+      assert.deepEqual(events, [['select', 'NOLOC_Paimon']]);
+      assert.equal(closed, 1);
+      assert.equal(JSON.stringify(props), before, 'Selecting never mutates a shared preset');
+      const { applyDialogueTextEdit } = require(path.join(base, 'dialogueTextEditing.ts'));
+      const { project, ids } = sequence();
+      project.dialogue.nodes[ids[1]].dialogue.subtitle = '原有副标题';
+      project.dialogue.nodes[ids[1]].dialogue.content = '原有台词';
+      const expected = decode(encode(project));
+      expected.dialogue.nodes[ids[1]].dialogue.speaker = events[0][1];
+      assert.equal(applyDialogueTextEdit(project, { nodeId: ids[1], field: 'speaker', value: events[0][1] }), true);
+      assert.deepEqual(decode(encode(project)), expected);
+      active.value = false;
+      assert.equal(closed, 2); assert.deepEqual(events.at(-1), ['close']);
+      unmounted.forEach(fn => fn()); scope.stop();
+      assert.equal(closed, 3);
+    });
     test('Editing a condition preserves outlet identities, connections and source project through save/reload', () => {
       const { project, ids } = sequence();
       const branch = createConditionBranchNode('conditions');
@@ -171,7 +228,7 @@ async function main() {
       assert.equal(canUndoDeletion(snapshot, result.project), false);
       assert.notEqual(snapshot.project.dialogue.nodes[ids[0]].dialogue.content, 'later edit');
     });
-    test('Person presets create independent blank dialogue with Default_UI and preserve the selected continuation', () => {
+    test('Person presets create independent blank dialogue with NOLOC_Default and preserve the selected continuation', () => {
       const { project, ids } = sequence();
       const branch = append(project, ids[0], 'select');
       const block = preview(branch.project).blocks.find(block => block.kind === 'select');
@@ -181,7 +238,7 @@ async function main() {
         const result = act(source, { type: 'append', blockId: target.id, outletId, kind: 'dialogue', preset });
         const clip = result.project.dialogue.nodes[result.nodeId].dialogue;
         assert.equal(clip.speaker, 'A'); assert.equal(clip.subtitle, '');
-        assert.equal(clip.content, ''); assert.equal(clip.style, 'Default_UI');
+        assert.equal(clip.content, ''); assert.equal(clip.style, 'NOLOC_Default');
         assert.ok(result.project.graph.edges.some(edge => edge.source === target.nodeIds.at(-1) && edge.sourceHandle === outletId && edge.target === result.nodeId));
         preset.talker = 'B'; preset.subtitle = 'changed';
         assert.equal(clip.speaker, 'A'); assert.equal(clip.subtitle, '');
@@ -213,7 +270,7 @@ async function main() {
       const outletId = branch.outlets[1].id;
       const child = append(result.project, result.nodeId, 'dialogue', outletId);
       assert.equal(child.project.graph.edges.find(edge => edge.source === result.nodeId && edge.sourceHandle === outletId).target, child.nodeId);
-      assert.equal(child.project.dialogue.nodes[child.nodeId].dialogue.style, 'Default_UI');
+      assert.equal(child.project.dialogue.nodes[child.nodeId].dialogue.style, 'NOLOC_Default');
     });
     test('Branching before a condition retains the original continuation as the first choice', () => {
       const { project, ids } = sequence();

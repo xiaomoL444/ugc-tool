@@ -29,6 +29,7 @@
     ]
   },
   "include": [
+    "tools/ai-search-service/asset-features.d.mts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "src/**/*.vue",

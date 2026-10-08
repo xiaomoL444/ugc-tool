@@ -34,7 +34,7 @@
                 </select>
               </div>
 
-              <VVirtualList v-if="libraryRows.length" ref="libraryListRef" :items="libraryRows" :item-size="72"
+              <VVirtualList v-if="libraryRows.length" ref="libraryListRef" :items="libraryRows" :item-size="96"
                 :padding-top="10" class="sound-virtual-list">
                 <template #default="{ item }: { item: SoundRow }">
                   <div class="sound-row" :class="[
@@ -42,7 +42,10 @@
                     { 'group-first': item.isFirst, 'group-last': item.isLast },
                   ]">
                     <span v-if="item.isFirst" class="sound-group-label">{{ categoryName(item.category) }}</span>
-                    <ListButton v-for="id in item.data" :key="id" class="sound-card" :is-selected="id == selectedId"
+                    <div v-for="id in item.data" :key="id" class="sound-card" :class="{ selected: id === selectedId }"
+                      :data-sound-id="id" :aria-current="id === selectedId ? 'true' : undefined" @click="SelectSound(id)">
+                    <ListButton class="sound-select" :aria-current="id === selectedId ? 'true' : undefined"
+                      :is-selected="id == selectedId"
                       v-on:update:selected="SelectSound(id)">
                       <div class="item">
                         <div class="title">
@@ -53,6 +56,10 @@
                         </div>
                       </div>
                     </ListButton>
+                    <div class="sound-description" @click.stop>
+                      <AssetFeatureSummary v-if="featureParts(id).length" :parts="featureParts(id)" :locale="locale" />
+                    </div>
+                    </div>
                   </div>
                 </template>
               </VVirtualList>
@@ -119,6 +126,14 @@
             <input type="number" v-model="interval" />
           </div>
 
+          <div v-if="selectedId" class="sound-feature-details">
+            <AssetFeaturePanel v-if="selectedFeatureParts.length" :parts="selectedFeatureParts" :locale="locale" />
+            <p v-else-if="featureStatus === 'ready'" class="feature-status">{{ t('soundEffectPlayer.ui.featuresEmpty') }}</p>
+            <p v-if="featureStatus !== 'ready'" class="feature-status" role="status">
+              {{ t(`soundEffectPlayer.ui.features${featureStatus === 'loading' ? 'Loading' : featureStatus === 'stale' ? 'Stale' : 'Unavailable'}`) }}
+            </p>
+          </div>
+
           <!-- 音频元素 -->
           <audio ref="audioRef" @timeupdate="updateTime" @loadedmetadata="loadMetadata" :src="audioSource"
             @play="onPlay" @pause="onPause" @error="onAudioError" @ended="ended"></audio>
@@ -151,7 +166,9 @@
 }
 
 .search-label {
-  flex: 0 0 150px;
+  flex: 0 0 auto;
+  max-width: 40%;
+  font-size: 0.9rem;
 }
 
 .search-bar input {
@@ -292,7 +309,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
-  height: 72px;
+  height: 96px;
   padding: 0 5px 5px;
   border-right: 2px solid var(--category-color);
   border-left: 2px solid var(--category-color);
@@ -383,8 +400,23 @@
 }
 
 .sound-card {
+  position: relative;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 8px;
+  cursor: pointer;
 }
+
+.sound-card .sound-select {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 29px;
+}
+.sound-description { position: absolute; inset: auto 0 0; box-sizing: border-box; display: flex; align-items: center; height: 23px; padding: 0 13px; color: #596b82; font-size: 11px; }
+.sound-feature-details { text-align: left; }
+.feature-status { margin: 6px 0 0; color: #6e7a8c; font-size: 12px; line-height: 1.5; }
 
 .item .subtitle {
   flex: 0 0 auto;
@@ -465,7 +497,7 @@ import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import AudioWaveform from "./AudioWaveform.vue";
 import { Clipboard } from "@/utils/clipboard";
 
@@ -479,13 +511,25 @@ import { createOss } from "@/utils/oss";
 import { loadOssTranslations } from "@/i18n";
 import { createCachedText } from "@/i18n/cachedText";
 import { useI18n } from "vue-i18n";
+import { useRoute } from "vue-router";
+import { loadAssetFeatures, type AssetFeatureCollection } from "@/utils/assetFeatures";
+import AssetFeatureSummary from "@/components/AssetFeatures/AssetFeatureSummary.vue";
+import AssetFeaturePanel from "@/components/AssetFeatures/AssetFeaturePanel.vue";
 
 const oss = createOss("SoundEffectPlayer");
+const route = useRoute();
 const composer = useI18n({ useScope: "global" });
-const { t } = composer;
+const { t, locale } = composer;
 const resourceText = createCachedText(composer);
+const assetFeatures = shallowRef<AssetFeatureCollection | null>(null);
+const featureSearchText = computed(() => new Map(Array.from(assetFeatures.value?.searchText ?? [])
+  .map(([id, text]) => [id, text.toLocaleLowerCase()])));
+const featuresLoading = ref(true);
+const featureStatus = computed(() => featuresLoading.value ? "loading" : assetFeatures.value?.status ?? "unavailable");
+const featureParts = (id: string) => assetFeatures.value?.get(id, locale.value) ?? [];
 
 const selectedId = ref(""); //选择的音效id
+const selectedFeatureParts = computed(() => featureParts(selectedId.value));
 
 const search = ref("");
 const selectedVersion = ref("");
@@ -499,6 +543,7 @@ const dataLoadError = ref(false);
 const audioSource = ref("");
 
 const loading = ref(false);
+const shouldAutoplayOnLoad = ref(true);
 
 const loopEnabled = ref(false);
 const interval = ref(0);
@@ -579,7 +624,8 @@ const filteredCategories = computed(() => {
         ids: group.ids.filter((id) => {
           const item = dataJson.value[id];
           if (selectedVersion.value && item.giVersion !== selectedVersion.value) return false;
-          return !query || item?.name?.toLocaleLowerCase().includes(query) || id.toLocaleLowerCase().includes(query);
+          return !query || item?.name?.toLocaleLowerCase().includes(query) || id.toLocaleLowerCase().includes(query)
+            || featureSearchText.value.get(id)?.includes(query);
         }),
       }))
       .filter((group) => group.ids.length > 0);
@@ -613,6 +659,9 @@ onMounted(async () => {
   try {
     soundData.value = await oss.json<SoundEffectData>("data.json");
     void loadOssTranslations("SoundEffectPlayer", "soundEffectPlayer");
+    void loadAssetFeatures("SoundEffectPlayer", soundData.value.data).then((features) => {
+      assetFeatures.value = features;
+    }).catch(() => { assetFeatures.value = null; }).finally(() => { featuresLoading.value = false; });
   } catch (error) {
     dataLoadError.value = true;
     console.error("音效数据加载失败", error);
@@ -622,7 +671,7 @@ onMounted(async () => {
   }
 });
 
-watch([search, selectedVersion, orderedCategories], () => {
+watch([search, selectedVersion, orderedCategories, assetFeatures], () => {
   if (!search.value.trim()) return;
   expandedCategories.value = filteredCategories.value.map((group) => group.category.toString());
 });
@@ -647,15 +696,16 @@ function toggleAllCategories() {
   expandedCategories.value = [...new Set([...expandedCategories.value, ...visibleNames])];
 }
 
-async function scrollToSound(id: string) {
+async function scrollToSound(id: string, behavior: ScrollBehavior = "smooth") {
   const category = Number(dataJson.value[id]?.category ?? 0).toString();
   if (!expandedCategories.value.includes(category)) {
     expandedCategories.value = [...expandedCategories.value, category];
   }
   await nextTick();
+  if (selectedId.value !== id) return;
   const index = libraryRows.value.findIndex((item) => item.type === "sounds" && item.data.includes(id));
   if (index >= 0) {
-    libraryListRef.value?.scrollTo({ index, behavior: "smooth" });
+    libraryListRef.value?.scrollTo({ index, behavior, debounce: behavior === "smooth" });
   }
 }
 
@@ -664,17 +714,34 @@ function jumpToFirstSearchResult() {
   if (id) SelectSound(id, true);
 }
 
-async function SelectSound(id: string, shouldScroll = false) {
+async function SelectSound(id: string, shouldScroll = false,
+  options: { autoplay?: boolean; scrollBehavior?: ScrollBehavior } = {}) {
+  if (!Object.prototype.hasOwnProperty.call(dataJson.value, id)) return;
   stop();
+  shouldAutoplayOnLoad.value = options.autoplay ?? true;
   selectedId.value = id;
   currentTime.value = 0;
   duration.value = 0;
   audioSource.value = oss.path("audio", `${id}.mp3`);
   loading.value = true;
   await nextTick();
+  if (selectedId.value !== id) return;
   audioRef.value?.load();
-  if (shouldScroll) void scrollToSound(id);
+  if (shouldScroll) void scrollToSound(id, options.scrollBehavior ?? "smooth");
 }
+
+// Deep links wait for the library, reveal the asset, and leave playback to the user.
+watch([() => route.query.id, dataLoading], ([id, isLoading]) => {
+  if (isLoading || dataLoadError.value || id === undefined) return;
+  if (typeof id !== "string" || !/^\d+$/.test(id)
+    || !Object.prototype.hasOwnProperty.call(dataJson.value, id)) {
+    toast.warning(t('soundEffectPlayer.ui.empty'));
+    return;
+  }
+  search.value = "";
+  selectedVersion.value = "";
+  void SelectSound(id, true, { autoplay: false, scrollBehavior: "auto" });
+}, { immediate: true, flush: "post" });
 
 // const currentIndex = defineModel();
 const audioRef = ref<HTMLAudioElement | null>(null);
@@ -792,7 +859,7 @@ function loadMetadata() {
   duration.value = Number.isFinite(audioRef.value.duration) ? audioRef.value.duration : 0;
   loading.value = false;
   changePlaybackRate();
-  start();
+  if (shouldAutoplayOnLoad.value) start();
 }
 
 // 播放速度

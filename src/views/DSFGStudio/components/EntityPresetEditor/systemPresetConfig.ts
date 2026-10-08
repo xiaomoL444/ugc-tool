@@ -34,13 +34,13 @@ export const systemPresetConfig = {
     presets: [{ id: "camera-default", label: "默认镜头", value: "NOLOC_Default" }],
   },
   dialogueStyles: {
-    newItem: { label: "", value: "" },
+    newItem: { label: "", value: "", showTitle: false },
     presets: [
-      { id: "dialogue-default", label: "默认样式", value: "NOLOC_Default" },
-      { id: "dialogue-black-screen", label: "黑幕对话", value: "NOLOC_BlackScreen" },
-      { id: "dialogue-bottom-cg", label: "底部CG文本", value: "NOLOC_BottomCG" },
-      { id: "dialogue-bottom-dialog", label: "底部对话文本", value: "NOLOC_BottomDialog" },
-      { id: "dialogue-clear", label: "清除效果", value: "NOLOC_Clear" },
+      { id: "dialogue-default", label: "默认样式", value: "NOLOC_Default", showTitle: true },
+      { id: "dialogue-black-screen", label: "黑幕对话", value: "NOLOC_BlackScreen", showTitle: false },
+      { id: "dialogue-bottom-cg", label: "底部CG文本", value: "NOLOC_BottomCG", showTitle: false },
+      { id: "dialogue-bottom-dialog", label: "底部对话文本", value: "NOLOC_BottomDialog", showTitle: true },
+      { id: "dialogue-clear", label: "清除效果", value: "NOLOC_Clear", showTitle: false },
     ],
   },
   questStyles: {
@@ -52,8 +52,8 @@ export const systemPresetConfig = {
     presets: [{ id: "walk-talk-default", label: "默认样式", value: "NOLOC_Default" }],
   },
   entities: {
-    newItem: { name: "", talker: "", subtitle: "" },
-    presets: [{ id: "system-player-self", name: "玩家自身", talker: "{1:ps.NICKNAME}", subtitle: "" }] as EntityPreset[],
+    newItem: { name: "", talker: "", subtitle: "", guid: "", entityQuery: "" },
+    presets: [{ id: "system-player-self", name: "玩家自身", talker: "{1:ps.NICKNAME}", subtitle: "", guid: "1086324738", entityQuery: "" }] as EntityPreset[],
   },
   publicEvents: {
     newItem: { alias: "", name: "", parameters: [] as PublicEventParameter[] },
@@ -127,11 +127,11 @@ export const systemPresetConfig = {
       parameters: [
         { id: "object-forward-boolean", name: "设置朝向（否＝重置）", type: "Int32", reference: "booleans.value", defaultValue: "" },
         { id: "object-forward-method-1", name: "实体1获取方式", type: "Int32", reference: "entityGetMethods.value", defaultValue: "" },
-        { id: "object-forward-guid-1", name: "实体1 GUID", type: "Guid", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-method-1", equals: "0" }] },
-        { id: "object-forward-string-1", name: "实体1 String", type: "String", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-method-1", equals: "1" }] },
+        { id: "object-forward-guid-1", name: "实体1 GUID", type: "Guid", reference: "entities.guid", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-method-1", equals: "0" }] },
+        { id: "object-forward-string-1", name: "实体1 String", type: "String", reference: "entities.entityQuery", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-method-1", equals: "1" }] },
         { id: "object-forward-method-2", name: "实体2获取方式", type: "Int32", reference: "entityGetMethods.value", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "1" }] },
-        { id: "object-forward-guid-2", name: "实体2 GUID", type: "Guid", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "1" }, { parameterId: "object-forward-method-2", equals: "0" }] },
-        { id: "object-forward-string-2", name: "实体2 String", type: "String", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "1" }, { parameterId: "object-forward-method-2", equals: "1" }] },
+        { id: "object-forward-guid-2", name: "实体2 GUID", type: "Guid", reference: "entities.guid", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "1" }, { parameterId: "object-forward-method-2", equals: "0" }] },
+        { id: "object-forward-string-2", name: "实体2 String", type: "String", reference: "entities.entityQuery", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "1" }, { parameterId: "object-forward-method-2", equals: "1" }] },
       ],
     }] as PublicEventPreset[],
   },

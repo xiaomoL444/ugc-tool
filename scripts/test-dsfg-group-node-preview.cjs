@@ -20,7 +20,7 @@ async function main() {
   const render = new Function("Vue", runtime.code)(Vue);
   const fixture = () => ({
     node: { name: "新建 Group", dialogue: { style: "Default_UI", speaker: "123456", content: "新建台词" }, lines: [{ clips: [] }], select: null },
-    selected: false, durationLabel: "2.0s", outletWarnings: [],
+    selected: false, exportIndex: undefined, annotation: "", updateAnnotation() {}, durationLabel: "2.0s", outletWarnings: [],
     outlets: [{ id: "dialogue", kind: "Dialogue", label: "玩家按下" }],
     performanceClips: [], previewSegments: [], Position: { Left: "left", Right: "right" },
   });
@@ -33,6 +33,13 @@ async function main() {
     return output;
   }
   const basic = await html(fixture());
+  assert.ok(!basic.includes('class="export-index"'));
+  for (const index of [0, 1, 100, 109]) {
+    const indexed = await html({ ...fixture(), exportIndex: index });
+    assert.ok(indexed.includes(`TimeLineGroup 索引 ${index}`));
+    assert.ok(indexed.includes(`>#${index}</span>`));
+  }
+  console.log('PASS Debug labels render zero and global indices beyond 100 without changing node data');
   for (const removed of ["新建 Group", "Default_UI", "默认样式", "Lines", "已连接", "暂无演出", "group-title", "group-type", "timeline-empty"]) assert.ok(!basic.includes(removed), `Unexpected display: ${removed}`);
   assert.ok(!basic.includes("timeline-preview"), "Empty timeline container should not occupy space");
   for (const retained of ["普通事件节点", "2.0s", "123456：新建台词", "0 演出", "0 选项", "玩家按下", 'data-position="left"', 'data-position="right"']) assert.ok(basic.includes(retained), `Missing retained display: ${retained}`);

@@ -19,7 +19,7 @@ async function main() {
     const bytes = value => value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
     const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < .001, `${actual} != ${expected}`);
     function rawControl(id, parent, children, size, rotation = 0) {
-      return { "1": { "4": id }, ...(children.length ? { "2": children.map(child => ({ "4": child })) } : {}), "3": `string:Control ${id}`,
+      return { "1": { "4": id }, "5": parent ? 15 : 70, ...(children.length ? { "2": children.map(child => ({ "4": child })) } : {}), "3": `string:Control ${id}`,
         "19": { "1": { ...(parent ? { "504": parent } : {}), "505": [
           { [parent ? "83" : "78"]: {}, "503": { [parent ? "84" : "79"]: parent ? { "502": 4294967295, "503": 100001 } : {} } },
           { "11": {}, "503": { "13": { "12": { "501": [0, 1, 2, 3].map(device => ({ "501": device, "502": {
@@ -58,7 +58,8 @@ async function main() {
     assert.deepEqual(normalizeControlTemplates(JSON.parse(JSON.stringify([asset]))), [asset]);
     console.log("PASS template primary root, device layouts, root scale, paint order and persistence");
 
-    const wrapper = encode({ "1": { "3": "string:Ordinary UI project" }, "2": [primary, ...children] });
+    const uiRoot = clone(primary); uiRoot["5"] = 15;
+    const wrapper = encode({ "1": { "3": "string:Ordinary UI project", "5": 21, "19": { "1": { "505": [{ "11": {} }, { "72": {}, "503": { "73": { "501": 1 } } }] } } }, "2": [uiRoot, ...children] });
     assert.equal(importGiaControls(wrapper).controls.length, 3);
     assert.equal(importGiaControls(encode({ "1": primary, "2": [primary, ...children] })).controls.length, 3);
     assert.throws(() => readControlTemplate(new ArrayBuffer(3), "invalid.gia", 1));

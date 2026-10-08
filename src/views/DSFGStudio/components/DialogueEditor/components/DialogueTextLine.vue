@@ -3,11 +3,12 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch, typ
 import type { TextPreviewLine } from "../utils/dialogueTextPreview";
 import type { DialogueTextEdit, DialogueTextField } from "../utils/dialogueTextEditing";
 import { normalizeDialogueInput, sanitizeDialogueInput, preventDialogueLineBreak } from "../utils/dialogueTextInput";
-import { getDialogueStyles } from "../config/dialogueStyleRegistry";
+import { dialogueStyleShowsTitle, getDialogueStyles } from "../config/dialogueStyleRegistry";
+import DialogueStyleSelect from "./DialogueStyleSelect.vue";
 const props = defineProps<{ line: TextPreviewLine; speakerAlias?: string; index: number; canMoveUp: boolean; canMoveDown: boolean; movable: boolean; repeatSpeaker?: boolean }>();
 const avatarLabel = computed(() => props.speakerAlias || props.line.speaker.trim().slice(0, 1) || "旁");
 const emit = defineEmits<{
-  edit: [edit: DialogueTextEdit]; move: [direction: number]; insert: []; configure: []; addDialogue: []; remove: [];
+  edit: [edit: DialogueTextEdit]; move: [direction: number]; insert: []; configure: []; addDialogue: []; remove: []; pickSpeaker: [];
 }>();
 const field = (name: DialogueTextField) => computed({
   get: () => props.line[name],
@@ -18,7 +19,7 @@ const subtitle = field("subtitle");
 const content = field("content");
 const style = field("style");
 const dialogueStyles = inject<Ref<ReturnType<typeof getDialogueStyles>>>("dialogueStyleOptions", computed(() => getDialogueStyles()));
-const knownStyle = computed(() => dialogueStyles.value.some((item) => item.id === style.value));
+const showTitle = computed(() => dialogueStyleShowsTitle(style.value, dialogueStyles.value));
 const textarea = ref<HTMLTextAreaElement>();
 function resize() {
   if (!textarea.value) return;
@@ -62,14 +63,13 @@ function keydown(event: KeyboardEvent) {
         <button type="button" class="delete-line" aria-label="删除对话" :title="line.clipCount ? `删除此句及附带的 ${line.clipCount} 个 Clip（带选项卡时保留选项与其他 Clip）` : '删除此句对话，可立即撤销'" @click="emit('remove')">删除</button>
       </div>
       <template v-if="line.hasDialogue">
-        <div class="line-identity">
-          <span class="speaker-avatar" :class="{ 'has-alias': speakerAlias }" :title="avatarLabel">{{ avatarLabel }}</span>
+        <div class="line-identity" :class="{ 'without-title': !showTitle }">
+          <template v-if="showTitle">
+          <button type="button" class="speaker-avatar" :class="{ 'has-alias': speakerAlias }" :title="`${avatarLabel} · 从预设实体选择说话人`" aria-label="从预设实体选择说话人" aria-haspopup="dialog" @click.stop="emit('pickSpeaker')">{{ avatarLabel }}</button>
           <input v-model="speaker" class="speaker-input" aria-label="说话人" placeholder="旁白 / 说话人" />
           <input v-model="subtitle" class="subtitle-input" aria-label="副标题 Subtitle" title="副标题（Subtitle）" placeholder="副标题（可选）" />
-          <select v-model="style" class="style-input" aria-label="对话样式" :title="`对话样式：${style}`">
-            <option v-if="!knownStyle" :value="style">{{ style || '未设置' }}</option>
-            <option v-for="item in dialogueStyles" :key="item.id" :value="item.id" :title="item.label">{{ item.label }}（{{ item.id }}）</option>
-          </select>
+          </template>
+          <DialogueStyleSelect v-model="style" :options="dialogueStyles" />
         </div>
         <textarea ref="textarea" v-model="content" rows="1" aria-label="台词" placeholder="输入对话，换行请写 \n" @beforeinput="preventDialogueLineBreak" @input="sanitizeDialogueInput($event); resize()" />
       </template>
@@ -89,8 +89,11 @@ function keydown(event: KeyboardEvent) {
 .script-line:hover .line-grip, .script-line:focus-within .line-grip { opacity: 1; }
 .line-body { min-width: 0; padding-bottom: 4px; }
 .line-identity { display: grid; grid-template-columns: auto minmax(40px, .8fr) minmax(45px, 1fr) minmax(84px, 1.15fr); align-items: center; gap: 4px; margin-bottom: 3px; }
+.line-identity.without-title { grid-template-columns: minmax(0, 1fr); }
+.without-title > :deep(.dialogue-style-select) { justify-self: end; width: min(240px, 100%); }
 .repeat-speaker:not(:focus-within) .line-identity { display: none; }
-.speaker-avatar { display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; border: 1px solid hsl(var(--speaker-hue) 46% 80%); background: hsl(var(--speaker-hue) 65% 94%); border-radius: 50%; color: hsl(var(--speaker-hue) 38% 44%); font-size: 11px; }
+.speaker-avatar { display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; padding: 0; border: 1px solid hsl(var(--speaker-hue) 46% 80%); background: hsl(var(--speaker-hue) 65% 94%); border-radius: 50%; color: hsl(var(--speaker-hue) 38% 44%); font-size: 11px; }
+.speaker-avatar:focus-visible { outline: 2px solid #8b7be8; outline-offset: 2px; }
 .speaker-avatar.has-alias { width: auto; min-width: 22px; max-width: 96px; height: auto; min-height: 22px; padding: 2px 6px; box-sizing: border-box; border-radius: 12px; line-height: 1.4; text-align: center; overflow-wrap: anywhere; }
 input, textarea, select { box-sizing: border-box; font: inherit; border: 1px solid transparent; border-radius: 4px; outline: none; background: transparent; }
 input:hover, textarea:hover, select:hover { border-color: #e5eaf1; }
@@ -98,7 +101,6 @@ input:focus, textarea:focus, select:focus { border-color: #b7cce8; background: #
 input::placeholder, textarea::placeholder { color: #a6afbd; }
 .speaker-input { width: 100%; min-width: 0; color: hsl(var(--speaker-hue) 38% 40%); font-size: 12px; font-weight: 600; padding: 2px 3px; }
 .subtitle-input { width: 100%; min-width: 0; font-size: 11px; color: #8c97a8; padding: 2px 3px; }
-.style-input { width: 100%; min-width: 0; padding: 2px 0; color: #718097; font-size: 10px; cursor: pointer; }
 .line-clip-summary { display: flex; justify-content: flex-end; margin-top: 2px; }
 .clip-count { color: #527da8; background: #edf3fa; }
 textarea { display: block; box-sizing: border-box; width: 100%; min-height: 32px; padding: 3px 7px; margin-left: -1px; border-left-color: hsl(var(--speaker-hue) 40% 88%); color: #334158; resize: none; overflow: hidden; font-size: 14px; line-height: 1.8; }

@@ -75,6 +75,7 @@ async function main() {
       const p = dm.createEmptyDialogueProject(), a = node(p, 'a'), b = node(p, 'b');
       edge(p, p.dialogue.entryNodeId, 'a', 'output'); edge(p, 'a', 'b');
       b.dialogue.advanceMode = 'None'; b.select = dm.createSelectClip(); b.select.options.push(dm.createSelectOption());
+      b.select.params = ['0', '-2147483648', '2147483647', '42', '0'];
       edge(p, 'b', 'a', 'select:' + b.select.options[0].id);
       a.dialogue.nodeGraphEvent = ['0', '15'];
       const camera = dm.createPerformanceClip('Camera', 0.3); camera.duration = 1.5; a.lines[0].clips.push(camera);
@@ -83,7 +84,26 @@ async function main() {
       publicClip.components[0].properties.value = '事件'; publicClip.components[0].properties.parameters = [{ id: 'guid', name: '目标', type: 'Guid', value: '18446744073709551615' }, { id: 'text', name: '文字', type: 'String', value: '你好' }]; publicLine.clips.push(publicClip); a.lines.push(publicLine);
       const output = de.exportQxqyPerformance(p), imported = di(output.json).project;
       assert.equal(imported.graph.edges.length, 3);
+      assert.deepEqual(Object.values(imported.dialogue.nodes).find(node => node.select).select.params, b.select.params);
       assert.deepEqual(canonical(de.exportQxqyPerformance(imported).value), canonical(output.value));
+      const codec = load('DialogueEditor/utils/dialogueProjectCodec.ts');
+      const reopened = codec.decodeDialogueProject(codec.encodeDialogueProject(imported));
+      assert.deepEqual(canonical(de.exportQxqyPerformance(reopened).value), canonical(output.value));
+    });
+    await test('More than 64 public/custom event tracks survive runtime export, import and reopen', () => {
+      const p = dm.createEmptyDialogueProject(), group = node(p, 'many-events');
+      edge(p, p.dialogue.entryNodeId, group.id, 'output');
+      for (let i = 0; i < 130; i++) {
+        const line = dm.createPerformanceLine(i % 2 ? 'Custom' : 'PublicEvent');
+        const clip = dm.createPerformanceClip(line.type, 0);
+        clip.components[0].properties.value = '事件 ' + i;
+        line.clips.push(clip); group.lines.push(line);
+      }
+      const output = de.exportQxqyPerformance(p), imported = di(output.json).project;
+      const eventLines = Object.values(imported.dialogue.nodes).flatMap(n => n.lines).filter(line => ['PublicEvent', 'Custom'].includes(line.type));
+      assert.equal(eventLines.length, 130);
+      assert.equal(eventLines.flatMap(line => line.clips).length, 130);
+      assert.ok(Object.values(imported.dialogue.nodes).every(n => !Object.hasOwn(n.timeline, 'maxLines')));
       const codec = load('DialogueEditor/utils/dialogueProjectCodec.ts');
       const reopened = codec.decodeDialogueProject(codec.encodeDialogueProject(imported));
       assert.deepEqual(canonical(de.exportQxqyPerformance(reopened).value), canonical(output.value));
@@ -151,9 +171,9 @@ async function main() {
         assert.ok(handler);
         const files = new Map(), project = vue.ref(), busy = vue.ref(false), messages = [];
         const storage = { setProject: () => storage, exists: async path => files.has(path), readFile: async path => files.get(path), writeFile: async (path, value) => { files.set(path, value); } };
-        const bindings = { commitRuntimeImport, importWalkTalk: wi, importQuest: qi, importQxqyPerformance: di,
+        const bindings = { nextTick: vue.nextTick, commitRuntimeImport, importWalkTalk: wi, importQuest: qi, importQxqyPerformance: di,
           encodeWalkTalkProject: wm.encodeWalkTalkProject, encodeQuestProject: qm.encodeQuestProject, encodeDialogueProject: codec.encodeDialogueProject,
-          project, dialogueProject: project, busy, fileBusy: busy, disposed: false, exporting: vue.ref(false), loading: false, loadingFile: false,
+          project, dialogueProject: project, busy, fileBusy: busy, disposed: false, exporting: vue.ref(false), loading: false, loadingFile: false, dialogueHistory: { reset() {} },
           storage, ProjectID: 'DSFGStudio', workspaceId: 'captured', documentWorkspaceId: 'captured', DialogueEditorID: 'DialogueEditor',
           documentPath: '/captured/QuestEditor.json', directory: '/captured/WalkTalkEditor', saveQueue: { flush: async () => {} },
           selectedFile: vue.ref(''), selectedDialogueFile: vue.ref(''), selectedGroupNodeId: vue.ref(''), structIdSettingsOpen: vue.ref(false),
@@ -162,11 +182,30 @@ async function main() {
           confirm: () => true, toast: { success: message => messages.push(message), warning: () => {} } };
         const context = vm.createContext(bindings);
         vm.runInContext(ts.transpileModule(handler.getText(ast) + '\n globalThis.runImport = importConfiguration;', { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, context);
-        const text = kind === 'Dialogue' ? de.exportQxqyPerformance(dm.createEmptyDialogueProject()).json : kind === 'Quest' ? qe.exportQuestVariables(qm.createQuestProject()).json : we.exportWalkTalk(wm.createWalkTalkProject()).json;
+        const dialogueSource = dm.createEmptyDialogueProject(), cameraNode = node(dialogueSource, 'camera-import');
+        edge(dialogueSource, dialogueSource.dialogue.entryNodeId, cameraNode.id, 'output');
+        const cameraClip = dm.createPerformanceClip('Camera', 0.25), shot = cameraClip.components[0];
+        shot.cameraViewpointEnabled = true;
+        shot.properties.positionData.type = 'NOLOC_Orbit';
+        shot.properties.positionData.orbitRadius = 7.75;
+        shot.properties.rotationData.type = 'NOLOC_LookAt';
+        Object.assign(shot.properties.rotationData.slot[0], { pointType: 'NOLOC_Guid', guid: '18446744073709551615',
+          entity: '测试实体', attachmentPoint: 'Head', offset: '-1.5,2,3', requiresClientPos: true });
+        cameraNode.lines[0].clips.push(cameraClip);
+        const dialogueOutput = de.exportQxqyPerformance(dialogueSource);
+        const text = kind === 'Dialogue' ? dialogueOutput.json : kind === 'Quest' ? qe.exportQuestVariables(qm.createQuestProject()).json : we.exportWalkTalk(wm.createWalkTalkProject()).json;
         await context.runImport({ name: 'runtime.json', size: text.length, text: async () => text });
         assert.ok(project.value); assert.equal(busy.value, false); assert.equal(files.size, 1);
         const outputPath = [...files.keys()][0]; assert.ok(outputPath.startsWith('/captured/'));
         assert.equal(JSON.parse(files.get(outputPath)).type, undefined, 'Storage must contain an editable project, not a runtime Struct');
+        if (kind === 'Dialogue') {
+          const persisted = codec.decodeDialogueProject(files.get(outputPath));
+          assert.deepEqual(canonical(de.exportQxqyPerformance(persisted).value), canonical(dialogueOutput.value));
+          const restoredShot = Object.values(persisted.dialogue.nodes)[0].lines.flatMap(line => line.clips)[0].components[0];
+          assert.equal(restoredShot.cameraViewpointEnabled, true);
+          assert.equal(restoredShot.properties.positionData.orbitRadius, 7.75);
+          assert.equal(restoredShot.properties.rotationData.slot[0].guid, '18446744073709551615');
+        }
         assert.equal(messages.length, 1);
         const previous = project.value;
         await assert.rejects(context.runImport({ name: 'bad.json', size: 2, text: async () => '{}' }));

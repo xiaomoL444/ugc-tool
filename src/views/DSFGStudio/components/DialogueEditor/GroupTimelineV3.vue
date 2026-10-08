@@ -24,6 +24,15 @@ import DialogueClipEditor from "./components/clip-editors/DialogueClipEditor.vue
 import FocusPushClipEditor from "./components/clip-editors/FocusPushClipEditor.vue";
 import SelectClipEditor from "./components/clip-editors/SelectClipEditor.vue";
 import PerformanceClipEditor from "./components/clip-editors/PerformanceClipEditor.vue";
+import TimelineContextMenu from "./components/TimelineContextMenu.vue";
+import {
+  captureTimelineClip,
+  findTimelineClip,
+  pasteTimelineClip,
+  timelineClipClipboard,
+  timelinePasteHint,
+  type TimelineLane,
+} from "./utils/timelineClipClipboard";
 import { usePublicEventPresets } from "../EntityPresetEditor/usePublicEventPresets";
 import { getPublicEventClipLabel } from "./utils/publicEventParameters";
 import { getCameraClipPreview } from "./config/cameraClip";
@@ -54,10 +63,38 @@ let timelineResizeObserver: ResizeObserver | undefined;
 const labelWidth = 118;
 const selectedId = ref(props.node.dialogue?.id ?? "");
 const addLineMenu = ref<HTMLDetailsElement>();
+const footerLineMenu = ref<{ x: number; y: number; trigger: HTMLElement }>();
 const sectionRef = ref<HTMLElement>();
 const editorOpen = ref(false);
+let outsideEditorCloseTimer: number | undefined;
+let editorPointerDownInside = false;
 const hoveredClip = ref<SelectedClip>();
 const previewPosition = ref({ left: 0, top: 0 });
+const timelineContextMenu = ref<{
+  nodeId: string;
+  lane: TimelineLane;
+  clipId?: string;
+  time: number;
+  x: number;
+  y: number;
+  trigger: HTMLElement;
+}>();
+const contextClip = computed(() => timelineContextMenu.value?.clipId
+  ? findTimelineClip(props.node, timelineContextMenu.value.clipId) : undefined);
+const contextTrackAvailable = computed(() => {
+  const lane = timelineContextMenu.value?.lane;
+  return !!lane && (lane.kind === "performance"
+    ? props.node.lines.some(line => line.id === lane.lineId) : !props.node[lane.kind]);
+});
+const contextPasteHint = computed(() => timelineContextMenu.value
+  ? timelinePasteHint(props.node, timelineContextMenu.value.lane, timelineClipClipboard.value) : "");
+const contextMenuItems = computed(() => timelineContextMenu.value?.clipId ? [
+  { id: "copy", label: "复制 Clip", disabled: !contextClip.value },
+  { id: "delete", label: "删除 Clip", danger: true, disabled: !contextClip.value },
+] : [
+  { id: "add", label: "添加 Clip", disabled: !contextTrackAvailable.value },
+  { id: "paste", label: "粘贴 Clip", disabled: !!contextPasteHint.value, hint: contextPasteHint.value },
+]);
 const lineDefinitions = getLineDefinitions().filter(
   (definition) => definition.removable && definition.type !== "Audio",
 ).sort((a, b) => {
@@ -91,11 +128,18 @@ const selectedClip = computed<SelectedClip | undefined>(() => {
 watch(() => editorOpen.value && Boolean(selectedClip.value), open => emit("inspectorOpen", open), { immediate: true, flush: "sync" });
 
 const contentDuration = computed(() => getGroupTimelineEnd(props.node));
+// Auto-fit must not change the coordinate system while a pointer gesture is active.
+const gestureViewport = ref<{ displayDuration: number; pixelsPerSecond: number; canvasDuration: number }>();
 const timelineDuration = computed(() =>
-  getGroupTimelineDisplayDuration(props.node),
+  gestureViewport.value?.displayDuration ?? getGroupTimelineDisplayDuration(props.node),
 );
-const pixelsPerSecond = computed(() => Math.max(1, viewportWidth.value - labelWidth - 24) / timelineDuration.value);
-const canvasDuration = computed(() => Math.max(timelineDuration.value, contentDuration.value));
+const pixelsPerSecond = computed(() => gestureViewport.value?.pixelsPerSecond
+  ?? Math.max(1, viewportWidth.value - labelWidth - 24) / timelineDuration.value);
+const canvasDuration = computed(() => Math.max(timelineDuration.value, contentDuration.value, gestureViewport.value?.canvasDuration ?? 0));
+watch(contentDuration, end => {
+  // Keep scrollLeft from being clamped when a dragged Clip shortens the content.
+  if (gestureViewport.value) gestureViewport.value.canvasDuration = Math.max(gestureViewport.value.canvasDuration, end);
+}, { flush: "sync" });
 const timelineWidth = computed(
   () => labelWidth + canvasDuration.value * pixelsPerSecond.value + 24,
 );
@@ -118,18 +162,40 @@ function updateDisplayDuration(event: Event) {
 }
 
 watch(
-  () => props.node.id,
+  () => props.node,
   () => {
+    stopTimelineGesture();
+    cancelOutsideEditorClose();
+    resetEditorPointerDown();
+    closeFooterLineMenu();
+    closeTimelineContextMenu();
     selectedId.value = props.node.dialogue?.id ?? "";
     editorOpen.value = false;
     hoveredClip.value = undefined;
     addLineMenu.value?.removeAttribute("open");
   },
+  { flush: "sync" },
 );
 
 function closeLineMenu() {
+  const footerTrigger = footerLineMenu.value?.trigger;
+  closeFooterLineMenu();
   addLineMenu.value?.removeAttribute("open");
-  addLineMenu.value?.querySelector("summary")?.focus();
+  (footerTrigger ?? addLineMenu.value?.querySelector("summary"))?.focus({ preventScroll: true });
+}
+
+function closeFooterLineMenu(restoreFocus = false) {
+  const trigger = footerLineMenu.value?.trigger;
+  footerLineMenu.value = undefined;
+  if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true });
+}
+
+function openFooterLineMenu(event: MouseEvent) {
+  closeLineMenu();
+  closeTimelineContextMenu();
+  const trigger = event.currentTarget as HTMLElement;
+  const rect = trigger.getBoundingClientRect();
+  footerLineMenu.value = { x: rect.left, y: rect.bottom + 6, trigger };
 }
 
 function closeLineMenuOutside(event: PointerEvent) {
@@ -159,7 +225,7 @@ function addSelectClip() {
 
 function addFocusPushClip() {
   if (props.node.focusPush) return;
-  const clip = createFocusPushClip(getGroupTimelineEnd(props.node));
+  const clip = createFocusPushClip();
   props.node.focusPush = clip;
   selectedId.value = clip.id;
 }
@@ -217,7 +283,67 @@ function deleteSelectedClip() {
   hoveredClip.value = undefined;
 }
 
+function closeTimelineContextMenu(restoreFocus = false) {
+  const trigger = timelineContextMenu.value?.trigger;
+  timelineContextMenu.value = undefined;
+  if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true });
+}
+
+function openTrackContextMenu(event: MouseEvent, lane: TimelineLane) {
+  const row = event.currentTarget as HTMLElement;
+  const onLabel = !!(event.target as Element).closest(".line-label");
+  const time = onLabel ? (lane.kind === "focusPush" ? 1 : 0)
+    : Math.max(0, Math.round((event.clientX - row.getBoundingClientRect().left - labelWidth) / pixelsPerSecond.value * 10) / 10);
+  hoveredClip.value = undefined;
+  closeLineMenu();
+  timelineContextMenu.value = { nodeId: props.node.id, lane, time, x: event.clientX, y: event.clientY, trigger: row };
+}
+
+function openClipContextMenu(event: MouseEvent, selected: SelectedClip) {
+  selectedId.value = selected.clip.id;
+  hoveredClip.value = undefined;
+  closeLineMenu();
+  const lane: TimelineLane = selected.kind === "performance"
+    ? { kind: "performance", lineId: selected.line.id } : { kind: selected.kind };
+  timelineContextMenu.value = {
+    nodeId: props.node.id, lane, clipId: selected.clip.id, time: selected.clip.startTime,
+    x: event.clientX, y: event.clientY, trigger: event.currentTarget as HTMLElement,
+  };
+}
+
+function timelineContextAction(action: string) {
+  const target = timelineContextMenu.value;
+  if (!target || target.nodeId !== props.node.id) {
+    closeTimelineContextMenu();
+    return;
+  }
+  if (target.clipId) {
+    const selected = findTimelineClip(props.node, target.clipId);
+    if (selected && action === "copy") timelineClipClipboard.value = captureTimelineClip(selected);
+    if (selected && action === "delete") {
+      selectedId.value = selected.clip.id;
+      deleteSelectedClip();
+    }
+  } else if (action === "paste" && timelineClipClipboard.value) {
+    const selected = pasteTimelineClip(props.node, target.lane, timelineClipClipboard.value, target.time);
+    if (selected) selectedId.value = selected.clip.id;
+  } else if (action === "add" && contextTrackAvailable.value) {
+    if (target.lane.kind === "dialogue") addDialogueClip();
+    else if (target.lane.kind === "select") addSelectClip();
+    else if (target.lane.kind === "focusPush") addFocusPushClip();
+    else {
+      const lineId = target.lane.lineId;
+      const line = props.node.lines.find(line => line.id === lineId);
+      if (line) addPerformanceClip(line);
+    }
+    if (selectedClip.value) selectedClip.value.clip.startTime = target.time;
+  }
+  closeTimelineContextMenu(true);
+}
+
 function showPreview(event: PointerEvent, selected: SelectedClip) {
+  if (gestureViewport.value) return;
+  if (timelineContextMenu.value) return;
   if (editorOpen.value && selectedId.value === selected.clip.id) return;
   hoveredClip.value = selected;
   movePreview(event);
@@ -237,8 +363,41 @@ function hidePreview() {
   hoveredClip.value = undefined;
 }
 
+function cancelOutsideEditorClose() {
+  if (outsideEditorCloseTimer !== undefined) window.clearTimeout(outsideEditorCloseTimer);
+  outsideEditorCloseTimer = undefined;
+}
+
+function isEditorInteraction(event: Event) {
+  const path = event.composedPath();
+  return path.includes(props.inspectorTarget!) || path.some(target =>
+    (target as Element).matches?.("[data-clip-editor], [data-timeline-clip]"));
+}
+
+function trackEditorPointerDown(event: PointerEvent) {
+  editorPointerDownInside = event.button === 0 && isEditorInteraction(event);
+}
+
+function resetEditorPointerDown() {
+  editorPointerDownInside = false;
+}
+
+function closeEditorFromOutside(event: MouseEvent) {
+  // Dragging a text selection outside can send the click to a shared ancestor.
+  const startedInside = event.type === "click" && event.detail > 0 && editorPointerDownInside;
+  if (event.type === "click") resetEditorPointerDown();
+  if (!editorOpen.value || startedInside || isEditorInteraction(event)) return;
+  cancelOutsideEditorClose();
+  // Finish the click first, so the graph's pane handler keeps the Timeline open.
+  outsideEditorCloseTimer = window.setTimeout(() => {
+    outsideEditorCloseTimer = undefined;
+    editorOpen.value = false;
+  }, 0);
+}
+
 function openEditor(_event: MouseEvent, selected: SelectedClip) {
   if (suppressClick) return;
+  cancelOutsideEditorClose();
   selectedId.value = selected.clip.id;
   hoveredClip.value = undefined;
   editorOpen.value = true;
@@ -259,21 +418,71 @@ function updatePerformanceDuration(clip: PerformanceClip, event: Event) {
 function updateContinueDelay(clip: FlowClip, event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
   if (!Number.isFinite(value)) return;
-  clip.continueDelayTime = Math.min(
-    getFlowClipDuration(props.node, clip),
-    Math.max(0, value),
-  );
+  clip.continueDelayTime = Math.max(0, value);
 }
 
 type TimelineClip = DialogueClip | SelectClip | PerformanceClip | FocusPushClip;
+type TimelineGesture = {
+  pointerId: number;
+  pointerStart: number;
+  scrollStart: number;
+  pixelsPerSecond: number;
+  moved: boolean;
+};
+
+function beginTimelineGesture(event: PointerEvent): TimelineGesture {
+  stopTimelineGesture();
+  gestureViewport.value = {
+    displayDuration: timelineDuration.value,
+    pixelsPerSecond: pixelsPerSecond.value,
+    canvasDuration: canvasDuration.value,
+  };
+  hoveredClip.value = undefined;
+  return {
+    pointerId: event.pointerId,
+    pointerStart: event.clientX,
+    scrollStart: timelineScrollRef.value?.scrollLeft ?? 0,
+    pixelsPerSecond: pixelsPerSecond.value,
+    moved: false,
+  };
+}
+
+function isTimelineGesturePointer(event: Event | undefined, gesture: TimelineGesture) {
+  return !event || !("pointerId" in event) || (event as PointerEvent).pointerId === gesture.pointerId;
+}
+
+function timelineGestureDelta(event: PointerEvent, gesture: TimelineGesture) {
+  return event.clientX - gesture.pointerStart + (timelineScrollRef.value?.scrollLeft ?? 0) - gesture.scrollStart;
+}
+
+function listenTimelineGesture(move: (event: PointerEvent) => void, stop: (event?: Event) => void) {
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", stop);
+  window.addEventListener("pointercancel", stop);
+  window.addEventListener("blur", stop);
+}
+
+function finishTimelineGesture(move: (event: PointerEvent) => void, stop: (event?: Event) => void, moved: boolean) {
+  window.removeEventListener("pointermove", move);
+  window.removeEventListener("pointerup", stop);
+  window.removeEventListener("pointercancel", stop);
+  window.removeEventListener("blur", stop);
+  gestureViewport.value = undefined;
+  suppressClick = moved;
+  window.setTimeout(() => { suppressClick = false; });
+}
+
+function stopTimelineGesture() {
+  stopDrag();
+  stopResize();
+  stopContinueDelayDrag();
+}
 
 let dragging:
-  | {
+  | (TimelineGesture & {
       clip: TimelineClip;
-      pointerStart: number;
       clipStart: number;
-      moved: boolean;
-    }
+    })
   | undefined;
 
 function startDrag(
@@ -284,19 +493,18 @@ function startDrag(
   event.preventDefault();
   selectedId.value = clip.id;
   dragging = {
+    ...beginTimelineGesture(event),
     clip,
-    pointerStart: event.clientX,
     clipStart: clip.startTime,
-    moved: false,
   };
-  window.addEventListener("pointermove", dragClip);
-  window.addEventListener("pointerup", stopDrag, { once: true });
+  listenTimelineGesture(dragClip, stopDrag);
 }
 
 function dragClip(event: PointerEvent) {
-  if (!dragging) return;
-  const delta = (event.clientX - dragging.pointerStart) / pixelsPerSecond.value;
-  if (Math.abs(event.clientX - dragging.pointerStart) > 3) {
+  if (!dragging || !isTimelineGesturePointer(event, dragging)) return;
+  const pixelDelta = timelineGestureDelta(event, dragging);
+  const delta = pixelDelta / dragging.pixelsPerSecond;
+  if (Math.abs(pixelDelta) > 3) {
     dragging.moved = true;
   }
   dragging.clip.startTime = Math.max(
@@ -305,24 +513,20 @@ function dragClip(event: PointerEvent) {
   );
 }
 
-function stopDrag() {
-  suppressClick = dragging?.moved ?? false;
+function stopDrag(event?: Event) {
+  if (!dragging || !isTimelineGesturePointer(event, dragging)) return;
+  const moved = dragging.moved;
   dragging = undefined;
-  window.removeEventListener("pointermove", dragClip);
-  window.setTimeout(() => {
-    suppressClick = false;
-  });
+  finishTimelineGesture(dragClip, stopDrag, moved);
 }
 
 let resizing:
-  | {
+  | (TimelineGesture & {
       clip: TimelineClip;
       boundary: "start" | "end";
-      pointerStart: number;
       clipStart: number;
       clipDuration: number;
-      moved: boolean;
-    }
+    })
   | undefined;
 
 function startResize(
@@ -335,21 +539,19 @@ function startResize(
   event.stopPropagation();
   selectedId.value = clip.id;
   resizing = {
+    ...beginTimelineGesture(event),
     clip,
     boundary,
-    pointerStart: event.clientX,
     clipStart: clip.startTime,
     clipDuration: clipDisplayDuration(clip),
-    moved: false,
   };
-  window.addEventListener("pointermove", resizeClip);
-  window.addEventListener("pointerup", stopResize, { once: true });
+  listenTimelineGesture(resizeClip, stopResize);
 }
 
 function resizeClip(event: PointerEvent) {
-  if (!resizing) return;
-  const pixelDelta = event.clientX - resizing.pointerStart;
-  const timeDelta = pixelDelta / pixelsPerSecond.value;
+  if (!resizing || !isTimelineGesturePointer(event, resizing)) return;
+  const pixelDelta = timelineGestureDelta(event, resizing);
+  const timeDelta = pixelDelta / resizing.pixelsPerSecond;
   if (Math.abs(pixelDelta) > 3) resizing.moved = true;
 
   if (resizing.boundary === "start") {
@@ -376,13 +578,11 @@ function resizeClip(event: PointerEvent) {
   }
 }
 
-function stopResize() {
-  suppressClick = resizing?.moved ?? false;
+function stopResize(event?: Event) {
+  if (!resizing || !isTimelineGesturePointer(event, resizing)) return;
+  const moved = resizing.moved;
   resizing = undefined;
-  window.removeEventListener("pointermove", resizeClip);
-  window.setTimeout(() => {
-    suppressClick = false;
-  });
+  finishTimelineGesture(resizeClip, stopResize, moved);
 }
 
 function clipDisplayDuration(clip: TimelineClip) {
@@ -392,13 +592,10 @@ function clipDisplayDuration(clip: TimelineClip) {
 }
 
 let continueDelayDragging:
-  | {
+  | (TimelineGesture & {
       clip: FlowClip;
-      pointerStart: number;
       delayStart: number;
-      maximumDelay: number;
-      moved: boolean;
-    }
+    })
   | undefined;
 
 function startContinueDelayDrag(event: PointerEvent, clip: FlowClip) {
@@ -407,43 +604,40 @@ function startContinueDelayDrag(event: PointerEvent, clip: FlowClip) {
   event.stopPropagation();
   selectedId.value = clip.id;
   continueDelayDragging = {
+    ...beginTimelineGesture(event),
     clip,
-    pointerStart: event.clientX,
     delayStart: clip.continueDelayTime,
-    maximumDelay: getFlowClipDuration(props.node, clip),
-    moved: false,
   };
-  window.addEventListener("pointermove", dragContinueDelay);
-  window.addEventListener("pointerup", stopContinueDelayDrag, { once: true });
+  listenTimelineGesture(dragContinueDelay, stopContinueDelayDrag);
 }
 
 function dragContinueDelay(event: PointerEvent) {
-  if (!continueDelayDragging) return;
-  const pixelDelta = event.clientX - continueDelayDragging.pointerStart;
+  if (!continueDelayDragging || !isTimelineGesturePointer(event, continueDelayDragging)) return;
+  const pixelDelta = timelineGestureDelta(event, continueDelayDragging);
   if (Math.abs(pixelDelta) > 3) continueDelayDragging.moved = true;
-  continueDelayDragging.clip.continueDelayTime = Math.min(
-    continueDelayDragging.maximumDelay,
-    Math.max(
-      0,
-      Math.round(
-        (continueDelayDragging.delayStart + pixelDelta / pixelsPerSecond.value) * 10,
-      ) / 10,
-    ),
+  continueDelayDragging.clip.continueDelayTime = Math.max(
+    0,
+    Math.round(
+      (continueDelayDragging.delayStart + pixelDelta / continueDelayDragging.pixelsPerSecond) * 10,
+    ) / 10,
   );
 }
 
-function stopContinueDelayDrag() {
-  suppressClick = continueDelayDragging?.moved ?? false;
+function stopContinueDelayDrag(event?: Event) {
+  if (!continueDelayDragging || !isTimelineGesturePointer(event, continueDelayDragging)) return;
+  const moved = continueDelayDragging.moved;
   continueDelayDragging = undefined;
-  window.removeEventListener("pointermove", dragContinueDelay);
-  window.setTimeout(() => {
-    suppressClick = false;
-  });
+  finishTimelineGesture(dragContinueDelay, stopContinueDelayDrag, moved);
 }
 
 let suppressClick = false;
 
 onMounted(() => {
+  window.addEventListener("click", closeEditorFromOutside, true);
+  window.addEventListener("contextmenu", closeEditorFromOutside, true);
+  window.addEventListener("pointerdown", trackEditorPointerDown, true);
+  window.addEventListener("pointercancel", resetEditorPointerDown, true);
+  window.addEventListener("blur", resetEditorPointerDown);
   window.addEventListener("pointerdown", closeLineMenuOutside, true);
   timelineResizeObserver = new ResizeObserver(() => {
     if (timelineScrollRef.value) viewportWidth.value = timelineScrollRef.value.clientWidth;
@@ -454,12 +648,18 @@ onMounted(() => {
   }
 });
 onBeforeUnmount(() => {
+  closeFooterLineMenu();
+  cancelOutsideEditorClose();
+  window.removeEventListener("click", closeEditorFromOutside, true);
+  window.removeEventListener("contextmenu", closeEditorFromOutside, true);
+  window.removeEventListener("pointerdown", trackEditorPointerDown, true);
+  window.removeEventListener("pointercancel", resetEditorPointerDown, true);
+  window.removeEventListener("blur", resetEditorPointerDown);
+  closeTimelineContextMenu();
   window.removeEventListener("pointerdown", closeLineMenuOutside, true);
   emit("inspectorOpen", false);
   timelineResizeObserver?.disconnect();
-  stopDrag();
-  stopResize();
-  stopContinueDelayDrag();
+  stopTimelineGesture();
 });
 </script>
 
@@ -517,7 +717,7 @@ onBeforeUnmount(() => {
             </span>
           </div>
 
-          <div class="timeline-row dialogue-row">
+          <div class="timeline-row dialogue-row" @contextmenu.prevent.stop="openTrackContextMenu($event, { kind: 'dialogue' })">
             <div class="line-label dialogue-label">
               <strong>对话</strong>
               <small>可选 · 固定单 Clip</small>
@@ -532,6 +732,7 @@ onBeforeUnmount(() => {
                 left: `${labelWidth + node.dialogue.startTime * pixelsPerSecond}px`,
               }"
               @pointerdown="startDrag($event, node.dialogue)"
+              @contextmenu.prevent.stop="openClipContextMenu($event, { kind: 'dialogue', clip: node.dialogue })"
               @pointerenter="
                 showPreview($event, { kind: 'dialogue', clip: node.dialogue })
               "
@@ -574,7 +775,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div class="timeline-row select-row">
+          <div class="timeline-row select-row" @contextmenu.prevent.stop="openTrackContextMenu($event, { kind: 'select' })">
             <div class="line-label select-label">
               <strong>选项卡</strong>
               <small>可选 · 固定单 Clip</small>
@@ -589,6 +790,7 @@ onBeforeUnmount(() => {
                 left: `${labelWidth + node.select.startTime * pixelsPerSecond}px`,
               }"
               @pointerdown="startDrag($event, node.select)"
+              @contextmenu.prevent.stop="openClipContextMenu($event, { kind: 'select', clip: node.select })"
               @pointerenter="
                 showPreview($event, { kind: 'select', clip: node.select })
               "
@@ -630,7 +832,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div class="timeline-row focus-push-row">
+          <div class="timeline-row focus-push-row" @contextmenu.prevent.stop="openTrackContextMenu($event, { kind: 'focusPush' })">
             <div class="line-label">
               <div><strong>强制跳过</strong><small>强制跳过 · 单 Clip</small></div>
             </div>
@@ -642,6 +844,7 @@ onBeforeUnmount(() => {
               :class="{ selected: selectedId === node.focusPush.id }"
               :style="{ left: `${labelWidth + node.focusPush.startTime * pixelsPerSecond}px` }"
               @pointerdown="startDrag($event, node.focusPush)"
+              @contextmenu.prevent.stop="openClipContextMenu($event, { kind: 'focusPush', clip: node.focusPush })"
               @pointerenter="showPreview($event, { kind: 'focusPush', clip: node.focusPush })"
               @pointermove="movePreview"
               @pointerleave="hidePreview"
@@ -660,6 +863,7 @@ onBeforeUnmount(() => {
             v-for="line in node.lines"
             :key="line.id"
             class="timeline-row"
+            @contextmenu.prevent.stop="openTrackContextMenu($event, { kind: 'performance', lineId: line.id })"
           >
             <div class="line-label">
               <div>
@@ -700,6 +904,7 @@ onBeforeUnmount(() => {
                 width: isInstantPerformanceClip(clip) ? undefined : `${Math.max(clip.duration, 0.1) * pixelsPerSecond}px`,
               }"
               @pointerdown="startDrag($event, clip)"
+              @contextmenu.prevent.stop="openClipContextMenu($event, { kind: 'performance', line, clip })"
               @pointerenter="
                 showPreview($event, { kind: 'performance', line, clip })
               "
@@ -738,13 +943,27 @@ onBeforeUnmount(() => {
               ＋ 添加 {{ lineLabel(line) }}片段
             </button>
           </div>
+          <div class="timeline-add-event">
+            <button type="button" class="add-event-button" aria-haspopup="menu" :aria-expanded="!!footerLineMenu"
+              @click="openFooterLineMenu">＋ 添加事件</button>
+          </div>
         </div>
       </div>
 
     </div>
 
+    <TimelineContextMenu v-if="footerLineMenu"
+      :position="{ x: footerLineMenu.x, y: footerLineMenu.y }" title="添加事件"
+      :items="lineDefinitions.map(definition => ({ id: definition.type, label: `添加${definition.label}` }))"
+      @select="addLine" @close="closeFooterLineMenu" />
+
+    <TimelineContextMenu v-if="timelineContextMenu"
+      :position="{ x: timelineContextMenu.x, y: timelineContextMenu.y }"
+      :title="timelineContextMenu.clipId ? 'Clip 操作' : `轨道 · ${timelineContextMenu.time.toFixed(1)}s`"
+      :items="contextMenuItems" @select="timelineContextAction" @close="closeTimelineContextMenu" />
+
     <div
-      v-if="hoveredClip && !editorOpen"
+      v-if="hoveredClip && !editorOpen && !timelineContextMenu"
       class="clip-preview"
       :style="{
         left: `${previewPosition.left}px`,
@@ -1093,6 +1312,26 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.55);
   border-bottom: 1px solid #e0e7f0;
 }
+
+.timeline-add-event {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  width: 118px;
+  padding: 10px 8px 16px;
+}
+.add-event-button {
+  width: 100%;
+  padding: 8px 4px;
+  border: 1px dashed #a8c2e3;
+  border-radius: 6px;
+  background: #fff;
+  color: #5273a0;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.add-event-button:hover { background: #edf3ff; border-color: #6da0df; color: #245a98; }
 
 .dialogue-row {
   background: rgba(219, 234, 254, 0.3);
