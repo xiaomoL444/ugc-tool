@@ -52,6 +52,8 @@
 VUE_APP_AI_SEARCH_API_BASE=https://your-service.workers.dev/api/ai-search
 ```
 
+项目根目录 `.env.production` 保存公开的生产 Worker 地址，随源码一起发布；`.env.local` 与 `.env.*.local` 已被 Git 忽略。Vue CLI 在构建时把 `VUE_APP_AI_SEARCH_API_BASE` 内联到网页脚本，浏览器不会读取服务器上的 `.env` 文件。修改地址后需重新执行 `npm run build` 并发布完整 `dist`；源码构建平台也需执行生产构建并把发布目录设为 `dist`。平台显式设置的同名环境变量优先于文件，应同步设置为正确地址。
+
 服务地址可以公开，站长的 Key 必须留在服务端 secrets 中，不能放入任何 `VUE_APP_*` 变量。服务部署、价格、密钥与来源域名配置见 `tools/ai-search-service/README.md`。本次实现没有部署云服务，没有用真实 Key 调用模型。
 
 使用 DeepSeek 官方接口的站点 AI 使用服务端 `MIN_BALANCE_CNY="20"` 保护阈值。Worker 通过站长 Key 查询官方余额接口，CNY `total_balance` 含赠送余额；余额小于 20 元或 `is_available=false` 时停用站点 AI，余额等于 20 元可以通过余额检查。查询失败、超时或没有可信 CNY 数据时也暂时停用。`/config` 只公开 `limits.minBalanceCny` 与停用原因，绝不公开真实余额；配置有效时 `configured` 仍为 true，`available` 为 false。前端显示 `PROVIDER_BALANCE_LOW` 或 `PROVIDER_BALANCE_UNAVAILABLE` 对应的停用提示。基础搜索和用户自有模型不受此停用影响；其他上游没有同类余额保障。
