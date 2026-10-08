@@ -32,6 +32,7 @@ export interface GiaImportedControl {
   childSourceNodeIndices: number[];
   name: string;
   type: ControlType;
+  visible?: boolean;
   layout: GiaImportedLayout;
   properties: Record<string, unknown>;
 }
@@ -223,13 +224,29 @@ function propertiesOf(node: GiaObject, type: ControlType): Record<string, unknow
     const fill = numberValue(mask?.["508"], Number.NaN);
     const widthX = numberValue(feather?.["501"], Number.NaN);
     const widthY = numberValue(feather?.["502"], Number.NaN);
+    const rangeX = numberValue(mask?.["512"], Number.NaN);
+    const rangeY = numberValue(mask?.["513"], Number.NaN);
     return {
       ...(Number.isFinite(imageId) ? { imageId } : {}),
       ...(imageColor ? { imageColor } : {}),
       ...(imageType ? { imageType } : {}),
+      enableMask: numberAt(mask, "501", 0) !== 0,
+      enableSoftEdge: numberAt(mask, "509", 0) !== 0,
+      softEdgeMode: enumValue(mask?.["510"], ["percentage", "pixel"] as const),
+      reverseMaskArea: numberAt(mask, "516", 0) !== 0,
+      enableFill: numberAt(mask, "514", 0) !== 0,
+      fillType: enumValue(mask?.["515"], ["unused", "horizontal", "vertical", "radial90", "radial180", "radial360"] as const),
+      fillClockwise: numberAt(mask, "505", 0) !== 0,
+      fillHorizontalType: enumValue(mask?.["503"], ["left", "right"] as const),
+      // Corrected native fixtures: 504=0/omission is bottom-to-top, 1 is top-to-bottom.
+      fillVerticalType: enumValue(mask?.["504"], ["bottom", "top"] as const),
+      fillRadial90Type: enumValue(mask?.["506"], ["bottomLeft", "topLeft", "topRight", "bottomRight"] as const),
+      fillRadialType: enumValue(mask?.["507"], ["bottom", "left", "top", "right"] as const),
       ...(Number.isFinite(fill) && fill >= 0 && fill <= 100 ? { fillAmount: fill / 100 } : {}),
       ...(Number.isFinite(widthX) && widthX >= 0 ? { softEdgeWidthX: widthX } : {}),
       ...(Number.isFinite(widthY) && widthY >= 0 ? { softEdgeWidthY: widthY } : {}),
+      ...(Number.isFinite(rangeX) && rangeX >= 0 && rangeX <= 100 ? { horizontalSoftRange: rangeX } : {}),
+      ...(Number.isFinite(rangeY) && rangeY >= 0 && rangeY <= 100 ? { verticalSoftRange: rangeY } : {}),
     };
   }
 
@@ -332,23 +349,27 @@ export function importGiaControlTemplate(input: ArrayBuffer): GiaImportResult[] 
   return [0, 1, 2, 3].map(device => readGiaControls(document.json, device));
 }
 
-/** Native UI assets have a UI wrapper; template assets contain the root control. */
-export function detectGiaAssetKind(json: UgcValue | undefined): GiaAssetKind {
-  const primary = asObject(asArray(asObject(json)?.["1"])[0]);
-  if (primary && !componentOf(primary, "72") && primary["5"] !== 21
-    && (primary["5"] === 70 || componentOf(primary, "11"))) return "controlTemplate";
-  return "containerUI";
+/** Recognize a single native client-UI asset; packages and other assets are unsupported. */
+export function detectGiaAssetKind(json: UgcValue | undefined): GiaAssetKind | null {
+  const assets = asArray(asObject(json)?.["1"]);
+  if (assets.length !== 1) return null;
+  const primary = asObject(assets[0]);
+  if (!primary || !componentOf(primary, "11")) return null;
+  if (primary["5"] === 21 && componentOf(primary, "72")) return "containerUI";
+  if (primary["5"] === 70 && !componentOf(primary, "72")) return "controlTemplate";
+  return null;
 }
 
 export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportResult {
   const root = asObject(json);
   if (!root) throw new Error("GIA 根数据不是对象");
-  const rawNodes = asArray(root["2"]).map(asObject).filter((value): value is GiaObject => Boolean(value));
-  // A template's primary entry is its root control; a UI project's primary
-  // entry is just a wrapper. Only include entries with a real RectTransform.
-  const primary = asObject(asArray(root["1"])[0]);
   const assetKind = detectGiaAssetKind(json);
-  if (primary && assetKind === "controlTemplate" && componentOf(primary, "11")) rawNodes.unshift(primary);
+  if (asArray(root["1"]).length > 1) throw new Error("不支持导入资产包或多个资产，请在游戏中单独导出一个客户端容器 UI 或客户端控件模板。");
+  if (!assetKind) throw new Error("仅支持导入客户端容器 UI 和客户端控件模板，不支持资产包、服务端控件模板或其他资产。");
+  const primary = asObject(asArray(root["1"])[0])!;
+  // The member pool can also contain external asset dependencies, not controls.
+  const rawNodes = asArray(root["2"]).map(asObject).filter((node): node is GiaObject => Boolean(node && node["5"] === 15 && componentOf(node, "11")));
+  if (assetKind === "controlTemplate") rawNodes.unshift(primary);
   const seen = new Set<number>();
   const warnings: string[] = [];
   const controls: GiaImportedControl[] = [];
@@ -365,6 +386,8 @@ export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportR
     // A template's asset name and its root control's component name can differ.
     const name = node === primary && assetKind === "controlTemplate" && componentName
       ? componentName : decodeGiaText(node["3"], componentName || `Control_${sourceNodeIndex}`);
+    const stateComponent = componentOf(node, "14");
+    const initialState = asObject(asObject(asObject(stateComponent?.["503"])?.["14"])?.["17"]);
     if (!detected.known) warnings.push(`${name}：未识别具体控件组件，按容器保留层级`);
     controls.push({
       sourceNodeIndex,
@@ -372,6 +395,8 @@ export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportR
       childSourceNodeIndices: childrenOf(node),
       name,
       type: detected.type,
+      // Native initial-state flag 503=1 hides the closed-eye group; omission is visible.
+      visible: numberAt(initialState, "503", 0) === 0,
       layout: layoutOf(node, deviceIndex),
       properties: propertiesOf(node, detected.type),
     });

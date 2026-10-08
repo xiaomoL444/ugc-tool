@@ -16,12 +16,12 @@
       <ColorRGBAField v-if="field.kind === 'color'" :label="field.label" :model-value="asColor(modelValue[field.key])" :animated="isAnimated(field)" @update:model-value="updateField(field.key, $event)" />
       <textarea v-else-if="field.kind === 'textarea'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" rows="4" @input="updateField(field.key, ($event.target as HTMLTextAreaElement).value)"></textarea>
       <input v-else-if="field.kind === 'text'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" @input="updateField(field.key, ($event.target as HTMLInputElement).value)" />
-      <div v-else-if="definition.type === 'image' && field.key === 'fillAmount'" class="mask-range"><input type="range" min="0" max="100" step="0.1" aria-label="填充进度滑块" :value="Number(modelValue.fillAmount ?? 1) * 100" @input="updateNumber('fillAmount', Number(($event.target as HTMLInputElement).value) / 100)" /><ScrubbableNumberInput :model-value="typeof modelValue.fillAmount === 'number' ? modelValue.fillAmount * 100 : null" :min="0" :max="100" :step="0.1" :animated="isAnimated(field)" aria-label="填充进度百分比" placeholder="未设置" @update:model-value="$event !== null && updateNumber('fillAmount', $event / 100)" /></div>
+      <div v-else-if="definition.type === 'image' && field.key === 'fillAmount'" class="mask-range"><input type="range" min="0" max="100" step="1" aria-label="填充进度滑块" :value="Number(modelValue.fillAmount ?? 1) * 100" @input="updateNumber('fillAmount', Number(($event.target as HTMLInputElement).value) / 100)" /><ScrubbableNumberInput :model-value="typeof modelValue.fillAmount === 'number' ? modelValue.fillAmount * 100 : null" :min="0" :max="100" :step="1" :animated="isAnimated(field)" aria-label="填充进度百分比" placeholder="未设置" @update:model-value="$event !== null && updateNumber('fillAmount', $event / 100)" /></div>
       <div v-else-if="definition.type === 'image' && ['horizontalSoftRange', 'verticalSoftRange'].includes(field.key)" class="mask-range"><input type="range" min="0" max="100" step="0.01" :aria-label="`${field.label}滑块`" :value="modelValue[field.key] ?? 85" @input="updateNumber(field.key, Number(($event.target as HTMLInputElement).value))" /><ScrubbableNumberInput :model-value="numberValue(modelValue[field.key])" :min="0" :max="100" :step="0.01" :animated="isAnimated(field)" :allow-empty="!isAnimated(field)" :aria-label="field.label" placeholder="未设置" @update:model-value="updateNumber(field.key, $event)" /></div>
       <ScrubbableNumberInput v-else-if="field.kind === 'number'" :aria-label="field.label" :model-value="numberValue(modelValue[field.key])" :animated="isAnimated(field)" :min="field.min" :max="field.max" :step="field.step ?? 1" :allow-empty="!isAnimated(field)" placeholder="未设置" @update:model-value="updateNumber(field.key, $event)" />
       <label v-else-if="field.kind === 'boolean'" class="boolean-control"><input :aria-label="field.label" :checked="booleanValue(field.key)" type="checkbox" role="switch" @change="updateField(field.key, ($event.target as HTMLInputElement).checked)" /><i></i><span>{{ booleanValue(field.key) ? '开启' : '关闭' }}</span></label>
       <select v-else-if="field.kind === 'nullableBoolean'" :aria-label="field.label" :value="nullableBooleanValue(modelValue[field.key])" @change="updateNullableBoolean(field.key, $event)"><option value="">未设置</option><option value="true">true</option><option value="false">false</option></select>
-      <select v-else-if="field.kind === 'select'" :aria-label="field.label" :value="selectValue(field)" @change="updateSelect(field.key, $event)"><option v-if="definition.type !== 'image'" value="">未设置</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
+      <select v-else-if="field.kind === 'select'" :aria-label="field.label" :value="selectValue(field)" @change="updateSelect(field.key, $event)"><option v-if="definition.type !== 'image' || modelValue[field.key] === null" value="">未设置</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
       </slot>
     </div>
     </div>
@@ -44,9 +44,12 @@ function fieldTitle(field: ControlPropertyField) { return isAnimated(field) ? [f
 const visibleFields = computed(() => props.definition.type === 'image' ? imageMaskFields(props.definition.fields, props.modelValue) : props.definition.fields);
 const previousFill = ref('horizontal');
 watch(() => props.modelValue.fillType, value => { if (typeof value === 'string' && value !== 'unused') previousFill.value = value; }, {immediate:true});
-function booleanValue(key: string) { return key === '__fillEnabled' ? Boolean(props.modelValue.fillType && props.modelValue.fillType !== 'unused') : Boolean(props.modelValue[key]); }
+function booleanValue(key: string) { return key === '__fillEnabled' ? Boolean(props.modelValue.enableFill ?? (props.modelValue.fillType && props.modelValue.fillType !== 'unused')) : Boolean(props.modelValue[key]); }
 function updateField(key: string, value: unknown) {
-  if (key === '__fillEnabled') { key = 'fillType'; value = value ? previousFill.value : 'unused'; }
+  if (key === '__fillEnabled') {
+    emit("update:modelValue", { ...props.modelValue, enableFill: Boolean(value), ...(value && (!props.modelValue.fillType || props.modelValue.fillType === 'unused') ? { fillType: previousFill.value } : {}) });
+    return;
+  }
   emit("update:modelValue", { ...props.modelValue, [key]: value });
 }
 function updateNumber(key: string, value: number | null) {
@@ -57,6 +60,7 @@ function updateNumber(key: string, value: number | null) {
 }
 function updateNullableBoolean(key: string, event: Event) { const raw = (event.target as HTMLSelectElement).value; updateField(key, raw === "" ? null : raw === "true"); }
 function selectValue(field: ControlPropertyField) {
+  if (props.modelValue[field.key] === null) return '';
   const value = stringValue(props.modelValue[field.key]);
   return props.definition.type === 'image' && !field.options?.some(option => option.value === value) ? field.options?.[0]?.value ?? '' : value;
 }

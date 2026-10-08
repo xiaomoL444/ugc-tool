@@ -86,7 +86,9 @@ export interface ClientUIImageControlProperties {
   horizontalSoftRange: number | null;
   verticalSoftRange: number | null;
   reverseMaskArea: boolean;
+  enableFill: boolean;
   fillType: ImageFillType | null;
+  fillClockwise: boolean;
   fillHorizontalType: "left" | "right" | null;
   fillVerticalType: "bottom" | "top" | null;
   fillRadial90Type: "bottomLeft" | "topLeft" | "topRight" | "bottomRight" | null;

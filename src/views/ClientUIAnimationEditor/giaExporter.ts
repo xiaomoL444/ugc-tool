@@ -5,7 +5,7 @@ import type { ColorRGBA, ControlType, UINode } from "./types";
 import { toNativeExportNode } from "./primitiveControl";
 
 type Obj = Record<string, UgcValue>;
-export interface GiaExportSource { document: ConverterDocument; baseline?: UINode[]; deviceIndex: number }
+export interface GiaExportSource { document: ConverterDocument; baseline?: UINode[]; deviceIndex: number; imageMaskVersion?: number }
 export interface GiaExportOptions { name: string; uiIndex: number; assetKind?: GiaAssetKind; deviceIndex: number; nodes: UINode[]; source?: GiaExportSource | null }
 export interface GiaExportResult { bytes: Uint8Array; document: ConverterDocument; controlCount: number; assetKind: GiaAssetKind }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -165,11 +165,22 @@ const fillAmount: PropertyWriter = (raw, value) => {
 const enumeration = (values: string[]) => (value: unknown) => {
   const index = values.indexOf(String(value)); if (index < 0) throw new Error(`未知枚举值 ${String(value)}`); return index;
 };
+const softRange = (value: unknown): number => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) throw new Error("羽化范围必须在 0～100 之间");
+  return value;
+};
 const PROPERTY_WRITERS: Partial<Record<ControlType, Record<string, PropertyWriter>>> = {
   reference: { referencedPrefabIndex: scalar(76, "501") },
   uiAnimation: { animationId: scalar(85, "501"), playSoundEffect: scalar(85, "502", flag) },
   container: { isolateNavigation: scalar(78, "501", flag), disableKeyEventPassthrough: scalar(78, "502", flag), disableCursorEventPassthrough: scalar(78, "503", flag), showCursor: scalar(78, "504", flag) },
   image: { imageId: scalar(83, "503"), imageColor: scalar(83, "502", packedColor), imageType: scalar(83, "504", enumeration(["basic", "stretch"])),
+    enableMask: scalar(84, "501", flag), enableSoftEdge: scalar(84, "509", flag), softEdgeMode: scalar(84, "510", enumeration(["percentage", "pixel"])),
+    reverseMaskArea: scalar(84, "516", flag), enableFill: scalar(84, "514", flag),
+    fillType: scalar(84, "515", enumeration(["unused", "horizontal", "vertical", "radial90", "radial180", "radial360"])),
+    fillClockwise: scalar(84, "505", flag), fillHorizontalType: scalar(84, "503", enumeration(["left", "right"])), fillVerticalType: scalar(84, "504", enumeration(["bottom", "top"])),
+    fillRadial90Type: scalar(84, "506", enumeration(["bottomLeft", "topLeft", "topRight", "bottomRight"])),
+    fillRadialType: scalar(84, "507", enumeration(["bottom", "left", "top", "right"])),
+    horizontalSoftRange: scalar(84, "512", softRange), verticalSoftRange: scalar(84, "513", softRange),
     fillAmount, softEdgeWidthX: featherWidth("501"), softEdgeWidthY: featherWidth("502") },
   text: { text: (raw, value) => { const b = body(raw, 74), text = obj(b["510"]); b["510"] = text; text["501"] = `string:${String(value ?? "")}`; },
     fontSize: scalar(74, "512"), minimumFontSize: scalar(74, "513"), fontColor: scalar(74, "504", packedColor), bgColor: scalar(74, "505", packedColor), outlineColor: scalar(74, "507", packedColor),
@@ -220,7 +231,7 @@ function prepareEncoding(document: ConverterDocument): void {
     if (record.values.some(value => value && typeof value === "object")) type = "object";
     else if (record.values.some(value => typeof value === "number")) {
       if (/\/503\/13\/12\/501\/502\/(501|502|503|504|505|506|508)\/(1|2|3|501|502)$/.test(path)) type = "float32";
-      else if (/\/503\/85\/511\/(501|502)$/.test(path)) type = "float32";
+      else if (/\/503\/85\/(511\/(501|502)|512|513)$/.test(path)) type = "float32";
       else if (!["int", "int32", "int64", "float32"].includes(type ?? "")) type = "int";
       if (type !== "float32" && record.values.some(value => typeof value === "number" && !Number.isSafeInteger(value))) throw new Error(`GIA 整数字段 ${path} 包含小数或越界值，不能无损写入`);
     } else if (record.values.some(value => typeof value === "string" && value.startsWith("string:"))) type = "string";
@@ -248,6 +259,22 @@ export function normalizeGiaExportSource(value: unknown): GiaExportSource | null
     || !Number.isInteger(source.deviceIndex) || source.deviceIndex < 0 || source.deviceIndex > 3
     || source.baseline !== undefined && !Array.isArray(source.baseline)) throw new Error("原始 GIA 数据无效");
   return clone(source);
+}
+
+/** Repair the default-false masks in projects imported before native mask support. */
+export function restoreLegacyGiaImageMasks(nodes: UINode[], source: GiaExportSource | null): void {
+  if (!source || (source.imageMaskVersion ?? 0) >= 1 || !detectGiaAssetKind(source.document.json)) return;
+  const original = new Map(readGiaControls(source.document.json, source.deviceIndex).controls.map(control => [`gia_node_${control.sourceNodeIndex}`, control]));
+  const baseline = new Map((source.baseline ?? []).map(node => [node.id, node]));
+  for (const node of nodes) {
+    const control = original.get(node.id), before = baseline.get(node.id);
+    if (node.type !== "image" || control?.type !== "image") continue;
+    const nativeMask = control.properties.enableMask === true;
+    // Restore only the old imported default, keeping later property edits.
+    if (!before || before.type === "image" && node.properties.enableMask === before.properties.enableMask) node.properties.enableMask = nativeMask;
+    if (before?.type === "image") before.properties.enableMask = nativeMask;
+  }
+  source.imageMaskVersion = 1;
 }
 export function originalGiaUIIndex(source: GiaExportSource | null): number {
   const primary = obj(list(obj(source?.document.json)["1"])[0]);
@@ -289,6 +316,7 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
   nodes.forEach(visit);
   const original = obj(source?.document.json), originalPrimary = obj(list(original["1"])[0]);
   const sourceKind = detectGiaAssetKind(source?.document.json);
+  if (source && !sourceKind) throw new Error("原始 GIA 是资产包或其他资产，仅支持客户端容器 UI 和客户端控件模板。");
   const rawNodes = [...list(original["2"]).map(obj), ...(sourceKind === "controlTemplate" ? [originalPrimary] : [])];
   const rawMap = new Map(rawNodes.map(raw => [Number(obj(raw["1"])["4"]), raw]));
   const baseline = new Map((source?.baseline ?? []).map(node => [node.id, node]));
@@ -320,13 +348,13 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
       const raw = old ? clone(old) : createNativeControl(node, id);
       if (old) reindexNativeControl(raw, id, remappedIds);
       raw["5"] = 15;
-      if (sourceKind === "controlTemplate" && node === roots[0] && assetKind === "containerUI") {
+      if (sourceKind === "controlTemplate" && old === originalPrimary && (node !== roots[0] || assetKind === "containerUI")) {
         metadata(raw)["502"] = list(metadata(raw)["502"]).map(obj).filter(attribute => !("14" in attribute));
       }
       if (!before || node.name !== before.name || old === originalPrimary) { raw["3"] = `string:${node.name}`; const name = component(raw, 12); if (name) name["12"] = { ...obj(name["12"]), "501": `string:${node.name}` }; }
       const children = nodes.filter(child => child.parentId === node.id).slice().reverse().map(child => ids.get(child.id)!);
       setHierarchy(raw, node.parentId ? ids.get(node.parentId)! : null, children);
-      writeLayout(raw, node, before, options.deviceIndex); writeProperties(raw, node, before); output.push(raw);
+      writeLayout(raw, node, old ? before : undefined, options.deviceIndex); writeProperties(raw, node, old ? before : undefined); output.push(raw);
     } catch (error) { errors.push((error as Error).message); }
   }
   if (errors.length) throw new Error(errors.join("\n"));
@@ -348,8 +376,10 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
   dependencies.forEach(raw => remapControlIdentities(raw, remappedIds));
   const document: ConverterDocument = source ? clone(source.document) : { filetype: "gia", dirtype: "Unknown", info: { "1": 1, "2": 806, "3": 3, "4": 1657 }, json: {}, dtype_csv: "" };
   document.json = { ...original, "1": primary, "2": [...output.filter(raw => raw !== primary), ...dependencies] };
-  if (source && sourceKind !== assetKind) {
-    // Moving the root between asset and member fields also moves unknown wire types.
+  const originalRootId = Number(/^gia_node_(\d+)$/.exec(roots[0].id)?.[1]);
+  const templateRootMovedToPool = sourceKind === "controlTemplate" && Number(obj(originalPrimary["1"])["4"]) !== originalRootId;
+  if (source && (sourceKind !== assetKind || templateRootMovedToPool)) {
+    // A single non-container template may acquire an editor canvas parent.
     const from = sourceKind === "controlTemplate" ? "1" : "2", to = from === "1" ? "2" : "1";
     const moved = document.dtype_csv.split(/\r?\n/).filter(line => line.startsWith(`${from}/`))
       .map(line => `${to}${line.slice(from.length)}`);

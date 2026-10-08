@@ -11,6 +11,8 @@ export interface EditorHistoryOptions {
   restore: (snapshot: string) => void;
   describe: (before: string, after: string) => string;
   limit?: number;
+  onCommit?: (entry: EditorHistoryEntry) => void;
+  onReset?: () => void;
 }
 
 interface PendingChange {
@@ -51,6 +53,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
 
   const canUndo = computed(() => !disposed && !busy.value && (pending.value !== null || index.value >= 0));
   const canRedo = computed(() => !disposed && !busy.value && pending.value === null && index.value < entries.value.length - 1);
+  const hasPending = computed(() => pending.value !== null);
 
   function makeManager() {
     const next = new UndoManager();
@@ -125,6 +128,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
       undo: () => restoreCommand(change.before, owner, commandRevision),
       redo: () => restoreCommand(change.after, owner, commandRevision),
     });
+    options.onCommit?.({ id, label });
   }
 
   function begin(source: string) {
@@ -155,6 +159,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
     manager = makeManager();
     busy.value = false;
     syncEntries();
+    options.onReset?.();
   }
 
   async function run(action: "undo" | "redo") {
@@ -217,6 +222,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
     index.value = -1;
     busy.value = false;
     manager.clear();
+    options.onReset?.();
   }
 
   return {
@@ -226,6 +232,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
     interacting,
     canUndo,
     canRedo,
+    hasPending,
     begin,
     end,
     observe,

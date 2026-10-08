@@ -55,7 +55,7 @@
     </header>
 
     <ImageAssetLibrary v-if="imageLibraryOpen && selectedNode?.type === 'image'" :key="selectedId ?? ''" :selected-id="selectedNode.properties.imageId" @select="selectImageAsset" @close="imageLibraryOpen = false" />
-    <GiaExportDialog v-if="giaExportOpen" :project-name="projectName" :initial-index="originalGiaUIIndex(giaSource)" :initial-kind="detectGiaAssetKind(giaSource?.document.json)" :count="nodes.length" :has-source="!!giaSource" :busy="giaExportBusy" :error="giaExportError" :notice="giaExportNotice" @close="giaExportOpen = false" @export="downloadGiaUI" @source="attachGiaSource" />
+    <GiaExportDialog v-if="giaExportOpen" :project-name="projectName" :initial-index="originalGiaUIIndex(giaSource)" :initial-kind="detectGiaAssetKind(giaSource?.document.json) ?? 'containerUI'" :count="nodes.length" :has-source="!!giaSource" :busy="giaExportBusy" :error="giaExportError" :notice="giaExportNotice" @close="giaExportOpen = false" @export="downloadGiaUI" @source="attachGiaSource" />
     <ControlTemplateLibrary v-if="templateLibraryOpen" :assets="controlTemplates" :selected-index="selectedNode?.type === 'reference' ? selectedNode.properties.referencedPrefabIndex : null" :selectable="selectedNode?.type === 'reference'" :device-index="templateDeviceIndex" @select="selectControlTemplate" @save="saveControlTemplate" @close="templateLibraryOpen = false" />
     <PrimitiveResourceLibrary v-if="primitiveResourceLibraryOpen" :key="keyframeDocumentEpoch" :assets="primitiveResources" :selected-id="selectedNode?.type === 'primitive' ? selectedNode.properties.imageResourceId ?? null : null" :selectable="selectedNode?.type === 'primitive'" :usage="primitiveResourceUsage" @save="savePrimitiveResource" @remove="removePrimitiveResource" @select="selectPrimitiveResource" @close="primitiveResourceLibraryOpen = false" />
     <div class="editor-body" :class="{ 'is-animations-collapsed': animationsPanelCollapsed }">
@@ -86,22 +86,33 @@
           <div class="canvas-stage" :class="{ 'mobile-frame': isMobilePreview }" :style="stageStyle">
             <div class="device-preview-label">{{ currentDevice.label }} · {{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</div>
             <div class="safe-area"></div>
-            <div v-for="node in renderNodes" :key="node.id" class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked, 'bone-attach-hover': node.id === boneHoverTarget?.id }]" :style="nodeStyle(node)" @pointerdown.stop="startCanvasPress($event)">
+            <svg class="canvas-image-mask-defs" :width="canvasWidth" :height="canvasHeight" aria-hidden="true">
+              <defs>
+                <mask v-for="mask in renderImageMasks" :key="mask.id" :id="mask.id" x="0" y="0" :width="canvasWidth" :height="canvasHeight" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" style="mask-type: alpha">
+                  <g :transform="mask.transform">
+                    <SpriteImage :asset="getImageAsset(mask.node.properties.imageId)" :width="mask.node.width" :height="mask.node.height" :image-type="mask.node.properties.imageType" :mask-properties="mask.node.properties" :color="{ r: 255, g: 255, b: 255, a: 1 }" :style="{ width: `${mask.node.width}px`, height: `${mask.node.height}px` }" />
+                  </g>
+                </mask>
+              </defs>
+            </svg>
+            <CanvasMaskLayers :layers="canvasMaskLayers" v-slot="{ node }">
+            <div class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked, 'bone-attach-hover': node.id === boneHoverTarget?.id }]" :style="nodeStyle(node)" @pointerdown.stop="startCanvasPress($event)">
               <SpriteImage v-if="node.type === 'image'" :mask-properties="(previewNode(node) as UINodeOf<'image'>).properties" :asset="getImageAsset(node.properties.imageId)" :width="previewNode(node).width" :height="previewNode(node).height" :image-type="node.properties.imageType" :color="safeColor((previewNode(node) as UINodeOf<'image'>).properties.imageColor, editorTypeColors.image)" />
               <PrimitiveImage v-else-if="node.type === 'primitive'" :image-url="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.imageUrl ?? ''" :preview-mode="node.properties.previewMode" :fit-data="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.fitData" :width="previewNode(node).width" :height="previewNode(node).height" />
               <ControlTemplatePreview v-else-if="node.type === 'reference'" :asset="controlTemplateByIndex.get(node.properties.referencedPrefabIndex ?? -1) ?? null" :missing-index="node.properties.referencedPrefabIndex" :device-index="templateDeviceIndex" :width="previewNode(node).width" :height="previewNode(node).height" :alpha="previewNode(node).previewTemplateAlpha ?? 1" />
               <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
               <span v-else-if="node.type !== 'container'" class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
-              <div v-if="node.id === selectedId" class="selection-tag">{{ node.name }} · {{ Math.round(previewNode(node).width) }} × {{ Math.round(previewNode(node).height) }}</div>
-              <template v-if="node.id === selectedId">
-                <template v-if="canvasTool === 'combined' && !boneCreateMode"><i v-for="edge in resizeEdges" :key="edge" class="selection-edge" :class="[`edge-${edge}`, { 'resize-handle': !node.locked }]" @pointerdown.stop="startResize($event, node, edge)"></i><i v-for="corner in resizeCorners" :key="corner" class="selection-corner" :class="[`corner-${corner}`, { 'resize-handle': !node.locked }]" @pointerdown.stop="startResize($event, node, corner)"></i></template>
-                <i class="selection-pivot" :style="{ left: `${previewNode(node).pivotX * 100}%`, bottom: `${previewNode(node).pivotY * 100}%` }"></i>
-              </template>
             </div>
+            </CanvasMaskLayers>
             <template v-if="boneToolsEnabled">
             <ContainerDirectionGuide v-for="guide in renderContainerDirections" :key="guide.id" :data-node-id="guide.id" :length="guide.length" :selected="guide.id === selectedId" :style="guide.style" />
             </template>
             <ContainerDirectionGuide v-if="boneDraftGuide" class="bone-draft" :length="boneDraftGuide.length" :selected="true" :style="boneDraftGuide.style" />
+            <div v-if="selectedCanvasNode" class="canvas-selection" :style="{ ...nodeStyle(selectedCanvasNode), borderColor: 'transparent', backgroundColor: 'transparent' }">
+              <div class="selection-tag">{{ selectedCanvasNode.name }} · {{ Math.round(previewNode(selectedCanvasNode).width) }} × {{ Math.round(previewNode(selectedCanvasNode).height) }}</div>
+              <template v-if="canvasTool === 'combined' && !boneCreateMode"><i v-for="edge in resizeEdges" :key="edge" class="selection-edge" :class="[`edge-${edge}`, { 'resize-handle': !selectedCanvasNode.locked }]" @pointerdown.stop="startResize($event, selectedCanvasNode, edge)"></i><i v-for="corner in resizeCorners" :key="corner" class="selection-corner" :class="[`corner-${corner}`, { 'resize-handle': !selectedCanvasNode.locked }]" @pointerdown.stop="startResize($event, selectedCanvasNode, corner)"></i></template>
+              <i class="selection-pivot" :style="{ left: `${previewNode(selectedCanvasNode).pivotX * 100}%`, bottom: `${previewNode(selectedCanvasNode).pivotY * 100}%` }"></i>
+            </div>
           </div>
           <span v-if="boneRootPoint" class="bone-root-point" :style="boneRootPoint" title="根容器 Pivot" aria-label="根容器中心点"></span>
           <div v-if="boneCreateMode" class="bone-create-hint" role="status">父级：{{ boneParent?.name }} · {{ boneHoverTarget ? `待归入：${boneHoverTarget.name} · Ctrl 点击确认` : '拖拽创建 · 单击骨骼换父级 · Ctrl 点击控件归入' }} · Esc 退出</div>
@@ -349,7 +360,7 @@ import ControlPropertiesInspector from "./ControlPropertiesInspector.vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import { controlDefinitions, controlRegistry, createControlProperties, getControlDefinition } from "./controlRegistry";
 import { detectGiaAssetKind, giaAssetLabels, importGiaControls, type GiaAssetKind } from "./giaImporter";
-import { exportGiaUI, normalizeGiaExportSource, originalGiaUIIndex, createGiaExportBaseline, type GiaExportSource } from "./giaExporter";
+import { exportGiaUI, normalizeGiaExportSource, originalGiaUIIndex, createGiaExportBaseline, restoreLegacyGiaImageMasks, type GiaExportSource } from "./giaExporter";
 import GiaExportDialog from "./GiaExportDialog.vue";
 import PrimitiveImage from "./PrimitiveImage.vue";
 import { normalizePrimitiveProperties } from "./primitiveData";
@@ -365,6 +376,8 @@ import { isStretchable } from "./spriteGeometry";
 import ImageControlSettings from "./ImageControlSettings.vue";
 import ImageAssetLibrary from "./ImageAssetLibrary.vue";
 import SpriteImage from "./SpriteImage.vue";
+import CanvasMaskLayers from "./CanvasMaskLayers.vue";
+import { buildCanvasMaskLayers, canvasImageMaskId, canvasImageMaskTransform } from "./canvasMasks";
 import { buildTweenTimelineDataLua, buildTweenTimelineLibLua, TWEEN_TIMELINE_LIB_VERSION } from "./luaTweenExporter";
 import { applyTweenEase, getTweenableField, getTweenableFields, getGroupAlphaColorFields, getTweenGroupNodes, getTweenTrackConflict, getTweenRelativeLabel, GROUP_ALPHA_FIELD_KEY, GROUP_ALPHA_MAX, isRelativeTweenField, isTweenEaseType, tweenEaseOptions } from "./tweenRegistry";
 import { snapTweenClip } from "./timelineSnapping";
@@ -429,9 +442,11 @@ function makeNode(type: ControlType, name: string, overrides: NodeOverrides<Cont
   if (type === "container") node.editor = { directionArrowLength: normalizeDirectionArrowLength(editorOverrides?.directionArrowLength) };
   if (node.type === "primitive") node.properties = normalizePrimitiveProperties(node.properties);
   if (node.type === "image") {
+    // Older JSON projects represented the progress-fill switch by its shape.
+    if ((propertyOverrides as Partial<ControlPropertiesMap["image"]> | undefined)?.enableFill === undefined) node.properties.enableFill = node.properties.fillType !== null && node.properties.fillType !== "unused";
     const properties = node.properties as unknown as Record<string, unknown>;
     for (const field of controlRegistry.image.fields.filter(field => field.kind === 'select' && (field.key === 'softEdgeMode' || field.key.startsWith('fill')))) {
-      if (!field.options?.some(option => option.value === properties[field.key])) properties[field.key] = field.options?.[0]?.value;
+      if (properties[field.key] !== null && !field.options?.some(option => option.value === properties[field.key])) properties[field.key] = field.options?.[0]?.value;
     }
   }
   const anchorRefX = ((1 - node.pivotX) * node.anchorMinX + node.pivotX * node.anchorMaxX) * DEFAULT_CANVAS_WIDTH;
@@ -657,6 +672,7 @@ type TimelineRow = TimelineNodeRow | TimelineTweenRow;
 const timelineContextMenu = ref<{ trackId: string; clipId: string | null; label: string; x: number; y: number; time: number; canCreate: boolean; createHint: string } | null>(null);
 let timelineContextReturnFocus: HTMLElement | null = null;
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedId.value) ?? null); const renderNodes = computed(() => getCanvasRenderOrder().filter(isVisibleInHierarchy)); const timelineNodes = computed(() => getHierarchyOrder());
+const selectedCanvasNode = computed(() => renderNodes.value.find(node => node.id === selectedId.value) ?? null);
 const selectedDirectionArrowLength = computed(() => normalizeDirectionArrowLength(selectedNode.value?.editor?.directionArrowLength));
 const renderContainerDirections = computed(() => {
   if (!showContainerBones.value && !boneCreateMode.value) return [];
@@ -938,6 +954,14 @@ function calculateWorldTransforms(sourceNodes: UINode[]) {
 }
 const worldTransforms = computed(() => calculateWorldTransforms(nodes.value));
 const previewWorldTransforms = computed(() => calculateWorldTransforms(previewNodes.value));
+const renderImageMasks = computed(() => renderNodes.value.flatMap(source => {
+  const node = previewNode(source);
+  if (node.type !== "image" || !node.properties.enableMask) return [];
+  const world = previewWorldTransforms.value.get(node.id) ?? { x: node.x, y: node.y, matrix: localMatrix(node) };
+  // A transparent parent still supplies its texture alpha to its descendants.
+  return [{ id: canvasImageMaskId(node.id), node, transform: canvasImageMaskTransform(node, world, canvasHeight.value) }];
+}));
+const canvasMaskLayers = computed(() => buildCanvasMaskLayers(renderNodes.value, new Set(renderImageMasks.value.map(mask => mask.node.id))));
 const selectedWorldPosition = computed(() => { const node = selectedNode.value; if (!node) return { x: 0, y: 0 }; const world = previewWorldTransforms.value.get(node.id); return { x: roundLayout(world?.x ?? node.x), y: roundLayout(world?.y ?? node.y) }; });
 const selectedRuntimeLayoutValues = computed(() => inspectorNode.value ? getRuntimeLayoutValues(inspectorNode.value) : { anchoredPositionX: 0, anchoredPositionY: 0, sizeDeltaX: 0, sizeDeltaY: 0 });
 const selectedAdditionalRuntimeTweenValues = computed(() => { const node = inspectorNode.value; if (!node) return []; return [
@@ -2581,7 +2605,7 @@ async function createGiaProject(file: File) {
     return makeNode(control.type, control.name, {
       id: internalIdBySource.get(control.sourceNodeIndex),
       parentId: control.parentSourceNodeIndex === null ? null : internalIdBySource.get(control.parentSourceNodeIndex) ?? null,
-      active: layout.active, scaleX: layout.scaleX, scaleY: layout.scaleY, scaleZ: layout.scaleZ,
+      active: layout.active, visible: control.visible ?? true, scaleX: layout.scaleX, scaleY: layout.scaleY, scaleZ: layout.scaleZ,
       rotationX: layout.rotationX, rotationY: layout.rotationY, rotation: layout.rotationZ,
       anchorMinX: layout.anchorMinX, anchorMinY: layout.anchorMinY, anchorMaxX: layout.anchorMaxX, anchorMaxY: layout.anchorMaxY,
       pivotX: layout.pivotX, pivotY: layout.pivotY, anchorOffsetX: layout.anchoredPositionX, anchorOffsetY: layout.anchoredPositionY,
@@ -2608,6 +2632,14 @@ async function createGiaProject(file: File) {
     resolved.add(node.id);
   };
   importedNodes.forEach(resolve);
+  const roots = importedNodes.filter(node => !node.parentId);
+  if (roots.length !== 1) throw new Error("客户端 UI 控件树必须有且仅有一个根控件，不支持合并导入多个资产。");
+  if (roots[0].type !== "container") {
+    // A single image/text template needs an editor canvas container.
+    const root = makeRootContainer(width, height);
+    roots[0].parentId = root.id;
+    importedNodes.unshift(root);
+  }
   const counts = imported.controls.reduce<Record<string, number>>((result, control) => { result[control.type] = (result[control.type] ?? 0) + 1; return result; }, {});
   const typeSummary = Object.entries(counts).map(([type, count]) => `${controlLabels[type as ControlType]} ${count}`).join("、");
   const deviceLabel = deviceModes.find((device) => device.id === mode)?.label ?? mode;
@@ -2616,7 +2648,7 @@ async function createGiaProject(file: File) {
     name: imported.projectName || file.name.replace(/\.gia$/i, ""),
     deviceMode: mode, previewPresetId: presetId, canvasWidth: width, canvasHeight: height,
     duration: 5, frameRate: 30, nodes: importedNodes, tweenTracks: [],
-    giaSource: { document: imported.sourceDocument, deviceIndex: deviceIndex[mode] },
+    giaSource: { document: imported.sourceDocument, deviceIndex: deviceIndex[mode], imageMaskVersion: 1 },
     giaImportStatus: `GIA · ${giaAssetLabels[imported.assetKind]} · ${imported.controls.length} 个控件 · ${deviceLabel}布局 · ${typeSummary}${imported.warnings.length ? ` · ${imported.warnings.join("；")}` : ""}`,
   });
 }
@@ -2851,6 +2883,7 @@ function applyProjectDataContents(serialized: string) {
   getHierarchyOrder().forEach(rebaseNodeLayout);
   ensureSingleRootContainer();
   if (loadedGiaSource && !loadedGiaSource.baseline) loadedGiaSource.baseline = JSON.parse(JSON.stringify(nodes.value));
+  restoreLegacyGiaImageMasks(nodes.value, loadedGiaSource);
   giaSource.value = loadedGiaSource;
   tweenTracks.value = data.animations !== undefined ? [] : normalizeTweenTracks(data.tweenTracks, Number(data.timelineModelVersion) || 0);
   const loadedAnimations = data.animations !== undefined
@@ -3559,8 +3592,8 @@ button, select, input, textarea { font: inherit; }
 .safe-area { position: absolute; inset: 4.5%; border: 1px dashed #52627777; pointer-events: none; }
 .mobile-frame .safe-area { border-color: #67dbe277; border-radius: 18px; }
 
-.canvas-node { position: absolute; box-sizing: border-box; border: 1.5px solid; display: flex; align-items: center; justify-content: center; cursor: move; user-select: none; }
-.canvas-node.selected { outline: 3px solid #62e1ee; outline-offset: 3px; z-index: 10; }
+.canvas-image-mask-defs { position: absolute; inset: 0; pointer-events: none; }
+.canvas-node { position: absolute; box-sizing: border-box; border: 1.5px solid; display: flex; align-items: center; justify-content: center; cursor: move; user-select: none; pointer-events: auto; }
 .canvas-node.locked { cursor: not-allowed; }
 .image-placeholder { display: flex; flex-direction: column; align-items: center; gap: 9px; color: inherit; }
 .image-placeholder span { font-size: 44px; }
@@ -3863,10 +3896,6 @@ button, select, input, textarea { font: inherit; }
 
 .tree-row.drop-after::after {
   bottom: -1px;
-}
-
-.canvas-node.selected {
-  z-index: auto;
 }
 
 .text-preview {
@@ -4945,7 +4974,7 @@ button { transition: background .12s, border-color .12s; }
 .device-preview-label { height: auto; top: -29px; padding: 0; background: transparent; border: 0; border-radius: 0; color: #d5dbe5; font-size: 18px; }
 .safe-area { border-color: #c4cad226; }
 .viewport-status { background: #363c47dd; color: #c0c8d5; border-color: #5d657570; font-size: 10px; }
-.canvas-node.selected { outline: 2px solid #5ce5ee; outline-offset: 0; }
+.canvas-selection { position: absolute; box-sizing: border-box; border: 1.5px solid transparent; outline: 2px solid #5ce5ee; outline-offset: 0; z-index: 10; pointer-events: none; }
 .canvas-node.bone-attach-hover { outline: 3px solid #ffe394; outline-offset: 2px; box-shadow: 0 0 12px #ffd66b99; cursor: pointer; }
 .selection-tag { top: -29px; left: 0; padding: 3px 6px; background: #353e4bea; color: #a8f4fa; border-radius: 2px; font-size: 15px; font-weight: 400; }
 .selection-corner { position: absolute; width: 10px; height: 10px; border: 2px solid #434d58; border-radius: 50%; background: #eff6f7; pointer-events: none; }

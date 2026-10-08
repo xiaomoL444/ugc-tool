@@ -3,7 +3,7 @@ import type { ClientUIImageControlProperties } from './types';
 
 /** Clockwise browser approximation; origins follow the existing editor fields. */
 export function imageFillMask(values: Partial<ClientUIImageControlProperties>): string | null {
-  if (!values.fillType || values.fillType === 'unused') return null;
+  if (values.enableFill === false || !values.fillType || values.fillType === 'unused') return null;
   const raw = values.fillAmount;
   const amount = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 1;
   if (amount === 0) return 'linear-gradient(transparent, transparent)';
@@ -27,7 +27,11 @@ export function imageFillMask(values: Partial<ClientUIImageControlProperties>): 
     degrees = 360; origin = '50% 50%';
     start = {bottom:180,left:270,top:0,right:90}[values.fillRadialType ?? 'bottom'];
   } else return null;
-  return `conic-gradient(from ${start}deg at ${origin}, #000 0deg ${degrees * amount}deg, transparent ${degrees * amount}deg 360deg)`;
+  if (values.fillClockwise === false) start = (start + degrees) % 360;
+  const sweep = degrees * amount;
+  return values.fillClockwise === false
+    ? `conic-gradient(from ${start}deg at ${origin}, transparent 0deg ${360 - sweep}deg, #000 ${360 - sweep}deg 360deg)`
+    : `conic-gradient(from ${start}deg at ${origin}, #000 0deg ${sweep}deg, transparent ${sweep}deg 360deg)`;
 }
 
 /** Combines fill and rectangular feathering before applying reverse-mask. */

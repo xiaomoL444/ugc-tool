@@ -55,6 +55,7 @@ export function normalizeControlTemplates(value: unknown): ControlTemplateAsset[
         if (!record(control) || !Number.isSafeInteger(control.sourceNodeIndex) || ids.has(control.sourceNodeIndex as number)
           || (control.parentSourceNodeIndex !== null && !Number.isSafeInteger(control.parentSourceNodeIndex))
           || typeof control.name !== "string" || typeof control.type !== "string"
+          || (control.visible !== undefined && typeof control.visible !== "boolean")
           || !Object.prototype.hasOwnProperty.call(controlRegistry, control.type)
           || !record(control.properties) || !record(control.layout)
           || !Array.isArray(control.childSourceNodeIndices) || !control.childSourceNodeIndices.every(Number.isSafeInteger)) {
@@ -119,7 +120,7 @@ export function buildTemplateScene(asset: ControlTemplateAsset, deviceIndex = 0)
       matrix = { a: p.a * local.a + p.c * local.b, b: p.b * local.a + p.d * local.b,
         c: p.a * local.c + p.c * local.d, d: p.b * local.c + p.d * local.d };
     }
-    const node = { control, width, height, x, y, matrix, visible: l.active && (parent?.visible ?? true) };
+    const node = { control, width, height, x, y, matrix, visible: l.active && (control.visible ?? true) && (parent?.visible ?? true) };
     resolved.set(control.sourceNodeIndex, node);
     return node;
   }
