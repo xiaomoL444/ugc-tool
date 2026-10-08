@@ -109,7 +109,8 @@ import type { SearchMode } from './types'
 const { t } = useI18n({ useScope: 'global' })
 const { conversations, activeConversationId, messages, busy, loadingCatalog, loadingArchive, archiveError, catalogError, catalogErrorMessage, catalogCount, descriptionCoverage, serverRetrieval, retrievalMode, featureSync, featuresUpdated, featureMissing, canRetrySearch, retrySearch, mode, scope, includeEffectAudio, resultLimit, freeResultLimit, freeAvailable, freeStatus, freeQuota, freeError, modelConfig, errorMessage, createConversation, selectConversation, renameConversation, deleteConversation, send, stop, saveConfig, refreshFreeStatus, reloadCatalog } = useAISearch()
 const scopes = ['all', 'sound', 'effect', 'bgm'] as const
-const examples = [{ kind: 'sound', icon: 'sound', key: 'exampleSound', titleKey: 'exampleSoundTitle' }, { kind: 'effect', icon: 'effect', key: 'exampleEffect', titleKey: 'exampleEffectTitle' }, { kind: 'bgm', icon: 'music', key: 'exampleBgm', titleKey: 'exampleBgmTitle' }] as const
+// Temporarily hide the BGM suggestion on the new-conversation welcome screen.
+const examples = [{ kind: 'sound', icon: 'sound', key: 'exampleSound', titleKey: 'exampleSoundTitle' }, { kind: 'effect', icon: 'effect', key: 'exampleEffect', titleKey: 'exampleEffectTitle' }] as const
 const draft = ref('')
 const historyOpen = ref(false)
 const historyCollapsed = ref(false)

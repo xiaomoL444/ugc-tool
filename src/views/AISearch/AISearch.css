@@ -83,7 +83,7 @@
 .ai-search-workspace .catalog-count { color: #326ba9; background: #e1edfb; padding: 3px 8px; border-radius: 6px; font-weight: 600; }
 .ai-search-workspace .search-welcome h2 { margin: 0; color: #202b43; font-size: clamp(24px, 2.3vw, 34px); line-height: 1.4; font-weight: 700; letter-spacing: -.02em; }
 .ai-search-workspace .welcome-description { max-width: 700px; margin: 12px 0 28px; color: var(--ai-muted); font-size: 14px; line-height: 1.8; }
-.ai-search-workspace .example-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; width: 100%; }
+.ai-search-workspace .example-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; width: 100%; }
 .ai-search-workspace .example-card { --example-color: #245ec9; --example-soft: #e8efff; position: relative; padding: 20px 20px 22px; min-width: 0; min-height: 158px; border: 1px solid #d5ddec; border-top: 3px solid var(--example-color); border-radius: 12px; background: #fff; text-align: left; color: var(--ai-ink); box-shadow: 0 3px 8px #26324b05; transition: border-color .15s, transform .15s, box-shadow .15s; }
 .ai-search-workspace .example-effect { --example-color: #1781a5; --example-soft: #e5f3f8; }
 .ai-search-workspace .example-bgm { --example-color: #087963; --example-soft: #e0f4ed; }
