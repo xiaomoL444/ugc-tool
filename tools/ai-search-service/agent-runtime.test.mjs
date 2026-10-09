@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AgentError, buildAgentPrompt as buildAgentPromptFromSource, runAssetAgent } from "./agent-runtime.mjs";
+import { AgentError, assetFunctionTools, buildAgentPrompt as buildAgentPromptFromSource, runAssetAgent } from "./agent-runtime.mjs";
 import { settings, validateModelResult } from "./worker.mjs";
 import { TEST_SYSTEM_PROMPT, withPromptFetch } from "./system-prompt-fixture.mjs";
 const buildAgentPrompt = (request, config) => buildAgentPromptFromSource(request, config, TEST_SYSTEM_PROMPT);
@@ -14,6 +14,17 @@ const call = (id, name, args) => ({ id, type: "function", function: { name, argu
 const response = (calls, result = { answer: "找到新的爆炸特效。", matches: [{ resourceId: "effect:101", reason: "名称匹配爆炸", matchType: "feature" }] }) =>
   new Response(JSON.stringify({ choices: [{ finish_reason: calls ? "tool_calls" : "stop", message: calls ? { content: null, tool_calls: calls } : { content: JSON.stringify(result) } }],
     usage: { prompt_tokens: 100, completion_tokens: 40 } }));
+
+test("agent tool descriptions agree with the enforced details limit and cursor protocol", () => {
+  const tools = assetFunctionTools();
+  const details = tools.find(tool => tool.function.name === "get_assets").function;
+  assert.equal(details.parameters.properties.ids.maxItems, 5);
+  assert.match(details.description, /up to 5 resource IDs/);
+  const search = tools.find(tool => tool.function.name === "search_assets").function;
+  assert(Object.hasOwn(search.parameters.properties, "cursor"));
+  assert(!Object.hasOwn(search.parameters.properties, "previousCursor"));
+  assert.match(search.description, /keep all other search arguments identical/);
+});
 
 test("more-results reasoning is passed to model and its rewritten query reaches the shared search tool", async () => {
   const req = request(), cfg = config(); let rounds = 0, searched;

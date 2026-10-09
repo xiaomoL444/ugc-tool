@@ -169,7 +169,7 @@ test("the editable game-search prompt loads and fits the actual agent budget wit
   assert.equal(loaded, source.trim());
   const config = { maxPromptBytes: 30000, maxOutputTokens: 5400, inputRate: 0, outputRate: 0, costSafety: 1 };
   for (const resultLimit of [1, 10, 50]) {
-    const request = { query: "适合尖刺机关升级完成或关卡结算的音效", scope: "sound", matchOn: "audio",
+    const request = { query: "适合机器人模块安装或跳跃落地的音效", scope: "sound", matchOn: "audio",
       locale: "zh-CN", includeEffectAudio: true, messages: [], previousIds: [], resultLimit };
     const { messages, tools } = buildAgentPrompt(request, config, loaded);
     assert.ok(Buffer.byteLength(JSON.stringify({ messages, tools }), "utf8") <= config.maxPromptBytes);

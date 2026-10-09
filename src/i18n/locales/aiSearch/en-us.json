@@ -238,7 +238,7 @@
   "aiSearch.modelProbe.requested": "Requested model",
   "aiSearch.modelProbe.returned": "Model returned by service",
   "aiSearch.modelProbe.notReturned": "The service did not return a model ID",
-  "aiSearch.modelProbe.basicNote": "Checks a basic call only. The returned ID is provider metadata, not verification of model weights or asset-search tools.",
+  "aiSearch.modelProbe.basicNote": "This checks a basic call only. Tool calls and asset search must be verified through an actual search.",
   "aiSearch.modelProbe.timeout": "The model test timed out after 20 seconds. Check the connection.",
   "aiSearch.modelProbe.truncated": "A response was received, but the test output was truncated."
 }

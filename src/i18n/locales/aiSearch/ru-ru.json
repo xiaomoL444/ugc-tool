@@ -238,7 +238,7 @@
   "aiSearch.modelProbe.requested": "Запрошенная модель",
   "aiSearch.modelProbe.returned": "Модель в ответе сервиса",
   "aiSearch.modelProbe.notReturned": "Сервис не вернул ID модели",
-  "aiSearch.modelProbe.basicNote": "Проверяется только базовый вызов. ID в ответе — сведения провайдера, а не проверка весов модели или инструментов поиска ресурсов.",
+  "aiSearch.modelProbe.basicNote": "Проверяется только базовый вызов. Вызовы инструментов и поиск ресурсов нужно проверять при реальном поиске.",
   "aiSearch.modelProbe.timeout": "Проверка модели превысила 20 секунд. Проверьте соединение.",
   "aiSearch.modelProbe.truncated": "Ответ получен, но тестовый вывод был обрезан."
 }

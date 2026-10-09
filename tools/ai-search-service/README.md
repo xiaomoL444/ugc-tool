@@ -32,7 +32,7 @@ SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPro
 
 区分对象、行为、阶段、听感和感受；多阶段效果可分别寻找动作接触、状态完成和界面反馈。环境地点与情绪氛围也分别考虑。单次触发、随操作重复、阶段持续和长期背景是使用方式，不证明素材能无缝循环。实验中的升级、尖刺与结算查询只作为历史示例回归；通用玩法理解需按跨行为、词库外需求的模型评估规格检查，不能据这几个例子宣称通用能力已经验证。
 
-依据已有音轨描述补充游戏用途的独立模板位于 [`experiments/game-audio-search-20261010/game-uses-prompt.txt`](../../experiments/game-audio-search-20261010/game-uses-prompt.txt)。它只生成带听感证据、适配理由和条件的新增用途，不重做原音频分析，不改原描述、声学关键词、冻结模板或已有用途；新增用途也不能反过来证明实际声音属性。第一阶段的隔离样本与离线验证不等于已经批量补标、上传 OSS 或部署。`node --test tools/ai-search-service/system-prompt.test.mjs` 会验证真实本地正文可加载并符合 16 KiB 文件限制和 30 KB agent 消息预算；这类协议检查不能证明模型实际选音质量。
+依据已有音轨描述补充游戏用途的独立模板位于 [`ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt`](../../../ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt)。它只生成带听感证据、适配理由和条件的新增用途，不重做原音频分析，不改原描述、声学关键词、冻结模板或已有用途；新增用途也不能反过来证明实际声音属性。第一阶段的隔离样本与离线验证不等于已经批量补标、上传 OSS 或部署。`node --test tools/ai-search-service/system-prompt.test.mjs` 会验证真实本地正文可加载并符合 16 KiB 文件限制和 30 KB agent 消息预算；这类协议检查不能证明模型实际选音质量。
 
 ## DeepSeek 免费模型
 
@@ -190,7 +190,7 @@ npm run build
 
 真实目录运行时回归为 `tools/ai-search-service/asset-catalog.runtime.test.mjs`，需要先准备本机三类特征包，并设置 `MINIFLARE_MODULE_PATH` 指向已安装的 Miniflare 模块。可通过 `MINIFLARE_WORKERD_V8_FLAGS="--max-old-space-size=96 --max-semi-space-size=4"` 验证较低堆限制；执行 `node --test tools/ai-search-service/asset-catalog.runtime.test.mjs`。测试使用完整本机资料和合成上游，验证进行中的快照、三类文件更新、ETag、并发刷新、旧游标以及 stale；不查询真实余额或调用真实模型。
 
-2026-10-09 的 BGM 接入验证使用当前完整三源特征与十五份语言文件，共 18 份资料、5,378 条身份，其中 188 首 BGM 均有五语描述和用途。实际 workerd 在 112 MiB old-space、4 MiB semi-space 下通过冷加载、120 次五语用途查询、并发刷新、旧快照与失败回退；冷加载约 4.33 秒、更新约 4.35 秒，采样堆与 backing storage 合计峰值约 106.4 MiB。验证记录在 `experiments/bgm-worker-integration-20261009/verification.json`。实现使用流式 UTF-8／JSON 解析与 SHA-256、分块内部校验、按需词法分面和快照 pin；没有每轮重新构建全库索引。本机采样不能保证捕获每个瞬时内存峰，也不能代替 Cloudflare 线上实际限制和监控，线上指标仍需部署后确认。
+2026-10-09 的 BGM 接入验证使用当前完整三源特征与十五份语言文件，共 18 份资料、5,378 条身份，其中 188 首 BGM 均有五语描述和用途。实际 workerd 在 112 MiB old-space、4 MiB semi-space 下通过冷加载、120 次五语用途查询、并发刷新、旧快照与失败回退；冷加载约 4.33 秒、更新约 4.35 秒，采样堆与 backing storage 合计峰值约 106.4 MiB。验证记录在 `H:/Code/ugc-web/ugc-ai-search-file/experiments/bgm-worker-integration-20261009/verification.json`。实现使用流式 UTF-8／JSON 解析与 SHA-256、分块内部校验、按需词法分面和快照 pin；没有每轮重新构建全库索引。本机采样不能保证捕获每个瞬时内存峰，也不能代替 Cloudflare 线上实际限制和监控，线上指标仍需部署后确认。
 
 ## 接口
 

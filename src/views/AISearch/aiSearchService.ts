@@ -151,6 +151,7 @@ export function chatToolCompatibilityOptions(url: string, model: string): { reas
 export function modelConnection(config: ModelConfig): { protocol: "openai" | "anthropic"; url: string } {
   try {
     const protocol = resolveModelProtocol(config);
+    modelHeaders(protocol, config.apiKey.trim());
     return { protocol, url: protocol === "anthropic" ? anthropicMessagesUrl(config.baseUrl) : chatCompletionsUrl(config.baseUrl) };
   } catch { throw new AISearchError("CONFIG"); }
 }

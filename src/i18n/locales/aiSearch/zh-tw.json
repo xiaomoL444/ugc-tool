@@ -238,7 +238,7 @@
   "aiSearch.modelProbe.requested": "請求的模型",
   "aiSearch.modelProbe.returned": "服務傳回的模型",
   "aiSearch.modelProbe.notReturned": "服務未傳回型號",
-  "aiSearch.modelProbe.basicNote": "僅驗證基礎呼叫；傳回型號來自服務商，不代表已驗證模型權重或資產搜尋工具。",
+  "aiSearch.modelProbe.basicNote": "此次僅驗證基本呼叫。工具呼叫和資產搜尋需在實際搜尋時驗證。",
   "aiSearch.modelProbe.timeout": "模型測試逾時（20 秒），請檢查服務連線。",
   "aiSearch.modelProbe.truncated": "已收到回應，但測試輸出遭截斷。"
 }

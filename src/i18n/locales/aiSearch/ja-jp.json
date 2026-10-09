@@ -238,7 +238,7 @@
   "aiSearch.modelProbe.requested": "指定したモデル",
   "aiSearch.modelProbe.returned": "サービスが返したモデル",
   "aiSearch.modelProbe.notReturned": "モデル ID は返されませんでした",
-  "aiSearch.modelProbe.basicNote": "基本的な呼び出しのみを確認します。返された ID は提供者の情報であり、モデルの重みや素材検索ツールを検証したものではありません。",
+  "aiSearch.modelProbe.basicNote": "今回は基本的な呼び出しのみ確認します。ツール呼び出しとアセット検索は、実際に検索して確認してください。",
   "aiSearch.modelProbe.timeout": "モデルテストが 20 秒でタイムアウトしました。接続を確認してください。",
   "aiSearch.modelProbe.truncated": "応答を受信しましたが、テスト出力は切り詰められました。"
 }

@@ -4,11 +4,11 @@
       :aria-expanded="opened" :aria-describedby="opened ? tooltipId : undefined"
       @pointerenter="enterTrigger" @pointerleave="leaveTrigger" @pointerdown="lastPointerType = $event.pointerType"
       @focus="focusTrigger" @blur="queueHide" @click="toggleDetails"><SearchIcon name="warning" /></button>
-    <NPopover :to="to" :show="opened" trigger="manual" placement="bottom" :x="popupX" :y="popupY" raw :show-arrow="false" :animated="false" :z-index="1500">
-      <section :id="tooltipId" ref="panel" class="response-details-popup" role="tooltip"
+    <NPopover :to="to" :show="opened" trigger="manual" :placement="popupPlacement" :flip="false" :x="popupX" :y="popupY" raw :show-arrow="false" :animated="false" :z-index="1500">
+      <section :id="tooltipId" ref="panel" class="response-details-popup" :style="{ width: popupWidth + 'px' }" role="tooltip"
         @pointerenter="enterPanel" @pointerleave="leavePanel" @pointerdown="startTextSelection" @focusin="show" @focusout="queueHide">
         <strong>{{ detailTitle }}</strong>
-        <pre tabindex="0" :aria-label="detailTitle">{{ content }}</pre>
+        <pre tabindex="0" :style="{ maxHeight: popupBodyHeight + 'px' }" :aria-label="detailTitle">{{ content }}</pre>
       </section>
     </NPopover>
   </span>
@@ -29,6 +29,9 @@ const panel = ref<HTMLElement>()
 const opened = ref(false)
 const popupX = ref(0)
 const popupY = ref(0)
+const popupPlacement = ref<'top' | 'bottom'>('bottom')
+const popupWidth = ref(560)
+const popupBodyHeight = ref(360)
 const tooltipId = computed(() => 'response-details-' + props.detailId)
 let triggerHovered = false
 let panelHovered = false
@@ -40,11 +43,24 @@ let closeTimer: ReturnType<typeof setTimeout> | undefined
 function clearCloseTimer() { if (closeTimer !== undefined) clearTimeout(closeTimer); closeTimer = undefined }
 function show() {
   clearCloseTimer()
+  if (opened.value) return
   const anchor = trigger.value?.getBoundingClientRect()
   if (anchor) {
-    const halfWidth = Math.min(560, window.innerWidth - 24) / 2
-    popupX.value = Math.max(12 + halfWidth, Math.min(window.innerWidth - halfWidth - 12, anchor.left + anchor.width / 2))
-    popupY.value = anchor.bottom + 6
+    const host = props.to instanceof HTMLElement ? props.to.getBoundingClientRect() : undefined
+    const left = Math.max(0, host?.left ?? 0)
+    const right = Math.min(window.innerWidth, host?.right ?? window.innerWidth)
+    const top = Math.max(0, host?.top ?? 0)
+    const bottom = Math.min(window.innerHeight, host?.bottom ?? window.innerHeight)
+    popupWidth.value = Math.min(560, right - left - 24)
+    const halfWidth = popupWidth.value / 2
+    popupX.value = Math.max(left + 12 + halfWidth, Math.min(right - halfWidth - 12, anchor.left + anchor.width / 2))
+    const above = Math.max(0, anchor.top - top - 12)
+    const below = Math.max(0, bottom - anchor.bottom - 12)
+    const desiredHeight = panel.value?.offsetHeight ?? Math.min(360, window.innerHeight - 100) + 68
+    const useAbove = below < desiredHeight && above > below
+    popupPlacement.value = useAbove ? 'top' : 'bottom'
+    popupY.value = useAbove ? anchor.top - 6 : anchor.bottom + 6
+    popupBodyHeight.value = Math.max(40, Math.min(360, (useAbove ? above : below) - 68))
   }
   opened.value = true
 }

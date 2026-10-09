@@ -184,7 +184,7 @@ export function useAISearch() {
     const protocol = config.protocol ?? "auto";
     if (!["auto", "openai", "anthropic"].includes(protocol)) { errorMessage.value = t("aiSearch.errors.config"); return false; }
     try { if (resolveModelProtocol({ ...config, protocol }) === "anthropic") anthropicMessagesUrl(config.baseUrl); else chatCompletionsUrl(config.baseUrl); } catch { errorMessage.value = t("aiSearch.errors.config"); return false; }
-    if (!config.model.trim() || config.model.length > 100 || !config.apiKey.trim()) { errorMessage.value = t("aiSearch.errors.config"); return false; }
+    if (!config.model.trim() || config.model.length > 100 || !config.apiKey.trim() || /[\r\n]/u.test(config.apiKey.trim())) { errorMessage.value = t("aiSearch.errors.config"); return false; }
     modelConfig.value = { baseUrl: config.baseUrl.trim(), model: config.model.trim(), apiKey: config.apiKey.trim(), rememberKey: config.rememberKey, protocol };
     try {
       localStorage.setItem(CONFIG_KEY, JSON.stringify({ baseUrl: modelConfig.value.baseUrl, model: modelConfig.value.model, rememberKey: config.rememberKey, protocol,

@@ -23,9 +23,17 @@ const text = (value, max) => typeof value === "string" ? value.slice(0, max) : "
 export function assetFunctionTools(request = {}) {
   return ASSET_TOOLS.map(tool => {
     const parameters = structuredClone(tool.inputSchema);
-    if (tool.name === "search_assets") parameters.properties.limit = { type: "integer", minimum: 1, maximum: SEARCH_LIMITS.maxSearchLimit, default: Math.max(10, request.resultLimit ?? SEARCH_LIMITS.defaultResults) };
-    if (tool.name === "get_assets") parameters.properties.ids.maxItems = 5;
-    return { type: "function", function: { name: tool.name, description: tool.description, parameters } };
+    let description = tool.description;
+    if (tool.name === "search_assets") {
+      parameters.properties.limit = { type: "integer", minimum: 1, maximum: SEARCH_LIMITS.maxSearchLimit, default: Math.max(10, request.resultLimit ?? SEARCH_LIMITS.defaultResults) };
+      parameters.properties.query.description = "For game-use requests, feature queries contain 2–4 acoustic terms (attack, texture, pitch, rhythm or decay), not game object names or use-case sentences. both queries contain short behavior/stage terms. Known-name lookup may use the exact name.";
+    }
+    if (tool.name === "search_assets") description += " For pagination, use only cursor from nextCursor and keep all other search arguments identical. A rewritten query starts without cursor. Never invent previousCursor.";
+    if (tool.name === "get_assets") {
+      parameters.properties.ids.maxItems = 5;
+      description = "Read details of up to 5 resource IDs returned by search_assets in this turn. Select only the most useful candidates; do not request every search result. Sound judgments require the resource's own audio evidence.";
+    }
+    return { type: "function", function: { name: tool.name, description, parameters } };
   });
 }
 
@@ -59,19 +67,34 @@ function compactRecord(item, details = false, query = "") {
     ...(item.descriptionLocale ? { descriptionLocale: item.descriptionLocale } : {}) };
 }
 
-// Preserve every trusted ID and its evidence facet while fitting the existing prompt budget.
+// Preserve every trusted ID and evidence facet; several tool replies share one prompt budget.
 function compactSearchValue(value, callId, messages, tools, maxPromptBytes) {
-  const fits = candidate => bytes({ messages: [...messages, { role: "tool", tool_call_id: callId, content: JSON.stringify(candidate) }], tools }) + 512 <= maxPromptBytes;
+  const fits = (candidate, history = messages) => bytes({ messages: [...history, { role: "tool", tool_call_id: callId, content: JSON.stringify(candidate) }], tools }) + 512 <= maxPromptBytes;
   if (fits(value)) return value;
-  for (const [descriptionLength, titleLength, keywordCount, fieldLength, useCount] of [
-    [180, 120, 4, 60, 1], [120, 100, 2, 40, 1], [80, 80, 1, 32, 1], [40, 60, 1, 24, 1], [24, 40, 1, 16, 1],
-  ]) {
-    const candidate = { ...value, items: value.items.map(item => ({ ...item,
+  const shorten = (input, [descriptionLength, titleLength, keywordCount, fieldLength, useCount]) => ({ ...input,
+    items: input.items.map(item => ({ ...item,
       title: text(item.title, titleLength), description: text(item.description, descriptionLength),
       keywords: (item.keywords ?? []).slice(0, keywordCount).map(word => text(word, fieldLength)),
       suggestedUses: (item.suggestedUses ?? []).slice(0, useCount).map(word => text(word, fieldLength)),
-    })), summariesShortened: true };
+      ...(Object.hasOwn(item, "visualDescription") ? { visualDescription: text(item.visualDescription, descriptionLength) } : {}),
+      ...(Object.hasOwn(item, "audioDescription") ? { audioDescription: text(item.audioDescription, descriptionLength) } : {}),
+      ...(Object.hasOwn(item, "audioKeywords") ? { audioKeywords: (item.audioKeywords ?? []).slice(0, keywordCount).map(word => text(word, fieldLength)) } : {}),
+    })), summariesShortened: true });
+  const previous = messages.map(message => {
+    if (message.role !== "tool") return null;
+    try { const parsed = JSON.parse(message.content); return Array.isArray(parsed.items) ? parsed : null; } catch { return null; }
+  });
+  for (const level of [
+    [180, 120, 4, 60, 1], [120, 100, 2, 40, 1], [80, 80, 1, 32, 1], [40, 60, 1, 24, 1], [24, 40, 1, 16, 1],
+  ]) {
+    const candidate = shorten(value, level);
     if (fits(candidate)) return candidate;
+    const history = messages.map((message, index) => previous[index]
+      ? { ...message, content: JSON.stringify(shorten(previous[index], level)) } : message);
+    if (fits(candidate, history)) {
+      for (let index = 0; index < messages.length; index++) messages[index] = history[index];
+      return candidate;
+    }
   }
   throw new AgentError(413, "PROMPT_TOO_LARGE", "工具结果与上下文过长，请开始新对话或缩小范围。");
 }
@@ -250,7 +273,7 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
         value = { error: { code: error.code ?? "SEARCH_UNAVAILABLE", message: error.code ? text(error.message, 220) : "资产检索暂时不可用。" } };
         steps.push({ tool: call.function.name, error: value.error.code });
       }
-      if (call.function.name === "search_assets" && Array.isArray(value.items)) value = compactSearchValue(value, call.id, messages, tools, config.maxPromptBytes);
+      if (Array.isArray(value.items)) value = compactSearchValue(value, call.id, messages, tools, config.maxPromptBytes);
       messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(value) });
     }
     if (round === AGENT_LIMITS.maxModelRounds - 2 || toolCount >= AGENT_LIMITS.maxToolCalls) {

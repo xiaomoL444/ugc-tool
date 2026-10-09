@@ -16,6 +16,7 @@ export interface ModelProbeResult {
 
 /** One manually initiated, short model call. No assets, Worker or saved conversations. */
 export async function probeCustomModel(config: ModelConfig, signal: AbortSignal, fetcher: typeof fetch = fetch): Promise<ModelProbeResult> {
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   if (!config.apiKey.trim() || !config.model.trim() || config.model.length > 100) throw new AISearchError("CONFIG");
   const { url, protocol } = modelConnection(config);
   const context: RequestContext = { stage: "model", endpoint: url, model: config.model.trim(), round: 1, startedAt: Date.now() };
@@ -24,10 +25,16 @@ export async function probeCustomModel(config: ModelConfig, signal: AbortSignal,
     ...(protocol === "openai" && new URL(url).hostname === "api.openai.com" ? { max_completion_tokens: 128 } : { max_tokens: 128 }),
     ...(protocol === "openai" ? chatToolCompatibilityOptions(url, config.model) : {}),
     messages: [{ role: "user", content: "Connection test. Reply only OK." }] };
-  const response = await fetchAISearch(url, { method: "POST", signal, headers: modelHeaders(protocol, config.apiKey.trim()),
-    body: JSON.stringify(protocol === "anthropic" ? toAnthropicRequest(chatRequest) : chatRequest) }, context, fetcher, secrets);
+  let headers: Record<string, string>, body: string;
+  try {
+    headers = modelHeaders(protocol, config.apiKey.trim());
+    body = JSON.stringify(protocol === "anthropic" ? toAnthropicRequest(chatRequest) : chatRequest);
+  } catch { throw new AISearchError("CONFIG"); }
+  const response = await fetchAISearch(url, { method: "POST", signal, headers, body }, context, fetcher, secrets);
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   if (!response.ok) throw await providerRequestError(response, context, secrets);
   const envelope = await readAISearchJSON(response, context, signal, secrets);
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   const diagnostic = responseRequestDiagnostic(response, context, "response", secrets);
   const raw = modelResponseEnvelope(envelope, protocol, response, context, secrets);
   if (!Array.isArray(raw.choices) || !raw.choices.length) throw new AISearchError("INVALID_RESPONSE", undefined, undefined, diagnostic);
@@ -39,7 +46,7 @@ export async function probeCustomModel(config: ModelConfig, signal: AbortSignal,
   const truncated = choice.finish_reason === "length";
   if (!truncated && !(typeof message.content === "string" && message.content.trim()) && !message.refusal) throw new AISearchError("EMPTY_RESPONSE", undefined, undefined, diagnostic);
   const identity = sanitizeRequestDiagnostic({ stage: "model", kind: "response", model: raw.model }, secrets)?.model;
-  return { requestedModel: sanitizeRequestDiagnostic({ ...context, kind: "response" }, secrets)?.model || config.model.trim(),
+  return { requestedModel: sanitizeRequestDiagnostic({ ...context, kind: "response" }, secrets)?.model || "",
     ...(identity ? { returnedModel: identity } : {}), protocol, endpoint: diagnostic.endpoint || url,
     elapsedMs: Math.max(0, Date.now() - context.startedAt!), ...(truncated ? { replyTruncated: true } : {}) };
 }

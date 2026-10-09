@@ -144,6 +144,7 @@ node scripts/test-ai-search-agent.cjs
 node scripts/test-ai-search-system-prompt.cjs
 node scripts/test-ai-search-request-diagnostics.cjs
 node scripts/test-ai-search-model-protocol.cjs
+node scripts/test-ai-search-model-probe.cjs
 node scripts/test-ai-search-response-errors.cjs
 node scripts/test-ai-search-request-cors-browser.cjs
 node scripts/test-ai-search-archive.cjs
@@ -155,7 +156,9 @@ node scripts/test-ai-search-data-update.cjs
 node --test tools/ai-search-service/worker.test.mjs tools/ai-search-service/agent-runtime.test.mjs tools/ai-search-service/asset-search.test.mjs tools/ai-search-service/asset-features.test.mjs tools/ai-search-service/asset-catalog-loader.test.mjs tools/ai-search-service/provider-balance.test.mjs tools/ai-search-service/system-prompt.test.mjs
 ```
 
-浏览器回归 `scripts/test-ai-search-browser.cjs`、`scripts/test-ai-card-previews-browser.cjs`、`scripts/test-asset-deep-links.cjs` 和 `experiments/ai-search-ui/verify-ui.cjs` 需要 Playwright，可用当前本机的 bundled runtime 通过 `NODE_PATH` 提供；默认测试地址 `http://127.0.0.1:8080`。浏览器测试使用模拟目录和模拟模型，不消耗 API 额度。卡片预览回归使用本地合成 WAV 校验真实波形、播放和定位，另校验特效悬停、BGM 懒加载及手机布局。
+浏览器回归 `scripts/test-ai-search-browser.cjs`、`scripts/test-ai-card-previews-browser.cjs`、`scripts/test-asset-deep-links.cjs` 和 `H:/Code/ugc-web/ugc-ai-search-file/experiments/ai-search-ui/verify-ui.cjs` 需要 Playwright，可用当前本机的 bundled runtime 通过 `NODE_PATH` 提供；默认测试地址 `http://127.0.0.1:8080`。AI 搜索实验统一保存到 `H:/Code/ugc-web/ugc-ai-search-file/experiments`，浏览器截图输出到 `H:/Code/ugc-web/ugc-ai-search-file/verification/browser`，开发与验证日志保存到 `verification/logs`。浏览器测试使用模拟目录和模拟模型，不消耗 API 额度。卡片预览回归使用本地合成 WAV 校验真实波形、播放和定位，另校验特效悬停、BGM 懒加载及手机布局。
+
+模型验证窗口回归：`node scripts/test-ai-model-probe-browser.cjs http://127.0.0.1:8080`。模拟 OpenAI／Claude 响应，验证手动请求、模型标识、诊断浮层、协议保存恢复及编辑／关闭后的取消；不调用真实 API。
 
 只验证历史／聊天独立面板、拖动与键盘调整、默认宽度恢复及移动抽屉时，运行布局专用回归：
 

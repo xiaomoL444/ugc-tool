@@ -238,7 +238,7 @@
   "aiSearch.modelProbe.requested": "请求的模型",
   "aiSearch.modelProbe.returned": "服务返回的模型",
   "aiSearch.modelProbe.notReturned": "服务未返回型号",
-  "aiSearch.modelProbe.basicNote": "仅验证基础调用；返回型号来自服务商，不代表已验证模型权重或资产搜索工具。",
+  "aiSearch.modelProbe.basicNote": "此次仅验证基础调用。工具调用和资产搜索需在实际搜索时验证。",
   "aiSearch.modelProbe.timeout": "模型测试超时（20 秒），请检查服务连接。",
   "aiSearch.modelProbe.truncated": "已返回响应，但测试输出被截断。"
 }
