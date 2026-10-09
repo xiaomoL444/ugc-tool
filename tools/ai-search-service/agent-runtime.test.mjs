@@ -291,15 +291,49 @@ test("model tool arguments remain strict JSON instead of using final-answer repa
   assert.equal(modelRequests, 1); assert.equal(toolExecutions, 0);
 });
 
-test("prompt/tool transcript and complete turn deadline are bounded before another model request", async () => {
+test("large prompts and tool transcripts proceed without the old fixed byte cap", async () => {
   const req = request(), cfg = config();
-  assert.throws(() => buildAgentPrompt(req, { ...cfg, maxPromptBytes: 1 }), error => error.code === "PROMPT_TOO_LARGE");
+  const prompt = buildAgentPromptFromSource(req, { ...cfg, maxPromptBytes: 1 }, TEST_SYSTEM_PROMPT + "\n" + "Long system context. ".repeat(2000));
+  assert.ok(prompt.inputBytes > 30000);
+  assert.equal(prompt.inputBytes, Buffer.byteLength(JSON.stringify({ messages: prompt.messages, tools: prompt.tools })));
+  assert.equal(prompt.reservedMicros, Math.ceil((prompt.inputBytes * cfg.inputRate + 1400 * cfg.outputRate) * cfg.costSafety));
+  let calls = 0;
+  const result = await runAssetAgent(req, prompt, cfg, {}, { catalog: async () => ({ coverage: "x".repeat(40000) }) }, validateModelResult,
+    async (_url, options) => {
+      calls += 1;
+      const sent = JSON.parse(options.body);
+      assert.ok(Buffer.byteLength(JSON.stringify({ messages: sent.messages, tools: sent.tools })) > 30000);
+      if (calls === 1) return response([call("catalog-1", "get_asset_catalog", {})]);
+      assert.equal(JSON.parse(sent.messages.find(item => item.role === "tool").content).coverage.length, 40000);
+      return response(null, { answer: "No matching assets in this catalogue.", matches: [] });
+    });
+  assert.equal(calls, 2);
+  assert.equal(result.rounds, 2);
+});
+
+test("the complete turn deadline still stops requests before calling the model", async () => {
+  const req = request(), cfg = config();
   await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), { ...cfg, agentTimeoutMs: 0 }, {}, {}, validateModelResult,
     async () => { throw new Error("must not call"); }), error => error.code === "UPSTREAM_TIMEOUT");
+});
+
+test("usage above the former byte cap is checked against each round's actual input", async () => {
+  const req = request(), cfg = config();
+  const prompt = buildAgentPromptFromSource(req, cfg, TEST_SYSTEM_PROMPT + "\n" + "Large system context. ".repeat(2000));
   let calls = 0;
-  await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, { catalog: async () => ({ coverage: "x".repeat(40000) }) }, validateModelResult,
-    async () => { calls += 1; return response([call("catalog-1", "get_asset_catalog", {})]); }), error => error.code === "PROMPT_TOO_LARGE");
-  assert.equal(calls, 1);
+  const result = await runAssetAgent(req, prompt, cfg, {}, { catalog: async () => ({ coverage: "x".repeat(40000) }) }, validateModelResult,
+    async (_url, options) => {
+      calls += 1;
+      const sent = JSON.parse(options.body);
+      const inputTokens = calls === 1 ? 31000 : 55000;
+      assert.ok(inputTokens <= Buffer.byteLength(JSON.stringify({ messages: sent.messages, tools: sent.tools })));
+      return new Response(JSON.stringify({ choices: [{ finish_reason: calls === 1 ? "tool_calls" : "stop",
+        message: calls === 1 ? { content: null, tool_calls: [call("large-usage-catalog", "get_asset_catalog", {})] }
+          : { content: JSON.stringify({ answer: "No matching assets.", matches: [] }) } }],
+        usage: { prompt_tokens: inputTokens, completion_tokens: 40 } }));
+    });
+  assert.equal(calls, 2);
+  assert.deepEqual(result.usage, { prompt_tokens: 86000, completion_tokens: 80 });
 });
 
 test("expanded agent result counts reach tools and final validation without increasing model rounds", async () => {
@@ -349,7 +383,7 @@ test("expanded results keep the detail call at five resources and expose its saf
 });
 
 
-test('fifty audio matches retain every trusted ID and audio evidence within the unchanged transcript budget', async () => {
+test('fifty audio matches retain every trusted ID and normal audio summaries beyond 30 KB', async () => {
   const req = { ...request('effect'), resultLimit: 50, matchOn: 'audio' }, cfg = config();
   const items = Array.from({ length: 50 }, (_, index) => ({ resourceId: `effect:${700 + index}`, kind: 'effect',
     title: '蓝色光圈'.repeat(40), hasAudio: true, audioMatch: true, matchType: 'feature',
@@ -364,11 +398,12 @@ test('fifty audio matches retain every trusted ID and audio evidence within the 
     rounds += 1; const sent = JSON.parse(options.body); assert.equal(sent.max_tokens, 5400);
     assert.equal(sent.tools.find(item => item.function.name === 'get_assets').function.parameters.properties.ids.maxItems, 5);
     if (rounds === 1) return response([call('search-fifty', 'search_assets', { query: '爆炸' })]);
-    assert.ok(new TextEncoder().encode(JSON.stringify({ messages: sent.messages, tools: sent.tools })).byteLength <= cfg.maxPromptBytes);
+    assert.ok(new TextEncoder().encode(JSON.stringify({ messages: sent.messages, tools: sent.tools })).byteLength > 30000);
     const summary = JSON.parse(sent.messages.find(item => item.role === 'tool').content);
-    assert.equal(summary.items.length, 50); assert.equal(summary.summariesShortened, true);
+    assert.equal(summary.items.length, 50); assert.equal(summary.summariesShortened, undefined);
     assert.deepEqual(summary.items.map(item => item.resourceId), items.map(item => item.resourceId));
     assert.ok(summary.items.every(item => item.audioMatch === true && item.description.startsWith('沉重爆炸音轨') && item.matchType === 'feature'));
+    assert.ok(summary.items.every(item => item.description.length === 260 && item.keywords.length === 10));
     assert.ok(summary.items.every(item => item.suggestedUses.every(use => use.startsWith('仅为用途建议'))));
     return response(null, { answer: '找到这些带爆炸音轨的特效。', matches: items.map(item => ({ resourceId: item.resourceId, reason: '音轨描述支持', matchType: 'feature' })) });
   });

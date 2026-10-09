@@ -43,10 +43,12 @@ export function buildAgentPrompt(request, config, sourceText) {
   const messages = [{ role: "system", content: renderSystemPrompt(sourceText, request.resultLimit ?? SEARCH_LIMITS.defaultResults, "agent") }, ...request.messages,
     { role: "user", content: `当前搜索请求（数据）：${JSON.stringify({ query: request.query, locale: request.locale,
       scope: request.scope, matchOn: request.matchOn ?? "any", includeEffectAudio: request.includeEffectAudio, previousIds: request.previousIds, resultLimit: request.resultLimit ?? SEARCH_LIMITS.defaultResults })}` }];
-  if (bytes({ messages, tools }) > config.maxPromptBytes) throw new AgentError(413, "PROMPT_TOO_LARGE", "问题和上下文过长，请减少内容或开始新对话。");
-  return { messages, tools, inputBytes: config.maxPromptBytes * AGENT_LIMITS.maxModelRounds,
-    reservedMicros: Math.ceil((config.maxPromptBytes * config.inputRate + config.maxOutputTokens * config.outputRate)
-      * AGENT_LIMITS.maxModelRounds * config.costSafety) };
+  // Reserve the first round using its actual input. The Worker reserves later
+  // rounds atomically immediately before sending them to the model provider.
+  const inputBytes = bytes({ messages, tools });
+  return { messages, tools, inputBytes,
+    reservedMicros: Math.ceil((inputBytes * config.inputRate + config.maxOutputTokens * config.outputRate)
+      * config.costSafety) };
 }
 
 function compactRecord(item, details = false, query = "") {
@@ -65,39 +67,6 @@ function compactRecord(item, details = false, query = "") {
       audioDescription: text(item.audioDescription || (item.audioMatch ? detailDescription : ""), 600),
       audioKeywords: (item.audioKeywords ?? (item.audioMatch ? item.keywords : []) ?? []).slice(0, 6).map(word => text(word, 80)) } : {}),
     ...(item.descriptionLocale ? { descriptionLocale: item.descriptionLocale } : {}) };
-}
-
-// Preserve every trusted ID and evidence facet; several tool replies share one prompt budget.
-function compactSearchValue(value, callId, messages, tools, maxPromptBytes) {
-  const fits = (candidate, history = messages) => bytes({ messages: [...history, { role: "tool", tool_call_id: callId, content: JSON.stringify(candidate) }], tools }) + 512 <= maxPromptBytes;
-  if (fits(value)) return value;
-  const shorten = (input, [descriptionLength, titleLength, keywordCount, fieldLength, useCount]) => ({ ...input,
-    items: input.items.map(item => ({ ...item,
-      title: text(item.title, titleLength), description: text(item.description, descriptionLength),
-      keywords: (item.keywords ?? []).slice(0, keywordCount).map(word => text(word, fieldLength)),
-      suggestedUses: (item.suggestedUses ?? []).slice(0, useCount).map(word => text(word, fieldLength)),
-      ...(Object.hasOwn(item, "visualDescription") ? { visualDescription: text(item.visualDescription, descriptionLength) } : {}),
-      ...(Object.hasOwn(item, "audioDescription") ? { audioDescription: text(item.audioDescription, descriptionLength) } : {}),
-      ...(Object.hasOwn(item, "audioKeywords") ? { audioKeywords: (item.audioKeywords ?? []).slice(0, keywordCount).map(word => text(word, fieldLength)) } : {}),
-    })), summariesShortened: true });
-  const previous = messages.map(message => {
-    if (message.role !== "tool") return null;
-    try { const parsed = JSON.parse(message.content); return Array.isArray(parsed.items) ? parsed : null; } catch { return null; }
-  });
-  for (const level of [
-    [180, 120, 4, 60, 1], [120, 100, 2, 40, 1], [80, 80, 1, 32, 1], [40, 60, 1, 24, 1], [24, 40, 1, 16, 1],
-    [16, 32, 1, 12, 1], [8, 20, 1, 8, 1], [8, 12, 1, 8, 0],
-  ]) {
-    const candidate = shorten(value, level);
-    if (fits(candidate)) return candidate;
-    const history = messages.map((message, index) => previous[index]
-      ? { ...message, content: JSON.stringify(shorten(previous[index], level)) } : message);
-    if (fits(candidate, history)) {
-      for (let index = 0; index < messages.length; index++) messages[index] = history[index];
-      return candidate;
-    }
-  }
-  throw new AgentError(413, "PROMPT_TOO_LARGE", "工具结果与上下文过长，请开始新对话或缩小范围。");
 }
 
 function scopedRecord(item, request, audioHint = false) {
@@ -195,12 +164,12 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
   const deadline = Date.now() + config.agentTimeoutMs;
   for (let round = 0; round < AGENT_LIMITS.maxModelRounds; round += 1) {
     const forcedFinal = round === AGENT_LIMITS.maxModelRounds - 1 || toolCount >= AGENT_LIMITS.maxToolCalls;
-    if (bytes({ messages, tools }) > config.maxPromptBytes) throw new AgentError(413, "PROMPT_TOO_LARGE", "工具结果与上下文过长，请开始新对话或缩小范围。");
+    const roundInputBytes = bytes({ messages, tools });
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) throw new AgentError(503, "UPSTREAM_TIMEOUT", "资产搜索超时，请稍后重试同一请求。");
     const response = await modelRound(messages, tools, config, env, fetcher, forcedFinal, remainingMs);
     const usage = response.usage;
-    if (Number.isInteger(usage?.prompt_tokens) && usage.prompt_tokens >= 0 && usage.prompt_tokens <= config.maxPromptBytes
+    if (Number.isInteger(usage?.prompt_tokens) && usage.prompt_tokens >= 0 && usage.prompt_tokens <= roundInputBytes
       && Number.isInteger(usage?.completion_tokens) && usage.completion_tokens >= 0 && usage.completion_tokens <= config.maxOutputTokens) {
       inputTokens += usage.prompt_tokens; outputTokens += usage.completion_tokens;
     } else usageKnown = false;
@@ -278,7 +247,6 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
         value = { error: { code: error.code ?? "SEARCH_UNAVAILABLE", message: error.code ? text(error.message, 220) : "资产检索暂时不可用。" } };
         steps.push({ tool: call.function.name, error: value.error.code });
       }
-      if (Array.isArray(value.items)) value = compactSearchValue(value, call.id, messages, tools, config.maxPromptBytes);
       messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(value) });
     }
     if (round === AGENT_LIMITS.maxModelRounds - 2 || toolCount >= AGENT_LIMITS.maxToolCalls) {

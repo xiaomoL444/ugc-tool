@@ -5,11 +5,11 @@ import { buildAgentPrompt, runAssetAgent } from './agent-runtime.mjs';
 import { validateModelResult } from './worker.mjs';
 
 // Real local prompt and production runtime, with all provider replies injected.
-// This verifies byte bounds and evidence retention, not model understanding.
+// This verifies evidence retention beyond the former byte cap, not model understanding.
 const sourcePrompt = await readFile(new URL('./SystemPrompt.md', import.meta.url), 'utf8');
 const config = {
   upstream: 'https://provider.invalid/chat/completions', model: 'mock-budget-model',
-  maxMessages: 12, maxCandidates: 50, maxQueryLength: 2000, maxPromptBytes: 30000,
+  maxMessages: 12, maxCandidates: 50, maxQueryLength: 2000,
   maxOutputTokens: 5400, timeoutMs: 30000, agentTimeoutMs: 55000,
   inputRate: 0, outputRate: 0, costSafety: 1,
 };
@@ -42,7 +42,7 @@ function toolValues(body) {
   }));
 }
 
-test('multiple long search replies and five effect audio details share the real prompt budget without losing IDs or evidence channels', async t => {
+test('multiple long search replies and five audio details preserve their summaries across model rounds', async t => {
   assert(Buffer.byteLength(sourcePrompt, 'utf8') >= 10000, 'Use the substantive local prompt, not a short fixture');
   assert.match(sourcePrompt, /严格\s*JSON\s*输出规则/u, 'Keep the strict JSON output section');
   assert.match(sourcePrompt, /完整\s*JSON\s*对象[\s\S]{0,100}只输出一个对象/u, 'Keep the single complete JSON object rule');
@@ -72,7 +72,6 @@ test('multiple long search replies and five effect audio details share the real 
       },
     }, validateModelResult, async (_url, input) => {
       const body = JSON.parse(input.body); sent.push(body);
-      assert(Buffer.byteLength(input.body, 'utf8') <= config.maxPromptBytes, 'The actual model request body must fit 30 KB');
       if (sent.length === 1) return toolResponse([
         call('long-search-a', 'search_assets', { query: '短促 金属', searchType: 'feature', limit: 10 }),
         call('long-search-b', 'search_assets', { query: '清脆 共鸣', searchType: 'feature', limit: 10 }),
@@ -83,15 +82,17 @@ test('multiple long search replies and five effect audio details share the real 
       assert.deepEqual(searches.flatMap(row => row.value.items.map(item => item.resourceId)), ids);
       assert(searches.every(row => row.value.catalogVersion === 'budget-fixture' && row.value.total === 10 && row.value.nextCursor === 'next-page'));
       assert(searches.flatMap(row => row.value.items).every(item => item.audioMatch === true && item.hasAudio === true && item.matchType === 'feature'));
-      assert(searches.some(row => row.value.summariesShortened));
+      assert(searches.every(row => !row.value.summariesShortened));
+      assert(searches.flatMap(row => row.value.items).every(item => item.description.length === 260));
       if (sent.length === 2) return toolResponse([call('long-details', 'get_assets', { ids: detailIds })]);
       const detailValue = values.find(row => row.callId === 'long-details').value;
       assert.deepEqual(detailValue.items.map(item => item.resourceId), detailIds);
       assert.deepEqual(detailValue.missingIds, []);
-      assert(detailValue.summariesShortened);
+      assert(!detailValue.summariesShortened);
       for (const item of detailValue.items) {
         assert.equal(item.audioMatch, true);
         assert(item.audioDescription.startsWith('AUDIO_'));
+        assert.equal(item.audioDescription.length, 600);
         assert(item.description.startsWith('AUDIO_'));
         assert(!item.audioDescription.includes('VISUAL_'));
         assert(item.visualDescription.startsWith('VISUAL_'));
@@ -112,7 +113,7 @@ test('multiple long search replies and five effect audio details share the real 
   assert.equal(completed.rounds, 3);
   assert.deepEqual([...completed.records.keys()], ids);
   assert.deepEqual(completed.result.matches.map(match => match.resourceId), detailIds);
-  assert.deepEqual({ first, second, details }, before, 'Budget compaction must not modify handler source data');
+  assert.deepEqual({ first, second, details }, before, 'Tool summaries must not modify handler source data');
   for (const item of second) assert.equal(completed.records.get(item.resourceId).audioDescription, item.audioDescription);
   for (const item of details) {
     const known = completed.records.get(item.resourceId);
@@ -122,8 +123,8 @@ test('multiple long search replies and five effect audio details share the real 
   }
   const beforeDetails = toolValues(sent[1]).filter(row => row.callId.startsWith('long-search')).map(row => row.value);
   const afterDetails = toolValues(sent[2]).filter(row => row.callId.startsWith('long-search')).map(row => row.value);
-  assert(afterDetails.some((value, index) => JSON.stringify(value).length < JSON.stringify(beforeDetails[index]).length),
-    'Adding detail evidence should compact older tool summaries as needed');
+  assert.deepEqual(afterDetails, beforeDetails, 'Adding details must preserve the earlier search evidence');
+  assert(Buffer.byteLength(JSON.stringify(sent[2]), 'utf8') > 30000, 'The long transcript should exceed the former cap');
   const finalSearchItems = afterDetails.flatMap(value => value.items);
   const finalDetailItems = toolValues(sent[2]).find(row => row.callId === 'long-details').value.items;
   t.diagnostic(JSON.stringify({ localPromptBytes: Buffer.byteLength(sourcePrompt, 'utf8'),
@@ -133,20 +134,25 @@ test('multiple long search replies and five effect audio details share the real 
     shortestDetailVisualDescriptionChars: Math.min(...finalDetailItems.map(item => item.visualDescription.length)) }));
 });
 
-test('an irreducible tool reply fails at 30 KB rather than dropping any returned identities', async () => {
+test('fifty long tool results reach the final model round without a 30 KB rejection or dropped identities', async () => {
   const items = makeEffects(910000, 50), snapshot = structuredClone(items);
   let modelRequests = 0;
-  await assert.rejects(runAssetAgent({ ...request, resultLimit: 50 },
+  const completed = await runAssetAgent({ ...request, resultLimit: 50 },
     buildAgentPrompt({ ...request, resultLimit: 50 }, config, sourcePrompt), config,
     { UPSTREAM_API_KEY: 'in-memory-mock-budget-key' }, {
       search: async () => ({ catalogVersion: 'budget-fixture', mode: 'keyword', total: 50, items }),
     }, validateModelResult, async (_url, input) => {
       modelRequests++;
-      assert.equal(modelRequests, 1, 'No further model request should be sent after an oversized reply');
-      assert(Buffer.byteLength(input.body, 'utf8') <= config.maxPromptBytes);
-      return toolResponse([call('too-many-identities', 'search_assets', { query: '金属', searchType: 'feature', limit: 50 })]);
-    }), error => error.code === 'PROMPT_TOO_LARGE');
-  assert.equal(modelRequests, 1);
+      if (modelRequests === 1) return toolResponse([call('fifty-identities', 'search_assets', { query: '金属', searchType: 'feature', limit: 50 })]);
+      assert(Buffer.byteLength(input.body, 'utf8') > 30000);
+      const values = toolValues(JSON.parse(input.body));
+      assert.deepEqual(values[0].value.items.map(item => item.resourceId), items.map(item => item.resourceId));
+      assert(values[0].value.items.every(item => item.description.length === 260 && item.keywords.length === 6));
+      return finalResponse(items.map(item => item.resourceId));
+    });
+  assert.equal(modelRequests, 2);
+  assert.equal(completed.rounds, 2);
+  assert.equal(completed.result.matches.length, 50);
   assert.deepEqual(items, snapshot);
   assert.equal(new Set(items.map(item => item.resourceId)).size, 50);
 });

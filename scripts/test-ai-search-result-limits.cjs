@@ -42,6 +42,7 @@ const summaries = Array.from({ length: 51 }, (_, index) => ({
 }));
 const resources = [...parseServerResources(summaries.slice(0, 50), "zh-CN"), ...parseServerResources(summaries.slice(50), "zh-CN")];
 const answer = count => ({ answer: "找到匹配的碰撞音效", matches: resources.slice(0, count).map(item => ({ resourceId: item.resourceId, reason: "碰撞音效", matchType: "feature" })) });
+const titleOnlyAnswer = count => ({ answer: "找到匹配的碰撞音效", matches: resources.slice(0, count).map(item => ({ resourceId: item.resourceId, title: "模型自拟名称，请勿显示", description: "模型自拟描述，请勿作为理由", matchType: "feature" })) });
 const response = value => new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
 const signal = () => new AbortController().signal;
 const question = (content = "碰撞音效") => ({ id: "question", role: "user", status: "complete", content, cards: [], mode: "custom", source: "custom" });
@@ -59,15 +60,36 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
   assert.equal(validateSearchAnswer(answer(10), resources, 10).matches.length, 10);
   assert.equal(validateSearchAnswer(answer(20), resources, 20).matches.length, 20);
   assert.equal(validateSearchAnswer(answer(20), resources).matches.length, 20, "The validator accepts the new overall maximum when no round-specific cap is supplied");
-  assert.throws(() => validateSearchAnswer(answer(11), resources, 10), errorCode("RESPONSE_FORMAT"), "A model cannot exceed the user's selected count");
+  assert.throws(() => validateSearchAnswer(answer(11), resources, 10), errorCode("RESPONSE_RESULT_LIMIT"), "A model cannot exceed the user's selected count");
   assert.equal(validateSearchAnswer(answer(50), resources).matches.length, 50);
-  assert.throws(() => validateSearchAnswer(answer(51), resources), errorCode("RESPONSE_FORMAT"));
+  assert.throws(() => validateSearchAnswer(answer(51), resources), errorCode("RESPONSE_RESULT_LIMIT"));
   const duplicate = answer(20);
   duplicate.matches[19] = { ...duplicate.matches[0] };
   assert.throws(() => validateSearchAnswer(duplicate, resources, 20), errorCode("RESPONSE_ASSET_ID"));
   const invented = answer(20);
   invented.matches[19].resourceId = "sound:999999";
   assert.throws(() => validateSearchAnswer(invented, resources, 20), errorCode("RESPONSE_ASSET_ID"));
+
+  const titleOnlyValidated = validateSearchAnswer(titleOnlyAnswer(20), resources, 20);
+  assert.equal(titleOnlyValidated.matches.length, 20);
+  assert.ok(titleOnlyValidated.matches.every(item => item.reason === ''), 'Missing reasons remain empty instead of using model titles or descriptions');
+  assert.ok(titleOnlyValidated.matches.every(item => Object.keys(item).sort().join(',') === 'matchType,reason,resourceId'), 'Untrusted match titles and descriptions are discarded');
+  for (const [label, extra, expected] of [
+    ['missing', {}, ''], ['null', { reason: null }, ''], ['empty', { reason: '' }, ''],
+    ['whitespace', { reason: ' \t\r\n ' }, ''], ['valid', { reason: '描述支持碰撞音' }, '描述支持碰撞音'],
+  ]) {
+    const value = { answer: '找到候选', matches: [{ ...titleOnlyAnswer(1).matches[0], ...extra }] };
+    assert.equal(validateSearchAnswer(value, resources, 20).matches[0].reason, expected, label);
+  }
+  for (const reason of [false, 0, [], {}, 'r'.repeat(801)]) {
+    assert.throws(() => validateSearchAnswer({ answer: '候选', matches: [{ ...answer(1).matches[0], reason }] }, resources, 20), errorCode('RESPONSE_REASON_INVALID'));
+  }
+  for (const matchType of [undefined, null, 0, [], {}, 'title', 'unknown']) {
+    assert.throws(() => validateSearchAnswer({ answer: '候选', matches: [{ ...answer(1).matches[0], matchType }] }, resources, 20), errorCode('RESPONSE_MATCH_TYPE'));
+  }
+  for (const malformed of [null, [], {}, { answer: '', matches: [] }, { answer: '候选', matches: null }]) {
+    assert.throws(() => validateSearchAnswer(malformed, resources, 20), errorCode('RESPONSE_FORMAT'));
+  }
 
   const defaultPayload = buildSearchPayload("碰撞音效", "zh-CN", "sound", [], resources, "default-limit");
   assert.equal(defaultPayload.resultLimit, 10);
@@ -87,12 +109,14 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
     const body = JSON.parse(options.body);
     assert.ok(!options.body.includes("fixture-key-only"), "Credentials never enter model context");
     assert.ok(body.messages.some(message => message.content.includes('"resultLimit":20')), "The model receives the selected count");
-    return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(20)) } }] });
+    return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(titleOnlyAnswer(20)) } }] });
   } });
   assert.equal(twentyReply.matches.length, 20);
   assert.equal(modelCalls, 1);
+  assert.ok(twentyReply.matches.every(item => item.reason === ""));
+  assert.deepEqual(twentyReply.matches.map(match => resources.find(item => item.resourceId === match.resourceId).title), summaries.slice(0, 20).map(item => item.title), "Legacy cards obtain names from catalog resources, never model match titles");
   const tenPayload = buildSearchPayload("碰撞音效", "zh-CN", "sound", [], resources.slice(0, 20), "ten-results", 10);
-  await assert.rejects(() => requestSearch(tenPayload, resources.slice(0, 20), { ...customOptions, fetcher: async () => response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(11)) } }] }) }), errorCode("RESPONSE_FORMAT"), "Actual custom-model requests enforce the selected limit");
+  await assert.rejects(() => requestSearch(tenPayload, resources.slice(0, 20), { ...customOptions, fetcher: async () => response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(11)) } }] }) }), errorCode("RESPONSE_RESULT_LIMIT"), "Actual custom-model requests enforce the selected limit");
 
   const twentyIds = resources.slice(0, 20).map(item => item.resourceId);
   const batches = [];
@@ -161,13 +185,15 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
     assert.equal(url, "/api/ai-search/chat");
     assert.equal(JSON.parse(options.body).resultLimit, 20);
     assert.equal(options.headers.Authorization, undefined);
-    return response({ ...answer(20), catalogVersion: version, resources: summaries.slice(0, 20), model: "fixture-free-model" });
+    return response({ ...titleOnlyAnswer(20), catalogVersion: version, resources: summaries.slice(0, 20), model: "fixture-free-model" });
   } });
   assert.equal(freeAnswer.matches.length, 20);
   assert.equal(freeAnswer.resources.length, 20);
   assert.equal(freeCalls, 1);
+  assert.ok(freeAnswer.matches.every(item => item.reason === ""));
+  assert.deepEqual(freeAnswer.resources.map(item => item.title), summaries.slice(0, 20).map(item => item.title), "Site agent returns trusted catalog titles despite model match-title extras");
   const freeTen = buildAgentSearchPayload("碰撞音效", "zh-CN", "sound", [], true, "free-ten", 10);
-  await assert.rejects(() => requestAgentSearch(freeTen, { ...customOptions, mode: "free", fetcher: async () => response({ ...answer(11), catalogVersion: version, resources: summaries.slice(0, 11) }) }), errorCode("RESPONSE_FORMAT"), "Free-agent replies also enforce the user's selected count");
+  await assert.rejects(() => requestAgentSearch(freeTen, { ...customOptions, mode: "free", fetcher: async () => response({ ...answer(11), catalogVersion: version, resources: summaries.slice(0, 11) }) }), errorCode("RESPONSE_RESULT_LIMIT"), "Free-agent replies also enforce the user's selected count");
 
   const verifyCustomAgentTwenty = async (payload, chosen, expectedExcluded) => {
     let models = 0, searches = 0, details = 0;
@@ -179,7 +205,7 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
         assert.ok(body.messages.some(message => message.role === "user" && message.content?.includes('"resultLimit":20')), "The planning model receives the selected count");
         if (models === 1) return response({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "search-twenty", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "碰撞", scope: "sound", limit: 20 }) } }] } }] });
         assert.equal(models, 2, "One successful search requires only a planning and a final model reply");
-        return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "匹配的碰撞音效", matches: chosenIds.map(resourceId => ({ resourceId, reason: "碰撞音效", matchType: "feature" })) }) } }] });
+        return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "匹配的碰撞音效", matches: chosenIds.map(resourceId => ({ resourceId, title: "模型自拟名称", description: "不要补造理由", matchType: "feature" })) }) } }] });
       }
       if (url === "/api/ai-search/search") {
         searches++;
@@ -196,6 +222,8 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
     assert.equal(result.matches.length, 20);
     assert.deepEqual(result.resources.map(item => item.resourceId), chosenIds);
     assert.equal(models, 2);
+    assert.ok(result.matches.every(item => item.reason === ""));
+    assert.deepEqual(result.resources.map(item => item.title), chosen.map(item => item.title), "Custom-agent cards use trusted detail names");
     assert.equal(searches, 1);
     assert.equal(details, 2);
   };
@@ -227,7 +255,7 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
   } });
   assert.equal(customFifty.matches.length, 50);
   await assert.rejects(() => requestSearch(buildSearchPayload("碰撞音效", "zh-CN", "sound", [], resources.slice(0, 50), "custom-37", 37), resources.slice(0, 50),
-    { ...customOptions, fetcher: async () => response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(38)) } }] }) }), errorCode("RESPONSE_FORMAT"));
+    { ...customOptions, fetcher: async () => response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(38)) } }] }) }), errorCode("RESPONSE_RESULT_LIMIT"));
 
   const legacyInfo = parseServerCatalog({ catalogVersion: version, mode: "keyword", total: 100 });
   assert.equal(legacyInfo.maxSearchLimit, 30);

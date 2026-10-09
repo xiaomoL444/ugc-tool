@@ -130,28 +130,36 @@ test("prompt read failure returns a safe specific error before model, quota or b
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("large prompt files load and cache but the overall request budget rejects both workflows before model or billing", async () => {
+test("model prompts over the former limit load, execute and cache both workflows without losing text", async () => {
   const originalFetch = globalThis.fetch;
   const source = "字".repeat(32768);
   assert.equal(Buffer.byteLength(source), 96 * 1024);
   try {
     for (const makeBody of [body, agentBody]) {
-      const { service, storage } = ledger(); let reads = 0, models = 0;
+      const { service, storage } = ledger({ MAX_PROMPT_BYTES: "1" }); let reads = 0, models = 0;
       globalThis.fetch = async (_url, options) => {
         if (options.method === "GET") {
           reads += 1;
           return new Response(source, { headers: { "content-type": "text/markdown" } });
         }
-        models += 1; return upstreamResponse();
+        models += 1;
+        const sent = JSON.parse(options.body);
+        assert.ok(Buffer.byteLength(JSON.stringify(sent.messages)) > 96000);
+        assert.ok(sent.messages[0].content.startsWith(source));
+        if (makeBody === agentBody && models === 1) return toolResponse("large-source-search", "search_assets", { query: "金属撞击" }, 40000, 20);
+        return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }],
+          usage: { prompt_tokens: 40000, completion_tokens: 50 } }));
       };
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const response = await service.fetch(req(makeBody())); const data = await response.json();
-        assert.equal(response.status, 413);
-        assert.equal(data.error.code, "PROMPT_TOO_LARGE");
-        assert.equal(models, 0, "the model is not called when the full request exceeds its configured budget");
-        assert.equal(storage.values.size, 0, "no quota, concurrency or billing reservation is allocated");
+        assert.equal(response.status, 200);
+        assert.deepEqual(data.matches, result.matches);
+        assert.equal(models, makeBody === agentBody ? 2 : 1);
+        assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
+        assert.equal(await storage.get(`budget:${periods().month}`), Math.ceil(((makeBody === agentBody ? 80000 : 40000) * 5
+          + (makeBody === agentBody ? 70 : 50) * 20) * 1.25));
       }
-      assert.equal(reads, 1, "the large file is readable and cached even when the later model budget check rejects it");
+      assert.equal(reads, 1, "the large file and completed turn are cached without another model request");
     }
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -388,8 +396,8 @@ test("free agent executes search then details then JSON, bills one attempt and s
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("agent reserves all model rounds atomically before any call and validates previous IDs", async () => {
-  const { service, storage } = ledger({ MONTHLY_BUDGET_CNY: "0.1" }); let calls = 0;
+test("agent reserves only its first actual round before any call and validates previous IDs", async () => {
+  const { service, storage } = ledger({ MONTHLY_BUDGET_CNY: "0.01" }); let calls = 0;
   const originalFetch = globalThis.fetch; globalThis.fetch = withPromptFetch(async () => { calls += 1; return upstreamResponse(); });
   try {
     const response = await service.fetch(req(agentBody()));
@@ -397,11 +405,92 @@ test("agent reserves all model rounds atomically before any call and validates p
     assert.equal(calls, 0); assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), undefined);
     const cfg = settings(service.env), normalized = normalizeAgentRequest(agentBody(), cfg, service.env);
     const prompt = buildAgentPrompt(normalized, cfg);
-    assert.equal(prompt.inputBytes, cfg.maxPromptBytes * 3);
-    assert.equal(prompt.reservedMicros, Math.ceil((cfg.maxPromptBytes * cfg.inputRate + 1400 * cfg.outputRate) * 3 * cfg.costSafety));
+    assert.equal(prompt.inputBytes, Buffer.byteLength(JSON.stringify({ messages: prompt.messages, tools: prompt.tools })));
+    assert.equal(prompt.reservedMicros, Math.ceil((prompt.inputBytes * cfg.inputRate + 1400 * cfg.outputRate) * cfg.costSafety));
     assert.throws(() => normalizeAgentRequest({ ...agentBody(), previousIds: ["https://evil.example"] }, cfg));
     assert.throws(() => normalizeAgentRequest({ ...agentBody(), previousIds: Array(21).fill("sound:123") }, cfg));
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a later round exceeding the monthly budget stops before fetch and keeps one attempt and the incurred reservation", async () => {
+  const { service, storage } = ledger();
+  const cfg = settings(service.env), normalized = normalizeAgentRequest(agentBody(), cfg, service.env);
+  const prompt = buildAgentPrompt(normalized, cfg);
+  service.env.MONTHLY_BUDGET_CNY = String((prompt.reservedMicros + 100) / 1000000);
+  const originalFetch = globalThis.fetch; let calls = 0;
+  globalThis.fetch = withPromptFetch(async () => {
+    calls += 1;
+    assert.equal(await storage.get(`budget:${periods().month}`), prompt.reservedMicros);
+    return toolResponse("over-budget-search", "search_assets", { query: "金属撞击" });
+  });
+  try {
+    const response = await service.fetch(req(agentBody())), data = await response.json();
+    assert.equal(response.status, 503); assert.equal(data.error.code, "FREE_BUDGET_EXHAUSTED");
+    assert.equal(calls, 1, "no paid retry or second model request is made when the extra reservation is rejected");
+    assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
+    assert.equal(await storage.get(`budget:${periods().month}`), prompt.reservedMicros);
+    assert.deepEqual(await storage.get("active"), {});
+    assert.deepEqual(await (await service.fetch(req(agentBody()))).json(), data); assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("model reservation increments are atomic, idempotent, bounded by rounds and independent of daily quota", async () => {
+  const { service, storage } = ledger({ MONTHLY_BUDGET_CNY: "0.1", MAX_CONCURRENCY: "20" });
+  const cfg = settings(service.env), normalized = normalizeAgentRequest(agentBody(), cfg, service.env);
+  const initial = { inputBytes: 100, reservedMicros: 10000 };
+  const a = await service.reserve(visitor, normalized, initial, cfg, "first");
+  const b = await service.reserve("b".repeat(64), normalized, initial, cfg, "second");
+  const extra = Math.ceil((8000 * cfg.inputRate + 1000 * cfg.outputRate) * cfg.costSafety);
+  const results = await Promise.allSettled([a, b].map(item => service.extendModelReservation(item.key, 2, 8000, 1000, cfg)));
+  assert.equal(results.filter(item => item.status === "fulfilled").length, 1);
+  assert.equal(results.filter(item => item.status === "rejected" && item.reason.code === "FREE_BUDGET_EXHAUSTED").length, 1);
+  const chosen = results[0].status === "fulfilled" ? a : b;
+  assert.equal(await storage.get(`budget:${periods().month}`), 20000 + extra);
+  const record = await storage.get(chosen.key);
+  assert.equal(record.reservedMicros, initial.reservedMicros + extra);
+  assert.equal(record.inputBytes, 8100); assert.equal(record.outputTokenLimit, cfg.maxOutputTokens + 1000);
+  assert.equal(record.modelRounds, 2);
+  assert.equal((await service.extendModelReservation(chosen.key, 2, 8000, 1000, cfg)).duplicate, true);
+  assert.equal(await storage.get(`budget:${periods().month}`), 20000 + extra);
+  await assert.rejects(service.extendModelReservation(chosen.key, 1, 10, 10, cfg), error => error.code === "SERVICE_ERROR");
+  await assert.rejects(service.extendModelReservation(chosen.key, 4, 10, 10, cfg), error => error.code === "SERVICE_ERROR");
+  for (const [bytes, tokens] of [[-1, 10], [NaN, 10], [Infinity, 10], [Number.MAX_SAFE_INTEGER, 10], [10, cfg.maxOutputTokens + 1]]) {
+    await assert.rejects(service.extendModelReservation(chosen.key, 3, bytes, tokens, cfg), error => error.code === "SERVICE_ERROR");
+  }
+  assert.equal(Object.keys(await storage.get("active")).length, 2);
+  assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
+  assert.equal(await storage.get(`daily:${periods().day}:${"b".repeat(64)}`), 1);
+});
+
+test("all rounds retain the first billing month and cumulative limits settle valid total usage", async () => {
+  const { service, storage } = ledger();
+  const cfg = settings(service.env), normalized = normalizeAgentRequest(agentBody(), cfg, service.env);
+  const now = Date.parse("2026-10-31T15:59:59Z");
+  const initial = { inputBytes: 5000, reservedMicros: Math.ceil((5000 * 5 + 1400 * 20) * 1.25) };
+  const reservation = await service.reserve(visitor, normalized, initial, { ...cfg, roundOutputTokens: 1400 }, "cross-month", now);
+  const firstActive = await storage.get("active");
+  const extra = await service.extendModelReservation(reservation.key, 2, 40000, 1400, cfg, now + 2000);
+  assert.equal(extra.record.budgetKey, "budget:2026-10");
+  assert.equal(await storage.get("budget:2026-11"), undefined);
+  assert.deepEqual(await storage.get("active"), firstActive, "adding a round does not extend the total turn deadline");
+  assert.equal(await storage.get(`daily:2026-10-31:${visitor}`), 1);
+  assert.equal(await storage.get(`daily:2026-11-01:${visitor}`), undefined);
+  await service.finish(reservation.key, { answer: "找到资源", matches: [] }, 200, cfg, initial,
+    { prompt_tokens: 35000, completion_tokens: 1600 }, now + 3000);
+  assert.equal(await storage.get("budget:2026-10"), Math.ceil((35000 * 5 + 1600 * 20) * 1.25));
+  await assert.rejects(service.extendModelReservation(reservation.key, 3, 10000, 1400, cfg, now + 3000), error => error.code === "UPSTREAM_TIMEOUT");
+});
+
+test("expired turns never allocate another model round or replace cached timeout with late success", async () => {
+  const { service, storage } = ledger();
+  const cfg = settings(service.env), normalized = normalizeAgentRequest(agentBody(), cfg, service.env);
+  const prompt = buildAgentPrompt(normalized, cfg), now = Date.now() - 120000;
+  const reservation = await service.reserve(visitor, normalized, prompt, cfg, "expired-model-round", now);
+  await assert.rejects(service.extendModelReservation(reservation.key, 2, 40000, 1400, cfg), error => error.code === "UPSTREAM_TIMEOUT");
+  const finished = await service.finish(reservation.key, result, 200, cfg, prompt, { prompt_tokens: 1, completion_tokens: 1 });
+  assert.equal(finished.body.error.code, "UPSTREAM_TIMEOUT");
+  assert.equal(await storage.get(`budget:${periods(now).month}`), prompt.reservedMicros);
+  assert.deepEqual(await storage.get("active"), {});
 });
 
 test("unsupported free agent tool APIs cache one safe error and retain unknown cost reservation", async () => {
@@ -482,7 +571,8 @@ test("rejects client system instructions, duplicate IDs, excessive candidates an
   assert.deepEqual(validateModelResult({ answer: "没有符合条件的素材。", matches: [] }, body().candidates).matches, []);
   const prompt = buildPrompt(normalizeRequest(body(), config), config);
   assert.ok(prompt.reservedMicros > 0);
-  assert.throws(() => buildPrompt(normalizeRequest(body(), config), { ...config, maxPromptBytes: 1 }));
+  assert.equal(Object.hasOwn(settings({ ...env(), MAX_PROMPT_BYTES: "1" }), "maxPromptBytes"), false);
+  assert.deepEqual(buildPrompt(normalizeRequest(body(), config), { ...config, maxPromptBytes: 1 }), prompt);
 });
 
 test("accepts all five AppLocale values and compatible short forms", () => {
@@ -915,13 +1005,20 @@ test("nested agent embeddings retain one chat concurrency slot and their own ato
 test("a missing usage report in any agent round preserves the complete turn cost reservation", async () => {
   const { service, storage } = ledger(), cfg = settings(service.env);
   const normalized = normalizeAgentRequest(agentBody(), cfg, service.env), prompt = buildAgentPrompt(normalized, cfg);
-  const originalFetch = globalThis.fetch; let calls = 0;
-  globalThis.fetch = withPromptFetch(async () => ++calls === 1 ? toolResponse("search-1", "search_assets", { query: "金属撞击" })
-    : new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }] })));
+  const originalFetch = globalThis.fetch; let calls = 0, reserved = 0;
+  globalThis.fetch = withPromptFetch(async (_url, options) => {
+    const sent = JSON.parse(options.body);
+    reserved += Math.ceil((Buffer.byteLength(JSON.stringify({ messages: sent.messages, tools: sent.tools })) * cfg.inputRate
+      + sent.max_tokens * cfg.outputRate) * cfg.costSafety);
+    assert.equal(await storage.get(`budget:${periods().month}`), reserved);
+    return ++calls === 1 ? toolResponse("search-1", "search_assets", { query: "金属撞击" })
+      : new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }] }));
+  });
   try {
     const response = await service.fetch(req(agentBody())); const data = await response.json();
     assert.equal(response.status, 200); assert.equal(data.usage, undefined); assert.equal(calls, 2);
-    assert.equal(await storage.get(`budget:${periods().month}`), prompt.reservedMicros);
+    assert.ok(reserved > prompt.reservedMicros);
+    assert.equal(await storage.get(`budget:${periods().month}`), reserved);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -964,7 +1061,53 @@ test("expanded result validation accepts six, ten or twenty real IDs while rejec
   assert.throws(() => validateModelResult(unknown, candidates, 20), error => error.code === "UPSTREAM_RESPONSE_INVALID");
 });
 
-test("the selected result count controls per-round tokens, aggregate reservation and usage settlement", async () => {
+test("twenty title-only matches keep trusted IDs and normalize missing explanations without relaxing limits", () => {
+  const candidates = Array.from({ length: 20 }, (_, index) => ({ resourceId: `sound:${2000 + index}` }));
+  const output = { answer: "找到二十个音效。", matches: candidates.map((item, index) => ({
+    resourceId: item.resourceId, title: `模型提供的名称${index}`, matchType: "feature",
+  })) };
+  assert.deepEqual(validateModelResult(output, candidates, 20), { answer: output.answer,
+    matches: output.matches.map(({ resourceId, matchType }) => ({ resourceId, reason: "", matchType })) });
+  assert.throws(() => validateModelResult(output, candidates), error => error.code === "UPSTREAM_RESPONSE_INVALID"
+    && error.message === "模型返回的资源超过本轮数量上限（最多 10 项）。");
+  for (const reason of [undefined, null, "", " \t\r\n", " ".repeat(301)]) {
+    const parsed = validateModelResult({ ...result, matches: [{ ...result.matches[0], reason, title: "忽略此名称" }] }, body().candidates);
+    assert.deepEqual(parsed.matches, [{ resourceId: "sound:123", reason: "", matchType: "feature" }]);
+  }
+  const existingReason = "  描述支持：短促金属撞击。  ";
+  assert.equal(validateModelResult({ ...result, matches: [{ ...result.matches[0], reason: existingReason }] }, body().candidates).matches[0].reason, existingReason);
+});
+
+test("missing explanation tolerance still rejects unsafe reasons, malformed values and untrusted selections", () => {
+  const candidates = body().candidates;
+  for (const reason of [42, false, {}, [], "x".repeat(301), "https://evil.example", "<script>bad</script>", "[link](evil)"]) {
+    assert.throws(() => validateModelResult({ ...result, matches: [{ ...result.matches[0], reason }] }, candidates),
+      error => error.code === "UPSTREAM_RESPONSE_INVALID");
+  }
+  const titleOnly = { resourceId: "sound:123", title: "忽略此名称", matchType: "feature" };
+  for (const matches of [[{ ...titleOnly, resourceId: "sound:999" }], [titleOnly, titleOnly],
+    [{ ...titleOnly, matchType: "name" }], [{ ...titleOnly, matchType: null }]]) {
+    assert.throws(() => validateModelResult({ ...result, matches }, candidates), error => error.code === "UPSTREAM_RESPONSE_INVALID");
+  }
+});
+
+test("result validation explains the rejected field without exposing model-authored values", () => {
+  const titleOnly = { resourceId: "sound:123", title: "PRIVATE_MODEL_TITLE", matchType: "feature" };
+  for (const [match, message] of [
+    [{ ...titleOnly, resourceId: "sound:PRIVATE_MODEL_ID" }, "模型返回了候选范围外或重复的资源 ID。"],
+    [{ ...titleOnly, reason: { secret: "PRIVATE_MODEL_REASON" } }, "模型返回的匹配理由格式不正确或超过 300 字符。"],
+    [{ ...titleOnly, reason: "PRIVATE_MODEL_REASON".repeat(20) }, "模型返回的匹配理由格式不正确或超过 300 字符。"],
+    [{ ...titleOnly, reason: "https://PRIVATE_MODEL_REASON.example" }, "模型返回的匹配理由包含不受支持的链接或代码。"],
+    [{ ...titleOnly, matchType: "PRIVATE_MODEL_MATCH_TYPE" }, "模型返回的匹配类型不正确，仅支持 feature 或 suggestion。"],
+  ]) {
+    assert.throws(() => validateModelResult({ answer: "找到资源。", matches: [match] }, body().candidates), error => {
+      assert.equal(error.code, "UPSTREAM_RESPONSE_INVALID"); assert.equal(error.message, message);
+      assert.doesNotMatch(error.message, /PRIVATE_MODEL/); return true;
+    });
+  }
+});
+
+test("the selected result count controls per-round tokens, incremental reservation and usage settlement", async () => {
   const originalFetch = globalThis.fetch;
   try {
     for (const [limit, tokens] of [[1, 800], [5, 800], [6, 1400], [10, 1400], [11, 2400], [20, 2400], [21, 2500], [33, 3700], [50, 5400]]) {
@@ -975,12 +1118,13 @@ test("the selected result count controls per-round tokens, aggregate reservation
       const prompt = buildAgentPrompt(normalized, effective);
       assert.equal(effective.maxOutputTokens, tokens);
       assert.equal(resultConfig(normalized, { ...effective, maxOutputTokens: 600 }).maxOutputTokens, 600);
-      assert.equal(prompt.reservedMicros, Math.ceil((effective.maxPromptBytes * 5 + tokens * 20) * 3 * 1.25));
-      let calls = 0;
+      assert.equal(prompt.reservedMicros, Math.ceil((prompt.inputBytes * 5 + tokens * 20) * 1.25));
+      let calls = 0, reserved = 0;
       globalThis.fetch = withPromptFetch(async (_url, options) => {
         calls += 1; const sent = JSON.parse(options.body);
         assert.equal(sent.max_tokens, tokens);
-        assert.equal(await storage.get(`budget:${periods().month}`), prompt.reservedMicros);
+        reserved += Math.ceil((Buffer.byteLength(JSON.stringify({ messages: sent.messages, tools: sent.tools })) * 5 + tokens * 20) * 1.25);
+        assert.equal(await storage.get(`budget:${periods().month}`), reserved);
         if (calls === 1) return toolResponse("search-count", "search_assets", { query: "金属撞击" }, 100, 20);
         return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }],
           usage: { prompt_tokens: 200, completion_tokens: tokens } }));
@@ -1094,6 +1238,40 @@ test("legacy candidate-ID and candidate-object requests can both return twenty t
       assert.ok(data.resources.every(item => item.href === `/SoundEffectPlayer?id=${item.id}`));
     }
     assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("both free workflows return twenty trusted cards for title-only model matches without an extra paid retry", async () => {
+  const assets = Array.from({ length: 20 }, (_, index) => ({ resourceId: `sound:${2100 + index}`, id: String(2100 + index), kind: "sound",
+    hasAudio: true, titles: { "zh-CN": `真实金属撞击${index}` }, description: { "zh-CN": "真实短促金属撞击声" },
+    keywords: { "zh-CN": ["金属", "撞击"] }, facetTexts: { feature: "金属撞击" } }));
+  const catalog = { indexVersion: "title-only-twenty-v1", assets };
+  const output = { answer: "找到这些金属撞击音效。", matches: assets.map(item => ({ resourceId: item.resourceId,
+    title: "MODEL_FAKE_TITLE", matchType: "feature" })) };
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const makeBody of [body, agentBody]) {
+      const { service, storage } = ledger({ ASSET_SEARCH_CATALOG: catalog }); let calls = 0;
+      globalThis.fetch = withPromptFetch(async () => {
+        calls += 1;
+        if (makeBody === agentBody && calls === 1) return toolResponse("title-only-search", "search_assets", { query: "金属撞击", limit: 20 });
+        return upstreamResponse(output);
+      });
+      const input = { ...makeBody(makeBody === agentBody ? "agent-title-only-twenty" : "legacy-title-only-twenty"), resultLimit: 20,
+        ...(makeBody === body ? { candidates: undefined, candidateIds: assets.map(item => item.resourceId), catalogVersion: catalog.indexVersion } : {}) };
+      const response = await service.fetch(req(input)), data = await response.json();
+      assert.equal(response.status, 200);
+      assert.deepEqual(data.matches, output.matches.map(({ resourceId, matchType }) => ({ resourceId, reason: "", matchType })));
+      assert.equal(data.resources.length, 20);
+      assert.deepEqual(data.resources.map(item => item.title), assets.map(item => item.titles["zh-CN"]));
+      assert.ok(data.resources.every(item => item.href === `/SoundEffectPlayer?id=${item.id}`));
+      assert.doesNotMatch(JSON.stringify(data), /MODEL_FAKE_TITLE/);
+      assert.equal(calls, makeBody === agentBody ? 2 : 1, "missing explanations never trigger a provider retry");
+      assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
+      assert.deepEqual(await (await service.fetch(req(input))).json(), data);
+      assert.equal(calls, makeBody === agentBody ? 2 : 1, "cached success makes no new provider call");
+      assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
+    }
   } finally { globalThis.fetch = originalFetch; }
 });
 import { createAssetCatalogLoader } from './asset-catalog-loader.mjs';
@@ -1222,7 +1400,7 @@ test('custom thirty-three and fifty card replies stay trusted and fit the ledger
         assert.equal(sent.max_tokens, 2400 + (resultLimit - 20) * 100);
         if (calls === 1) return toolResponse('custom-count-search', 'search_assets', { query: '雷声' });
         assert.equal(JSON.parse(sent.messages.find(item => item.role === 'tool').content).items.length, resultLimit);
-        assert.ok(new TextEncoder().encode(JSON.stringify({ messages: sent.messages, tools: sent.tools })).byteLength <= 30000);
+        assert.ok(new TextEncoder().encode(JSON.stringify({ messages: sent.messages, tools: sent.tools })).byteLength > 30000);
         return upstreamResponse(answer);
       });
       const response = await service.fetch(req({ ...agentBody(`custom-${resultLimit}-cards`), query: '雷声', resultLimit }));
@@ -1269,7 +1447,7 @@ test('fifty-card follow-ups exclude the complete previous batch through Worker t
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('fifty legacy candidates use compact truthful summaries within the same prompt byte budget', () => {
+test('fifty legacy candidates preserve full normalized summaries above the former prompt byte limit', () => {
   const cfg = settings(env());
   const candidates = Array.from({ length: 50 }, (_, index) => ({ resourceId: `sound:${5000 + index}`, kind: 'sound',
     title: '雷声'.repeat(100), description: '真实雷声描述'.repeat(200),
@@ -1278,10 +1456,11 @@ test('fifty legacy candidates use compact truthful summaries within the same pro
   }));
   const normalized = normalizeRequest({ ...body(), resultLimit: 50, candidates }, cfg);
   const prompt = buildPrompt(normalized, cfg);
-  assert.ok(prompt.inputBytes <= cfg.maxPromptBytes);
+  assert.ok(prompt.inputBytes > 30000);
   const data = JSON.parse(prompt.messages.at(-1).content.split('\n').at(-1));
   assert.deepEqual(data.candidates.map(item => item.resourceId), candidates.map(item => item.resourceId));
   assert.ok(data.candidates.every(item => item.description.startsWith('真实雷声描述')));
+  assert.deepEqual(data.candidates, normalized.candidates);
   assert.equal(validateModelResult({ answer: '找到音效', matches: candidates.map(item => ({ resourceId: item.resourceId, reason: '雷声描述支持', matchType: 'feature' })) }, normalized.candidates, 50).matches.length, 50);
   assert.throws(() => normalizeRequest({ ...body(), resultLimit: 50, candidates: [...candidates, { ...candidates[0], resourceId: 'sound:6000' }] }, cfg));
 });
@@ -1307,7 +1486,11 @@ test("both model workflows expose only bounded failed answer text and preserve c
       const cfg = settings(service.env);
       const normalized = makeBody === agentBody ? normalizeAgentRequest(input, cfg, service.env) : normalizeRequest(input, cfg);
       const prompt = makeBody === agentBody ? buildAgentPrompt(normalized, cfg) : buildPrompt(normalized, cfg);
-      globalThis.fetch = withPromptFetch(async () => {
+      let reserved = 0;
+      globalThis.fetch = withPromptFetch(async (_url, options) => {
+        const sent = JSON.parse(options.body);
+        const inputBytes = Buffer.byteLength(JSON.stringify(makeBody === agentBody ? { messages: sent.messages, tools: sent.tools } : sent.messages));
+        reserved += Math.ceil((inputBytes * cfg.inputRate + sent.max_tokens * cfg.outputRate) * cfg.costSafety);
         calls += 1;
         if (makeBody === agentBody && calls === 1) return toolResponse("raw-search", "search_assets", { query: "金属撞击" });
         return new Response(JSON.stringify({ upstream_secret: "PRIVATE_ENVELOPE", headers: { authorization: "PRIVATE_HEADER" },
@@ -1325,7 +1508,8 @@ test("both model workflows expose only bounded failed answer text and preserve c
       assert.doesNotMatch(JSON.stringify(data), /mock-test-only|mock-secret|PRIVATE_/);
       assert.equal(calls, makeBody === agentBody ? 2 : 1);
       assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
-      assert.equal(await storage.get(`budget:${periods().month}`), prompt.reservedMicros);
+      assert.ok(reserved >= prompt.reservedMicros);
+      assert.equal(await storage.get(`budget:${periods().month}`), reserved);
       assert.deepEqual(await storage.get("active"), {});
       const stored = await storage.get(`request:${visitor}:${input.requestId}`);
       assert.deepEqual(stored.body, data);

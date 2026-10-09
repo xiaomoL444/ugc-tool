@@ -11,7 +11,7 @@ import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS, normalizeResultLimit, searc
 
 const PROVIDER_BALANCE_REASONS = ["MISSING_KEY", "AUTH", "FORBIDDEN", "RATE_LIMIT", "UPSTREAM_ERROR", "TIMEOUT", "NETWORK", "INVALID_RESPONSE", "CNY_MISSING", "ACCOUNT_UNAVAILABLE", "ABORTED"] as const;
 export type ProviderBalanceReason = typeof PROVIDER_BALANCE_REASONS[number];
-const MODEL_RESPONSE_ERROR_CODES = ["RESPONSE_FORMAT", "RESPONSE_ASSET_ID", "OUTPUT_TRUNCATED", "EMPTY_RESPONSE", "INVALID_RESPONSE", "UPSTREAM_RESPONSE_INVALID"];
+const MODEL_RESPONSE_ERROR_CODES = ["RESPONSE_FORMAT", "RESPONSE_ASSET_ID", "RESPONSE_RESULT_LIMIT", "RESPONSE_REASON_INVALID", "RESPONSE_MATCH_TYPE", "OUTPUT_TRUNCATED", "EMPTY_RESPONSE", "INVALID_RESPONSE", "UPSTREAM_RESPONSE_INVALID"];
 export class AISearchError extends Error {
   public readonly reason?: ProviderBalanceReason;
   public readonly rawResponse?: string;
@@ -188,15 +188,21 @@ export async function providerRequestError(response: Response, context: RequestC
 }
 export function validateSearchAnswer(raw: unknown, candidates: SearchResource[], resultLimit = MAX_SEARCH_RESULTS): SearchAnswer {
   const result = record(raw);
-  if (typeof result.answer !== "string" || !result.answer.trim() || result.answer.length > 6000 || !Array.isArray(result.matches) || result.matches.length > Math.min(MAX_SEARCH_RESULTS, resultLimit)) throw new AISearchError("RESPONSE_FORMAT");
+  if (typeof result.answer !== "string" || !result.answer.trim() || result.answer.length > 6000 || !Array.isArray(result.matches)) throw new AISearchError("RESPONSE_FORMAT");
+  if (result.matches.length > Math.min(MAX_SEARCH_RESULTS, resultLimit)) throw new AISearchError("RESPONSE_RESULT_LIMIT");
   const allowed = new Set(candidates.map(item => item.resourceId));
   const seen = new Set<string>();
   const matches = result.matches.map(rawMatch => {
     const match = record(rawMatch);
     if (typeof match.resourceId !== "string" || !allowed.has(match.resourceId) || seen.has(match.resourceId)) throw new AISearchError("RESPONSE_ASSET_ID");
-    if (typeof match.reason !== "string" || match.reason.length > 800 || !["feature", "suggestion"].includes(String(match.matchType))) throw new AISearchError("RESPONSE_FORMAT");
+    // A missing explanation does not invalidate a trusted asset identity. Keep
+    // it empty so the UI can mark the omission without inventing evidence.
+    const rawReason = match.reason;
+    const reason = rawReason == null || typeof rawReason === "string" && !rawReason.trim() ? "" : rawReason;
+    if (typeof reason !== "string" || reason.length > 800) throw new AISearchError("RESPONSE_REASON_INVALID");
+    if (typeof match.matchType !== "string" || !["feature", "suggestion"].includes(match.matchType)) throw new AISearchError("RESPONSE_MATCH_TYPE");
     seen.add(match.resourceId);
-    return { resourceId: match.resourceId, reason: match.reason, matchType: match.matchType as "feature" | "suggestion" };
+    return { resourceId: match.resourceId, reason, matchType: match.matchType as "feature" | "suggestion" };
   });
   return { answer: result.answer, matches };
 }

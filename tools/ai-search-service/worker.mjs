@@ -73,7 +73,6 @@ export function settings(env) {
     maxCandidates: integer(env.MAX_CANDIDATES, 50, 1, 50),
     maxMessages: integer(env.MAX_MESSAGES, 12, 0, 30),
     maxQueryLength: integer(env.MAX_QUERY_LENGTH, 2000, 20, 8000),
-    maxPromptBytes: integer(env.MAX_PROMPT_BYTES, 30000, 1000, 100000),
     maxOutputTokens: integer(env.MAX_OUTPUT_TOKENS, 5400, 100, 5400),
     maxConcurrency: integer(env.MAX_CONCURRENCY, 4, 1, 20),
     timeoutMs: integer(env.UPSTREAM_TIMEOUT_MS, 30000, 1000, 55000),
@@ -344,27 +343,11 @@ export async function callEmbedding(query, config, env, fetcher = fetch) {
 export function buildPrompt(normalized, config, sourceText) {
   config = resultConfig(normalized, config);
   const { query, locale, scope, matchOn = "any", candidates, resultLimit = SEARCH_LIMITS.defaultResults } = normalized;
-  const makeMessages = rows => [
+  const messages = [
     { role: "system", content: renderSystemPrompt(sourceText, resultLimit, "candidates") }, ...normalized.messages,
-    { role: "user", content: `当前搜索请求（数据）：\n${JSON.stringify({ query, locale, scope, matchOn, candidates: rows, resultLimit })}` },
+    { role: "user", content: `当前搜索请求（数据）：\n${JSON.stringify({ query, locale, scope, matchOn, candidates, resultLimit })}` },
   ];
-  let messages = makeMessages(candidates);
-  let inputBytes = encoder.encode(JSON.stringify(messages)).byteLength;
-  if (inputBytes > config.maxPromptBytes) {
-    // More cards use shorter summaries instead of raising the input/context budget.
-    for (const [descriptionLength, titleLength, keywordCount, fieldLength] of [
-      [320, 160, 6, 80], [180, 120, 4, 60], [100, 80, 2, 40], [40, 60, 1, 24], [24, 40, 1, 16],
-    ]) {
-      const compact = candidates.map(item => ({ ...item, title: item.title.slice(0, titleLength),
-        description: item.description.slice(0, descriptionLength),
-        keywords: item.keywords.slice(0, keywordCount).map(word => word.slice(0, fieldLength)),
-        suggestedUses: item.suggestedUses.slice(0, 1).map(use => use.slice(0, fieldLength)),
-      }));
-      messages = makeMessages(compact); inputBytes = encoder.encode(JSON.stringify(messages)).byteLength;
-      if (inputBytes <= config.maxPromptBytes) break;
-    }
-    if (inputBytes > config.maxPromptBytes) throw new ServiceError(413, "PROMPT_TOO_LARGE", "问题、上下文和候选描述合计过长，请减少内容。");
-  }
+  const inputBytes = encoder.encode(JSON.stringify(messages)).byteLength;
   // Byte count is a deliberately generous token estimate for usual UTF-8 tokenizers.
   // Configure correct upstream prices and safety factor; incorrect prices cannot guarantee the cap.
   const reservedMicros = Math.ceil((inputBytes * config.inputRate
@@ -386,21 +369,34 @@ function emptySearchAnswer(locale) {
 export function validateModelResult(value, candidates, resultLimit = SEARCH_LIMITS.defaultResults) {
   if (!isObject(value) || Object.keys(value).some(key => key !== "answer" && key !== "matches")
     || typeof value.answer !== "string" || value.answer.length > 1800
-    || !Number.isInteger(resultLimit) || resultLimit < 1 || resultLimit > SEARCH_LIMITS.maxResults || !Array.isArray(value.matches) || value.matches.length > resultLimit) {
+    || !Number.isInteger(resultLimit) || resultLimit < 1 || resultLimit > SEARCH_LIMITS.maxResults || !Array.isArray(value.matches)) {
     throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回格式不正确，请稍后再试。");
+  }
+  if (value.matches.length > resultLimit) {
+    throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", `模型返回的资源超过本轮数量上限（最多 ${resultLimit} 项）。`);
   }
   const ids = new Set(candidates.map((candidate) => candidate.resourceId));
   const used = new Set();
   const unsafeText = /https?:\/\/|javascript:|data:|<\/?[a-z][^>]*>|\[[^\]]*\]\(/i;
   if (unsafeText.test(value.answer)) throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回了不受支持的链接或代码。");
   const matches = value.matches.map((match) => {
-    if (!isObject(match) || !ids.has(match.resourceId) || used.has(match.resourceId)
-      || typeof match.reason !== "string" || match.reason.length > 300
-      || unsafeText.test(match.reason) || !["feature", "suggestion"].includes(match.matchType)) {
-      throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回了候选范围外或格式不正确的资源。");
+    // Missing explanations stay empty; asset identity and evidence checks still apply.
+    const rawReason = match?.reason;
+    const reason = rawReason == null || typeof rawReason === "string" && !rawReason.trim() ? "" : rawReason;
+    if (!isObject(match) || !ids.has(match.resourceId) || used.has(match.resourceId)) {
+      throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回了候选范围外或重复的资源 ID。");
+    }
+    if (typeof reason !== "string" || reason.length > 300) {
+      throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回的匹配理由格式不正确或超过 300 字符。");
+    }
+    if (unsafeText.test(reason)) {
+      throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回的匹配理由包含不受支持的链接或代码。");
+    }
+    if (!["feature", "suggestion"].includes(match.matchType)) {
+      throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回的匹配类型不正确，仅支持 feature 或 suggestion。");
     }
     used.add(match.resourceId);
-    return { resourceId: match.resourceId, reason: match.reason, matchType: match.matchType };
+    return { resourceId: match.resourceId, reason, matchType: match.matchType };
   });
   return { answer: value.answer.trim(), matches };
 }
@@ -573,7 +569,8 @@ export class SearchLedger {
       quota.remaining -= 1;
       const record = { status: "processing", fingerprint, createdAt: now,
         ...(nested ? { parentRequestKey: normalized.parentRequestKey } : {}),
-        budgetKey, reservedMicros: prompt.reservedMicros, quota };
+        budgetKey, reservedMicros: prompt.reservedMicros, inputBytes: prompt.inputBytes,
+        outputTokenLimit: config.roundOutputTokens ?? config.maxOutputTokens, modelRounds: 1, quota };
       active[key] = now + config.timeoutMs + 10000;
       await storage.put(dailyKey, used + 1);
       await storage.put(budgetKey, allocated + prompt.reservedMicros);
@@ -583,15 +580,52 @@ export class SearchLedger {
     });
   }
 
-  async finish(key, body, httpStatus, config, prompt, usage) {
+  async extendModelReservation(key, round, inputBytes, maxOutputTokens, config, now = Date.now()) {
+    const reservedMicros = Math.ceil((inputBytes * config.inputRate + maxOutputTokens * config.outputRate) * config.costSafety);
+    if (!Number.isSafeInteger(round) || round < 2 || round > AGENT_LIMITS.maxModelRounds
+      || !Number.isSafeInteger(inputBytes) || inputBytes < 0
+      || !Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 0 || maxOutputTokens > config.maxOutputTokens
+      || !Number.isSafeInteger(reservedMicros) || reservedMicros < 0) {
+      throw new AgentError(503, "SERVICE_ERROR", "模型费用预留参数无效。");
+    }
+    return this.state.storage.transaction(async storage => {
+      const record = await storage.get(key);
+      const active = await storage.get("active") || {};
+      if (!record || record.status !== "processing" || !(active[key] > now)) {
+        throw new AgentError(503, "UPSTREAM_TIMEOUT", "资产搜索已超时。");
+      }
+      if (record.modelRounds === round) return { record, duplicate: true };
+      if (record.modelRounds !== round - 1) throw new AgentError(503, "SERVICE_ERROR", "模型费用预留轮次无效。");
+      const allocated = await storage.get(record.budgetKey) || 0;
+      const cumulativeReserved = record.reservedMicros + reservedMicros;
+      const cumulativeInput = record.inputBytes + inputBytes;
+      const cumulativeOutput = record.outputTokenLimit + maxOutputTokens;
+      if (![allocated + reservedMicros, cumulativeReserved, cumulativeInput, cumulativeOutput].every(Number.isSafeInteger)) {
+        throw new AgentError(503, "SERVICE_ERROR", "模型费用预留参数无效。");
+      }
+      if (allocated + reservedMicros > Math.floor(config.budget * 1000000)) {
+        throw new AgentError(503, "FREE_BUDGET_EXHAUSTED", "网站本月剩余额度不足以继续这条搜索。");
+      }
+      record.reservedMicros = cumulativeReserved;
+      record.inputBytes = cumulativeInput;
+      record.outputTokenLimit = cumulativeOutput;
+      record.modelRounds = round;
+      await storage.put(record.budgetKey, allocated + reservedMicros);
+      await storage.put(key, record);
+      return { record, duplicate: false };
+    });
+  }
+
+  async finish(key, body, httpStatus, config, prompt, usage, now = Date.now()) {
     return this.state.storage.transaction(async (storage) => {
+      await this.expireActive(storage, now);
       const record = await storage.get(key);
       if (!record || record.status !== "processing") return record;
       // Only a complete successful response with valid bounded usage can release unused reservation.
       const input = usage?.prompt_tokens;
       const output = usage?.completion_tokens;
-      if (httpStatus === 200 && Number.isInteger(input) && input >= 0 && input <= prompt.inputBytes
-        && Number.isInteger(output) && output >= 0 && output <= config.maxOutputTokens) {
+      if (httpStatus === 200 && Number.isInteger(input) && input >= 0 && input <= (record.inputBytes ?? prompt.inputBytes)
+        && Number.isInteger(output) && output >= 0 && output <= (record.outputTokenLimit ?? config.maxOutputTokens)) {
         const chargedMicros = Math.min(record.reservedMicros,
           Math.ceil((input * config.inputRate + output * config.outputRate) * config.costSafety));
         const allocated = await storage.get(record.budgetKey) || record.reservedMicros;
@@ -666,8 +700,9 @@ export class SearchLedger {
       const searchConfig = resultConfig(normalized, config);
       const sourceText = await this.systemPrompt.read(config, { signal: request.signal });
       const prompt = agentMode ? buildAgentPrompt(normalized, searchConfig, sourceText) : buildPrompt(normalized, searchConfig, sourceText);
-      // One chat turn reserves its worst-case three model rounds, and occupies one slot throughout.
+      // Reserve only the first actual round. Later model requests extend this turn's reservation atomically.
       const turnConfig = agentMode ? { ...searchConfig, timeoutMs: searchConfig.agentTimeoutMs,
+        roundOutputTokens: searchConfig.maxOutputTokens,
         maxOutputTokens: searchConfig.maxOutputTokens * AGENT_LIMITS.maxModelRounds } : searchConfig;
       const { requestId, ...requestContents } = normalized;
       const fingerprint = await digest(JSON.stringify(requestContents));
@@ -677,16 +712,25 @@ export class SearchLedger {
       await this.state.storage.setAlarm(Date.now() + turnConfig.timeoutMs + 15000);
       let outcome;
       try {
-        let firstModelRound = true;
+        let modelRounds = 0;
         const guardedFetch = async (url, options) => {
           if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-          if (!firstModelRound) {
+          if (modelRounds > 0) {
             const balance = await this.providerBalance.check(config, this.env, { signal: options.signal });
             if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
             if (!balance.available) throw balanceFailure(AgentError, balance.error);
+            if (agentMode) {
+              const payload = JSON.parse(options.body);
+              const inputBytes = encoder.encode(JSON.stringify({ messages: payload.messages, tools: payload.tools })).byteLength;
+              const extension = await this.extendModelReservation(reservation.key, modelRounds + 1,
+                inputBytes, payload.max_tokens, searchConfig);
+              if (extension.duplicate) throw new AgentError(503, "SERVICE_ERROR", "模型轮次已经预留，无法重复调用。");
+              prompt.inputBytes = extension.record.inputBytes;
+              prompt.reservedMicros = extension.record.reservedMicros;
+            }
           }
-          firstModelRound = false;
           if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+          modelRounds += 1;
           return fetch(url, options);
         };
         const retrievalEnv = { ...catalogEnv };
