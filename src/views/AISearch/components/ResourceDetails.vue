@@ -42,8 +42,15 @@ const wideDetails = computed(() => props.card.kind === 'bgm' || props.card.descr
 const tooltipId = computed(() => `resource-details-${props.detailId}`)
 const summary = computed(() => (props.card.description || t('aiSearch.noDescription')).replace(/\s+/g, ' ').trim())
 let triggerHovered = false
+let hoverDismissed = false
 let lastPointerType = ''
 let generation = 0
+let dismissFrame: number | undefined
+
+function clearDismissFrame() {
+  if (dismissFrame !== undefined) cancelAnimationFrame(dismissFrame)
+  dismissFrame = undefined
+}
 
 async function show() {
   if (opened.value) return
@@ -67,28 +74,41 @@ async function show() {
   positioned.value = true
 }
 function hide() {
+  clearDismissFrame()
   generation += 1
   triggerHovered = false
+  hoverDismissed = false
   pinned.value = false
   touchInteractive.value = false
   opened.value = positioned.value = false
+}
+function dismiss() {
+  hide()
+  hoverDismissed = true
+  dismissFrame = requestAnimationFrame(() => {
+    dismissFrame = undefined
+    if (!trigger.value?.matches(':hover')) hoverDismissed = false
+  })
 }
 function enterTrigger(event: PointerEvent) {
   if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
   lastPointerType = event.pointerType
   if (!pinned.value) touchInteractive.value = false
   triggerHovered = true
+  if (hoverDismissed) return
   void show()
 }
 function leaveTrigger(event: PointerEvent) {
   if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
   triggerHovered = false
+  hoverDismissed = false
   if (!pinned.value) hide()
 }
 function rememberPointer(event: PointerEvent) { lastPointerType = event.pointerType }
 function blurTrigger() { if (!pinned.value && !triggerHovered) hide() }
 function toggleDetails() {
-  if (pinned.value) { hide(); return }
+  if (pinned.value) { dismiss(); return }
+  hoverDismissed = false
   pinned.value = true
   touchInteractive.value = lastPointerType === 'touch'
   void show()
@@ -110,7 +130,7 @@ function keyDown(event: KeyboardEvent) {
   if (!opened.value) return
   if (event.key === 'Escape') {
     if (document.activeElement === popover.value) trigger.value?.focus({ preventScroll: true })
-    hide()
+    dismiss()
     event.preventDefault()
     return
   }
@@ -142,7 +162,7 @@ watch(opened, value => {
   window.addEventListener('resize', hide)
 })
 watch(() => props.card, hide)
-onBeforeUnmount(() => { generation += 1; removeListeners() })
+onBeforeUnmount(() => { clearDismissFrame(); generation += 1; removeListeners() })
 </script>
 
 <style scoped>
