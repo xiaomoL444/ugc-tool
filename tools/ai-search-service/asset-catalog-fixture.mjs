@@ -11,12 +11,12 @@ export function identityFixture() {
   catalog.lexical = compileLexicalIndex(catalog); return catalog;
 }
 export async function featureFixture(kind, identities, text = '雷声 thunder', uses = 'storm ambience') {
-  const project = kind === 'sound' ? 'SoundEffectPlayer' : 'EffectPlayer';
-  const namespace = kind === 'sound' ? 'soundEffectPlayer' : 'effectPlayer';
+  const project = { sound: 'SoundEffectPlayer', effect: 'EffectPlayer', bgm: 'BgmPlayer' }[kind];
+  const namespace = { sound: 'soundEffectPlayer', effect: 'effectPlayer', bgm: 'bgmPlayer' }[kind];
   const sidecar = { schemaVersion: 1, hashAlgorithm: FEATURE_HASH_ALGORITHM, project, kind, baseIndexVersion: identities.indexVersion, resources: {},
     i18n: Object.fromEntries(FEATURE_LOCALES.map(locale => [locale, {}])) };
   for (const asset of identities.assets.filter(asset => asset.kind === kind)) {
-    const parts = kind === 'sound' ? ['audio'] : ['standVisual', 'tailVisual', 'audio'];
+    const parts = kind === 'effect' ? ['standVisual', 'tailVisual', 'audio'] : ['audio'];
     const metadata = { schemaVersion: 1 };
     for (const part of parts) {
       if (part === 'audio' && !asset.hasAudio) { metadata[part] = { status: 'catalog_no_audio' }; continue; }

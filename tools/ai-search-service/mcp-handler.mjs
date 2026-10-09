@@ -9,7 +9,7 @@ export const ASSET_TOOLS = [
       matchOn: { enum: ["any", "visual", "audio"], default: "any", description: "For effects, visual searches appearance and audio searches only the effect's own described soundtrack. Ordinary sound and BGM assets use their audio feature descriptions. includeEffectAudio only broadens sound scope to effect soundtracks." },
       previousIds: { type: "array", items: string, maxItems: 50 }, previousQuery: { type: "string", maxLength: 2000 },
       excludeIds: { type: "array", items: string, maxItems: 50 },
-      searchType: { enum: ["feature", "suggestion", "both"] },
+      searchType: { enum: ["feature", "suggestion", "both"], description: "feature searches asset names and described features, constrained by matchOn; suggestion searches existing suggested-use entries; both searches both. For sound use-case requests, also search plausible acoustic feature terms with feature; an exact suggested-use label is not required." },
       filters: schema({ minDuration: { type: "number", minimum: 0 }, maxDuration: { type: "number", minimum: 0 }, hasAudio: { type: "boolean" },
         isLoop: { type: "boolean" }, includeTerms: { type: "array", items: string, maxItems: 10 }, excludeTerms: { type: "array", items: string, maxItems: 10 } }) }), required: ["query"] },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } },

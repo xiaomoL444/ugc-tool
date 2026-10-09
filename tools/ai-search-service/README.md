@@ -2,6 +2,12 @@
 
 这是**单独部署的服务模板**。新版网页先把请求与成功历史交给聊天模型；模型提出搜索或详情工具调用，Worker 执行工具、回传少量资料，模型可换词继续检索，最后返回资源 ID。Vue 根据真实资源详情显示卡片，点击打开原资产页。工具与 MCP 接口共用服务端检索逻辑。仓库中的 Vue 静态页面不能安全保存站长的 API Key，也不能靠浏览器 localStorage 限制全站开销。一个 Durable Object 原子维护匿名访客日次数、并发请求和全站月预算。未部署时页面显示免费服务未接通；基础关键词搜索无需模型调用。开发验证使用模拟上游和向量准备 dry-run，未部署、未上传向量、未调用付费模型。
 
+## 模型返回格式修复
+
+网页的自有模型和 Worker 的站点 AI 共用 `tools/ai-search-service/model-json.mjs`。仅处理模型最终回答正文：去除 BOM 和代码围栏后先尝试严格 `JSON.parse`，语法失败时才用 `jsonrepair` 修复，再解析并交给原有字段、资源 ID、重复项和数量校验。可处理部分漏引号、单引号、多余逗号和英文引号转义问题；格式可修复不代表资源有效。
+
+`finish_reason=length` 等未完整生成状态仍在解析前拒绝，明显未闭合的最外层对象或数组不补齐。修复失败保留原始模型正文供错误提示查看，不使用修复后的文本替代诊断。HTTP 响应封装、接口请求、资产文件、存档及工具参数继续严格解析。本地修复不新增模型调用或 MCP 检索。上线自有模型需要发布前端；上线站点 AI 还需要重新部署 Worker。
+
 ## 外置系统提示词
 
 检索行为的系统提示词统一读取公开的 [`ugc-tool-data/AISearch/SystemPrompt.md`](https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPrompt.md)。网站免费 AI 由 Worker 读取，自有模型由网页通过 `OSS_BASE_URL` 读取；文件正文作为 `role: "system"` 发给模型，模型无需自行访问文件地址。基础搜索不读取此文件。
@@ -17,6 +23,16 @@ SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPro
 成功读取缓存 60 秒，每轮工具调用使用同一份正文。缓存到期后请求采用 `no-store` 和 `_t` 时间参数刷新，失败与取消不写缓存。文件要求 HTTPS、有效 UTF-8、非空且不超过 16 KiB，响应类型为 `text/markdown`、`text/x-markdown` 或 `text/plain`；读取正文在内的超时为 5 秒，重定向不跟随。`PROMPT_UNAVAILABLE` 表示无法读取合法文件，返回 HTTP 503；不再继续调用模型，也不消耗该次免费额度或预留月预算。
 
 首次接入需要部署本目录 Worker，并更新前端。接入完成后，只需将修改后的 Markdown 上传到相同 OSS 路径，后续请求在缓存到期后读取新内容，无需为提示词修改重新构建或部署。该文件是公开内容，不放密钥或私有资料。
+
+## 游戏用途搜索与补充用途
+
+本地 `SystemPrompt.md` 将任意具体游戏效果拆成对象与变化、触发阶段、期望玩家感受和可检索的声学方向，包括用途词库未收录的自定义玩法。例子和事件词表不是支持范围或固定声音模板。工具检索同时考虑用途/名称（`searchType=both`）与音轨听感（`searchType=feature`）；没有同名用途标签也可以依据声音描述推荐。声学路线是寻找候选的假设，游戏用途不会自动成为 `includeTerms` 硬过滤。只有真实音轨描述和明确音轨字段可以证明声音特征。
+
+候选偏少或贴合度不足时，在既有工具预算内换词、翻页或读取必要详情。有真实近似候选时，说明吻合的听感与差异，并可在同一条 `answer` 追问期望感受；歧义不默认阻止返回卡片。带候选的回复仍只使用 `answer/matches`，用途推荐标为 `suggestion`。确实无法合理映射且无需查库时才使用空 `matches` 的纯澄清协议，不能编造 ID、补写声音属性或放宽用户硬要求。
+
+区分对象、行为、阶段、听感和感受；多阶段效果可分别寻找动作接触、状态完成和界面反馈。环境地点与情绪氛围也分别考虑。单次触发、随操作重复、阶段持续和长期背景是使用方式，不证明素材能无缝循环。实验中的升级、尖刺与结算查询只作为历史示例回归；通用玩法理解需按跨行为、词库外需求的模型评估规格检查，不能据这几个例子宣称通用能力已经验证。
+
+依据已有音轨描述补充游戏用途的独立模板位于 [`experiments/game-audio-search-20261010/game-uses-prompt.txt`](../../experiments/game-audio-search-20261010/game-uses-prompt.txt)。它只生成带听感证据、适配理由和条件的新增用途，不重做原音频分析，不改原描述、声学关键词、冻结模板或已有用途；新增用途也不能反过来证明实际声音属性。第一阶段的隔离样本与离线验证不等于已经批量补标、上传 OSS 或部署。`node --test tools/ai-search-service/system-prompt.test.mjs` 会验证真实本地正文可加载并符合 16 KiB 文件限制和 30 KB agent 消息预算；这类协议检查不能证明模型实际选音质量。
 
 ## DeepSeek 免费模型
 
@@ -126,16 +142,20 @@ ugc-tool-data/
     data.json
     i18n/zh-cn.json … 五语基础翻译与搜索描述
     features.json
+  BgmPlayer/
+    data.json
+    i18n/zh-cn.json … 五语基础翻译与搜索描述
+    features.json
 ```
 
-每份磁盘 `features.json` 使用 `schemaVersion: 1` 与 `i18nSource: "project-i18n-v1"`，`resources[id].searchMetadata` 保留原生成记录和翻译引用，不再内嵌 `i18n` 文本字典。五語描述、关键词、用途、可能来源与不确定信息放在对应项目语言文件的 `<namespace>.search.*` 键中。解析时从五份语言文件提取这些键，归一化成运行时字典；普通名称和界面键不会作为描述证据。旧版内嵌字典仅作为兼容输入支持。特效的 `standVisual`、`tailVisual` 和 `audio` 分开归一化：画面描述不能证明音轨听感；用途单独作为建议；可能来源与不确定信息保留在文件内，不作为已经确认的特征。BGM 本轮没有新增特征文件，继续保留原名称、专辑等资料。
+每份磁盘 `features.json` 使用 `schemaVersion: 1` 与 `i18nSource: "project-i18n-v1"`，`resources[id].searchMetadata` 保留原生成记录和翻译引用，不再内嵌 `i18n` 文本字典。五語描述、关键词、用途、可能来源与不确定信息放在对应项目语言文件的 `<namespace>.search.*` 键中。解析时从五份语言文件提取这些键，归一化成运行时字典；普通名称和界面键不会作为描述证据。旧版内嵌字典仅作为兼容输入支持。特效的 `standVisual`、`tailVisual` 和 `audio` 分开归一化：画面描述不能证明音轨听感；用途单独作为建议；可能来源与不确定信息保留在文件内，不作为已经确认的特征。BGM 同样读取 BgmPlayer/features.json 和五语字典，searchMetadata.audio 映射音乐特征与独立用途建议。原名称、专辑和媒体资料仍来自基础目录。
 
 `scripts/export-ai-asset-features.cjs` 生成本地恢复与上传包，`scripts/build-ai-asset-catalog.cjs` 从基础文件和特征文件生成可重建的离线目录。`generated/asset-identities.json` 只保存基础身份资料，随 Worker 部署；`generated/asset-catalog.json` 是离线检索／向量准备产物，生产 Worker 不再静态导入这份全量描述。特征 JSON 里的预编译词法索引由脚本生成，不能把它当作另一份手工维护的描述。
 
 ```powershell
 # 使用本机 exports/ugc-tool-data 恢复包；不会调用模型。
 node scripts/build-ai-asset-catalog.cjs
-# 也可指定含三个播放器基础资料和两个 features.json 的本地目录。
+# 也可指定含三个播放器基础资料和三份 features.json 的本地目录。
 node scripts/build-ai-asset-catalog.cjs --base "本机资料目录"
 ```
 
@@ -147,13 +167,13 @@ ASSET_FEATURES_BASE_URL = "https://oss.xiaomol444.xyz/ugc-tool-data"
 
 生产检索由已有 `SEARCH_LEDGER` Durable Object 执行，普通 Worker 负责入口校验和转发；目录查询和关键词检索不预留聊天模型预算，也不扣聊天次数；启用混合检索时，额外的 embedding 调用仍使用原有费用与额度保护。这样大文件解析与检索在 Durable Object 内进行。Cloudflare 普通 Workers Free 每次 HTTP 请求只有 10 ms CPU，Durable Objects 默认有 30 秒 CPU；等待下载不计入 CPU，两者仍受内存约束。[Workers 限额](https://developers.cloudflare.com/workers/platform/limits/)、[Durable Objects 限额](https://developers.cloudflare.com/durable-objects/platform/limits/)
 
-Worker 在有检索请求时检查两个播放器的 `features.json` 和各自五份 `i18n/<locale>.json`，共 12 条固定路径，最多每 60 秒检查一次。ETag 用于逐文件条件请求；每个播放器的来源 hash 由一份 features 和五份翻译文件原始字节的 SHA-256 组合生成。即使 features 本身没有变化，任一语言文件变化也会触发验证与目录更新。全部 304 或组合 hash 不变时继续使用当前目录对象与缓存。若只有部分文件返回 304，而同项目其他文件有变化，会重新读取需要的 304 文件以校验完整资料；不长期缓存另一套完整源 JSON。没有访问时不运行后台计时器。缓存保存在当前运行实例内；实例回收后会重新读取特征文件，不是数据库里的永久内存缓存。成功校验两份文件后整体切换目录，每轮模型工具调用固定使用同一份目录快照。缓存到期而已有 AI／语义检索正在使用快照时，先继续使用该目录，待进行中的调用完成再刷新；新模型请求等待旧快照释放，避免长时间同时保存两份完整目录。
+Worker 在有检索请求时检查三个播放器的 `features.json` 和各自五份 `i18n/<locale>.json`，共 18 条固定路径，最多每 60 秒检查一次。ETag 用于逐文件条件请求；每个播放器的来源 hash 由一份 features 和五份翻译文件原始字节的 SHA-256 组合生成。即使 features 本身没有变化，任一语言文件变化也会触发验证与目录更新。全部 304 或组合 hash 不变时继续使用当前目录对象与缓存。若只有部分文件返回 304，而同项目其他文件有变化，会重新读取需要的 304 文件以校验完整资料；不长期缓存另一套完整源 JSON。没有访问时不运行后台计时器。缓存保存在当前运行实例内；实例回收后会重新读取特征文件，不是数据库里的永久内存缓存。成功校验三类特征及各自五语字典后整体切换目录，每轮模型工具调用固定使用同一份目录快照。缓存到期而已有 AI／语义检索正在使用快照时，先继续使用该目录，待进行中的调用完成再刷新；新模型请求等待旧快照释放，避免长时间同时保存两份完整目录。
 
-首次加载失败时停止检索并返回 503；有成功目录后刷新失败则继续使用上次版本，返回 `featureSync.status="stale"`，页面显示提示。文件必须与基础目录的 `baseIndexVersion` 对应，五语引用完整、ID 合法，且预编译索引对应当前特征内容。手动编辑对应语言文件的搜索描述后须用脚本重编译该播放器的 features，不能修改文本却保留旧索引。`--reindex <Player>/features.json` 自动读取同目录下五份 i18n 后更新索引，输出 features 仍不含字典副本。更新基础 ID、名称等资源资料时仍须重新构建并部署轻量身份目录；修改现有资源的特征文件则不需要重新部署 Worker。
+首次加载失败时停止检索并返回 503；有成功目录后刷新失败则继续使用上次版本，返回 `featureSync.status="stale"`，页面显示提示。文件必须与基础目录的 `baseIndexVersion` 对应，五语引用完整、ID 合法，且预编译索引对应当前特征内容。 现有 BGM 特征包绑定部署时的基础快照；该快照与当前 BGM 发布目录的名称附加字段和分类文本不同。需要重建离线目录但保留现有特征版本时，通过 `--bgm-base` 指向原基础快照目录，`--base`／`--features-base` 使用当前特征包目录。不要为了本次接入覆盖现有轻量身份目录或手动修改 `baseIndexVersion`。手动编辑对应语言文件的搜索描述后须用脚本重编译该播放器的 features，不能修改文本却保留旧索引。`--reindex <Player>/features.json` 自动读取同目录下五份 i18n 后更新索引，输出 features 仍不含字典副本。更新基础 ID、名称等资源资料时仍须重新构建并部署轻量身份目录；修改现有资源的特征文件则不需要重新部署 Worker。
 
-`/catalog`、`/search`、`/assets` 与免费 Agent 使用同一目录加载规则。响应的 `featureSync` 提供 `status`、两份来源 `hashes` 和检查时间；`catalogVersion` 随特征版本变化。前端检测新版本后提示资料已更新，保留聊天存档。旧分页游标返回 409 `CATALOG_VERSION_MISMATCH`，页面刷新目录并让用户重新发送，不自动重复调用计费模型。未设置 `ASSET_FEATURES_BASE_URL` 的离线测试可使用注入目录；此时状态为 `disabled`，不代表线上特征已经加载。
+`/catalog`、`/search`、`/assets` 与免费 Agent 使用同一目录加载规则。响应的 `featureSync` 提供 `status`、sound、effect、bgm 三份来源 `hashes` 和检查时间；`catalogVersion` 随特征版本变化。前端检测新版本后提示资料已更新，保留聊天存档。旧分页游标返回 409 `CATALOG_VERSION_MISMATCH`，页面刷新目录并让用户重新发送，不自动重复调用计费模型。未设置 `ASSET_FEATURES_BASE_URL` 的离线测试可使用注入目录；此时状态为 `disabled`，不代表线上特征已经加载。
 
-本轮的恢复包在项目根目录 `exports/ugc-tool-data`，源备份与 SHA-256 校对报告另存。先上传两份 `features.json` 和恢复后的基础资料，再部署 Worker 并发布前端。R: 是 R2 挂载视图，本次没有尝试强行改写挂载，也没有上传或部署；操作顺序见恢复包的 `UPLOAD.md`。
+本轮的恢复包在项目根目录 `exports/ugc-tool-data`，源备份与 SHA-256 校对报告另存。先上传三份 `features.json` 与配套五语字典及所需基础资料，再部署 Worker 并发布前端。R: 是 R2 挂载视图，本次没有尝试强行改写挂载，也没有上传或部署；操作顺序见恢复包的 `UPLOAD.md`。
 
 默认 `RETRIEVAL_MODE="keyword"`，使用倒排索引、关键词权重与少量多语言同义词规则检索。检索只返回短摘要，可通过游标读取下一页，再按选中的 ID 获取详情。音效搜索可包含特效音轨，但只有明确带音轨且已有声音描述的特效进入声音候选；特效视觉描述不能证明声音存在。用途建议和实际特征分开检索与标记。返回候选有上限，关键词或语义检索都不能保证涵盖所有符合描述的资产。
 
@@ -168,9 +188,9 @@ npm run type-check
 npm run build
 ```
 
-真实目录运行时回归为 `tools/ai-search-service/asset-catalog.runtime.test.mjs`，需要先导出本机两份特征包，并设置 `MINIFLARE_MODULE_PATH` 指向已安装的 Miniflare 模块。可通过 `MINIFLARE_WORKERD_V8_FLAGS="--max-old-space-size=96 --max-semi-space-size=4"` 验证较低堆限制；执行 `node --test tools/ai-search-service/asset-catalog.runtime.test.mjs`。测试使用完整本机资料和合成上游，验证进行中的快照、两个文件更新、ETag、并发刷新、旧游标以及 stale；不查询真实余额或调用真实模型。
+真实目录运行时回归为 `tools/ai-search-service/asset-catalog.runtime.test.mjs`，需要先准备本机三类特征包，并设置 `MINIFLARE_MODULE_PATH` 指向已安装的 Miniflare 模块。可通过 `MINIFLARE_WORKERD_V8_FLAGS="--max-old-space-size=96 --max-semi-space-size=4"` 验证较低堆限制；执行 `node --test tools/ai-search-service/asset-catalog.runtime.test.mjs`。测试使用完整本机资料和合成上游，验证进行中的快照、三类文件更新、ETag、并发刷新、旧游标以及 stale；不查询真实余额或调用真实模型。
 
-真实运行时测试使用本机完整 12 份资料，在 96 MiB old-space、4 MiB semi-space 限制下，冷加载约 3.25 秒、普通翻译／索引更新约 2.94 秒，采样堆与 backing storage 合计峰值约 94.0 MiB。结果保存在 `exports/ai-project-i18n-runtime.log`。实现使用流式 UTF-8／JSON 解析与 SHA-256、分块内部校验、按需词法分面和快照 pin；没有每轮重新构建全库索引。本机采样不能保证捕获每个瞬时内存峰，也不能代替 Cloudflare 线上实际限制和监控，线上指标仍需部署后确认。
+2026-10-09 的 BGM 接入验证使用当前完整三源特征与十五份语言文件，共 18 份资料、5,378 条身份，其中 188 首 BGM 均有五语描述和用途。实际 workerd 在 112 MiB old-space、4 MiB semi-space 下通过冷加载、120 次五语用途查询、并发刷新、旧快照与失败回退；冷加载约 4.33 秒、更新约 4.35 秒，采样堆与 backing storage 合计峰值约 106.4 MiB。验证记录在 `experiments/bgm-worker-integration-20261009/verification.json`。实现使用流式 UTF-8／JSON 解析与 SHA-256、分块内部校验、按需词法分面和快照 pin；没有每轮重新构建全库索引。本机采样不能保证捕获每个瞬时内存峰，也不能代替 Cloudflare 线上实际限制和监控，线上指标仍需部署后确认。
 
 ## 接口
 

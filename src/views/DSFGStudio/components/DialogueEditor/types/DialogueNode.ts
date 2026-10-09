@@ -5,8 +5,10 @@ export interface DialogueNode {
   nodeType: NodeType;
   durationMode: DurationMode;
   duration?: number;
-  /** 可选的固定 Dialogue Line；新建 Group 时默认创建一个。 */
+  /** Dialogue Line 的第一个台词 Clip；保留旧文件的单 Clip 字段。 */
   dialogue?: DialogueClip;
+  /** 同一 Dialogue Line 中的附加台词；不触发按下的台词之后可以继续添加。 */
+  additionalDialogues?: DialogueClip[];
   /** 可选的固定 Select Line；一个 Group 最多一个 Select Clip。 */
   select?: SelectClip;
   /** 固定单 Clip，时间到达后强制推进；目标由节点图连接决定。 */
@@ -42,7 +44,7 @@ export interface SelectStyleDefinition {
   description?: string;
 }
 
-/** Dialogue Line 中至多存在一个台词 Clip。 */
+/** Dialogue Line 中的一段台词。 */
 export interface DialogueClip {
   id: string;
   /** 千星 DialogueData 的 UI 样式 ID。 */
@@ -51,7 +53,9 @@ export interface DialogueClip {
   content: string;
   subtitle: string;
   startTime: number;
-  /** Clip 内部延迟标记；外层结束时间始终由 Group Timeline 派生。 */
+  /** 不触发按下时使用的自由时长；玩家按下时保留草稿但不参与结束时间。 */
+  duration?: number;
+  /** 玩家按下的内部延迟标记。 */
   continueDelayTime: number;
   advanceMode: DialogueAdvanceMode;
   /** 自动播放的推进等待秒数；-1 表示不自动推进。 */

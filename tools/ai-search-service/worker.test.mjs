@@ -338,7 +338,7 @@ test("free agent executes search then details then JSON, bills one attempt and s
     assert.deepEqual(sent.thinking, { type: "disabled" });
     assert.equal(options.headers.authorization, "Bearer mock-test-only");
     if (calls === 1) {
-      assert.equal(sent.tool_choice, "required");
+      assert.equal(sent.tool_choice, "auto");
       assert.equal(sent.messages.at(-1).content.includes('"candidates"'), false);
       return toolResponse("search-1", "search_assets", { query: "金属 撞击", scope: "all" }, 100, 10);
     }
@@ -1125,14 +1125,14 @@ test('outer retrieval and chat forwards preserve an existing abort and propagate
 });
 
 test('ledger public retrieval is anonymous and never contacts a model, provider balance or budget transaction', async () => {
-  const identities = identityFixture(), sound = await featureFixture('sound', identities), effect = await featureFixture('effect', identities);
+  const identities = identityFixture(), sound = await featureFixture('sound', identities), effect = await featureFixture('effect', identities), bgm = await featureFixture('bgm', identities, '舒缓钢琴 peaceful piano', '小关胜利 level victory');
   const { service, storage } = ledger({ ASSET_SEARCH_CATALOG: undefined, ASSET_FEATURES_BASE_URL: 'https://assets.example/catalog' });
   let calls = 0;
-  service.assetCatalog = createAssetCatalogLoader({ identities, fetcher: async url => { calls++; return featureResponse(url.includes('SoundEffectPlayer') ? sound : effect); } });
+  service.assetCatalog = createAssetCatalogLoader({ identities, fetcher: async url => { calls++; return featureResponse(url.includes('SoundEffectPlayer') ? sound : url.includes('BgmPlayer') ? bgm : effect); } });
   const response = await service.fetch(new Request('https://ledger.internal/api/ai-search/search', { method: 'POST',
     headers: { 'x-public-retrieval': '1', 'content-type': 'application/json' }, body: JSON.stringify({ query: 'thunder', scope: 'sound' }) }));
   assert.equal(response.status, 200); const value = await response.json(); assert.equal(value.featureSync.status, 'ready'); assert.equal(value.items.length, 3);
-  assert.equal(calls, 2); assert.equal(storage.values.size, 0);
+  assert.equal(calls, 3); assert.equal(storage.values.size, 0);
 });
 test('cold feature read failure stops free chat before prompt, balance, model, quota and budget in both protocols', async () => {
   const originalFetch = globalThis.fetch;
@@ -1149,11 +1149,11 @@ test('cold feature read failure stops free chat before prompt, balance, model, q
 });
 test('one free agent turn pins search, detail and final cards while an overdue public refresh is deferred', async () => {
   const originalFetch = globalThis.fetch;
-  const identities = identityFixture(), sound = await featureFixture('sound', identities), effect = await featureFixture('effect', identities);
+  const identities = identityFixture(), sound = await featureFixture('sound', identities), effect = await featureFixture('effect', identities), bgm = await featureFixture('bgm', identities, '舒缓钢琴 peaceful piano', '小关胜利 level victory');
   const changed = await featureFixture('sound', identities, 'updated rumble'); let clock = 0, updated = false;
   const { service } = ledger({ ASSET_SEARCH_CATALOG: undefined, ASSET_FEATURES_BASE_URL: 'https://assets.example/catalog' });
   service.assetCatalog = createAssetCatalogLoader({ identities, now: () => clock,
-    fetcher: async url => featureResponse(url.includes('SoundEffectPlayer') ? updated ? changed : sound : effect) });
+    fetcher: async url => featureResponse(url.includes('SoundEffectPlayer') ? updated ? changed : sound : url.includes('BgmPlayer') ? bgm : effect) });
   const initial = await service.assetCatalog.read(service.env); let rounds = 0;
   try {
     globalThis.fetch = withPromptFetch(async (_url, options) => {
@@ -1334,5 +1334,211 @@ test("neither workflow exposes envelopes, exceptions or fabricated text when no 
       assert.deepEqual(await (await service.fetch(req(input))).json(), data);
       assert.equal(calls, 1);
     }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("free agent clarification API consumes the marker and settles one cached model round", async () => {
+  const { service, storage } = ledger(), originalFetch = globalThis.fetch;
+  const input = { ...agentBody("agent-clarification-once"), query: "帮我给传送门找点声音" };
+  const question = "偏神秘、科技感还是自然魔法？想要开启声还是持续声？";
+  let modelRequests = 0;
+  globalThis.fetch = withPromptFetch(async (_url, options) => {
+    modelRequests += 1;
+    const sent = JSON.parse(options.body);
+    assert.equal(options.method, "POST"); assert.equal(sent.tool_choice, "auto");
+    return upstreamResponse({ answer: question, matches: [], clarification: true });
+  });
+  try {
+    const response = await service.fetch(req(input)), data = await response.json();
+    assert.equal(response.status, 200); assert.equal(modelRequests, 1);
+    assert.equal(data.answer, question); assert.deepEqual(data.matches, []); assert.deepEqual(data.resources, []);
+    assert.deepEqual(data.agent, { steps: [], rounds: 1 });
+    assert.equal(Object.hasOwn(data, "clarification"), false);
+    assert.deepEqual(data.usage, { inputTokens: 100, outputTokens: 50 }); assert.equal(data.quota.remaining, 4);
+    assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
+    assert.equal(await storage.get(`budget:${periods().month}`), Math.ceil((100 * 5 + 50 * 20) * 1.25));
+    assert.deepEqual(await storage.get("active"), {});
+    assert.deepEqual(await (await service.fetch(req(input))).json(), data);
+    assert.equal(modelRequests, 1, "cached clarification must not call or charge the model again");
+    assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("final result validation accepts only answer and matches at the top level", () => {
+  const candidates = body().candidates;
+  assert.deepEqual(validateModelResult(result, candidates), result);
+  assert.deepEqual(validateModelResult({ answer: "你偏好哪种声音？", matches: [] }, []),
+    { answer: "你偏好哪种声音？", matches: [] });
+  for (const extra of [{ unexpected: true }, { resources: [] }, { clarification: true }, { clarification: false }]) {
+    assert.throws(() => validateModelResult({ ...result, ...extra }, candidates),
+      error => error.code === "UPSTREAM_RESPONSE_INVALID");
+  }
+});
+
+test("both free workflows repair model JSON syntax without repeating a paid request", async () => {
+  const originalFetch = globalThis.fetch;
+  const repairedText = "```json\n{answer:'这条是短促的金属感撞击。',matches:[{resourceId:'sound:123',reason:'短促、金属感',matchType:'feature',},],}\n```";
+  try {
+    for (const makeBody of [body, agentBody]) {
+      const { service, storage } = ledger(); let calls = 0;
+      globalThis.fetch = withPromptFetch(async () => {
+        calls += 1;
+        if (makeBody === agentBody && calls === 1) return toolResponse("repair-search", "search_assets", { query: "金属撞击" });
+        return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: repairedText } }],
+          usage: { prompt_tokens: 100, completion_tokens: 50 } }));
+      });
+      const input = makeBody(makeBody === agentBody ? "agent-repaired-json" : "legacy-repaired-json");
+      const response = await service.fetch(req(input)), data = await response.json();
+      assert.equal(response.status, 200); assert.equal(data.answer, result.answer); assert.deepEqual(data.matches, result.matches);
+      assert.equal(calls, makeBody === agentBody ? 2 : 1); assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
+      assert.deepEqual(await (await service.fetch(req(input))).json(), data);
+      assert.equal(calls, makeBody === agentBody ? 2 : 1, "syntax repair happens locally and a cached success makes no new provider request");
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("repaired model JSON still rejects invalid fields and IDs and preserves the original failed answer", async () => {
+  const originalFetch = globalThis.fetch;
+  const knownMatch = "{resourceId:'sound:123',reason:'名称匹配',matchType:'feature'}";
+  const invalid = [
+    "{answer:'找到了',matches:[{resourceId:'sound:999',reason:'假候选',matchType:'feature'}],}",
+    `{answer:'找到了',matches:[${knownMatch},${knownMatch}],}`,
+    "{answer:'找到了',matches:[],unexpected:'不能静默去掉',}",
+    "{answer:'找到了',matches:'不是数组',}",
+    "{answer:'找到了',matches:[{resourceId:'sound:123',reason:42,matchType:'feature'}],}",
+    `{answer:'找到了',matches:[${knownMatch},${knownMatch},${knownMatch},${knownMatch},${knownMatch},${knownMatch}],}`,
+  ];
+  try {
+    for (const makeBody of [body, agentBody]) for (const [index, source] of invalid.entries()) {
+      const { service } = ledger(); let calls = 0;
+      globalThis.fetch = withPromptFetch(async () => {
+        calls += 1;
+        if (makeBody === agentBody && calls === 1) return toolResponse("invalid-repair-search", "search_assets", { query: "金属撞击" });
+        return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: source } }], usage: { prompt_tokens: 100, completion_tokens: 50 } }));
+      });
+      const response = await service.fetch(req({ ...makeBody(`repair-invalid-${index}`), resultLimit: 5 })), data = await response.json();
+      assert.equal(response.status, 502); assert.equal(data.error.code, "UPSTREAM_RESPONSE_INVALID");
+      assert.equal(data.error.rawResponse, source, "diagnostics keep the original model text rather than a reconstructed JSON string");
+      assert.equal(Object.hasOwn(data, "matches"), false);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("repair never overrides incomplete-generation guards or fixes provider envelopes", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const makeBody of [body, agentBody]) for (const scenario of ["length", "envelope", "truncated-stop"]) {
+      const { service } = ledger(); let calls = 0;
+      const text = scenario === "truncated-stop" ? "{answer:'模型说stop但正文缺少闭合符号',matches:[]"
+        : "{answer:'虽然内容完整但生成已到长度上限',matches:[],}";
+      globalThis.fetch = withPromptFetch(async () => {
+        calls += 1;
+        if (makeBody === agentBody && calls === 1) return toolResponse("incomplete-repair-search", "search_assets", { query: "金属撞击" });
+        return scenario === "envelope" ? new Response("{choices:[],}")
+          : new Response(JSON.stringify({ choices: [{ finish_reason: scenario === "length" ? "length" : "stop", message: { content: text } }] }));
+      });
+      const response = await service.fetch(req(makeBody(`repair-incomplete-${scenario}`))), data = await response.json();
+      assert.equal(response.status, 502); assert.equal(data.error.code, "UPSTREAM_RESPONSE_INVALID");
+      if (scenario === "envelope") assert.equal(Object.hasOwn(data.error, "rawResponse"), false);
+      else assert.equal(data.error.rawResponse, text);
+      assert.equal(calls, makeBody === agentBody ? 2 : 1);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("free agent rejects unknown fields in both searched answers and first-round clarifications", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const clarification of [false, true]) {
+      const { service } = ledger(); let modelRequests = 0;
+      const answer = clarification ? { answer: "你偏好哪种传送门声音？", matches: [], clarification: true } : result;
+      const input = agentBody(clarification ? "clarification-extra-field" : "ordinary-extra-field");
+      globalThis.fetch = withPromptFetch(async () => {
+        modelRequests += 1;
+        if (!clarification && modelRequests === 1) return toolResponse("whitelist-search", "search_assets", { query: "金属撞击" });
+        return upstreamResponse({ ...answer, unexpected: "must not be silently removed" });
+      });
+      const response = await service.fetch(req(input)), data = await response.json();
+      assert.equal(response.status, 502); assert.equal(data.error.code, "UPSTREAM_RESPONSE_INVALID");
+      assert.equal(modelRequests, clarification ? 1 : 2);
+      assert.equal(Object.hasOwn(data, "unexpected"), false);
+      assert.equal(Object.hasOwn(data, "matches"), false);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+
+test('public search, details and MCP all use the loaded BGM five-locale features without model or quota calls', async () => {
+  const identities = identityFixture(), sound = await featureFixture('sound', identities), effect = await featureFixture('effect', identities);
+  const bgm = await featureFixture('bgm', identities, '舒缓钢琴 peaceful piano', '小关胜利 level victory');
+  const { service, storage } = ledger({ ASSET_SEARCH_CATALOG: undefined, ASSET_FEATURES_BASE_URL: 'https://assets.example/catalog' });
+  const sources = { SoundEffectPlayer: sound, EffectPlayer: effect, BgmPlayer: bgm }; let reads = 0;
+  service.assetCatalog = createAssetCatalogLoader({ identities, fetcher: async url => {
+    reads++; return featureResponse(sources[new URL(url).pathname.split('/').at(-2)]);
+  } });
+  const configured = { ...env(), ASSET_SEARCH_CATALOG: undefined, ASSET_FEATURES_BASE_URL: 'https://assets.example/catalog', SEARCH_LEDGER: {
+    idFromName: () => 'ledger', get: () => ({ fetch: forwarded => service.fetch(forwarded) }),
+  } };
+  const send = async (endpoint, value) => {
+    const response = await worker.fetch(new Request('https://worker.example/api/ai-search/' + endpoint, {
+      method: 'POST', headers: { origin: 'https://site.example', 'content-type': 'application/json' }, body: JSON.stringify(value),
+    }), configured);
+    assert.equal(response.status, 200); assert.equal(response.headers.get('access-control-allow-origin'), 'https://site.example');
+    return response.json();
+  };
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => { throw Error('Public BGM retrieval must not call a provider or balance API'); };
+    let catalogVersion;
+    for (const scope of ['bgm', 'all']) for (const [query, searchType] of [['peaceful', 'feature'], ['victory', 'suggestion']]) {
+      const value = await send('search', { query, scope, searchType, locale: 'en-US' });
+      assert.deepEqual(value.items.map(a => a.resourceId).sort(), ['bgm:1', 'bgm:2']);
+      assert.equal(value.featureSync.status, 'ready'); assert.ok(value.featureSync.hashes.bgm);
+      if (catalogVersion) assert.equal(value.catalogVersion, catalogVersion); else catalogVersion = value.catalogVersion;
+    }
+    for (const locale of ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ru-RU']) {
+      const value = await send('assets', { ids: ['bgm:1'], locale });
+      assert.equal(value.catalogVersion, catalogVersion); assert.equal(value.items[0].href, '/BgmPlayer?id=1');
+      assert.match(value.items[0].description, /peaceful piano/); assert.ok(value.items[0].suggestedUses.includes('小关胜利 level victory'));
+    }
+    const mcpSearch = await send('mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'search_assets', arguments: { query: 'victory', scope: 'bgm', searchType: 'suggestion' } } });
+    assert.equal(mcpSearch.result.isError, false);
+    assert.deepEqual(mcpSearch.result.structuredContent.items.map(a => a.resourceId).sort(), ['bgm:1', 'bgm:2']);
+    const mcpDetails = await send('mcp', { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_assets', arguments: { ids: ['bgm:1'], locale: 'en-US' } } });
+    assert.equal(mcpDetails.result.isError, false); assert.match(mcpDetails.result.structuredContent.items[0].description, /peaceful piano/);
+    assert.equal(mcpDetails.result.structuredContent.items[0].href, '/BgmPlayer?id=1');
+    const mcpCatalog = await send('mcp', { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_asset_catalog', arguments: {} } });
+    assert.equal(mcpCatalog.result.isError, false); assert.equal(mcpCatalog.result.structuredContent.coverage.descriptions.bgm, 2);
+    assert.equal(mcpCatalog.result.structuredContent.catalogVersion, catalogVersion);
+    assert.equal(reads, 3); assert.equal(storage.values.size, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('a mocked agent can choose BGM from all scope and return authoritative BGM cards from loaded features', async () => {
+  const identities = identityFixture(), sound = await featureFixture('sound', identities), effect = await featureFixture('effect', identities);
+  const bgm = await featureFixture('bgm', identities, '舒缓钢琴 peaceful piano', '小关胜利 level victory');
+  const { service } = ledger({ ASSET_SEARCH_CATALOG: undefined, ASSET_FEATURES_BASE_URL: 'https://assets.example/catalog' });
+  const sources = { SoundEffectPlayer: sound, EffectPlayer: effect, BgmPlayer: bgm };
+  service.assetCatalog = createAssetCatalogLoader({ identities, fetcher: async url => featureResponse(sources[new URL(url).pathname.split('/').at(-2)]) });
+  const originalFetch = globalThis.fetch; let calls = 0;
+  try {
+    globalThis.fetch = withPromptFetch(async (_url, options) => {
+      calls++; const sent = JSON.parse(options.body);
+      if (calls === 1) return toolResponse('bgm-search', 'search_assets', { query: 'victory', scope: 'bgm', searchType: 'suggestion' });
+      const tool = JSON.parse(sent.messages.filter(m => m.role === 'tool').at(-1).content);
+      if (calls === 2) {
+        assert.deepEqual(tool.items.map(a => a.resourceId).sort(), ['bgm:1', 'bgm:2']);
+        return toolResponse('bgm-details', 'get_assets', { ids: ['bgm:1'], locale: 'zh-CN' });
+      }
+      assert.match(tool.items[0].description, /peaceful piano/);
+      assert.ok(tool.items[0].suggestedUses.includes('小关胜利 level victory'));
+      return upstreamResponse({ answer: '这首可以作为小关胜利后的音乐。', matches: [{ resourceId: 'bgm:1', reason: '用途建议包含小关胜利', matchType: 'suggestion' }] });
+    });
+    const response = await service.fetch(req({ ...agentBody('agent-bgm-loaded'), query: '帮我找小关胜利的BGM', scope: 'all' }));
+    assert.equal(response.status, 200); const value = await response.json();
+    assert.equal(value.featureSync.status, 'ready'); assert.ok(value.featureSync.hashes.bgm);
+    assert.equal(value.matches[0].resourceId, 'bgm:1'); assert.equal(value.matches[0].matchType, 'suggestion');
+    assert.equal(value.resources[0].kind, 'bgm'); assert.equal(value.resources[0].href, '/BgmPlayer?id=1');
+    assert.match(value.resources[0].description, /peaceful piano/); assert.equal(calls, 3);
   } finally { globalThis.fetch = originalFetch; }
 });

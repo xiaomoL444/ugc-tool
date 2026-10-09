@@ -1,6 +1,7 @@
 import type { StorageClass } from "../../services/storage/storage";
 import { MAX_SEARCH_RESULTS, normalizeResultLimit } from "./resultLimits";
 import { boundedRawResponse } from "./responseDiagnostics";
+import { sanitizeRequestDiagnostic } from "./requestDiagnostics";
 import type { ChatMessage, Conversation, ResourceCard, SearchMode } from "./types";
 
 export const AI_SEARCH_ARCHIVE_PROJECT_ID = "AISearch";
@@ -55,12 +56,14 @@ function serializeMessage(value: unknown): ChatMessage | undefined {
   const mode = isMode(message.mode) ? message.mode : "basic";
   const status = message.status === "complete" || message.status === "error" ? message.status : "canceled";
   const rawResponse = message.role === "assistant" && status === "error" ? boundedRawResponse(message.rawResponse) : undefined;
+  const requestDiagnostic = message.role === "assistant" && status === "error" ? sanitizeRequestDiagnostic(message.requestDiagnostic) : undefined;
   return {
     id: text(message.id, 100), role: message.role, content: text(message.content, 4000),
     cards: (Array.isArray(message.cards) ? message.cards : []).slice(0, MAX_SEARCH_RESULTS)
       .flatMap(value => { const card = serializeCard(value); return card ? [card] : []; }),
     status, mode, source: mode, model: text(message.model, 100), error: status === "error",
     ...(rawResponse ? { rawResponse } : {}),
+    ...(requestDiagnostic ? { requestDiagnostic } : {}),
   };
 }
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildAgentPrompt as buildAgentPromptFromSource, runAssetAgent } from "./agent-runtime.mjs";
+import { AgentError, buildAgentPrompt as buildAgentPromptFromSource, runAssetAgent } from "./agent-runtime.mjs";
 import { settings, validateModelResult } from "./worker.mjs";
 import { TEST_SYSTEM_PROMPT, withPromptFetch } from "./system-prompt-fixture.mjs";
 const buildAgentPrompt = (request, config) => buildAgentPromptFromSource(request, config, TEST_SYSTEM_PROMPT);
@@ -23,7 +23,7 @@ test("more-results reasoning is passed to model and its rewritten query reaches 
   }, validateModelResult, async (_url, options) => {
     const sent = JSON.parse(options.body); rounds += 1;
     if (rounds === 1) {
-      assert.equal(sent.tool_choice, "required"); assert.ok(sent.messages.at(-1).content.includes('"previousIds":["effect:100"]'));
+      assert.equal(sent.tool_choice, "auto"); assert.ok(sent.messages.at(-1).content.includes('"previousIds":["effect:100"]'));
       assert.equal(Object.hasOwn(sent, "response_format"), false);
       assert.equal(Object.hasOwn(sent, "thinking"), false, "Generic providers receive no unsolicited thinking option");
       return response([call("search-1", "search_assets", { query: "爆炸", scope: "effect", excludeIds: ["effect:100"] })]);
@@ -214,6 +214,16 @@ test("unsupported tools have specific safe errors and are never automatically re
     async () => new Response('{"error":{"message":"unknown model"}}', { status: 400 })), error => error.code === "UPSTREAM_REJECTED");
 });
 
+test("model tool arguments remain strict JSON instead of using final-answer repair", async () => {
+  const req = request(), cfg = config(); let modelRequests = 0, toolExecutions = 0;
+  const malformed = call("strict-tool-arguments", "search_assets", {});
+  malformed.function.arguments = "{query:'爆炸',}";
+  await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async () => { toolExecutions += 1; return { items: [asset] }; },
+  }, validateModelResult, async () => { modelRequests += 1; return response([malformed]); }), error => error.code === "TOOL_ARGUMENTS");
+  assert.equal(modelRequests, 1); assert.equal(toolExecutions, 0);
+});
+
 test("prompt/tool transcript and complete turn deadline are bounded before another model request", async () => {
   const req = request(), cfg = config();
   assert.throws(() => buildAgentPrompt(req, { ...cfg, maxPromptBytes: 1 }), error => error.code === "PROMPT_TOO_LARGE");
@@ -296,4 +306,190 @@ test('fifty audio matches retain every trusted ID and audio evidence within the 
     return response(null, { answer: '找到这些带爆炸音轨的特效。', matches: items.map(item => ({ resourceId: item.resourceId, reason: '音轨描述支持', matchType: 'feature' })) });
   });
   assert.equal(result.rounds, 2); assert.equal(result.result.matches.length, 50);
+});
+
+test("explicit first-turn clarification completes one model round without any catalogue tool", async () => {
+  const req = { ...request(), query: "帮我给传送门找点声音", messages: [], previousIds: [] }, cfg = config();
+  const question = "你希望传送门偏神秘、科技感还是自然魔法？也可以先说进入时还是持续待机的声音。";
+  let modelRequests = 0, toolCalls = 0;
+  const noTool = async () => { toolCalls += 1; throw new Error("Clarification must not read the catalogue"); };
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: noTool, assets: noTool, catalog: noTool,
+  }, validateModelResult, async (_url, options) => {
+    modelRequests += 1; const sent = JSON.parse(options.body);
+    assert.equal(sent.tool_choice, "auto");
+    assert.equal(Object.hasOwn(sent, "response_format"), false);
+    return response(null, { answer: question, matches: [], clarification: true });
+  });
+  assert.equal(modelRequests, 1); assert.equal(toolCalls, 0); assert.equal(result.rounds, 1);
+  assert.equal(result.records.size, 0); assert.deepEqual(result.steps, []);
+  assert.deepEqual(result.result, { answer: question, matches: [] });
+  assert.equal(Object.hasOwn(result.result, "clarification"), false);
+  assert.equal(result.retrievalMode, undefined);
+  assert.deepEqual(result.usage, { prompt_tokens: 100, completion_tokens: 40 });
+});
+
+test("first-turn answers without the explicit marker still require catalogue tools", async t => {
+  for (const [name, result] of [
+    ["empty results", { answer: "你想要哪种感觉？", matches: [] }],
+    ["invented results", { answer: "这个资源适合传送门。", matches: [{ resourceId: "effect:101", reason: "猜测匹配", matchType: "feature" }] }],
+  ]) {
+    await t.test(name, async () => {
+      const req = request(), cfg = config(); let modelRequests = 0, toolCalls = 0;
+      await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+        search: async () => { toolCalls += 1; return { items: [asset] }; },
+      }, validateModelResult, async () => { modelRequests += 1; return response(null, result); }),
+      error => error.code === "TOOLS_UNSUPPORTED");
+      assert.equal(modelRequests, 1); assert.equal(toolCalls, 0);
+    });
+  }
+});
+
+test("clarification cannot carry prior or invented matches, invalid markers, empty text or unsafe text", async t => {
+  const valid = { answer: "你偏好哪种传送门声音？", matches: [], clarification: true };
+  const match = resourceId => ({ resourceId, reason: "猜测用途", matchType: "suggestion" });
+  for (const [name, result] of [
+    ["prior resource ID", { ...valid, matches: [match("effect:100")] }],
+    ["invented resource ID", { ...valid, matches: [match("effect:999")] }],
+    ["false marker", { ...valid, clarification: false }],
+    ["string marker", { ...valid, clarification: "true" }],
+    ["number marker", { ...valid, clarification: 1 }],
+    ["null marker", { ...valid, clarification: null }],
+    ["missing matches", { ...valid, matches: undefined }],
+    ["non-array matches", { ...valid, matches: {} }],
+    ["blank answer", { ...valid, answer: "  \n " }],
+    ["non-string answer", { ...valid, answer: 42 }],
+    ["overlong answer", { ...valid, answer: "问".repeat(1801) }],
+    ["unsupported answer link", { ...valid, answer: "哪种方向？https://example.test" }],
+  ]) {
+    await t.test(name, async () => {
+      const req = request(), cfg = config(); let modelRequests = 0;
+      await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {}, validateModelResult,
+        async () => { modelRequests += 1; return response(null, result); }),
+      error => error.code === "UPSTREAM_RESPONSE_INVALID");
+      assert.equal(modelRequests, 1);
+    });
+  }
+});
+
+test("clarification consumes only its marker and leaves unknown fields for the result validator", async () => {
+  const req = request(), cfg = config(); let validations = 0;
+  await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {}, (value, candidates, limit) => {
+    validations += 1;
+    assert.deepEqual(value, { answer: "你偏好哪种声音？", matches: [], unexpected: "must stay visible to validation" });
+    assert.deepEqual(candidates, []); assert.equal(limit, 10);
+    throw new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "Unexpected field");
+  }, async () => response(null, { answer: "你偏好哪种声音？", matches: [], clarification: true,
+    unexpected: "must stay visible to validation" })), error => error.code === "UPSTREAM_RESPONSE_INVALID");
+  assert.equal(validations, 1);
+});
+
+test("repaired first-round clarification keeps the existing marker and result validation rules", async () => {
+  const req = request(), cfg = config();
+  const modelResponse = source => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: source } }],
+    usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+  const valid = "```json\n{answer:'你偏好哪种声音？',matches:[],clarification:true,}\n```";
+  const answer = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {}, validateModelResult, async () => modelResponse(valid));
+  assert.deepEqual(answer.result, { answer: "你偏好哪种声音？", matches: [] }); assert.equal(answer.rounds, 1);
+  assert.equal(Object.hasOwn(answer.result, "clarification"), false);
+  for (const source of [
+    "{answer:'你偏好哪种声音？',matches:[],clarification:'true',}",
+    "{answer:'你偏好哪种声音？',matches:[],clarification:true,unexpected:'不能去掉',}",
+    "{answer:'你偏好哪种声音？',matches:[{resourceId:'effect:101',reason:'猜测',matchType:'feature'}],clarification:true,}",
+  ]) {
+    await assert.rejects(runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {}, validateModelResult, async () => modelResponse(source)),
+      error => error.code === "UPSTREAM_RESPONSE_INVALID" && error.rawResponse === source);
+  }
+});
+
+test("clarification after retrieval also requires empty matches and a true marker", async t => {
+  const cfg = config(), req = request();
+  for (const [name, finalResult, rejected] of [
+    ["valid follow-up question", { answer: "想更偏低沉还是明亮？", matches: [], clarification: true }, false],
+    ["false marker", { answer: "想更偏低沉还是明亮？", matches: [], clarification: false }, true],
+    ["string marker", { answer: "想更偏低沉还是明亮？", matches: [], clarification: "true" }, true],
+    ["question mixed with observed matches", { answer: "想选这个吗？", matches: [{ resourceId: asset.resourceId, reason: "名称匹配", matchType: "feature" }], clarification: true }, true],
+  ]) {
+    await t.test(name, async () => {
+      let modelRequests = 0, searchCalls = 0;
+      const run = runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+        search: async () => { searchCalls += 1; return { items: [asset] }; },
+      }, validateModelResult, async () => ++modelRequests === 1
+        ? response([call("clarification-search", "search_assets", { query: "爆炸" })])
+        : response(null, finalResult));
+      if (rejected) await assert.rejects(run, error => error.code === "UPSTREAM_RESPONSE_INVALID");
+      else {
+        const result = await run;
+        assert.deepEqual(result.result, { answer: finalResult.answer, matches: [] });
+        assert.equal(result.records.size, 1); assert.equal(result.rounds, 2);
+      }
+      assert.equal(modelRequests, 2); assert.equal(searchCalls, 1);
+    });
+  }
+});
+
+test("the user's direction after clarification reaches normal bounded tool search", async () => {
+  const cfg = config(), originalQuery = "帮我给传送门找点声音";
+  const initial = { ...request("sound"), query: originalQuery, messages: [], previousIds: [], matchOn: "audio" };
+  const clarification = await runAssetAgent(initial, buildAgentPrompt(initial, cfg), cfg, {}, {}, validateModelResult,
+    async () => response(null, { answer: "偏神秘、科技感还是自然魔法？想要开启声还是持续声？", matches: [], clarification: true }));
+  const followup = { ...initial, query: "神秘的开启声，短促能量呼啸", messages: [
+    { role: "user", content: originalQuery }, { role: "assistant", content: clarification.result.answer },
+  ] };
+  const sound = { resourceId: "sound:123", kind: "sound", title: "能量呼啸", description: "短促的能量呼啸声", keywords: ["呼啸"], suggestedUses: [] };
+  let modelRequests = 0, searchCalls = 0;
+  const result = await runAssetAgent(followup, buildAgentPrompt(followup, cfg), cfg, {}, {
+    search: async args => {
+      searchCalls += 1;
+      assert.equal(args.query, "短促 能量 呼啸"); assert.equal(args.scope, "sound");
+      assert.equal(args.matchOn, "audio"); assert.equal(args.searchType, "feature"); assert.equal(args.limit, 10);
+      return { items: [sound], mode: "keyword" };
+    },
+  }, validateModelResult, async (_url, options) => {
+    const sent = JSON.parse(options.body); modelRequests += 1;
+    assert.equal(sent.tool_choice, "auto");
+    assert.ok(sent.messages.some(message => message.role === "assistant" && message.content === clarification.result.answer));
+    assert.match(sent.messages.findLast(message => message.role === "user").content, /神秘的开启声/);
+    if (modelRequests === 1) return response([call("directed-search", "search_assets", {
+      query: "短促 能量 呼啸", scope: "sound", matchOn: "audio", searchType: "feature",
+    })]);
+    return response(null, { answer: "这个短促呼啸声可作为神秘传送门开启声的候选。", matches: [
+      { resourceId: "sound:123", reason: "声学描述包含短促能量呼啸，可尝试用于开启时的瞬间", matchType: "feature" },
+    ] });
+  });
+  assert.equal(modelRequests, 2); assert.equal(searchCalls, 1); assert.equal(result.rounds, 2);
+  assert.deepEqual(result.result.matches.map(match => match.resourceId), ["sound:123"]);
+  assert.equal(result.records.size, 1); assert.equal(Object.hasOwn(result.result, "clarification"), false);
+});
+
+test("added game uses reach search and detail summaries after legacy uses, including the final budget round", async () => {
+  const req = { ...request("sound"), query: "更短", messages: [
+    { role: "user", content: "适合升级的尖锐音效" }, { role: "assistant", content: "可尝试尖锐的强化确认。" },
+  ], previousIds: [], matchOn: "audio" }, cfg = config();
+  const gameUse = "升级完成反馈：短促尖锐起音可用于有穿透力的强化确认";
+  const sound = { resourceId: "sound:50941", kind: "sound", title: "短音", description: "短促尖锐电子音", keywords: ["短促", "尖锐"],
+    suggestedUses: ["影视转场：短促尖锐电子音", "消息通知：短促尖锐电子音", "视频剪辑点缀：短促尖锐电子音", gameUse] };
+  let rounds = 0;
+  const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, {}, {
+    search: async () => ({ items: [sound], mode: "keyword", total: 1 }),
+    assets: async () => ({ items: [sound] }),
+  }, validateModelResult, async (_url, options) => {
+    const sent = JSON.parse(options.body); rounds++;
+    if (rounds === 1) return response([
+      call("game-use-search", "search_assets", { query: "升级", scope: "sound", matchOn: "audio", searchType: "both" }),
+      call("game-sound-search", "search_assets", { query: "短促尖锐", scope: "sound", matchOn: "audio", searchType: "feature" }),
+    ]);
+    const summary = JSON.parse(sent.messages.filter(message => message.role === "tool").at(-1).content).items[0];
+    assert.equal(summary.suggestedUses[0], gameUse, "A fourth use remains visible in detail reads when a refinement inherits its game event from this turn's search");
+    assert.equal(summary.description, sound.description, "Use suggestions never replace acoustic evidence");
+    if (rounds === 2) return response([call("game-detail", "get_assets", { ids: [sound.resourceId] })]);
+    assert.equal(sent.tool_choice, "none");
+    assert.match(sent.messages.at(-1).content, /候选少也照常展示/);
+    assert.doesNotMatch(sent.messages.at(-1).content, /返回空 matches 并说明资料不足/);
+    return response(null, { answer: "先试这个尖锐短音，你希望升级反馈更轻巧还是更有力度？", matches: [
+      { resourceId: sound.resourceId, reason: "用途建议：描述中的短促尖锐起音可尝试用于强化确认。", matchType: "suggestion" },
+    ] });
+  });
+  assert.equal(rounds, 3); assert.equal(result.result.matches[0].resourceId, sound.resourceId);
+  assert.equal(result.records.get(sound.resourceId).suggestedUses.length, 4, "Stored legacy and new uses stay intact");
 });

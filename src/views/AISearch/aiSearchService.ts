@@ -1,5 +1,10 @@
 import { loadSystemPrompt, buildSystemPrompt } from "./systemPrompt";
 import { boundedRawResponse, modelResponseText } from "./responseDiagnostics";
+import { sanitizeRequestDiagnostic, transportRequestDiagnostic, responseRequestDiagnostic, httpRequestDiagnostic } from "./requestDiagnostics";
+import type { RequestContext, RequestDiagnostic } from "./requestDiagnostics";
+import { resolveModelProtocol, anthropicMessagesUrl, modelHeaders, toAnthropicRequest, normalizeAnthropicResponse } from "./modelProtocol";
+import { parseModelJSON } from "../../../tools/ai-search-service/model-json.mjs";
+import { selectSuggestedUses } from "../../../tools/ai-search-service/asset-use-summary.mjs";
 import type { ChatMessage, ModelConfig, SearchAnswer, SearchResource, SearchScope, SearchMatchOn, ServerCatalogInfo, ServerSearchInput, ServerSearchResult, ServerChatPayload, FeatureSync } from "./types";
 import { record, resourceHref } from "./resourceCatalog";
 import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS, normalizeResultLimit, searchOutputTokens, boundedHistoryContent } from "./resultLimits";
@@ -10,11 +15,13 @@ const MODEL_RESPONSE_ERROR_CODES = ["RESPONSE_FORMAT", "RESPONSE_ASSET_ID", "OUT
 export class AISearchError extends Error {
   public readonly reason?: ProviderBalanceReason;
   public readonly rawResponse?: string;
-  constructor(public readonly code: string, reason?: unknown, rawResponse?: unknown) {
+  public readonly requestDiagnostic?: RequestDiagnostic;
+  constructor(public readonly code: string, reason?: unknown, rawResponse?: unknown, requestDiagnostic?: unknown) {
     super(code);
     // Only retain public diagnostic categories, never provider text or account data.
     if (typeof reason === "string" && PROVIDER_BALANCE_REASONS.includes(reason as ProviderBalanceReason)) this.reason = reason as ProviderBalanceReason;
     if (MODEL_RESPONSE_ERROR_CODES.includes(code)) this.rawResponse = boundedRawResponse(rawResponse);
+    this.requestDiagnostic = sanitizeRequestDiagnostic(requestDiagnostic);
   }
 }
 export interface SearchPayload {
@@ -78,12 +85,13 @@ function shrinkHistoryContent(content: string): string {
   return prose.slice(0, Math.max(100, Math.floor(prose.length / 2))) + (marker < 0 ? "" : content.slice(marker));
 }
 export function buildSearchPayload(query: string, locale: string, scope: SearchScope, history: ChatMessage[], candidates: SearchResource[], requestId: string, resultLimit?: number, matchOn: SearchMatchOn = "any"): SearchPayload {
+  const useQuery = isSearchRefinement(query) ? `${previousSearchQuery(history)} ${query}` : query;
   const payload: SearchPayload = { requestId, query, locale, scope, matchOn, resultLimit: normalizeResultLimit(resultLimit),
     messages: buildSearchContext(history, query).map(message => ({ role: message.role,
       content: boundedHistoryContent(message.content, message.cards, 'Previous results, in display order') })),
     candidates: candidates.slice(0, MAX_SEARCH_RESULTS).map(item => ({ resourceId: item.resourceId, kind: item.kind, title: item.title.slice(0, 200),
       description: (item.matchType === "suggestion" ? `Suggested use (not observed feature): ${item.description}` : item.audioMatch ? item.audioDescription || "" : [item.description && `${item.kind === "sound" ? "Audio" : item.kind === "bgm" ? "Music" : "Visual/general"}: ${item.description}`, item.kind === "effect" && item.audioDescription && `Audio: ${item.audioDescription}`].filter(Boolean).join("\n")).slice(0, 900),
-      keywords: item.keywords.slice(0, 10).map(word => word.slice(0, 80)), suggestedUses: item.suggestedUses.slice(0, 3).map(use => use.slice(0, 200)),
+      keywords: item.keywords.slice(0, 10).map(word => word.slice(0, 80)), suggestedUses: selectSuggestedUses(item.suggestedUses, useQuery, 3, 200),
       duration: item.duration, hasAudio: item.hasAudio, audioMatch: item.audioMatch === true, matchType: item.matchType,
     })),
   };
@@ -125,8 +133,54 @@ export function chatCompletionsUrl(base: string): string {
   try { url = new URL(base.trim()); } catch { throw new AISearchError("CONFIG"); }
   const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if ((url.protocol !== "https:" && !(local && url.protocol === "http:")) || url.username || url.password || url.search || url.hash) throw new AISearchError("CONFIG");
-  if (!url.pathname.replace(/\/$/, "").endsWith("/chat/completions")) url.pathname = `${url.pathname.replace(/\/$/, "")}/chat/completions`;
+  const path = url.pathname.replace(/\/+$/u, "");
+  if (url.hostname === "api.openai.com" && ["", "/v1", "/responses", "/v1/responses", "/chat/completions", "/v1/chat/completions", "/responses/chat/completions", "/v1/responses/chat/completions"].includes(path)) {
+    // This page speaks Chat Completions. A pasted Responses endpoint is not a base path.
+    url.pathname = "/v1/chat/completions";
+  } else url.pathname = path.endsWith("/chat/completions") ? path : `${path}/chat/completions`;
   return url.href;
+}
+/** Official OpenAI uses the current parameter; compatible providers retain their existing API. */
+export function completionTokenOptions(url: string, limit: number): Record<string, number> {
+  return new URL(url).hostname === "api.openai.com" ? { max_completion_tokens: searchOutputTokens(limit) } : { max_tokens: searchOutputTokens(limit) };
+}
+/** GPT-6 Luna's official Chat Completions API requires this mode for function calls. */
+export function chatToolCompatibilityOptions(url: string, model: string): { reasoning_effort?: "none" } {
+  return new URL(url).hostname === "api.openai.com" && model.trim() === "gpt-6-luna" ? { reasoning_effort: "none" } : {};
+}
+export function modelConnection(config: ModelConfig): { protocol: "openai" | "anthropic"; url: string } {
+  try {
+    const protocol = resolveModelProtocol(config);
+    return { protocol, url: protocol === "anthropic" ? anthropicMessagesUrl(config.baseUrl) : chatCompletionsUrl(config.baseUrl) };
+  } catch { throw new AISearchError("CONFIG"); }
+}
+export function modelResponseEnvelope(raw: Record<string, unknown>, protocol: "openai" | "anthropic", response: Response, context: RequestContext, secrets: readonly string[]): Record<string, unknown> {
+  if (protocol === "openai") return raw;
+  try { return normalizeAnthropicResponse(raw); }
+  catch { throw new AISearchError("INVALID_RESPONSE", undefined, undefined, responseRequestDiagnostic(response, context, "response", secrets)); }
+}
+export async function fetchAISearch(url: string, init: RequestInit, context: RequestContext, fetcher: typeof fetch = fetch, secrets: readonly string[] = [], failureCode = "NETWORK"): Promise<Response> {
+  try { return await fetcher(url, init); }
+  catch (error) {
+    const diagnostic = transportRequestDiagnostic(error, context, init.signal ?? undefined, secrets);
+    throw new AISearchError(diagnostic.kind === "timeout" ? "REQUEST_ABORTED" : failureCode, undefined, undefined, diagnostic);
+  }
+}
+export async function readAISearchJSON(response: Response, context: RequestContext, signal?: AbortSignal, secrets: readonly string[] = []): Promise<Record<string, unknown>> {
+  try { return record(await getJSON(response)); }
+  catch (error) {
+    if (error instanceof AISearchError) throw new AISearchError(error.code, error.reason, error.rawResponse, responseRequestDiagnostic(response, context, "response", secrets));
+    const diagnostic = sanitizeRequestDiagnostic({ ...responseRequestDiagnostic(response, context, "response", secrets), ...transportRequestDiagnostic(error, context, signal, secrets) }, secrets)!;
+    throw new AISearchError(diagnostic.kind === "timeout" ? "REQUEST_ABORTED" : "NETWORK", undefined, undefined, diagnostic);
+  }
+}
+export async function providerRequestError(response: Response, context: RequestContext, secrets: readonly string[] = [], tools = false): Promise<AISearchError> {
+  const diagnostic = await httpRequestDiagnostic(response, context, secrets);
+  const text = `${diagnostic.providerCode || ""} ${diagnostic.parameter || ""} ${diagnostic.providerMessage || ""}`;
+  const unsupported = tools && /(?:not support|unsupported|not available|not enabled|unknown parameter|unrecognized)[\s\S]{0,160}(?:tools?|function|tool_choice)|(?:tools?|function|tool_choice)[\s\S]{0,160}(?:not support|unsupported|not available|not enabled)/iu.test(text);
+  const code = response.status === 401 ? "AUTH" : response.status === 403 ? "FORBIDDEN" : response.status === 429 ? "PROVIDER_RATE_LIMIT"
+    : response.status >= 500 ? "MODEL_SERVICE_ERROR" : unsupported ? "TOOLS_UNSUPPORTED" : "MODEL_REQUEST_REJECTED";
+  return new AISearchError(code, undefined, undefined, diagnostic);
 }
 export function validateSearchAnswer(raw: unknown, candidates: SearchResource[], resultLimit = MAX_SEARCH_RESULTS): SearchAnswer {
   const result = record(raw);
@@ -162,9 +216,9 @@ export function parseFeatureSync(raw: unknown): FeatureSync | undefined {
   if (raw === undefined) return;
   const value = record(raw), hashes = record(value.hashes);
   if (!["ready", "stale", "disabled"].includes(String(value.status)) || !value.hashes || typeof value.hashes !== "object" || Array.isArray(value.hashes)
-    || Object.keys(hashes).some(key => key !== "sound" && key !== "effect")) throw new AISearchError("RETRIEVAL_RESPONSE");
+    || Object.keys(hashes).some(key => key !== "sound" && key !== "effect" && key !== "bgm")) throw new AISearchError("RETRIEVAL_RESPONSE");
   const result: FeatureSync = { status: value.status as FeatureSync["status"], hashes: {} };
-  for (const kind of ["sound", "effect"] as const) {
+  for (const kind of ["sound", "effect", "bgm"] as const) {
     if (hashes[kind] === undefined) continue;
     if (typeof hashes[kind] !== "string" || !/^[a-f0-9]{64}$/u.test(hashes[kind])) throw new AISearchError("RETRIEVAL_RESPONSE");
     result.hashes[kind] = hashes[kind];
@@ -182,7 +236,7 @@ export function parseFeatureSync(raw: unknown): FeatureSync | undefined {
 }
 export function featureHashesChanged(previous: FeatureSync["hashes"], next: FeatureSync["hashes"]): boolean {
   return Object.keys(previous).length > 0 && Object.keys(next).length > 0
-    && (["sound", "effect"] as const).some(kind => previous[kind] !== next[kind]);
+    && (["sound", "effect", "bgm"] as const).some(kind => previous[kind] !== next[kind]);
 }
 export function parseServerCatalog(raw: unknown): ServerCatalogInfo {
   const data = record(raw);
@@ -226,18 +280,19 @@ export function parseServerResources(raw: unknown, locale: string, audioIds: Set
   });
 }
 async function serverJSON(base: string, endpoint: string, signal: AbortSignal, body?: unknown, fetcher: typeof fetch = fetch): Promise<Record<string, unknown>> {
-  const response = await fetcher(`${base.replace(/\/$/, "")}/${endpoint}`, { signal, cache: "no-store",
-    ...(body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
-  let data: Record<string, unknown>;
-  try { data = record(await getJSON(response)); }
-  catch { throw new AISearchError("RETRIEVAL_RESPONSE"); }
+  const url = `${base.replace(/\/$/, "")}/${endpoint}`;
+  const context: RequestContext = { stage: endpoint as "search" | "assets" | "catalog", endpoint: url, startedAt: Date.now() };
+  const response = await fetchAISearch(url, { signal, cache: "no-store",
+    ...(body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) }, context, fetcher, [], "RETRIEVAL_FAILED");
   if (!response.ok) {
-    const code = record(data.error).code;
-    if (endpoint === "assets" && response.status === 413 && code === "DETAILS_TOO_LARGE") throw new AISearchError("DETAILS_TOO_LARGE");
+    const diagnostic = await httpRequestDiagnostic(response, context);
+    const code = diagnostic.providerCode;
+    if (endpoint === "assets" && response.status === 413 && code === "DETAILS_TOO_LARGE") throw new AISearchError("DETAILS_TOO_LARGE", undefined, undefined, diagnostic);
     throw new AISearchError(code === "CATALOG_VERSION_MISMATCH" ? "CATALOG_CHANGED"
-      : endpoint === "search" && code === "INVALID_SEARCH" && record(body).matchOn ? "RETRIEVAL_MATCH_ON_UNSUPPORTED" : "RETRIEVAL_FAILED");
+      : endpoint === "search" && code === "INVALID_SEARCH" && record(body).matchOn ? "RETRIEVAL_MATCH_ON_UNSUPPORTED" : "RETRIEVAL_FAILED", undefined, undefined, diagnostic);
   }
-  return data;
+  try { return await readAISearchJSON(response, context, signal); }
+  catch (error) { throw new AISearchError("RETRIEVAL_RESPONSE", undefined, undefined, error instanceof AISearchError ? error.requestDiagnostic : undefined); }
 }
 export async function requestServerCatalog(base: string, signal: AbortSignal, fetcher?: typeof fetch): Promise<ServerCatalogInfo> {
   try { return parseServerCatalog(await serverJSON(base, "catalog", signal, undefined, fetcher)); }
@@ -336,37 +391,42 @@ export async function requestServerAssets(base: string, ids: string[], locale: s
       }
       return items;
     }
-  } catch (error) { if (error instanceof AISearchError && error.code === "CATALOG_CHANGED" || signal.aborted) throw error; throw new AISearchError("ASSET_DETAILS"); }
+  } catch (error) { if (error instanceof AISearchError && error.code === "CATALOG_CHANGED" || signal.aborted) throw error; throw new AISearchError("ASSET_DETAILS", undefined, undefined, error instanceof AISearchError ? error.requestDiagnostic : undefined); }
 }
 export async function requestSearch(payload: SearchPayload, candidates: SearchResource[], options: { mode: "free" | "custom"; config: ModelConfig; freeBase: string; signal: AbortSignal; fetcher?: typeof fetch; server?: { catalogVersion: string; includeEffectAudio: boolean } }): Promise<SearchAnswer> {
   const fetcher = options.fetcher ?? fetch;
   const custom = options.mode === "custom";
   if (custom && (!options.config.apiKey.trim() || !options.config.model.trim())) throw new AISearchError("CONFIG");
-  const url = custom ? chatCompletionsUrl(options.config.baseUrl) : `${options.freeBase.replace(/\/$/, "")}/chat`;
+  const connection = custom ? modelConnection(options.config) : undefined;
+  const protocol = connection?.protocol ?? "openai";
+  const url = connection?.url ?? `${options.freeBase.replace(/\/$/, "")}/chat`;
   const hostname = custom ? new URL(url).hostname : "";
   const deepSeek = hostname === "api.deepseek.com";
   const jsonSupported = deepSeek || ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"].includes(hostname) || hostname.endsWith(".maas.aliyuncs.com");
   const systemPrompt = custom ? buildSystemPrompt(await loadSystemPrompt(options.signal, fetcher), "candidates", normalizeResultLimit(payload.resultLimit)) : "";
   if (options.signal.aborted) throw new DOMException("Aborted", "AbortError");
-  const response = await fetcher(url, { method: "POST", signal: options.signal,
-    headers: custom ? { "Content-Type": "application/json", Authorization: `Bearer ${options.config.apiKey.trim()}` } : { "Content-Type": "application/json" },
-    body: JSON.stringify(custom ? { model: options.config.model.trim(), stream: false, max_tokens: searchOutputTokens(normalizeResultLimit(payload.resultLimit)),
+  const context: RequestContext = { stage: custom ? "model" : "site", endpoint: url, ...(custom ? { model: options.config.model.trim(), round: 1 } : {}), startedAt: Date.now() };
+  const secrets = custom ? [options.config.apiKey.trim()] : [];
+  const request = custom ? { model: options.config.model.trim(), stream: false, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit)),
       ...(jsonSupported ? { response_format: { type: "json_object" } } : {}),
       ...(deepSeek ? { thinking: { type: "disabled" } } : {}),
       messages: [{ role: "system", content: systemPrompt }, ...payload.messages, { role: "user", content: JSON.stringify({ query: payload.query, locale: payload.locale, scope: payload.scope, matchOn: payload.matchOn ?? "any", resultLimit: normalizeResultLimit(payload.resultLimit), candidates: payload.candidates }) }] } : options.server
-      ? buildServerChatPayload(payload, candidates, options.server.catalogVersion, options.server.includeEffectAudio) : payload),
-  });
+      ? buildServerChatPayload(payload, candidates, options.server.catalogVersion, options.server.includeEffectAudio) : payload;
+  const response = await fetchAISearch(url, { method: "POST", signal: options.signal,
+    headers: custom ? modelHeaders(protocol, options.config.apiKey.trim()) : { "Content-Type": "application/json" },
+    body: JSON.stringify(custom && protocol === "anthropic" ? toAnthropicRequest(request as unknown as Record<string, unknown>) : request),
+  }, context, fetcher, secrets);
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) throw new AISearchError("AUTH");
-    if (response.status === 429) throw new AISearchError("QUOTA_EXCEEDED");
+    if (custom) throw await providerRequestError(response, context, secrets);
+    const diagnostic = await httpRequestDiagnostic(response, context);
     if (!custom) {
-      const error = record(record(await getJSON(response)).error);
-      throw new AISearchError(typeof error.code === "string" ? error.code : "FREE_UNAVAILABLE", error.reason, error.rawResponse);
+      let error: Record<string, unknown> = {};
+      try { error = record(record(await getJSON(response)).error); } catch { /* Preserve a non-JSON gateway's HTTP status. */ }
+      throw new AISearchError(typeof error.code === "string" ? error.code : response.status === 429 ? "QUOTA_EXCEEDED" : "FREE_UNAVAILABLE", error.reason, error.rawResponse, diagnostic);
     }
-    if (response.status === 400 || response.status === 404 || response.status === 422) throw new AISearchError("MODEL_REQUEST_REJECTED");
-    throw new AISearchError("NETWORK");
   }
-  const raw = record(await getJSON(response));
+  const envelope = await readAISearchJSON(response, context, options.signal, secrets);
+  const raw = custom ? modelResponseEnvelope(envelope, protocol, response, context, secrets) : envelope;
   let answer: SearchAnswer;
   if (custom) {
     if (!Array.isArray(raw.choices) || !raw.choices.length) throw new AISearchError("RESPONSE_FORMAT");
@@ -383,7 +443,7 @@ export async function requestSearch(payload: SearchPayload, candidates: SearchRe
     if (content === undefined || content === null || typeof content === "string" && !content.trim()) throw new AISearchError("EMPTY_RESPONSE");
     if (typeof content !== "string") throw new AISearchError("RESPONSE_FORMAT", undefined, rawResponse);
     let parsed: unknown;
-    try { parsed = JSON.parse(content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")); } catch { throw new AISearchError("RESPONSE_FORMAT", undefined, rawResponse); }
+    try { parsed = parseModelJSON(content); } catch { throw new AISearchError("RESPONSE_FORMAT", undefined, rawResponse); }
     const transmittedIds = new Set(payload.candidates.map(item => item.resourceId));
     try {
       answer = validateSearchAnswer(parsed, candidates.filter(item => transmittedIds.has(item.resourceId)), normalizeResultLimit(payload.resultLimit));

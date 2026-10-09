@@ -4,11 +4,12 @@ import { buildDialogueTextPreview, isDialogueCollectionNode, type TextPreviewBlo
 import { toSerializableDialogueProject } from "./dialogueProjectCodec";
 import { createConditionBranchNode, createDialogueClip, createDialogueNode, createSelectClip, createSelectOption } from "./dialogueProject";
 import { normalizeSourceHandle, selectOutletId } from "./groupOutlets";
+import { getDialogueClips, removeDialogueClip } from "./dialogueClips";
 
 export type DialogueTextAction =
   | { type: "create" }
   | { type: "insert"; nodeId: string; before?: boolean }
-  | { type: "delete"; nodeId: string }
+  | { type: "delete"; nodeId: string; clipId?: string }
   | { type: "delete-outlet"; blockId: string; outletId: string }
   | { type: "delete-block"; blockId: string }
   | { type: "move"; nodeId: string; targetId: string }
@@ -171,15 +172,20 @@ export function applyDialogueTextAction(source: DialogueProject, action: Dialogu
     const block = preview.blocks.find((item) => item.lines.some((line) => line.nodeId === action.nodeId));
     if (!node || !block) return;
     if (action.type === "delete") {
-      if (!node.dialogue) return;
-      if (node.select) {
+      const dialogues = getDialogueClips(node);
+      const dialogue = action.clipId === undefined ? node.dialogue : dialogues.find(clip => clip.id === action.clipId);
+      if (!dialogue) return;
+      if (dialogues.length > 1) {
+        removeDialogueClip(node, dialogue.id);
+        focusId = action.nodeId;
+      } else if (node.select) {
         // A sentence inside a choice node is not the choice node itself.
-        delete node.dialogue;
+        removeDialogueClip(node, dialogue.id);
         project.graph.edges = project.graph.edges.filter(edge => !(matches(edge.source, action.nodeId) && normalizeSourceHandle(edge.sourceHandle) === "next"));
         focusId = action.nodeId;
       } else {
         const outgoing = project.graph.edges.filter(edge => matches(edge.source, action.nodeId) && normalizeSourceHandle(edge.sourceHandle) === "next");
-        const continuation = node.dialogue.advanceMode === "PlayerInput" ? outgoing[outgoing.length - 1] : undefined;
+        const continuation = dialogue.advanceMode === "PlayerInput" ? outgoing[outgoing.length - 1] : undefined;
         const targetVertex = continuation ? vertexForReference(continuation.target) : undefined;
         const targetExists = targetVertex && preview.blocks.some(item => item.nodeIds.some(id => blockVertex(item, id) === targetVertex));
         const reconnect = continuation && targetExists && !matches(continuation.target, action.nodeId) ? continuation : undefined;
@@ -194,12 +200,13 @@ export function applyDialogueTextAction(source: DialogueProject, action: Dialogu
         focusId = (reconnect ? businessId(reconnect.target) : undefined) ?? incoming.map(edge => businessId(edge.source)).find(Boolean);
       }
     } else if (action.type === "add-dialogue") {
-      if (node.dialogue) return;
+      if (getDialogueClips(node).length) return;
       node.dialogue = createDialogueClip();
       node.dialogue.content = "";
       if (node.select) node.dialogue.advanceMode = "None";
       focusId = action.nodeId;
     } else if (action.type === "insert") {
+      if (getDialogueClips(node).length > 1) return;
       if (!action.before && (node.select || node.dialogue?.advanceMode !== "PlayerInput")) return;
       focusId = addNode(action.nodeId);
       if (action.before) {
@@ -212,12 +219,12 @@ export function applyDialogueTextAction(source: DialogueProject, action: Dialogu
         connect(action.nodeId, "next", focusId);
       }
     } else if (action.type === "move") {
-      const ids = block.lines.map((line) => line.nodeId);
+      const ids = block.nodeIds;
       const from = ids.indexOf(action.nodeId);
       const to = ids.indexOf(action.targetId);
       if (to < 0 || to === from) return;
       // A branching/non-continuing tail is a boundary, not a movable sentence.
-      const movable = (id: string) => isDialogueCollectionNode(project.dialogue.nodes[id]) && project.dialogue.nodes[id].dialogue?.advanceMode === "PlayerInput";
+      const movable = (id: string) => getDialogueClips(project.dialogue.nodes[id]).length === 1 && isDialogueCollectionNode(project.dialogue.nodes[id]) && project.dialogue.nodes[id].dialogue?.advanceMode === "PlayerInput";
       if (ids.slice(Math.min(from, to), Math.max(from, to) + 1).some((id) => !movable(id))) return;
       const reordered = [...ids];
       reordered.splice(to, 0, reordered.splice(from, 1)[0]);

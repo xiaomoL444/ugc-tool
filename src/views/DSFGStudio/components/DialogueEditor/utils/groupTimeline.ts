@@ -4,6 +4,7 @@ import type {
   SelectClip,
   PerformanceClip,
 } from "../types/DialogueNode";
+import { getDialogueClips } from "./dialogueClips";
 
 export const DEFAULT_TIMELINE_DURATION = 2;
 export const DEFAULT_CONTINUE_DELAY_TIME = 0.5;
@@ -27,17 +28,23 @@ export function getPerformanceClipDuration(clip: PerformanceClip) {
 
 export type FlowClip = DialogueClip | SelectClip;
 
+export function isFreeDialogueClip(clip: unknown): clip is DialogueClip & { advanceMode: "None" } {
+  return typeof clip === "object" && clip !== null && "advanceMode" in clip && clip.advanceMode === "None";
+}
+
 /**
- * Dialogue 与 Select 是流程型 Clip：它们只保存开始时间和内部延迟，
- * 右边界统一贴合 Group Timeline 的实际结束时间。
+ * 玩家按下的 Dialogue 与 Select 延伸到 Group 的实际结束时间；
+ * 不触发按下的 Dialogue 使用独立时长。
  */
 export function getGroupTimelineEnd(node: DialogueNode) {
   let end = Math.max(MIN_CLIP_DURATION, node.timeline.duration);
 
-  if (node.dialogue) {
+  for (const dialogue of getDialogueClips(node)) {
     end = Math.max(
       end,
-      node.dialogue.startTime + node.dialogue.continueDelayTime,
+      dialogue.startTime + (isFreeDialogueClip(dialogue)
+        ? getFreeDialogueDuration(dialogue)
+        : dialogue.continueDelayTime),
     );
   }
   if (node.select) {
@@ -59,5 +66,12 @@ export function getGroupTimelineEnd(node: DialogueNode) {
 }
 
 export function getFlowClipDuration(node: DialogueNode, clip: FlowClip) {
+  if (isFreeDialogueClip(clip)) return getFreeDialogueDuration(clip);
   return Math.max(MIN_CLIP_DURATION, getGroupTimelineEnd(node) - clip.startTime);
+}
+
+function getFreeDialogueDuration(clip: DialogueClip) {
+  return typeof clip.duration === "number" && Number.isFinite(clip.duration)
+    ? Math.max(MIN_CLIP_DURATION, clip.duration)
+    : DEFAULT_TIMELINE_DURATION;
 }

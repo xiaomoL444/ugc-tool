@@ -6,11 +6,22 @@ export class BoundedJsonParser {
     this.nodes = 0; this.buffer = ''; this.position = 0; this.scan = null; this.stack = []; this.hasRoot = false;
   }
   invalid() { throw new SyntaxError('Invalid or excessive JSON source'); }
+  closeContainer() { this.stack.pop().postingValues?.clear(); }
   attach(value) {
     if (++this.nodes > this.maxNodes) this.invalid();
     const frame = this.stack.at(-1);
     if (!frame) { if (this.hasRoot) this.invalid(); this.value = value; this.hasRoot = true; return; }
     if (!['value', 'valueOrEnd'].includes(frame.state)) this.invalid();
+    // Reuse only complete string values in the actual root lexical.postings table.
+    // A small FIFO pool avoids retaining another term-sized lookup table.
+    if (frame.postingValues && typeof value === 'string') {
+      const previous = frame.postingValues.get(value);
+      if (previous !== undefined) value = previous;
+      else {
+        if (frame.postingValues.size >= 4096) frame.postingValues.delete(frame.postingValues.keys().next().value);
+        frame.postingValues.set(value, value);
+      }
+    }
     if (frame.type === 'array') frame.value.push(value); else frame.value[frame.key] = value;
     frame.state = 'commaOrEnd';
   }
@@ -45,11 +56,11 @@ export class BoundedJsonParser {
       if (state === 'colon') { if (char !== ':') this.invalid(); this.position++; frame.state = 'value'; continue; }
       if (state === 'commaOrEnd') {
         if (char === ',') { this.position++; frame.state = frame.type === 'object' ? 'key' : 'value'; continue; }
-        if (char === (frame.type === 'object' ? '}' : ']')) { this.position++; this.stack.pop(); continue; }
+        if (char === (frame.type === 'object' ? '}' : ']')) { this.position++; this.closeContainer(); continue; }
         this.invalid();
       }
       if (state === 'keyOrEnd' && char === '}' || state === 'valueOrEnd' && frame.type === 'array' && char === ']') {
-        this.position++; this.stack.pop(); continue;
+        this.position++; this.closeContainer(); continue;
       }
       if (state === 'key' || state === 'keyOrEnd') {
         if (char !== '"') this.invalid();
@@ -59,9 +70,13 @@ export class BoundedJsonParser {
       }
       if (this.hasRoot && !frame) this.invalid();
       if (char === '{' || char === '[') {
-        const value = char === '{' ? Object.create(null) : []; this.attach(value); this.position++;
+        // Preserve null-prototype safety while allowing V8 fast properties for
+        // small records; Object.create(null) starts them in dictionary mode.
+        const value = char === '{' ? Object.setPrototypeOf({}, null) : []; this.attach(value); this.position++;
         if (this.stack.length >= this.maxDepth) this.invalid();
-        this.stack.push({ type: char === '{' ? 'object' : 'array', value, state: char === '{' ? 'keyOrEnd' : 'valueOrEnd', key: null }); continue;
+        const postingValues = char === '{' && this.stack.length === 2 && this.stack[0].type === 'object'
+          && this.stack[0].key === 'lexical' && frame.type === 'object' && frame.key === 'postings' ? new Map() : null;
+        this.stack.push({ type: char === '{' ? 'object' : 'array', value, state: char === '{' ? 'keyOrEnd' : 'valueOrEnd', key: null, postingValues }); continue;
       }
       if (char === '"') {
         const token = this.stringToken(); if (!token) break; this.attach(token.value); continue;

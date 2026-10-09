@@ -6,16 +6,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { compileLexicalIndex } from './asset-search.mjs';
+import { compileLexicalIndex, searchAssets } from './asset-search.mjs';
 import { FEATURE_LOCALES, parseAssetFeatureSidecar, verifyAssetFeatureSidecar, normalizeAssetFeatureResources, computeAssetCatalogVersion, computeAssetFeatureSourceHash, extractAssetFeatureDictionaries, computeLexicalFeatureHash, computeLexicalIndexHash } from './asset-features.mjs';
 const require = createRequire(import.meta.url);
 const { compileSidecar, reindex } = require('../../scripts/export-ai-asset-features.cjs');
+const { buildIdentityCatalog, buildFeatureCatalog } = require('../../scripts/build-ai-asset-catalog.cjs');
 const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const sha = value => createHash('sha256').update(value).digest('hex');
 const json = value => JSON.stringify(value) + '\n';
 function fixture(kind = 'effect') {
-  const project = kind === 'effect' ? 'EffectPlayer' : 'SoundEffectPlayer';
-  const namespace = kind === 'effect' ? 'effectPlayer' : 'soundEffectPlayer';
+  const project = { sound: 'SoundEffectPlayer', effect: 'EffectPlayer', bgm: 'BgmPlayer' }[kind];
+  const namespace = { sound: 'soundEffectPlayer', effect: 'effectPlayer', bgm: 'bgmPlayer' }[kind];
   const i18n = Object.fromEntries(FEATURE_LOCALES.map(locale => [locale, {}]));
   const metadata = { schemaVersion: 1 };
   for (const part of kind === 'effect' ? ['standVisual', 'tailVisual', 'audio'] : ['audio']) {
@@ -138,8 +139,104 @@ test('source and lexical hashes use bounded deterministic UTF-8 blocks across su
     assert.ok(calls > 10); assert.ok(maximumBytes <= 196608, `SHA block was ${maximumBytes} bytes`);
   } finally { crypto.subtle.digest = original; }
 });
-test('offline export restores data bytes, preserves translation entries and supports project i18n reindex', async () => {
+test('BGM five-language audio descriptions and use suggestions resolve into the compiled primary facets', async () => {
+  const { sidecar, identities } = fixture('bgm');
+  const phrases = {
+    'zh-cn': ['温暖弦乐', '关卡胜利画面'],
+    'zh-tw': ['溫暖弦樂', '關卡勝利畫面'],
+    'en-us': ['warm strings', 'level victory screen'],
+    'ja-jp': ['温かな弦楽器', 'ステージ勝利画面'],
+    'ru-ru': ['тёплые струнные', 'экран победы на уровне'],
+  };
+  const part = sidecar.resources[1].searchMetadata.audio;
+  for (const locale of FEATURE_LOCALES) {
+    sidecar.i18n[locale][part.shortDescriptionI18nKey] = phrases[locale][0];
+    sidecar.i18n[locale][part.suggestedUsesI18nKeys[0]] = phrases[locale][1];
+  }
+  await compileSidecar(sidecar, identities);
+  const external = { ...sidecar, i18nSource: 'project-i18n-v1' }; delete external.i18n;
+  const dictionaries = Object.fromEntries(FEATURE_LOCALES.map(locale => [locale, { 'bgmPlayer.data.1': 'base title', ...sidecar.i18n[locale] }]));
+  const hydrated = await verifyAssetFeatureSidecar(external, { identities, dictionaries, project: 'BgmPlayer', kind: 'bgm' });
+  const assets = normalizeAssetFeatureResources(hydrated, identities), asset = assets[0];
+  assert.equal(asset.kind, 'bgm'); assert.equal(asset.resourceId, 'bgm:1');
+  assert.deepEqual(asset.audio, { description: {}, detailedDescription: {}, keywords: {}, suggestedUses: {} });
+  assert.deepEqual(sidecar.lexical.docs.map(doc => doc[1]), ['feature', 'suggestion']);
+  assert.doesNotMatch(asset.facetTexts.feature, /unconfirmed|victory screen/);
+  assert.equal(asset.facetTexts.audio, ''); assert.equal(asset.facetTexts.audioSuggestion, '');
+  const env = { ASSET_SEARCH_CATALOG: { ...identities, assets, lexical: { format: 'sharded-uint32-base64-v1', shards: [{ lexical: sidecar.lexical }] } } };
+  for (let index = 0; index < FEATURE_LOCALES.length; index++) {
+    const locale = FEATURE_LOCALES[index], searchLocale = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ru-RU'][index];
+    assert.equal(asset.description[searchLocale], phrases[locale][0]);
+    assert.deepEqual(asset.suggestedUses[searchLocale], [phrases[locale][1]]);
+    for (const [query, searchType] of [[phrases[locale][0], 'feature'], [phrases[locale][1], 'suggestion']]) {
+      const result = await searchAssets({ query, locale: searchLocale, scope: 'bgm', searchType, limit: 10 }, env);
+      assert.equal(result.candidates.length, 1, query);
+      assert.equal(result.candidates[0].resourceId, 'bgm:1');
+      assert.equal(result.candidates[0].kind, 'bgm');
+    }
+  }
+});
+test('BGM sidecars preserve identity, field ownership, five-language and compiled integrity checks', async () => {
+  const { sidecar, identities } = fixture('bgm'); await compileSidecar(sidecar, identities);
+  const otherIdentity = { ...identities, assets: [{ ...identities.assets[0], kind: 'sound', resourceId: 'sound:1' }] };
+  assert.throws(() => parseAssetFeatureSidecar(sidecar, { identities: otherIdentity }), /Unknown feature resource ID/);
+  const visual = structuredClone(sidecar); visual.resources[1].searchMetadata.standVisual = { status: 'not_available' };
+  assert.throws(() => parseAssetFeatureSidecar(visual), /Unexpected feature part/);
+  const wrongReference = structuredClone(sidecar); wrongReference.resources[1].searchMetadata.audio.shortDescriptionI18nKey = 'soundEffectPlayer.search.1.audio.short';
+  assert.throws(() => parseAssetFeatureSidecar(wrongReference), /another resource or field/);
+  const missing = structuredClone(sidecar); delete missing.i18n['ru-ru'][missing.resources[1].searchMetadata.audio.suggestedUsesI18nKeys[0]];
+  assert.throws(() => parseAssetFeatureSidecar(missing), /Dangling/);
+  const edited = structuredClone(sidecar); edited.i18n['en-us'][edited.resources[1].searchMetadata.audio.shortDescriptionI18nKey] = 'modified';
+  await assert.rejects(verifyAssetFeatureSidecar(edited), /source hash mismatch/);
+  const wrongFacet = structuredClone(sidecar); wrongFacet.lexical.docs[0][1] = 'audio';
+  assert.throws(() => parseAssetFeatureSidecar(wrongFacet), /Invalid compiled feature document/);
+  const tampered = structuredClone(sidecar); tampered.lexical.averageLength++;
+  await assert.rejects(verifyAssetFeatureSidecar(tampered), /index hash mismatch/);
+});
+test('three-source catalog version tracks BGM without changing legacy two-source versions', async () => {
+  const baseIndexVersion = 'version-test', hashes = { sound: 'a'.repeat(64), effect: 'b'.repeat(64) };
+  const legacy = sha(JSON.stringify({ baseIndexVersion, hashes }));
+  assert.equal(await computeAssetCatalogVersion(baseIndexVersion, hashes), legacy);
+  const bgmHashes = { ...hashes, bgm: 'c'.repeat(64) }, current = await computeAssetCatalogVersion(baseIndexVersion, bgmHashes);
+  assert.notEqual(current, legacy);
+  assert.equal(current, sha(JSON.stringify({ baseIndexVersion, hashes: bgmHashes })));
+  assert.equal(current, await computeAssetCatalogVersion(baseIndexVersion, { bgm: bgmHashes.bgm, effect: hashes.effect, sound: hashes.sound }));
+  for (const kind of ['sound', 'effect', 'bgm']) assert.notEqual(current, await computeAssetCatalogVersion(baseIndexVersion, { ...bgmHashes, [kind]: 'd'.repeat(64) }));
+  for (const bgm of [null, '', 'bad', 'c'.repeat(63)]) await assert.rejects(computeAssetCatalogVersion(baseIndexVersion, { ...hashes, bgm }), /BGM catalog version/);
+});
+test('BGM feature edits do not change the identity index and full catalogs require all three sources', async () => {
+  const snapshots = ['sound', 'effect', 'bgm'].map(kind => {
+    const project = { sound: 'SoundEffectPlayer', effect: 'EffectPlayer', bgm: 'BgmPlayer' }[kind];
+    const namespace = { sound: 'soundEffectPlayer', effect: 'effectPlayer', bgm: 'bgmPlayer' }[kind];
+    const row = { id: '1', nameI18nKey: namespace + '.data.1', hasAudio: true, audioPath: '1.mp3', time: 12 };
+    return { kind, project, data: kind === 'effect' ? { effectData: { 1: row } } : { data: [row] },
+      dictionaries: Object.fromEntries(['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ru-RU'].map(locale => [locale, { [namespace + '.data.1']: 'original title' }])) };
+  });
+  const before = buildIdentityCatalog(snapshots), updated = structuredClone(snapshots);
+  const bgmRow = updated.find(item => item.kind === 'bgm').data.data[0];
+  Object.assign(bgmRow, { searchMetadata: fixture('bgm').sidecar.resources[1].searchMetadata,
+    description: 'changed BGM evidence', keywords: ['unrelated'], suggestedUses: ['changed suggestion'],
+    shortDescriptionI18nKey: 'bgmPlayer.search.1.audio.short' });
+  const identities = buildIdentityCatalog(updated);
+  assert.deepEqual(identities, before);
+  const legacy = structuredClone(updated), legacyBgm = legacy.find(item => item.kind === 'bgm');
+  legacyBgm.data.musicData = legacyBgm.data.data; delete legacyBgm.data.data;
+  assert.deepEqual(buildIdentityCatalog(legacy), before);
+  assert.doesNotMatch(JSON.stringify(identities), /changed BGM evidence|changed suggestion|unrelated|searchMetadata/);
+  const sidecars = [];
+  for (const kind of ['sound', 'effect', 'bgm']) {
+    const sidecar = fixture(kind).sidecar; sidecar.baseIndexVersion = identities.indexVersion;
+    await compileSidecar(sidecar, identities); sidecars.push(sidecar);
+  }
+  await assert.rejects(buildFeatureCatalog(identities, sidecars.slice(0, 2)), /Missing feature sidecar BgmPlayer/);
+  const catalog = await buildFeatureCatalog(identities, sidecars);
+  assert.equal(catalog.coverage.descriptions.bgm, 1);
+  assert.match(catalog.assets.find(asset => asset.kind === 'bgm').description['en-US'], /audio short/);
+  assert.equal(Object.keys(catalog.featureSourceHashes).length, 3);
+});
+test('offline export restores data bytes, preserves translation entries and supports project i18n reindex', async t => {
   const exportRoot = path.join(root, 'exports'); await mkdir(exportRoot, { recursive: true });
+  for (const bgmRowsField of ['data', 'musicData']) await t.test('BGM ' + bgmRowsField, async () => {
   const directory = await mkdtemp(path.join(exportRoot, '.asset-features-test-'));
   try {
     const source = path.join(directory, 'source'), output = path.join(directory, 'publication'), baselines = path.join(directory, 'baselines');
@@ -147,21 +244,22 @@ test('offline export restores data bytes, preserves translation entries and supp
     for (const kind of ['sound', 'effect', 'bgm']) {
       const project = { sound: 'SoundEffectPlayer', effect: 'EffectPlayer', bgm: 'BgmPlayer' }[kind];
       const namespace = { sound: 'soundEffectPlayer', effect: 'effectPlayer', bgm: 'bgmPlayer' }[kind];
-      const f = kind === 'bgm' ? null : fixture(kind);
+      const f = fixture(kind);
       const row = { id: '1', nameI18nKey: `${namespace}.data.1`, duration: 1, path: 'original/media.mp3', hasAudio: true, audioPath: '1.mp3' };
-      const baselineData = kind === 'effect' ? { effectData: { 1: row }, TagData: {}, category: [] } : { data: [row], category: [] };
+      const baselineData = kind === 'effect' ? { effectData: { 1: row }, TagData: {}, category: [] } : { [kind === 'bgm' ? bgmRowsField : 'data']: [row], category: [] };
       const currentData = structuredClone(baselineData);
-      if (f) (kind === 'effect' ? currentData.effectData[1] : currentData.data[0]).searchMetadata = f.sidecar.resources[1].searchMetadata;
+      if (f) (kind === 'effect' ? currentData.effectData[1] : currentData[kind === 'bgm' ? bgmRowsField : 'data'][0]).searchMetadata = f.sidecar.resources[1].searchMetadata;
       const dataRelative = `${project}/data.json`, currentBytes = Buffer.from(json(currentData)), baselineBytes = Buffer.from('\r\n' + JSON.stringify(baselineData, null, 3) + '\r\n');
       await mkdir(path.join(source, project, 'i18n'), { recursive: true }); await writeFile(path.join(source, dataRelative), currentBytes); originalSources.set(dataRelative, currentBytes);
-      if (f) { await mkdir(path.join(baselines, project, 'i18n'), { recursive: true }); await writeFile(path.join(baselines, project, 'data.json'), baselineBytes); expected.set(dataRelative, baselineBytes); }
+      if (kind !== 'bgm') { await mkdir(path.join(baselines, project, 'i18n'), { recursive: true }); await writeFile(path.join(baselines, project, 'data.json'), baselineBytes); expected.set(dataRelative, baselineBytes); }
+      else expected.set(dataRelative, currentBytes);
       for (const locale of FEATURE_LOCALES) {
         const name = { [`${namespace}.data.1`]: `${locale} original name` }, relative = `${project}/i18n/${locale}.json`;
         const bytes = Buffer.from(json({ ...name, ...(f?.sidecar.i18n[locale] || {}) })); await writeFile(path.join(source, relative), bytes); originalSources.set(relative, bytes);
-        if (f) {
+        if (kind !== 'bgm') {
           const baseline = Buffer.from(JSON.stringify(name, null, 4) + '\r\n');
           await writeFile(path.join(baselines, project, kind === 'sound' ? '' : 'i18n', `${locale}.json`), baseline); expected.set(relative, bytes);
-        }
+        } else expected.set(relative, bytes);
       }
     }
     const identitiesFilename = path.join(directory, 'identities.json'), manifestFilename = path.join(directory, 'manifest.json');
@@ -172,6 +270,9 @@ test('offline export restores data bytes, preserves translation entries and supp
     const manifest = JSON.parse(firstManifest);
     assert.ok(manifest.outputHashes['SoundEffectPlayer/features.json']);
     assert.ok(manifest.outputHashes['EffectPlayer/features.json']);
+    assert.ok(manifest.outputHashes['BgmPlayer/features.json']);
+    assert.equal(manifest.bgmUploadRequired, true);
+    assert.equal(Object.keys(manifest.outputHashes).length, 21);
     assert.equal(Object.keys(manifest.outputHashes).some(relative => /^AISearch\//.test(relative)), false);
     for (const [relative, bytes] of expected) assert.equal(sha(await readFile(path.join(output, relative))), sha(bytes));
     for (const [relative, bytes] of originalSources) {
@@ -180,26 +281,40 @@ test('offline export restores data bytes, preserves translation entries and supp
     }
     // Once data has been published without metadata, the exporter must consume
     // the separated provenance and translations instead of losing descriptors.
-    for (const project of ['SoundEffectPlayer', 'EffectPlayer']) {
+    for (const project of ['SoundEffectPlayer', 'EffectPlayer', 'BgmPlayer']) {
       for (const relative of [project + '/data.json', project + '/features.json']) await writeFile(path.join(source, relative), await readFile(path.join(output, relative)));
     }
+    const cleanBgmData = JSON.parse(await readFile(path.join(source, 'BgmPlayer/data.json')));
+    delete cleanBgmData[bgmRowsField][0].searchMetadata;
+    await writeFile(path.join(source, 'BgmPlayer/data.json'), json(cleanBgmData));
+    const publishedBgmFeatureBytes = await readFile(path.join(output, 'BgmPlayer/features.json'));
     const publishedFeatureBytes = await readFile(path.join(output, 'EffectPlayer/features.json'));
     run(); const separatedManifest = await readFile(manifestFilename); run(); assert.deepEqual(await readFile(manifestFilename), separatedManifest);
     assert.deepEqual(await readFile(path.join(output, 'EffectPlayer/features.json')), publishedFeatureBytes);
+    assert.deepEqual(await readFile(path.join(output, 'BgmPlayer/features.json')), publishedBgmFeatureBytes);
+    const separated = JSON.parse(separatedManifest);
+    assert.ok(separated.sourceHashes['BgmPlayer/features.json']);
+    assert.deepEqual(await readFile(path.join(separated.backupDirectory, 'BgmPlayer/features.json')), publishedBgmFeatureBytes);
     const featureFilename = path.join(output, 'EffectPlayer/features.json');
     const fullFilename = path.join(directory, 'full-catalog.json'), builtIdentitiesFilename = path.join(directory, 'built-identities.json');
     const build = spawnSync(process.execPath, [path.join(root, 'scripts/build-ai-asset-catalog.cjs'), '--base', output, '--bgm-base', path.join(directory, 'auxiliary'), '--output', fullFilename, '--identities-output', builtIdentitiesFilename], { encoding: 'utf8' });
     assert.equal(build.status, 0, build.stderr);
     const fullCatalog = JSON.parse(await readFile(fullFilename));
+    const builtBgm = fullCatalog.assets.find(asset => asset.kind === 'bgm');
+    assert.equal(fullCatalog.coverage.descriptions.bgm, 1);
+    for (const locale of ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ru-RU']) {
+      assert.match(builtBgm.description[locale], /audio short/);
+      assert.deepEqual(builtBgm.suggestedUses[locale], ['audio suggestion']);
+    }
     assert.deepEqual(await readFile(builtIdentitiesFilename), await readFile(identitiesFilename));
     const rawHashes = {};
-    for (const kind of ['sound', 'effect']) {
-      const project = kind === 'sound' ? 'SoundEffectPlayer' : 'EffectPlayer';
+    for (const kind of ['sound', 'effect', 'bgm']) {
+      const project = { sound: 'SoundEffectPlayer', effect: 'EffectPlayer', bgm: 'BgmPlayer' }[kind];
       const dictionaryHashes = Object.fromEntries(await Promise.all(FEATURE_LOCALES.map(async locale => [locale, sha(await readFile(path.join(output, project, 'i18n', locale + '.json')))])));
       rawHashes[kind] = await computeAssetFeatureSourceHash(sha(await readFile(path.join(output, project, 'features.json'))), dictionaryHashes);
     }
     assert.equal(fullCatalog.indexVersion, await computeAssetCatalogVersion(manifest.baseIndexVersion, rawHashes));
-    assert.equal(fullCatalog.indexVersion, await computeAssetCatalogVersion(manifest.baseIndexVersion, { effect: rawHashes.effect, sound: rawHashes.sound }));
+    assert.equal(fullCatalog.indexVersion, await computeAssetCatalogVersion(manifest.baseIndexVersion, { bgm: rawHashes.bgm, effect: rawHashes.effect, sound: rawHashes.sound }));
     assert.notEqual(fullCatalog.indexVersion, await computeAssetCatalogVersion(manifest.baseIndexVersion, { ...rawHashes, effect: sha((await readFile(featureFilename, 'utf8')) + '\n') }));
     const edited = JSON.parse(await readFile(featureFilename));
     assert.equal(edited.i18nSource, 'project-i18n-v1'); assert.equal('i18n' in edited, false);
@@ -211,8 +326,23 @@ test('offline export restores data bytes, preserves translation entries and supp
     assert.equal('i18n' in JSON.parse(await readFile(featureFilename)), false);
     assert.equal(normalizeAssetFeatureResources(sidecar, identities)[0].audio.description['zh-CN'], 'manual edited audio');
     assert.equal(sidecar.resources[1].searchMetadata.audio.responseModel, 'actual-model');
+    const bgmFilename = path.join(output, 'BgmPlayer/features.json'), bgmDictionaryFile = path.join(output, 'BgmPlayer/i18n/en-us.json');
+    const bgmFeature = JSON.parse(await readFile(bgmFilename)), bgmDictionary = JSON.parse(await readFile(bgmDictionaryFile));
+    const bgmUseKey = bgmFeature.resources[1].searchMetadata.audio.suggestedUsesI18nKeys[0];
+    const beforeBgmHash = bgmFeature.lexicalFeatureHash;
+    bgmDictionary[bgmUseKey] = 'quiet exploration music';
+    await writeFile(bgmDictionaryFile, json(bgmDictionary)); await reindex(bgmFilename, identitiesFilename);
+    const bgmDictionaries = Object.fromEntries(await Promise.all(FEATURE_LOCALES.map(async locale => [locale, JSON.parse(await readFile(path.join(output, 'BgmPlayer/i18n', locale + '.json')))])));
+    const bgmSidecar = await verifyAssetFeatureSidecar(await readFile(bgmFilename, 'utf8'), { identities, dictionaries: bgmDictionaries });
+    assert.notEqual(bgmSidecar.lexicalFeatureHash, beforeBgmHash);
+    assert.deepEqual(normalizeAssetFeatureResources(bgmSidecar, identities)[0].suggestedUses['en-US'], ['quiet exploration music']);
+    const bgmEnv = { ASSET_SEARCH_CATALOG: { ...identities, assets: normalizeAssetFeatureResources(bgmSidecar, identities), lexical: bgmSidecar.lexical } };
+    assert.equal((await searchAssets({ query: 'quiet exploration music', scope: 'bgm', searchType: 'suggestion', locale: 'en-US' }, bgmEnv)).candidates[0].resourceId, 'bgm:1');
+    const strippedBgmData = JSON.parse(await readFile(path.join(source, 'BgmPlayer/data.json')));
+    assert.equal('searchMetadata' in strippedBgmData[bgmRowsField][0], false);
   } finally {
     assert.ok(path.resolve(directory).startsWith(path.resolve(exportRoot) + path.sep), 'Test cleanup must remain inside exports');
     await rm(directory, { recursive: true, force: true });
   }
+  });
 });

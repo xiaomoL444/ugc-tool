@@ -2,10 +2,19 @@
 import StudioSelectField from "../../../StudioSelectField.vue";
 import { computed, inject, type Ref } from "vue";
 import { normalizeDialogueInput, sanitizeDialogueInput, preventDialogueLineBreak } from "../../utils/dialogueTextInput";
-import type { DialogueClip } from "../../types/DialogueNode";
+import type { DialogueClip, DialogueAdvanceMode } from "../../types/DialogueNode";
 import { getDialogueStyles } from "../../config/dialogueStyleRegistry";
 
-const props = defineProps<{ clip: DialogueClip }>();
+const props = defineProps<{ clip: DialogueClip; duration?: number }>();
+const advanceMode = computed({
+  get: () => props.clip.advanceMode,
+  set: (value: DialogueAdvanceMode) => {
+    if (value === "None" && props.clip.duration === undefined) {
+      props.clip.duration = Math.max(0.1, props.duration ?? 2);
+    }
+    props.clip.advanceMode = value;
+  },
+});
 const autoContinue = computed({
   get: () => props.clip.autoContinue,
   set: (value: number | string) => {
@@ -58,14 +67,14 @@ function moveParam(index: number, direction: number) {
     </section>
     <label>
       推进方式
-      <StudioSelectField v-model="clip.advanceMode">
+      <StudioSelectField v-model="advanceMode">
         <option value="PlayerInput">玩家按下</option>
         <option value="None">不触发按下</option>
       </StudioSelectField>
     </label>
     <small class="advance-hint">
       黄色标记控制 ContinueDelayTime；不触发按下时导出为 -1，且不生成出口。
-      Dialogue 的右边界始终跟随 Timeline 末尾。
+      玩家按下时右端跟随 Timeline 末尾；不触发按下时可调整持续时间，并在右侧继续添加对话。
     </small>
     <label>
       自动推进等待时间（秒）

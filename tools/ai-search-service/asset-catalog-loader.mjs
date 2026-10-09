@@ -1,11 +1,13 @@
 import { BoundedJsonParser } from './asset-json-stream.mjs';
+import { clearAssetSearchCache } from './asset-search.mjs';
 import defaultIdentities from './generated/asset-identities.json' with { type: 'json' };
-import { verifyAssetFeatureSidecar, normalizeAssetFeatureResources, computeAssetCatalogVersion, computeAssetFeatureSourceHash, FEATURE_LOCALES } from './asset-features.mjs';
+import { verifyAssetFeatureSidecar, normalizeAssetFeatureResources, extractAssetFeatureDictionary, computeAssetCatalogVersion, computeAssetFeatureSourceHash, FEATURE_LOCALES } from './asset-features.mjs';
 
 export const FEATURE_CACHE_MS = 60_000;
 export const FEATURE_SOURCE_PATHS = Object.freeze([
   { kind: 'sound', project: 'SoundEffectPlayer', path: 'SoundEffectPlayer/features.json' },
   { kind: 'effect', project: 'EffectPlayer', path: 'EffectPlayer/features.json' },
+  { kind: 'bgm', project: 'BgmPlayer', path: 'BgmPlayer/features.json' },
 ]);
 export class AssetCatalogError extends Error {
   constructor(code = 'ASSET_FEATURES_UNAVAILABLE') {
@@ -81,16 +83,17 @@ function sameMap(a = {}, b = {}) {
   }
   return true;
 }
-function shareAssets(assets, previous) {
-  if (!previous) return assets;
-  const byId = new Map(previous.map(asset => [asset.resourceId, asset]));
-  return assets.map(asset => {
-    const before = byId.get(asset.resourceId); if (!before) return asset;
-    for (const field of ['description', 'detailedDescription', 'keywords', 'suggestedUses']) {
-      if (!sameMap(asset[field], before[field]) || !sameMap(asset.audio?.[field], before.audio?.[field])) return asset;
-    }
-    return before;
-  });
+function shareAsset(asset, before) {
+  if (!before) return asset;
+  let unchanged = true, audioUnchanged = true;
+  for (const field of ['description', 'detailedDescription', 'keywords', 'suggestedUses']) {
+    if (sameMap(asset[field], before[field])) asset[field] = before[field]; else unchanged = false;
+    if (sameMap(asset.audio?.[field], before.audio?.[field])) asset.audio[field] = before.audio[field];
+    else { unchanged = false; audioUnchanged = false; }
+  }
+  if (unchanged) return before;
+  if (audioUnchanged) asset.audio = before.audio;
+  return asset;
 }
 async function readJsonFile(url, previous, fetcher, timeoutMs, maxBytes) {
   const controller = new AbortController(); let timer;
@@ -116,6 +119,16 @@ async function readSource(url, previous, source, identities, fetcher, timeoutMs,
   let feature = await readJsonFile(url, previous?.files?.feature || (previous && { hash: previous.hash, etag: previous.etag }), fetcher, timeoutMs, maxBytes);
   const external = feature.value === undefined ? previous?.external === true : feature.value?.i18nSource === 'project-i18n-v1';
   const dictionaryFiles = {}, dictionaries = {};
+  const rememberDictionary = (locale, file) => {
+    dictionaryFiles[locale] = file;
+    if (file.value !== undefined) {
+      try { dictionaries[locale] = extractAssetFeatureDictionary(source.project, file.value); }
+      catch { throw new AssetCatalogError('ASSET_FEATURES_INVALID'); }
+      // Keep the raw-byte hash/ETag, but release each complete project table before reading the next locale.
+      file.value = undefined;
+    }
+  };
+  shareLexical(feature.value?.lexical, previous?.lexical);
   const dictionaryUrl = locale => {
     const target = new URL('i18n/' + locale + '.json', url);
     target.searchParams.set('_t', new URL(url).searchParams.get('_t') || '');
@@ -124,7 +137,7 @@ async function readSource(url, previous, source, identities, fetcher, timeoutMs,
   let contentHash = feature.hash;
   if (external) {
     // File state retains only hashes/ETags, not a second complete source dictionary.
-    for (const locale of FEATURE_LOCALES) dictionaryFiles[locale] = await readJsonFile(dictionaryUrl(locale), previous?.files?.i18n?.[locale], fetcher, timeoutMs, Math.min(maxBytes, 12_000_000));
+    for (const locale of FEATURE_LOCALES) rememberDictionary(locale, await readJsonFile(dictionaryUrl(locale), previous?.files?.i18n?.[locale], fetcher, timeoutMs, Math.min(maxBytes, 12_000_000)));
     contentHash = await computeAssetFeatureSourceHash(feature.hash, Object.fromEntries(FEATURE_LOCALES.map(locale => [locale, dictionaryFiles[locale].hash])));
   }
   const states = () => ({ feature: fileState(feature), ...(external ? { i18n: Object.fromEntries(FEATURE_LOCALES.map(locale => [locale, fileState(dictionaryFiles[locale])])) } : {}) });
@@ -135,27 +148,30 @@ async function readSource(url, previous, source, identities, fetcher, timeoutMs,
   if (external) {
     if (feature.value?.i18nSource !== 'project-i18n-v1') throw new AssetCatalogError('ASSET_FEATURES_INVALID');
     for (const locale of FEATURE_LOCALES) {
-      if (dictionaryFiles[locale].value === undefined) dictionaryFiles[locale] = await readJsonFile(dictionaryUrl(locale), undefined, fetcher, timeoutMs, Math.min(maxBytes, 12_000_000));
-      dictionaries[locale] = dictionaryFiles[locale].value;
+      if (dictionaries[locale] === undefined) rememberDictionary(locale, await readJsonFile(dictionaryUrl(locale), undefined, fetcher, timeoutMs, Math.min(maxBytes, 12_000_000)));
     }
     contentHash = await computeAssetFeatureSourceHash(feature.hash, Object.fromEntries(FEATURE_LOCALES.map(locale => [locale, dictionaryFiles[locale].hash])));
   } else contentHash = feature.hash;
   let raw = feature.value;
+  if (external) raw.i18n = dictionaries; // Hydrate once with already selected feature evidence.
   shareLexical(raw?.lexical, previous?.lexical);
   if (onPhase) { await onPhase(source.kind + ':read'); await onPhase(source.kind + ':parsed'); }
   let sidecar;
   try {
     sidecar = await verifyAssetFeatureSidecar(raw, { project: source.project, kind: source.kind,
-      baseIndexVersion: identities.indexVersion, identities, requireCompiled: true, ...(external ? { dictionaries } : {}) });
+      baseIndexVersion: identities.indexVersion, identities, requireCompiled: true });
     if (onPhase) await onPhase(source.kind + ':verified');
-    let assets = normalizeAssetFeatureResources(sidecar, identities, { includeFacetTexts: false });
-    const identityById = new Map(identities.assets.map(asset => [asset.resourceId, asset]));
-    for (const asset of assets) { asset.featureFacetsLazy = true; asset.identityFeatureText = identityById.get(asset.resourceId)?.facetTexts?.feature; }
-    assets = shareAssets(assets, previous?.assets);
+    const identityById = new Map(), previousById = new Map();
+    for (const asset of identities.assets) identityById.set(asset.resourceId, asset);
+    for (const asset of previous?.assets || []) previousById.set(asset.resourceId, asset);
+    const assets = normalizeAssetFeatureResources(sidecar, identities, { includeFacetTexts: false, reuseAsset(asset) {
+      asset.featureFacetsLazy = true; asset.identityFeatureText = identityById.get(asset.resourceId)?.facetTexts?.feature;
+      return shareAsset(asset, previousById.get(asset.resourceId));
+    } });
     if (onPhase) await onPhase(source.kind + ':normalized');
     return { hash: contentHash, etag: feature.etag, external, files: states(), assets, lexical: sidecar.lexical };
   } catch (error) { throw new AssetCatalogError(error?.code === 'ASSET_FEATURES_INVALID' ? error.code : 'ASSET_FEATURES_INVALID'); }
-  finally { raw = null; sidecar = null; feature.value = undefined; for (const locale of FEATURE_LOCALES) if (dictionaryFiles[locale]) dictionaryFiles[locale].value = undefined; }
+  finally { raw = null; sidecar = null; feature.value = undefined; for (const locale of FEATURE_LOCALES) { dictionaries[locale] = undefined; if (dictionaryFiles[locale]) dictionaryFiles[locale].value = undefined; } }
 }
 function coverageFor(assets, original = {}) {
   const coverage = { ...original, total: assets.length, byKind: { sound: 0, effect: 0, bgm: 0 },
@@ -169,7 +185,7 @@ function coverageFor(assets, original = {}) {
     const audioDescribed = Object.values(asset.audio?.description || {}).some(Boolean) || Object.values(asset.audio?.detailedDescription || {}).some(Boolean);
     if (audioDescribed) coverage.audioDescriptions += 1;
     if (asset.kind === 'effect' && asset.hasAudio) coverage.effectsWithAudio += 1;
-    if (asset.kind === 'sound' && described || asset.kind === 'effect' && audioDescribed) coverage.describedAudioAssetCount += 1;
+    if ((asset.kind === 'sound' || asset.kind === 'bgm') && described || asset.kind === 'effect' && audioDescribed) coverage.describedAudioAssetCount += 1;
     for (const locale of ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ru-RU']) {
       coverage.namesByLocale[locale] = (coverage.namesByLocale[locale] || 0) + Number(Boolean(asset.titles?.[locale]));
       coverage.descriptionLocales[locale] = (coverage.descriptionLocales[locale] || 0) + Number(Boolean(asset.description?.[locale]));
@@ -184,7 +200,7 @@ async function assemble(identities, sources) {
   const indexVersion = await computeAssetCatalogVersion(identities.indexVersion, hashes);
   return { ...identities, assets, indexVersion, coverage: coverageFor(assets, identities.coverage),
     lexical: { format: 'sharded-uint32-base64-v1', shards: [
-      { lexical: identities.lexical, excludeKinds: ['sound', 'effect'] }, ...sources.map(source => ({ lexical: source.lexical })),
+      { lexical: identities.lexical, excludeKinds: [...byKind.keys()] }, ...sources.map(source => ({ lexical: source.lexical })),
     ] } };
 }
 /** Request-driven, per-isolate refresh. A visitor cancellation never cancels a shared refresh. */
@@ -228,6 +244,8 @@ export function createAssetCatalogLoader({ fetcher, now = () => Date.now(), time
       const checkedAt = now();
       inFlight = (async () => {
         try {
+          // Pins have drained before a refresh starts. The last-good catalog remains fully usable if loading fails.
+          if (current && activePins === 0) clearAssetSearchCache(current);
           const candidate = [];
           // Read sequentially: never retain two source response byte buffers or parsed dictionaries.
           for (const [index, source] of FEATURE_SOURCE_PATHS.entries()) {

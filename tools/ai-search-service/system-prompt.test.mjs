@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createSystemPromptLoader, renderSystemPrompt, SYSTEM_PROMPT_URL } from "./system-prompt.mjs";
+import { buildAgentPrompt } from "./agent-runtime.mjs";
 import { promptResponse, TEST_SYSTEM_PROMPT } from "./system-prompt-fixture.mjs";
 
 const unavailable = error => error.code === "PROMPT_UNAVAILABLE" && error.status === 503;
@@ -158,4 +160,23 @@ test("custom result limits render all integers from one through fifty and reject
   for (const count of [1, 6, 21, 33, 50]) assert.match(renderSystemPrompt(TEST_SYSTEM_PROMPT, count), new RegExp(`matches 最多 ${count} 项`));
   assert.match(renderSystemPrompt(TEST_SYSTEM_PROMPT), /resultLimit=10/);
   for (const count of [0, -1, 1.5, 51, '50', null]) assert.throws(() => renderSystemPrompt(TEST_SYSTEM_PROMPT, count), unavailable);
+});
+
+test("the editable game-search prompt loads and fits the actual agent budget without network requests", async () => {
+  const source = await readFile(new URL("./SystemPrompt.md", import.meta.url), "utf8");
+  const loader = createSystemPromptLoader({ fetcher: async () => promptResponse(source) });
+  const loaded = await loader.read();
+  assert.equal(loaded, source.trim());
+  const config = { maxPromptBytes: 30000, maxOutputTokens: 5400, inputRate: 0, outputRate: 0, costSafety: 1 };
+  for (const resultLimit of [1, 10, 50]) {
+    const request = { query: "适合尖刺机关升级完成或关卡结算的音效", scope: "sound", matchOn: "audio",
+      locale: "zh-CN", includeEffectAudio: true, messages: [], previousIds: [], resultLimit };
+    const { messages, tools } = buildAgentPrompt(request, config, loaded);
+    assert.ok(Buffer.byteLength(JSON.stringify({ messages, tools }), "utf8") <= config.maxPromptBytes);
+    for (const mode of ["agent", "candidates"]) {
+      const rendered = renderSystemPrompt(loaded, resultLimit, mode);
+      assert.ok(rendered.startsWith(loaded.replace(/\bRESULT_LIMIT\b/g, String(resultLimit))));
+      assert.doesNotMatch(rendered, /\bRESULT_LIMIT\b/);
+    }
+  }
 });

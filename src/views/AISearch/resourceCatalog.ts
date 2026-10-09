@@ -6,7 +6,7 @@ import type { ResourceKind, SearchResource, SearchScope, SearchMatchOn } from ".
 
 type Row = Record<string, unknown>;
 export interface CatalogSource { kind: ResourceKind; project: string; namespace: string; data: Row; dictionaries: Record<string, Record<string, string>>; features?: ReturnType<typeof parseAssetFeatureSidecar> }
-export interface CatalogSnapshot { sources: CatalogSource[]; failures: string[]; featureFailures?: string[]; featureHashes?: { sound?: string; effect?: string } }
+export interface CatalogSnapshot { sources: CatalogSource[]; failures: string[]; featureFailures?: string[]; featureHashes?: { sound?: string; effect?: string; bgm?: string } }
 const sourceDefinitions = [
   { kind: "sound" as const, project: "SoundEffectPlayer", namespace: "soundEffectPlayer" },
   { kind: "effect" as const, project: "EffectPlayer", namespace: "effectPlayer" },
@@ -40,7 +40,7 @@ export async function loadResourceCatalog(fetcher: typeof fetch = fetch, base = 
     const root = `${base.replace(/\/$/, "")}/${source.project}`;
     const [index, feature, ...translations] = await Promise.allSettled([
       get(`${root}/data.json?_t=${Date.now()}`),
-      source.kind === "bgm" ? Promise.resolve(undefined) : get(`${assetFeatureUrl(source.project as "SoundEffectPlayer" | "EffectPlayer", base)}?_t=${Date.now()}`),
+      get(`${assetFeatureUrl(source.project as "SoundEffectPlayer" | "EffectPlayer" | "BgmPlayer", base)}?_t=${Date.now()}`),
       ...supportedLocales.map(({ value }) => get(`${root}/i18n/${value.toLowerCase()}.json?_t=${Date.now()}`)),
     ]);
     if (index.status !== "fulfilled" || !Object.keys(record(index.value)).length) throw new Error(source.project);
@@ -51,16 +51,14 @@ export async function loadResourceCatalog(fetcher: typeof fetch = fetch, base = 
       else failures.push(`${source.project}/${locale}`);
     });
     let features: CatalogSource["features"];
-    if (source.kind !== "bgm") {
-      try {
-        if (feature.status !== "fulfilled") throw new Error("FEATURES_MISSING");
-        const data = record(index.value);
-        const rows = source.kind === "effect" ? Object.values(record(data.effectData)) : Array.isArray(data.data) ? data.data : [];
-        const identities = rows.map(raw => ({ id: String(record(raw).id ?? ""), resourceId: `${source.kind}:${String(record(raw).id ?? "")}`, kind: source.kind, titles: {}, hasAudio: record(raw).hasAudio === true }));
-        features = parseAssetFeatureSidecar(feature.value, { project: source.project, kind: source.kind, identities, dictionaries, requireCompiled: false });
-        featureHashes[source.kind] = await computeLexicalFeatureHash(features);
-      } catch { featureFailures.push(source.project); }
-    }
+    try {
+      if (feature.status !== "fulfilled") throw new Error("FEATURES_MISSING");
+      const data = record(index.value);
+      const rows = source.kind === "effect" ? Object.values(record(data.effectData)) : Array.isArray(data.data) ? data.data : Array.isArray(data.musicData) ? data.musicData : [];
+      const identities = rows.map(raw => ({ id: String(record(raw).id ?? ""), resourceId: `${source.kind}:${String(record(raw).id ?? "")}`, kind: source.kind, titles: {}, hasAudio: source.kind !== "effect" || record(raw).hasAudio === true && !!string(record(raw).audioPath) }));
+      features = parseAssetFeatureSidecar(feature.value, { project: source.project, kind: source.kind, identities, dictionaries, requireCompiled: false });
+      featureHashes[source.kind] = await computeLexicalFeatureHash(features);
+    } catch { featureFailures.push(source.project); }
     return { ...source, data: record(index.value), dictionaries, features };
   }));
   const sources: CatalogSource[] = [];
@@ -76,24 +74,12 @@ export function resourceHref(kind: ResourceKind, id: string): string {
   if (!project) throw new Error("INVALID_ASSET_KIND");
   return `/${project}?id=${encodeURIComponent(id)}`;
 }
-function splitTerms(value: string): string[] { return [...new Set(value.split(/[\n,，;；|、]+/).map(text => text.trim()).filter(Boolean))]; }
 export function buildSearchResources(snapshot: CatalogSnapshot, locale: string): SearchResource[] {
   const output: SearchResource[] = [];
   for (const source of snapshot.sources) {
     const sourceResources: SearchResource[] = [];
     const current = source.dictionaries[locale] ?? {};
     const texts = (key: string) => Object.values(source.dictionaries).map(dict => dict[key]).filter(Boolean);
-    const read = (row: Row, field: string, fallback = "") => {
-      // Sound/effect data and its original dictionaries provide identity only.
-      if (source.kind !== "bgm") return "";
-      const key = string(row[`${field}I18nKey`]);
-      return key ? current[key] ?? "" : string(row[field]) || fallback;
-    };
-    const all = (row: Row, field: string) => {
-      if (source.kind !== "bgm") return [];
-      const key = string(row[`${field}I18nKey`]);
-      return key ? texts(key) : [string(row[field])].filter(Boolean);
-    };
     const rows = source.kind === "effect" ? Object.values(record(source.data.effectData))
       : Array.isArray(source.data.data) ? source.data.data : Array.isArray(source.data.musicData) ? source.data.musicData : [];
     for (const raw of rows) {
@@ -113,29 +99,18 @@ export function buildSearchResources(snapshot: CatalogSnapshot, locale: string):
       const category = categories.find(item => String(item.id) === String(row.category));
       const categoryTexts = category ? texts(string(category.nameI18nKey)) : [];
       const albumTexts = texts(string(row.albumI18nKey) || `${source.namespace}.album.${row.album_id}`);
-      const visualDescription = [read(row, "visualShortDescription"), read(row, "visualDescription"), read(row, "mainDescription"), read(row, "tailDescription")].filter(Boolean).join("\n");
-      const audioDescription = [read(row, "audioShortDescription"), read(row, "audioDescription"), read(row, "audioDetailedDescription")].filter(Boolean).join("\n");
-      const audioKeywords = splitTerms(read(row, "audioKeywords"));
-      const audioSuggestedUses = splitTerms(read(row, "audioSuggestedUses"));
-      const genericDescription = [read(row, "shortDescription"), read(row, "description"), read(row, "detailedDescription")].filter(Boolean).join("\n");
-      const description = visualDescription || genericDescription;
-      const keywords = splitTerms([read(row, "keywords"), read(row, "visualKeywords")].filter(Boolean).join("、"));
-      const suggestedUses = splitTerms(read(row, "suggestedUses"));
-      const features = ["shortDescription", "description", "detailedDescription", "keywords", "visualShortDescription", "visualDescription", "visualKeywords", "mainDescription", "tailDescription"].flatMap(field => all(row, field));
-      const audio = ["audioShortDescription", "audioDescription", "audioDetailedDescription", "audioKeywords"].flatMap(field => all(row, field));
-      const suggestions = ["suggestedUses", "audioSuggestedUses", "visualSuggestedUses"].flatMap(field => all(row, field));
       const duration = source.kind === "bgm" && typeof row.minute === "number" && typeof row.second === "number"
         ? row.minute * 60 + row.second : Number(row.duration);
-      const hasAudio = source.kind === "sound" ? true : source.kind === "effect"
+      const hasAudio = source.kind === "sound" || source.kind === "bgm" ? true : source.kind === "effect"
         ? row.hasAudio === true && !!string(row.audioPath) ? true : row.hasAudio === false ? false : undefined : undefined;
-      sourceResources.push({ resourceId: `${source.kind}:${id}`, id, kind: source.kind, locale, title, description, keywords, suggestedUses,
+      sourceResources.push({ resourceId: `${source.kind}:${id}`, id, kind: source.kind, locale, title, description: "", keywords: [], suggestedUses: [],
         duration: Number.isFinite(duration) && duration >= 0 ? duration : undefined, hasAudio,
-        href: resourceHref(source.kind, id), visualDescription, audioDescription, audioKeywords, audioSuggestedUses,
-        featureText: normalizeSearchText([...names, ...tags, ...categoryTexts, ...albumTexts, ...features].join(" ")),
+        href: resourceHref(source.kind, id), visualDescription: "", audioDescription: "", audioKeywords: [], audioSuggestedUses: [],
+        featureText: normalizeSearchText([...names, ...tags, ...categoryTexts, ...albumTexts].join(" ")),
         // A visual effect's name is not evidence of what its audio sounds like.
-        audioText: normalizeSearchText([...(source.kind === "effect" ? [id] : names), ...audio].join(" ")),
-        suggestionText: normalizeSearchText(suggestions.join(" ")),
-        audioSuggestionText: normalizeSearchText(all(row, "audioSuggestedUses").join(" ")),
+        audioText: normalizeSearchText((source.kind === "effect" ? [id] : names).join(" ")),
+        suggestionText: "",
+        audioSuggestionText: "",
       });
     }
     if (!source.features) { output.push(...sourceResources); continue; }
@@ -155,7 +130,7 @@ export function buildSearchResources(snapshot: CatalogSnapshot, locale: string):
         visualDescription: source.kind === "effect" ? description : "", audioDescription,
         audioKeywords: localizedList(audio.keywords), audioSuggestedUses: localizedList(audio.suggestedUses),
         featureText: normalizeSearchText(string(facets.feature)),
-        audioText: normalizeSearchText(source.kind === "sound" ? string(facets.feature) : [item.id, string(facets.audio)].join(" ")),
+        audioText: normalizeSearchText(source.kind !== "effect" ? string(facets.feature) : [item.id, string(facets.audio)].join(" ")),
         suggestionText: normalizeSearchText(string(facets.suggestion)), audioSuggestionText: normalizeSearchText(string(facets.audioSuggestion)) });
     }
   }
@@ -253,21 +228,35 @@ export function retrieveResources(resources: SearchResource[], options: Retrieva
   const normalizedSearchQuery = normalizeSearchText(searchQuery);
   const terms = queryTerms(normalizedSearchQuery);
   if (!terms.length) return [];
-  const ranked = eligible.map(item => {
-    const audioMatch = item.kind === "effect" && (scope === "sound" || matchOn === "audio");
-    const text = audioMatch ? item.audioText : matchOn === "any" && item.hasAudio ? `${item.featureText} ${item.audioText}` : item.featureText;
-    const featureScore = options.searchType === "suggestion" ? 0 : terms.reduce((sum, term) => sum + (text.includes(term) ? term.length > 2 ? 3 : 1 : 0), 0);
-    const suggestionText = audioMatch ? item.audioSuggestionText || "" : item.suggestionText;
-    const useScore = options.searchType === "feature" || matchOn === "audio" && options.searchType !== "suggestion" && options.searchType !== "both"
-      ? 0 : terms.reduce((sum, term) => sum + (suggestionText.includes(term) ? .5 : 0), 0);
-    const exact = normalizedSearchQuery.trim() === item.id || normalizedSearchQuery.trim() === item.resourceId || !audioMatch && normalizeSearchText(item.title) === normalizedSearchQuery.trim() ? 1000 : 0;
-    const matchType = featureScore || exact ? "feature" as const : "suggestion" as const;
-    return { score: exact + featureScore + useScore, item: { ...item, visualDescription: item.kind === "effect" ? item.visualDescription || (!item.audioMatch ? item.description : "") : item.visualDescription, audioMatch, matchType,
-      description: audioMatch ? item.audioDescription || "" : item.description,
-      keywords: audioMatch ? item.audioKeywords ?? [] : item.keywords,
-      suggestedUses: audioMatch ? item.audioSuggestedUses ?? [] : item.suggestedUses } };
+  const searchType = options.searchType ?? "both";
+  const rankedFacets = eligible.flatMap(item => {
+    const audioOnly = item.kind === "effect" && (scope === "sound" || matchOn === "audio");
+    const observedAudio = item.hasAudio === true && !!(item.audioDescription || item.audioKeywords?.length
+      || item.audioText.trim() && item.audioText.trim() !== normalizeSearchText(item.id));
+    // An unqualified effect query can inspect either channel, but a visual use
+    // must never receive a bonus from an unrelated sound on the same effect.
+    const channels = audioOnly ? [true] : item.kind === "effect" && matchOn === "any" && observedAudio ? [false, true] : [false];
+    return channels.map(audioMatch => {
+      const text = audioMatch ? item.audioText : item.featureText;
+      const featureTerms = searchType === "suggestion" ? [] : terms.filter(term => text.includes(term));
+      const featureScore = featureTerms.reduce((sum, term) => sum + (term.length > 2 ? 3 : 1), 0);
+      const suggestionText = audioMatch ? item.audioSuggestionText || "" : item.suggestionText;
+      // Default sound searches include use advice. Repeating a feature term in
+      // that advice must not give it a second vote.
+      const useScore = searchType === "feature" ? 0 : terms.reduce((sum, term) => sum + (!featureTerms.includes(term) && suggestionText.includes(term) ? .5 : 0), 0);
+      const exact = normalizedSearchQuery.trim() === item.id || normalizedSearchQuery.trim() === item.resourceId || !audioMatch && normalizeSearchText(item.title) === normalizedSearchQuery.trim() ? 1000 : 0;
+      const matchType = featureScore || exact ? "feature" as const : "suggestion" as const;
+      const uses = audioMatch ? item.audioSuggestedUses ?? [] : item.suggestedUses;
+      const suggestedUses = uses.map((value, index) => ({ value, index, score: terms.filter(term => normalizeSearchText(value).includes(term)).length }))
+        .sort((a, b) => b.score - a.score || a.index - b.index).map(use => use.value);
+      return { score: exact + featureScore + useScore, item: { ...item, visualDescription: item.kind === "effect" ? item.visualDescription || (!item.audioMatch ? item.description : "") : item.visualDescription, audioMatch, matchType,
+        description: audioMatch ? item.audioDescription || "" : item.description,
+        keywords: audioMatch ? item.audioKeywords ?? [] : item.keywords, suggestedUses } };
+    });
   }).filter(item => item.score > 0).sort((a, b) => b.score - a.score || (scope === "sound" ? Number(a.item.kind !== "sound") - Number(b.item.kind !== "sound") : 0)
     || a.item.resourceId.localeCompare(b.item.resourceId));
+  const seen = new Set<string>();
+  const ranked = rankedFacets.filter(({ item }) => { if (seen.has(item.resourceId)) return false; seen.add(item.resourceId); return true; });
   if (scope !== "all") return ranked.slice(0, options.limit ?? 12).map(item => item.item);
   // Interleave equal-score kinds so the ID prefix cannot fill every candidate slot.
   const balanced: typeof ranked = [];

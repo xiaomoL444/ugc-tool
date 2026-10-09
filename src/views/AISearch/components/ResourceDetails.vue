@@ -2,13 +2,14 @@
   <button ref="trigger" type="button" class="resource-description resource-details-trigger"
     :aria-label="t('aiSearch.results.detailsLabel', { name: card.title })"
     :aria-expanded="opened" :aria-describedby="opened ? tooltipId : undefined"
-    @pointerenter="enterTrigger" @pointerleave="leaveTrigger" @pointerdown="rememberPointer" @focus="show" @blur="blurTrigger" @click="toggleDetails">
+    @pointerenter="enterTrigger" @pointerleave="leaveTrigger" @pointerdown="rememberPointer" @focus="show" @blur="blurTrigger" @click="toggleDetails" @wheel="scrollDetails">
     <span class="resource-details-summary">{{ summary }}</span><SearchIcon name="info" />
   </button>
   <Teleport to="body">
-    <div v-if="opened" :id="tooltipId" ref="popover" class="resource-details-popover" role="tooltip"
+    <div v-if="opened" :id="tooltipId" ref="popover" class="resource-details-popover" :class="{ 'is-wide': wideDetails, 'is-touch': touchInteractive }" role="tooltip"
       :style="{ left: `${left}px`, top: `${top}px`, width: `${width}px`, visibility: positioned ? 'visible' : 'hidden' }">
       <strong class="resource-details-title">{{ card.title }}</strong>
+      <span v-if="scrollable && !touchInteractive" class="resource-details-scroll-hint">{{ t('aiSearch.results.scrollDetailsHint') }}</span>
       <span class="resource-details-label">{{ t('aiSearch.results.detailsTitle') }}</span>
       <p class="resource-details-description">{{ card.description || t('aiSearch.noDescription') }}</p>
       <div v-if="card.keywords?.length" class="resource-details-keywords"><span class="resource-details-label">{{ t('aiSearch.results.keywords') }}</span><div class="resource-details-tags"><span v-for="keyword in card.keywords" :key="keyword">{{ keyword }}</span></div></div>
@@ -33,6 +34,9 @@ const positioned = ref(false)
 const top = ref(12)
 const left = ref(12)
 const width = ref(360)
+const scrollable = ref(false)
+const touchInteractive = ref(false)
+const wideDetails = computed(() => props.card.kind === 'bgm' || props.card.description.length > 320)
 const tooltipId = computed(() => `resource-details-${props.detailId}`)
 const summary = computed(() => (props.card.description || t('aiSearch.noDescription')).replace(/\s+/g, ' ').trim())
 let triggerHovered = false
@@ -42,9 +46,14 @@ let generation = 0
 
 async function show() {
   const request = ++generation
-  width.value = Math.min(360, window.innerWidth - 24)
+  const preferredWidth = props.card.kind === 'bgm' ? 720 : wideDetails.value ? 640 : 360
+  width.value = Math.min(preferredWidth, Math.max(0, window.innerWidth - 24))
+  scrollable.value = false
   positioned.value = false
   opened.value = true
+  await nextTick()
+  if (request !== generation || !opened.value || !trigger.value || !popover.value) return
+  scrollable.value = popover.value.scrollHeight > popover.value.clientHeight
   await nextTick()
   if (request !== generation || !opened.value || !trigger.value || !popover.value) return
   const anchor = trigger.value.getBoundingClientRect()
@@ -58,11 +67,13 @@ async function show() {
 function hide() {
   generation += 1
   pinned = false
+  touchInteractive.value = false
   opened.value = positioned.value = false
 }
 function enterTrigger(event: PointerEvent) {
   if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
   lastPointerType = event.pointerType
+  touchInteractive.value = false
   triggerHovered = true
   void show()
 }
@@ -72,7 +83,7 @@ function leaveTrigger(event: PointerEvent) {
   hide()
 }
 function rememberPointer(event: PointerEvent) { lastPointerType = event.pointerType }
-function blurTrigger() { if (!triggerHovered) hide() }
+function blurTrigger() { if (!triggerHovered && !touchInteractive.value) hide() }
 function toggleDetails(event: MouseEvent) {
   // Mouse clicks never pin the tooltip; touch and keyboard activation can toggle it.
   if (event.detail !== 0 && lastPointerType !== 'touch') {
@@ -81,10 +92,20 @@ function toggleDetails(event: MouseEvent) {
   }
   if (pinned) { hide(); return }
   pinned = true
+  touchInteractive.value = lastPointerType === 'touch'
   void show()
+}
+function scrollDetails(event: WheelEvent) {
+  const panel = popover.value
+  if (!opened.value || !panel || panel.scrollHeight <= panel.clientHeight || !event.deltaY) return
+  const step = event.deltaMode === 1 ? 20 : event.deltaMode === 2 ? panel.clientHeight : 1
+  panel.scrollTop += event.deltaY * step
+  event.preventDefault()
+  event.stopPropagation()
 }
 function pointerOutside(event: PointerEvent) {
   if (!opened.value || !(event.target instanceof Node)) return
+  if (touchInteractive.value && popover.value?.contains(event.target)) return
   if (!trigger.value?.contains(event.target)) hide()
 }
 function keyDown(event: KeyboardEvent) {
@@ -127,6 +148,9 @@ onBeforeUnmount(() => { generation += 1; removeListeners() })
 .resource-details-summary { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .resource-details-trigger svg { width: 13px; height: 13px; flex-shrink: 0; opacity: .75; }
 .resource-details-popover { position: fixed; z-index: 1400; pointer-events: none; max-height: min(420px, calc(100dvh - 24px)); box-sizing: border-box; padding: 13px 15px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid #cdd5e5; border-radius: 9px; background: #fff; box-shadow: 0 5px 24px #26324b26; color: #52617a; font-family: var(--app-font-family, sans-serif); font-size: 12px; font-weight: 400; line-height: 1.65; text-align: left; overflow-wrap: anywhere; user-select: none; scrollbar-width: thin; }
+.resource-details-popover.is-wide { max-height: min(640px, calc(100dvh - 24px)); }
+.resource-details-popover.is-touch { pointer-events: auto; touch-action: pan-y; }
+.resource-details-scroll-hint { display: block; margin: -4px 0 9px; color: #7d8ba2; font-size: 11px; }
 .resource-details-title { display: block; margin-bottom: 9px; color: #25324c; font-size: 13px; }
 .resource-details-label { display: block; margin-bottom: 3px; color: #326ba9; font-size: 11px; font-weight: 600; }
 .resource-details-description { margin: 0; white-space: pre-wrap; }

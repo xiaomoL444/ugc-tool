@@ -1,6 +1,7 @@
 /* Deploy separately from the static site. No upstream credentials belong in Vue. */
 import { getCatalogInfo, getAssetDetails, searchAssets } from "./asset-search.mjs";
 import { handleMcp } from "./mcp-handler.mjs";
+import { parseModelJSON } from "./model-json.mjs";
 import { AGENT_LIMITS, SEARCH_LIMITS, AgentError, buildAgentPrompt, runAssetAgent, resultConfig } from "./agent-runtime.mjs";
 import { createProviderBalanceGuard, minimumBalanceCny, PROVIDER_BALANCE_REASONS } from "./provider-balance.mjs";
 import { createSystemPromptLoader, renderSystemPrompt, SYSTEM_PROMPT_URL, SystemPromptError } from "./system-prompt.mjs";
@@ -383,7 +384,8 @@ function emptySearchAnswer(locale) {
 }
 
 export function validateModelResult(value, candidates, resultLimit = SEARCH_LIMITS.defaultResults) {
-  if (!isObject(value) || typeof value.answer !== "string" || value.answer.length > 1800
+  if (!isObject(value) || Object.keys(value).some(key => key !== "answer" && key !== "matches")
+    || typeof value.answer !== "string" || value.answer.length > 1800
     || !Number.isInteger(resultLimit) || resultLimit < 1 || resultLimit > SEARCH_LIMITS.maxResults || !Array.isArray(value.matches) || value.matches.length > resultLimit) {
     throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回格式不正确，请稍后再试。");
   }
@@ -451,7 +453,7 @@ export async function callUpstream(normalized, prompt, config, env, fetcher = fe
       throw withModelResponse(new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型回答未完整生成，请稍后再试。"), choice?.message, env);
     }
     let parsed;
-    try { parsed = JSON.parse(choice.message.content); }
+    try { parsed = parseModelJSON(choice.message.content); }
     catch { throw withModelResponse(new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型回答不是有效 JSON。"), choice.message, env); }
     let result;
     try { result = validateModelResult(parsed, normalized.candidates, normalized.resultLimit); }

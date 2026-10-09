@@ -37,12 +37,14 @@ import { usePublicEventPresets } from "../EntityPresetEditor/usePublicEventPrese
 import { getPublicEventClipLabel } from "./utils/publicEventParameters";
 import { getCameraClipPreview } from "./config/cameraClip";
 import { getGroupOutletWarnings } from "./utils/groupOutlets";
+import { getDialogueClips, appendDialogueClip, removeDialogueClip } from "./utils/dialogueClips";
 import {
   getFlowClipDuration,
   getGroupTimelineEnd,
   getGroupTimelineDisplayDuration,
   isInstantPerformanceClip,
   getPerformanceClipDuration,
+  isFreeDialogueClip,
   MIN_CLIP_DURATION,
   type FlowClip,
 } from "./utils/groupTimeline";
@@ -61,7 +63,9 @@ const viewportWidth = ref(918);
 const timelineScrollRef = ref<HTMLElement>();
 let timelineResizeObserver: ResizeObserver | undefined;
 const labelWidth = 118;
-const selectedId = ref(props.node.dialogue?.id ?? "");
+const dialogueClips = computed(() => getDialogueClips(props.node));
+const canAddDialogueClip = computed(() => dialogueClips.value.every(clip => clip.advanceMode === "None"));
+const selectedId = ref(dialogueClips.value[0]?.id ?? "");
 const addLineMenu = ref<HTMLDetailsElement>();
 const footerLineMenu = ref<{ x: number; y: number; trigger: HTMLElement }>();
 const sectionRef = ref<HTMLElement>();
@@ -83,11 +87,11 @@ const contextClip = computed(() => timelineContextMenu.value?.clipId
   ? findTimelineClip(props.node, timelineContextMenu.value.clipId) : undefined);
 const contextTrackAvailable = computed(() => {
   const lane = timelineContextMenu.value?.lane;
-  return !!lane && (lane.kind === "performance"
+  return !!lane && (lane.kind === "dialogue" ? canAddDialogueClip.value : lane.kind === "performance"
     ? props.node.lines.some(line => line.id === lane.lineId) : !props.node[lane.kind]);
 });
 const contextPasteHint = computed(() => timelineContextMenu.value
-  ? timelinePasteHint(props.node, timelineContextMenu.value.lane, timelineClipClipboard.value) : "");
+  ? timelinePasteHint(props.node, timelineContextMenu.value.lane, timelineClipClipboard.value, timelineContextMenu.value.time) : "");
 const contextMenuItems = computed(() => timelineContextMenu.value?.clipId ? [
   { id: "copy", label: "复制 Clip", disabled: !contextClip.value },
   { id: "delete", label: "删除 Clip", danger: true, disabled: !contextClip.value },
@@ -107,8 +111,9 @@ const outletWarnings = computed(() =>
 );
 
 const selectedClip = computed<SelectedClip | undefined>(() => {
-  if (props.node.dialogue && selectedId.value === props.node.dialogue.id) {
-    return { kind: "dialogue", clip: props.node.dialogue };
+  const dialogue = dialogueClips.value.find(clip => clip.id === selectedId.value);
+  if (dialogue) {
+    return { kind: "dialogue", clip: dialogue };
   }
   if (props.node.select && selectedId.value === props.node.select.id) {
     return { kind: "select", clip: props.node.select };
@@ -169,7 +174,7 @@ watch(
     resetEditorPointerDown();
     closeFooterLineMenu();
     closeTimelineContextMenu();
-    selectedId.value = props.node.dialogue?.id ?? "";
+    selectedId.value = dialogueClips.value[0]?.id ?? "";
     editorOpen.value = false;
     hoveredClip.value = undefined;
     addLineMenu.value?.removeAttribute("open");
@@ -209,10 +214,12 @@ function addLine(type: PerformanceLineType) {
   closeLineMenu();
 }
 
-function addDialogueClip() {
-  if (props.node.dialogue) return;
+function addDialogueClip(startTime?: number) {
+  if (!canAddDialogueClip.value) return;
+  const previousEnd = dialogueClips.value.reduce((end, clip) => Math.max(end, clip.startTime + getFlowClipDuration(props.node, clip)), 0);
   const clip = createDialogueClip();
-  props.node.dialogue = clip;
+  clip.startTime = Math.max(previousEnd, Number.isFinite(startTime) ? startTime! : 0);
+  appendDialogueClip(props.node, clip);
   selectedId.value = clip.id;
 }
 
@@ -267,7 +274,7 @@ function deleteSelectedClip() {
   const selected = selectedClip.value;
   if (!selected) return;
   if (selected.kind === "dialogue") {
-    props.node.dialogue = undefined;
+    removeDialogueClip(props.node, selected.clip.id);
   } else if (selected.kind === "select") {
     props.node.select = undefined;
   } else if (selected.kind === "focusPush") {
@@ -328,7 +335,7 @@ function timelineContextAction(action: string) {
     const selected = pasteTimelineClip(props.node, target.lane, timelineClipClipboard.value, target.time);
     if (selected) selectedId.value = selected.clip.id;
   } else if (action === "add" && contextTrackAvailable.value) {
-    if (target.lane.kind === "dialogue") addDialogueClip();
+    if (target.lane.kind === "dialogue") addDialogueClip(target.time);
     else if (target.lane.kind === "select") addSelectClip();
     else if (target.lane.kind === "focusPush") addFocusPushClip();
     else {
@@ -336,7 +343,7 @@ function timelineContextAction(action: string) {
       const line = props.node.lines.find(line => line.id === lineId);
       if (line) addPerformanceClip(line);
     }
-    if (selectedClip.value) selectedClip.value.clip.startTime = target.time;
+    if (target.lane.kind !== "dialogue" && selectedClip.value) selectedClip.value.clip.startTime = target.time;
   }
   closeTimelineContextMenu(true);
 }
@@ -413,6 +420,12 @@ function updatePerformanceDuration(clip: PerformanceClip, event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
   if (!Number.isFinite(value)) return;
   clip.duration = Math.max(clip.type === "PublicEvent" ? 0 : MIN_CLIP_DURATION, value);
+}
+
+function updateDialogueDuration(clip: DialogueClip, event: Event) {
+  const value = Number((event.target as HTMLInputElement).value);
+  if (!isFreeDialogueClip(clip) || !Number.isFinite(value)) return;
+  clip.duration = Math.max(MIN_CLIP_DURATION, value);
 }
 
 function updateContinueDelay(clip: FlowClip, event: Event) {
@@ -535,6 +548,7 @@ function startResize(
   boundary: "start" | "end",
 ) {
   if (event.button !== 0 || ("type" in clip && isInstantPerformanceClip(clip))) return;
+  if (boundary === "end" && !("type" in clip) && !isFreeDialogueClip(clip)) return;
   event.preventDefault();
   event.stopPropagation();
   selectedId.value = clip.id;
@@ -561,7 +575,7 @@ function resizeClip(event: PointerEvent) {
       Math.max(0, Math.round((resizing.clipStart + timeDelta) * 10) / 10),
     );
     resizing.clip.startTime = nextStart;
-    if ("duration" in resizing.clip) {
+    if ("type" in resizing.clip || isFreeDialogueClip(resizing.clip)) {
       resizing.clip.duration = Math.max(
         MIN_CLIP_DURATION,
         Math.round((originalEnd - nextStart) * 10) / 10,
@@ -570,7 +584,7 @@ function resizeClip(event: PointerEvent) {
     return;
   }
 
-  if ("duration" in resizing.clip) {
+  if ("type" in resizing.clip || isFreeDialogueClip(resizing.clip)) {
     resizing.clip.duration = Math.max(
       MIN_CLIP_DURATION,
       Math.round((resizing.clipDuration + timeDelta) * 10) / 10,
@@ -586,7 +600,7 @@ function stopResize(event?: Event) {
 }
 
 function clipDisplayDuration(clip: TimelineClip) {
-  return "duration" in clip
+  return "type" in clip
     ? getPerformanceClipDuration(clip)
     : "continueDelayTime" in clip ? getFlowClipDuration(props.node, clip) : 0;
 }
@@ -719,57 +733,66 @@ onBeforeUnmount(() => {
 
           <div class="timeline-row dialogue-row" @contextmenu.prevent.stop="openTrackContextMenu($event, { kind: 'dialogue' })">
             <div class="line-label dialogue-label">
-              <strong>对话</strong>
-              <small>可选 · 固定单 Clip</small>
+              <div><strong>对话</strong><small>{{ dialogueClips.length }} 段台词</small></div>
+              <div class="line-buttons">
+                <button type="button" aria-label="添加对话 Clip" :disabled="!canAddDialogueClip"
+                  :title="canAddDialogueClip ? '在末尾添加对话片段' : '将末尾对话设为不触发按下后，可继续添加'"
+                  @click="addDialogueClip()">＋</button>
+              </div>
             </div>
             <button
-              v-if="node.dialogue"
+              v-for="clip in dialogueClips"
+              :key="clip.id"
               type="button"
               data-timeline-clip
               class="timeline-clip dialogue-clip resizable-clip"
-              :class="{ selected: selectedId === node.dialogue.id }"
+              :class="{ selected: selectedId === clip.id, 'waiting-dialogue-clip': !isFreeDialogueClip(clip) }"
               :style="{
-                left: `${labelWidth + node.dialogue.startTime * pixelsPerSecond}px`,
+                left: `${labelWidth + clip.startTime * pixelsPerSecond}px`,
+                width: isFreeDialogueClip(clip) ? `${getFlowClipDuration(node, clip) * pixelsPerSecond}px` : undefined,
               }"
-              @pointerdown="startDrag($event, node.dialogue)"
-              @contextmenu.prevent.stop="openClipContextMenu($event, { kind: 'dialogue', clip: node.dialogue })"
+              @pointerdown="startDrag($event, clip)"
+              @contextmenu.prevent.stop="openClipContextMenu($event, { kind: 'dialogue', clip })"
               @pointerenter="
-                showPreview($event, { kind: 'dialogue', clip: node.dialogue })
+                showPreview($event, { kind: 'dialogue', clip })
               "
               @pointermove="movePreview"
               @pointerleave="hidePreview"
               @click.stop="
-                openEditor($event, { kind: 'dialogue', clip: node.dialogue })
+                openEditor($event, { kind: 'dialogue', clip })
               "
             >
               <i
                 class="clip-resize-handle resize-start"
                 title="拖动设置开始时间"
-                @pointerdown.stop="startResize($event, node.dialogue, 'start')"
+                @pointerdown.stop="startResize($event, clip, 'start')"
               />
-              <span>{{ node.dialogue.content || "未填写台词" }}</span>
+              <span>{{ clip.content || "未填写台词" }}</span>
               <small>
-                {{ node.dialogue.startTime.toFixed(1) }}s →
-                时间轴末尾
+                {{ clip.startTime.toFixed(1) }}s
+                <template v-if="isFreeDialogueClip(clip)"> + {{ getFlowClipDuration(node, clip).toFixed(1) }}s</template>
+                <template v-else> → 时间轴末尾</template>
               </small>
+              <i v-if="isFreeDialogueClip(clip)" class="clip-resize-handle resize-end"
+                title="拖动设置持续时间" @pointerdown.stop="startResize($event, clip, 'end')" />
               <i
                 class="continue-delay-handle"
-                :class="{ disabled: node.dialogue.advanceMode === 'None' }"
+                :class="{ disabled: clip.advanceMode === 'None' }"
                 :style="{
-                  left: `${node.dialogue.continueDelayTime * pixelsPerSecond}px`,
+                  left: `${clip.continueDelayTime * pixelsPerSecond}px`,
                 }"
                 title="拖动设置 ContinueDelayTime"
-                @pointerdown.stop="startContinueDelayDrag($event, node.dialogue)"
+                @pointerdown.stop="startContinueDelayDrag($event, clip)"
               >
-                <em>{{ node.dialogue.continueDelayTime.toFixed(1) }}s</em>
+                <em>{{ clip.continueDelayTime.toFixed(1) }}s</em>
               </i>
             </button>
             <button
-              v-else
+              v-if="!dialogueClips.length"
               type="button"
               class="empty-line"
               :style="{ left: `${labelWidth + 16}px` }"
-              @click="addDialogueClip"
+              @click="addDialogueClip()"
             >
               ＋ 添加 对话片段
             </button>
@@ -1029,6 +1052,7 @@ onBeforeUnmount(() => {
           <DialogueClipEditor
             v-if="selectedClip.kind === 'dialogue'"
             :clip="selectedClip.clip"
+            :duration="getFlowClipDuration(node, selectedClip.clip)"
           />
           <SelectClipEditor
             v-else-if="selectedClip.kind === 'select'"
@@ -1074,6 +1098,11 @@ onBeforeUnmount(() => {
                 :value="selectedClip.clip.continueDelayTime"
                 @input="updateContinueDelay(selectedClip.clip, $event)"
               />
+            </label>
+            <label v-if="selectedClip.kind === 'dialogue' && isFreeDialogueClip(selectedClip.clip)">
+              持续时间
+              <input type="number" :min="MIN_CLIP_DURATION" step="0.1"
+                :value="getFlowClipDuration(node, selectedClip.clip)" @input="updateDialogueDuration(selectedClip.clip, $event)" />
             </label>
           </div>
         </div>
@@ -1409,7 +1438,7 @@ onBeforeUnmount(() => {
   opacity: 0.72;
 }
 
-.dialogue-clip,
+.waiting-dialogue-clip,
 .select-clip {
   /* 流程 Clip 在视觉上延伸至时间轴末尾，不以屏幕宽度改变业务时长。 */
   right: 0;

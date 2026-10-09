@@ -3,9 +3,12 @@ import type { DialogueNode } from "../types/DialogueNode";
 import { DEFAULT_DIALOGUE_STYLE_ID } from "../config/dialogueStyleRegistry";
 import { DEFAULT_SELECT_ICON_ID } from "../config/selectStyleRegistry";
 import { normalizeSourceHandle, resolveGroupOutlets } from "./groupOutlets";
+import { getDialogueClips } from "./dialogueClips";
 
 export interface TextPreviewLine {
   nodeId: string;
+  clipId?: string;
+  dialogueCount?: number;
   name: string;
   speaker: string;
   content: string;
@@ -52,16 +55,16 @@ interface PreviewVertex {
   nodeId: string;
   kind: TextPreviewBlock["kind"];
   title: string;
-  line?: TextPreviewLine;
+  lines?: TextPreviewLine[];
   outlets: TextPreviewOutlet[];
   targets: Array<string | undefined>;
   warnings: string[];
   reachable: boolean;
 }
 
-/** Performance Clips belong to their sentence; only choices split a dialogue collection. */
+/** Groups retain their performance Clips; only choices split a dialogue collection. */
 export function isDialogueCollectionNode(node: DialogueNode): boolean {
-  return Boolean(node.dialogue) && !node.select;
+  return getDialogueClips(node).length > 0 && !node.select;
 }
 
 /**
@@ -77,21 +80,25 @@ export function buildDialogueTextPreview(project: DialogueProject): DialogueText
     const id = `group:${nodeId}`;
     if (vertices.has(id)) return id;
     const state = resolveGroupOutlets(node);
+    const dialogues = getDialogueClips(node);
+    const clipCount = node.lines.reduce((count, line) => count + line.clips.length, 0);
     vertices.set(id, {
       id,
       nodeId,
       kind: node.select ? "select" : isDialogueCollectionNode(node) ? "dialogue" : "action",
       title: node.name,
-      line: {
+      lines: (dialogues.length ? dialogues : [undefined]).map((dialogue) => ({
         nodeId,
+        clipId: dialogue?.id,
+        dialogueCount: dialogues.length,
         name: node.name,
-        speaker: node.dialogue?.speaker ?? "",
-        content: node.dialogue?.content ?? "",
-        subtitle: node.dialogue?.subtitle ?? "",
-        style: node.dialogue?.style ?? DEFAULT_DIALOGUE_STYLE_ID,
-        clipCount: node.lines.reduce((count, line) => count + line.clips.length, 0),
-        hasDialogue: Boolean(node.dialogue),
-      },
+        speaker: dialogue?.speaker ?? "",
+        content: dialogue?.content ?? "",
+        subtitle: dialogue?.subtitle ?? "",
+        style: dialogue?.style ?? DEFAULT_DIALOGUE_STYLE_ID,
+        clipCount,
+        hasDialogue: Boolean(dialogue),
+      })),
       outlets: state.outlets.map((outlet) => ({
         id: outlet.id,
         label: outlet.label,
@@ -276,7 +283,7 @@ export function buildDialogueTextPreview(project: DialogueProject): DialogueText
       const vertex = vertices.get(currentId)!;
       vertexBlocks.set(currentId, block.id);
       block.nodeIds.push(vertex.nodeId);
-      if (vertex.line) block.lines.push(vertex.line);
+      if (vertex.lines) block.lines.push(...vertex.lines);
       block.kind = vertex.kind;
       block.outlets = vertex.outlets;
       block.warnings.push(...vertex.warnings.map((warning) => `「${vertex.title}」${warning}`));

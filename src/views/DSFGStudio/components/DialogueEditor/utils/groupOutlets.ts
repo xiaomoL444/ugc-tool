@@ -1,5 +1,6 @@
 import type { Edge } from "@vue-flow/core";
 import type { DialogueNode } from "../types/DialogueNode";
+import { getDialogueClips } from "./dialogueClips";
 
 export const DIALOGUE_OUTLET_ID = "next";
 
@@ -34,13 +35,19 @@ export function resolveGroupOutlets(node: DialogueNode): GroupOutletState {
   const warnings: string[] = [];
   const requestingClips: string[] = [];
 
-  if (node.dialogue?.advanceMode === "PlayerInput") {
+  const dialogues = getDialogueClips(node);
+  const waitingDialogues = dialogues.filter(clip => clip.advanceMode === "PlayerInput");
+  if (waitingDialogues.length) {
     requestingClips.push("Dialogue Clip");
     outlets.push({
       id: DIALOGUE_OUTLET_ID,
       kind: "Dialogue",
       label: "玩家按下",
     });
+  }
+  if (waitingDialogues.length > 1) warnings.push("对话行有多个玩家按下 Clip，请只保留一个。");
+  if (waitingDialogues.some(waiting => dialogues.some(clip => clip.startTime > waiting.startTime))) {
+    warnings.push("玩家按下 Clip 应放在对话行末尾，请将右侧台词移到它之前。");
   }
 
   if (node.select) {

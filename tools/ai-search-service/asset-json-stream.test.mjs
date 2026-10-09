@@ -2,9 +2,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { BoundedJsonParser } from './asset-json-stream.mjs';
 import { createAssetCatalogLoader } from './asset-catalog-loader.mjs';
 import { identityFixture, featureFixture } from './asset-catalog-fixture.mjs';
+import { verifyAssetFeatureSidecar } from './asset-features.mjs';
 const encoder = new TextEncoder();
 function parseText(text, widths = [1], options) {
   const parser = new BoundedJsonParser(options);
@@ -153,7 +155,9 @@ test('fatal UTF-8 decoding catches overlong, surrogate, out-of-range and truncat
 });
 test('complete published feature bytes match native JSON.parse across varied UTF-8 stream chunks', async t => {
   for (const project of ['SoundEffectPlayer', 'EffectPlayer']) {
-    const filename = new URL(`../../exports/ugc-tool-data/${project}/features.json`, import.meta.url);
+    const filename = process.env.FEATURE_RUNTIME_SOURCE_DIR
+      ? path.join(process.env.FEATURE_RUNTIME_SOURCE_DIR, project, 'features.json')
+      : new URL(`../../exports/ugc-tool-data/${project}/features.json`, import.meta.url);
     const bytes = await readFile(filename);
     const expected = JSON.parse(bytes.toString('utf8'));
     for (const widths of [[1021], [65536], [1048576], [1, 7, 31, 4096, 65536]]) {
@@ -162,4 +166,71 @@ test('complete published feature bytes match native JSON.parse across varied UTF
       t.diagnostic(JSON.stringify({ project, bytes: bytes.length, chunks: widths, milliseconds: Math.round(performance.now() - before) }));
     }
   }
+});
+
+test('posting string reuse is bounded FIFO, retains every value and clears at the table boundary', () => {
+  const parser = new BoundedJsonParser(); parser.feed('{"lexical":{"postings":{');
+  const pool = parser.stack.at(-1).postingValues;
+  assert.ok(pool instanceof Map); assert.equal(pool.size, 0);
+  let insertions = 0; const set = pool.set;
+  pool.set = function (key, value) { insertions++; return set.call(this, key, value); };
+  const expected = Object.create(null);
+  for (let index = 0; index <= 4096; index++) {
+    const key = `term-${index}`, value = `value-${index}`; expected[key] = value;
+    parser.feed((index ? ',' : '') + JSON.stringify(key) + ':' + JSON.stringify(value));
+    assert.ok(pool.size <= 4096, 'The active table cannot retain an unbounded reuse pool');
+  }
+  assert.equal(pool.size, 4096); assert.equal(pool.has('value-0'), false);
+  assert.equal(pool.keys().next().value, 'value-1');
+  parser.feed(',"repeat":"value-1"'); expected.repeat = 'value-1';
+  assert.equal(insertions, 4097, 'An equal complete value reuses the existing entry');
+  assert.equal(pool.keys().next().value, 'value-1', 'A hit does not promote FIFO order');
+  parser.feed(',"new":"value-new"'); expected.new = 'value-new';
+  assert.equal(pool.has('value-1'), false); assert.equal(pool.size, 4096);
+  parser.feed(',"empty":"","empty-repeat":""'); expected.empty = ''; expected['empty-repeat'] = '';
+  assert.equal(insertions, 4099, 'Empty string values are also valid reuse entries');
+  parser.feed('},"after":"outside"}}');
+  assert.equal(pool.size, 0, 'Closing postings releases all pool references immediately');
+  nativeEqual(parser.finish(), { lexical: { postings: expected, after: 'outside' } });
+});
+
+test('posting reuse follows decoded structural paths and cannot capture lookalike nested objects or arrays', () => {
+  const fixtures = [
+    ['{"lexical":{"postings":{"a":"AAAAAA==","b":"AAAAAA==","__proto__":"AAAAAA==","constructor":"AAAAAA=="}}}', 1],
+    ['{"\\u006cexical":{"post\\u0069ngs":{"a":"AAAAAA==","b":"AAAAAA=="}}}', 1],
+    ['{"lexical":{"postings":{"a":{"nested":"AAAAAA=="},"b":["AAAAAA=="],"c":"AAAAAA=="}}}', 1],
+    ['{"nested":{"lexical":{"postings":{"a":"AAAAAA=="}}},"lexical":{"nested":{"postings":{"a":"AAAAAA=="}},"postings":[{"a":"AAAAAA=="}]}}', 0],
+    ['[{"lexical":{"postings":{"a":"AAAAAA=="}}}]', 0],
+    ['{"lexical.postings":{"a":"AAAAAA=="},"postings":{"a":"AAAAAA=="}}', 0],
+  ];
+  for (const [source, expectedPools] of fixtures) {
+    const parser = new BoundedJsonParser(), pools = new Set();
+    for (const char of source) {
+      parser.feed(char);
+      for (const frame of parser.stack) if (frame.postingValues) pools.add(frame.postingValues);
+      for (const frame of parser.stack) if (frame.postingValues) {
+        assert.equal(frame.type, 'object'); assert.equal(parser.stack.indexOf(frame), 2);
+      }
+    }
+    nativeEqual(parser.finish(), JSON.parse(source));
+    assert.equal(pools.size, expectedPools);
+    for (const pool of pools) assert.equal(pool.size, 0);
+  }
+  assert.equal(Object.prototype.polluted, undefined);
+});
+
+test('optimized streamed feature objects preserve all five locales and strict source and index hashes', async () => {
+  const identities = identityFixture();
+  const feature = await featureFixture('effect', identities, '中文😀 русский 日本語', '按钮界面用途');
+  const parsed = parseBytes(encoder.encode(JSON.stringify(feature)), [1, 7, 4096]);
+  nativeEqual(parsed, feature);
+  const verified = await verifyAssetFeatureSidecar(parsed, { identities });
+  assert.equal(Object.keys(verified.i18n).length, 5);
+  assert.equal(verified.lexicalFeatureHash, feature.lexicalFeatureHash);
+  assert.equal(verified.lexical.integrityHash, feature.lexical.integrityHash);
+  const changedSource = parseText(JSON.stringify(feature), [3, 19]);
+  const key = Object.keys(changedSource.i18n['zh-cn'])[0]; changedSource.i18n['zh-cn'][key] += ' changed';
+  await assert.rejects(() => verifyAssetFeatureSidecar(changedSource, { identities }), /source hash mismatch/);
+  const changedIndex = parseText(JSON.stringify(feature), [5, 31]); changedIndex.lexical.docs[0][2]++;
+  await assert.rejects(() => verifyAssetFeatureSidecar(changedIndex, { identities }), /index hash mismatch/);
 });

@@ -18,6 +18,7 @@ import SelectOptionIcon from "./components/SelectOptionIcon.vue";
 import { DEFAULT_SELECT_ICON_ID } from "./config/selectStyleRegistry";
 import type { EntityPreset } from "../EntityPresetEditor/entityPresets";
 import { getTextPreviewNavigationTarget, type TextPreviewNavigationTarget } from "./utils/dialogueTextNavigation";
+import { getDialogueClips } from "./utils/dialogueClips";
 
 const props = withDefaults(defineProps<{ project: DialogueProject; entityPresets?: EntityPreset[]; presetsError?: string; managedHistory?: boolean }>(), { entityPresets: () => [], presetsError: "", managedHistory: false });
 const emit = defineEmits<{
@@ -31,8 +32,17 @@ const emit = defineEmits<{
 const preview = computed(() => buildDialogueTextPreview(props.project));
 const namedPresets = computed(() => props.entityPresets.filter(preset => preset.talker.trim()));
 const speakerPickerNodeId = ref("");
+const speakerPickerClipId = ref<string>();
+const speakerPickerDialogue = computed(() => {
+  const node = props.project.dialogue.nodes[speakerPickerNodeId.value];
+  return node ? getDialogueClips(node).find(clip => clip.id === speakerPickerClipId.value) : undefined;
+});
+function openSpeakerPicker(line: TextPreviewLine) {
+  speakerPickerNodeId.value = line.nodeId;
+  speakerPickerClipId.value = line.clipId;
+}
 function selectSpeaker(talker: string) {
-  emit("edit", { nodeId: speakerPickerNodeId.value, field: "speaker", value: talker });
+  emit("edit", { nodeId: speakerPickerNodeId.value, clipId: speakerPickerClipId.value, field: "speaker", value: talker });
 }
 const speakerAliases = computed(() => {
   const aliases = new Map<string, string>();
@@ -165,7 +175,8 @@ function focusBlock(id: string) {
 async function act(action: DialogueTextAction) {
   // Preserve the edited sentence's screen position across block regrouping.
   const id = "nodeId" in action ? action.nodeId : undefined;
-  const oldElement = id ? surface.value?.querySelector<HTMLElement>(`[data-dialogue-id="${CSS.escape(id)}"]`) : undefined;
+  const clipSelector = "clipId" in action && action.clipId ? `[data-dialogue-clip-id="${CSS.escape(action.clipId)}"]` : "";
+  const oldElement = id ? surface.value?.querySelector<HTMLElement>(`[data-dialogue-id="${CSS.escape(id)}"]${clipSelector}`) : undefined;
   const oldRect = oldElement?.getBoundingClientRect();
   const result = applyDialogueTextAction(props.project, action);
   if (!result) return;
@@ -203,7 +214,11 @@ async function act(action: DialogueTextAction) {
 }
 function movable(id: string) {
   const node = props.project.dialogue.nodes[id];
-  return !!node && isDialogueCollectionNode(node) && node.dialogue?.advanceMode === "PlayerInput";
+  return !!node && getDialogueClips(node).length === 1 && isDialogueCollectionNode(node) && node.dialogue?.advanceMode === "PlayerInput";
+}
+function canInsertLine(id: string) {
+  const node = props.project.dialogue.nodes[id];
+  return !!node && getDialogueClips(node).length <= 1;
 }
 function canMove(block: TextPreviewBlock, index: number, delta: number) {
   return !!block.lines[index + delta] && movable(block.lines[index].nodeId) && movable(block.lines[index + delta].nodeId);
@@ -211,7 +226,7 @@ function canMove(block: TextPreviewBlock, index: number, delta: number) {
 function moveLine(block: TextPreviewBlock, index: number, delta: number) {
   if (canMove(block, index, delta)) act({ type: "move", nodeId: block.lines[index].nodeId, targetId: block.lines[index + delta].nodeId });
 }
-function insertLine(id: string) { act({ type: "insert", nodeId: id, before: !movable(id) }); }
+function insertLine(id: string) { if (canInsertLine(id)) act({ type: "insert", nodeId: id, before: !movable(id) }); }
 function startLineDrag(event: PointerEvent, id: string) {
   if (event.button !== 0 || !(event.target as HTMLElement).closest(".line-grip")) return;
   const block = preview.value.blocks.find(item => item.lines.some(line => line.nodeId === id));
@@ -433,16 +448,16 @@ onBeforeUnmount(() => {
             </header>
             <h3 v-if="['entry', 'output', 'condition'].includes(placed.block.kind)" class="text-block-title">{{ placed.block.title }}</h3>
             <div v-if="placed.block.lines.some(line => line.hasDialogue)" class="text-block-lines">
-              <div v-for="(line, index) in placed.block.lines" :key="line.nodeId" :data-dialogue-id="line.nodeId" class="text-line-slot"
+              <div v-for="(line, index) in placed.block.lines" :key="`${line.nodeId}:${line.clipId ?? ''}`" :data-dialogue-id="line.nodeId" :data-dialogue-clip-id="line.clipId" class="text-line-slot"
                 :class="{ 'line-drag-source': draggingLine === line.nodeId, 'line-drop-target': dropLine === line.nodeId,
                   'line-drop-after': dropLine === line.nodeId && index > placed.block.lines.findIndex(item => item.nodeId === draggingLine) }"
                 @pointerdown="startLineDrag($event, line.nodeId)" @pointermove="dragLine"
                 @pointerup="endLineDrag(true)" @pointercancel="endLineDrag()" @lostpointercapture="endLineDrag()">
                 <DialogueTextLine v-if="line.hasDialogue" :line="line" :speaker-alias="speakerAliases.get(line.speaker)" :index="index" :movable="movable(line.nodeId) && placed.block.lines.length > 1" :repeat-speaker="!shouldShowDialogueSpeaker(placed.block.lines, index)"
-                  :can-move-up="canMove(placed.block, index, -1)" :can-move-down="canMove(placed.block, index, 1)"
+                  :can-insert="canInsertLine(line.nodeId)" :can-move-up="canMove(placed.block, index, -1)" :can-move-down="canMove(placed.block, index, 1)"
                   @edit="emit('edit', $event)" @move="moveLine(placed.block, index, $event)" @insert="insertLine(line.nodeId)"
-                  @remove="act({ type: 'delete', nodeId: line.nodeId })"
-                  @pick-speaker="speakerPickerNodeId = line.nodeId"
+                  @remove="act({ type: 'delete', nodeId: line.nodeId, clipId: line.clipId })"
+                  @pick-speaker="openSpeakerPicker(line)"
                   @configure="navigateToBlock(placed.block, line.nodeId)" @add-dialogue="act({ type: 'add-dialogue', nodeId: line.nodeId })" />
               </div>
             </div>
@@ -522,7 +537,7 @@ onBeforeUnmount(() => {
       <div v-else class="panel-hint">选择画布中的集合或节点，再在这里添加内容。</div>
     </aside>
     </div>
-    <DialogueSpeakerPicker v-if="speakerPickerNodeId" :presets="entityPresets" :speaker="project.dialogue.nodes[speakerPickerNodeId]?.dialogue?.speaker ?? ''" :error="presetsError"
+    <DialogueSpeakerPicker v-if="speakerPickerNodeId" :presets="entityPresets" :speaker="speakerPickerDialogue?.speaker ?? ''" :error="presetsError"
       @select="selectSpeaker" @close="speakerPickerNodeId = ''" @retry="emit('retryPresets')" />
     <Teleport to="body">
       <div v-if="dragPreview" class="line-drag-preview dsfg-typography" aria-hidden="true" inert

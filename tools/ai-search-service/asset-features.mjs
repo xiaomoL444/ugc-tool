@@ -7,7 +7,7 @@ export const FEATURE_HASH_ALGORITHM = 'sha256-json-blocks-v1';
 export const FEATURE_LIMITS = { resources: 25000, dictionaryKeysPerLocale: 120000, textLength: 20000, arrayReferences: 64,
   rawCharacters: 90000000, dictionaryCharacters: 30000000, lexicalDocuments: 100000, lexicalTerms: 500000, postingCharacters: 60000000 };
 const SEARCH_LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ru-RU'];
-const PROJECTS = { SoundEffectPlayer: { kind: 'sound', namespace: 'soundEffectPlayer' }, EffectPlayer: { kind: 'effect', namespace: 'effectPlayer' } };
+const PROJECTS = { SoundEffectPlayer: { kind: 'sound', namespace: 'soundEffectPlayer' }, EffectPlayer: { kind: 'effect', namespace: 'effectPlayer' }, BgmPlayer: { kind: 'bgm', namespace: 'bgmPlayer' } };
 const PARTS = ['standVisual', 'tailVisual', 'audio'];
 const ARRAY_FIELDS = ['keywordsI18nKeys', 'possibleSourcesI18nKeys', 'suggestedUsesI18nKeys', 'uncertainDetailsI18nKeys'];
 const ARRAY_SUFFIXES = { keywordsI18nKeys: 'keywords', possibleSourcesI18nKeys: 'possible_sources', suggestedUsesI18nKeys: 'suggested_uses', uncertainDetailsI18nKeys: 'uncertain_details' };
@@ -44,24 +44,27 @@ function metadataSize(value, depth = 0) {
 }
 // Project dictionaries may contain base UI/name translations. Only this project's
 // namespace.search.* entries become feature evidence; retain their insertion order.
-export function extractAssetFeatureDictionaries(project, dictionaries) {
+export function extractAssetFeatureDictionary(project, raw) {
   const source = typeof project === 'string' && own(PROJECTS, project) ? PROJECTS[project] : null;
-  assert(source && object(dictionaries), 'Missing project feature dictionaries');
-  const prefix = source.namespace + '.search.', output = {};
+  assert(source, 'Missing project feature dictionaries');
+  assert(object(raw), 'Incomplete project feature locales');
+  const prefix = source.namespace + '.search.', table = object(raw.translations) ? raw.translations : raw;
+  const selected = Object.create(null);
+  for (const key in table) {
+    if (!own(table, key)) continue;
+    const canonical = key.startsWith('search.') ? source.namespace + '.' + key : key;
+    if (!canonical.startsWith(prefix)) continue;
+    assert(!own(selected, canonical), 'Duplicate normalized feature translation');
+    selected[canonical] = table[key];
+  }
+  return selected;
+}
+export function extractAssetFeatureDictionaries(project, dictionaries) {
+  assert(object(dictionaries), 'Missing project feature dictionaries');
+  const output = {};
   for (let index = 0; index < FEATURE_LOCALES.length; index++) {
     const locale = FEATURE_LOCALES[index];
-    const raw = dictionaries[locale] ?? dictionaries[SEARCH_LOCALES[index]];
-    assert(object(raw), 'Incomplete project feature locales');
-    const table = object(raw.translations) ? raw.translations : raw;
-    const selected = Object.create(null);
-    for (const key in table) {
-      if (!own(table, key)) continue;
-      const canonical = key.startsWith('search.') ? source.namespace + '.' + key : key;
-      if (!canonical.startsWith(prefix)) continue;
-      assert(!own(selected, canonical), 'Duplicate normalized feature translation');
-      selected[canonical] = table[key];
-    }
-    output[locale] = selected;
+    output[locale] = extractAssetFeatureDictionary(project, dictionaries[locale] ?? dictionaries[SEARCH_LOCALES[index]]);
   }
   return output;
 }
@@ -211,7 +214,12 @@ export async function computeAssetFeatureSourceHash(feature, dictionaryHashes) {
 }
 export async function computeAssetCatalogVersion(baseIndexVersion, hashes) {
   assert(typeof baseIndexVersion === 'string' && baseIndexVersion.length > 0 && ['sound', 'effect'].every(kind => typeof hashes?.[kind] === 'string' && /^[a-f0-9]{64}$/.test(hashes[kind])), 'Invalid catalog version inputs');
-  const payload = JSON.stringify({ baseIndexVersion, hashes: { sound: hashes.sound, effect: hashes.effect } });
+  const selected = { sound: hashes.sound, effect: hashes.effect };
+  if (own(hashes, 'bgm')) {
+    assert(typeof hashes.bgm === 'string' && /^[a-f0-9]{64}$/.test(hashes.bgm), 'Invalid BGM catalog version input');
+    selected.bgm = hashes.bgm;
+  }
+  const payload = JSON.stringify({ baseIndexVersion, hashes: selected });
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
   return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
 }
@@ -250,15 +258,15 @@ export function normalizeAssetFeatureResources(sidecar, identities, options = {}
   return identityRows(identities).filter(asset => asset.kind === sidecar.kind).map(identity => {
     const metadata = sidecar.resources[identity.id]?.searchMetadata;
     const sound = resolvedPart(metadata, 'audio', sidecar.i18n);
-    const primary = identity.kind === 'sound' ? [sound] : ['standVisual', 'tailVisual'].map(part => resolvedPart(metadata, part, sidecar.i18n));
+    const primary = identity.kind === 'sound' || identity.kind === 'bgm' ? [sound] : ['standVisual', 'tailVisual'].map(part => resolvedPart(metadata, part, sidecar.i18n));
     const description = combine(primary, 'description'), detailedDescription = combine(primary, 'detailedDescription');
     const keywords = combine(primary, 'keywords', true), suggestedUses = combine(primary, 'suggestedUses', true);
     const audio = identity.kind === 'effect' && identity.hasAudio === true ? sound : { description: {}, detailedDescription: {}, keywords: {}, suggestedUses: {} };
     const result = { ...identity, description, detailedDescription, keywords, suggestedUses, audio };
-    if (options.includeFacetTexts === false) { delete result.facetTexts; return result; }
+    if (options.includeFacetTexts === false) { delete result.facetTexts; return options.reuseAsset ? options.reuseAsset(result) : result; }
     result.facetTexts = { feature: join([identity.facetTexts?.feature || join([identity.id, ...values(identity.titles)]), ...values(description), ...values(detailedDescription), ...values(keywords)]),
         audio: identity.kind === 'effect' && identity.hasAudio === true ? join([...values(audio.description), ...values(audio.detailedDescription), ...values(audio.keywords)]) : '',
         suggestion: join(values(suggestedUses)), audioSuggestion: join(values(audio.suggestedUses)) };
-    return result;
+    return options.reuseAsset ? options.reuseAsset(result) : result;
   });
 }

@@ -32,7 +32,7 @@
             <div class="message-body">
               <div v-if="message.role === 'user'" class="message-byline"><strong>{{ t('aiSearch.you') }}</strong></div>
               <div v-if="message.status === 'pending'" class="thinking-state" role="status"><span class="thinking-dots"><i></i><i></i><i></i></span>{{ t('aiSearch.thinking') }}</div>
-              <p v-if="message.content" class="message-text"><span>{{ message.content }}</span><ResponseDetails v-if="message.status === 'error' && message.rawResponse" :content="message.rawResponse" :detail-id="message.id" /></p>
+              <p v-if="message.content" class="message-text"><span>{{ message.content }}</span><ResponseDetails v-if="message.status === 'error' && message.requestDiagnostic" :content="requestDiagnosticText(message.requestDiagnostic)" :detail-id="`${message.id}-request`" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /><ResponseDetails v-if="message.status === 'error' && message.rawResponse" :content="message.rawResponse" :detail-id="message.id" /></p>
               <ResourceResults v-if="message.cards?.length" :cards="message.cards" :result-id="message.id" />
             </div>
           </article>
@@ -41,13 +41,13 @@
       <footer class="composer-area">
         <div v-if="loadingArchive" class="inline-notice" role="status"><SearchIcon name="info" /><span>{{ t('aiSearch.loadingHistory') }}</span></div>
         <div v-if="archiveError" class="inline-notice warning-notice" role="status"><SearchIcon name="info" /><span>{{ archiveError }}</span></div>
-        <div v-if="catalogError" class="inline-notice warning-notice" role="status"><SearchIcon name="info" /><span>{{ catalogErrorMessage || t('aiSearch.catalogError') }}</span><button :disabled="loadingCatalog" @click="reloadCatalog">{{ t('aiSearch.retryCatalog') }}</button></div>
+        <div v-if="catalogError" class="inline-notice warning-notice" role="status"><SearchIcon name="info" /><span>{{ catalogErrorMessage || t('aiSearch.catalogError') }}<ResponseDetails v-if="catalogDiagnostic" :content="requestDiagnosticText(catalogDiagnostic)" detail-id="catalog-request" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /></span><button :disabled="loadingCatalog" @click="reloadCatalog">{{ t('aiSearch.retryCatalog') }}</button></div>
         <div v-if="featuresUpdated" class="inline-notice feature-update-notice" role="status"><SearchIcon name="info" /><span>{{ t('aiSearch.featureSync.updated') }}</span><button @click="featuresUpdated = false">{{ t('aiSearch.featureSync.dismiss') }}</button></div>
         <div v-if="featureSync?.status === 'stale'" class="inline-notice warning-notice feature-stale-notice" role="status"><SearchIcon name="info" /><span>{{ t('aiSearch.featureSync.stale') }}</span><button :disabled="busy || loadingCatalog" @click="reloadCatalog">{{ t('aiSearch.retryCatalog') }}</button></div>
         <div v-if="featureMissing" class="inline-notice warning-notice feature-missing-notice" role="status"><SearchIcon name="info" /><span>{{ t('aiSearch.featureSync.missing') }}</span><button :disabled="busy || loadingCatalog" @click="reloadCatalog">{{ t('aiSearch.retryCatalog') }}</button></div>
         <div v-if="canRetrySearch" class="inline-notice warning-notice feature-retry-notice" role="status"><SearchIcon name="info" /><span>{{ t('aiSearch.featureSync.retryHint') }}</span><button :disabled="busy || loadingCatalog || loadingArchive" @click="retrySearch">{{ t('aiSearch.featureSync.retry') }}</button></div>
         <div v-if="mode === 'free' && (!freeAvailable || freeQuota?.remaining === 0)" class="inline-notice site-ai-notice" role="status">
-          <SearchIcon name="info" /><span>{{ freeStatus === 'checking' ? t('aiSearch.checkingFree') : freeError || (freeQuota?.remaining === 0 ? t('aiSearch.errors.quota') : t('aiSearch.freeUnavailable')) }}</span>
+          <SearchIcon name="info" /><span>{{ freeStatus === 'checking' ? t('aiSearch.checkingFree') : freeError || (freeQuota?.remaining === 0 ? t('aiSearch.errors.quota') : t('aiSearch.freeUnavailable')) }}<ResponseDetails v-if="freeDiagnostic && freeStatus !== 'checking'" :content="requestDiagnosticText(freeDiagnostic)" detail-id="site-status-request" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /></span>
           <div v-if="freeStatus !== 'checking'" class="site-ai-notice-actions">
             <button type="button" :disabled="busy || loadingArchive" @click="useOwnModel">{{ t(customReady ? 'aiSearch.useMyModel' : 'aiSearch.configureModel') }}</button>
             <button type="button" :disabled="busy || loadingArchive" @click="useBasicSearch">{{ t('aiSearch.modes.basic') }}</button>
@@ -82,12 +82,16 @@
           <div v-else-if="configMode === 'basic'" class="basic-model-panel"><SearchIcon name="search" /><p>{{ t('aiSearch.basicHint') }}</p></div>
           <template v-else>
           <div class="custom-model-heading"><h3>{{ t('aiSearch.modes.custom') }}</h3><span v-if="customReady">{{ t('aiSearch.customConfigured') }}</span></div>
+          <label class="config-field"><span>{{ t('aiSearch.protocol.label') }}</span><select id="ai-model-protocol" v-model="configDraft.protocol"><option value="auto">{{ t('aiSearch.protocol.auto') }}</option><option value="openai">{{ t('aiSearch.protocol.openai') }}</option><option value="anthropic">{{ t('aiSearch.protocol.anthropic') }}</option></select><small>{{ t('aiSearch.protocol.hint') }}</small></label>
           <label class="config-field"><span>{{ t('aiSearch.apiBaseUrl') }}</span><input v-model="configDraft.baseUrl" type="url" placeholder="https://api.deepseek.com/v1" required autocomplete="off" /><small>{{ t('aiSearch.apiBaseUrlHint') }}</small></label>
           <label class="config-field"><span>{{ t('aiSearch.modelName') }}</span><input v-model="configDraft.model" type="text" placeholder="qwen-flash" required autocomplete="off" /></label>
           <label class="config-field"><span>{{ t('aiSearch.apiKey') }}</span><div class="secret-field"><input v-model="configDraft.apiKey" :type="keyVisible ? 'text' : 'password'" placeholder="sk-…" autocomplete="off" spellcheck="false" /><button type="button" class="icon-button" :aria-label="t(keyVisible ? 'aiSearch.hideKey' : 'aiSearch.showKey')" :aria-pressed="keyVisible" @click="keyVisible = !keyVisible"><SearchIcon name="eye" /></button></div><small>{{ t('aiSearch.apiKeyHint') }}</small></label>
           <label class="remember-key"><input v-model="configDraft.rememberKey" type="checkbox" /><span>{{ t('aiSearch.rememberKey') }}<small>{{ t('aiSearch.rememberKeyWarning') }}</small></span></label><p class="config-help">{{ t('aiSearch.configHelp') }}</p><p v-if="settingsError" class="settings-error" role="alert">{{ settingsError }}</p>
+          <div class="model-probe-controls"><button type="button" class="secondary-button model-probe-button" :disabled="!canProbe" @click="testModel">{{ t(probeStatus === 'running' ? 'aiSearch.modelProbe.testing' : 'aiSearch.modelProbe.test') }}</button><button v-if="probeStatus === 'running'" type="button" class="secondary-button model-probe-cancel" @click="clearModelProbe">{{ t('aiSearch.modelProbe.cancel') }}</button><small>{{ t('aiSearch.modelProbe.requestHint') }}</small></div>
+          <section v-if="probeStatus === 'success' && probeResult" class="model-probe-result model-probe-success" role="status"><strong>{{ t('aiSearch.modelProbe.success') }}</strong><dl><dt>{{ t('aiSearch.modelProbe.requested') }}</dt><dd>{{ probeResult.requestedModel }}</dd><dt>{{ t('aiSearch.modelProbe.returned') }}</dt><dd>{{ probeResult.returnedModel || t('aiSearch.modelProbe.notReturned') }}</dd><dt>{{ t('aiSearch.protocol.label') }}</dt><dd>{{ t(`aiSearch.protocol.${probeResult.protocol}`) }}</dd><dt>{{ t('aiSearch.requestDiagnostics.endpoint') }}</dt><dd>{{ probeResult.endpoint }}</dd></dl><p v-if="'replyTruncated' in probeResult && probeResult.replyTruncated" class="model-probe-truncated">{{ t('aiSearch.modelProbe.truncated') }}</p><small>{{ t('aiSearch.modelProbe.basicNote') }}</small></section>
+          <p v-if="probeStatus === 'error'" class="settings-error model-probe-error" role="alert">{{ probeError }}<ResponseDetails v-if="probeDiagnostic" :content="requestDiagnosticText(probeDiagnostic)" :to="settingsDialog" detail-id="model-probe-request" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /></p>
           </template>
-          <div class="dialog-actions"><button type="button" class="secondary-button" @click="closeSettings">{{ t('aiSearch.cancel') }}</button><button type="submit" class="primary-button" :disabled="busy || loadingArchive">{{ t(configMode === 'custom' ? 'aiSearch.saveAndUseModel' : 'aiSearch.useModel') }}</button></div>
+          <div class="dialog-actions"><button type="button" class="secondary-button" @click="closeSettings">{{ t('aiSearch.cancel') }}</button><button type="submit" class="primary-button" :disabled="busy || loadingArchive || probeStatus === 'running'">{{ t(configMode === 'custom' ? 'aiSearch.saveAndUseModel' : 'aiSearch.useModel') }}</button></div>
         </form>
       </dialog>
       <dialog ref="actionDialog" class="ai-search-dialog action-dialog" aria-labelledby="ai-action-title" @cancel="closeAction" @pointerdown.capture="trackDialogPointerDown" @pointercancel="resetDialogPointerDown" @click="handleDialogBackdrop($event, closeAction)"><form @submit.prevent="performAction"><div class="dialog-heading"><h2 id="ai-action-title">{{ t(`aiSearch.${actionKind}`) }}</h2><button type="button" class="icon-button" :aria-label="t('aiSearch.dismiss')" @click="closeAction"><SearchIcon name="close" /></button></div><label v-if="actionKind === 'rename'" class="config-field"><span>{{ t('aiSearch.conversationTitle') }}</span><input v-model="renameDraft" maxlength="80" required /></label><p v-else class="action-description">{{ t('aiSearch.confirmDelete') }}</p><div class="dialog-actions"><button type="button" class="secondary-button" @click="closeAction">{{ t('aiSearch.cancel') }}</button><button type="submit" class="primary-button" :class="{ 'danger-button': actionKind === 'delete' }">{{ t('aiSearch.confirm') }}</button></div></form></dialog>
@@ -96,21 +100,30 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { toast } from 'vue-sonner'
 import SearchIcon from './components/SearchIcon.vue'
 import ResourceResults from './components/ResourceResults.vue'
 import ResponseDetails from './components/ResponseDetails.vue'
 import { useAISearch } from './useAISearch'
 import ResultLimitSelect from './components/ResultLimitSelect.vue'
 import { useHistoryResize } from './useHistoryResize'
-import type { SearchMode } from './types'
+import type { ModelConfig, SearchMode } from './types'
+import { probeCustomModel } from './modelProbe'
+import { AISearchError } from './aiSearchService'
+import { sanitizeRequestDiagnostic } from './requestDiagnostics'
+import type { RequestDiagnostic } from './requestDiagnostics'
 
 const { t } = useI18n({ useScope: 'global' })
-const { conversations, activeConversationId, messages, busy, loadingCatalog, loadingArchive, archiveError, catalogError, catalogErrorMessage, catalogCount, descriptionCoverage, serverRetrieval, retrievalMode, featureSync, featuresUpdated, featureMissing, canRetrySearch, retrySearch, mode, scope, includeEffectAudio, resultLimit, freeResultLimit, freeAvailable, freeStatus, freeQuota, freeError, modelConfig, errorMessage, createConversation, selectConversation, renameConversation, deleteConversation, send, stop, saveConfig, refreshFreeStatus, reloadCatalog } = useAISearch()
+const { catalogDiagnostic, freeDiagnostic, explainError, requestDiagnosticText, conversations, activeConversationId, messages, busy, loadingCatalog, loadingArchive, archiveError, catalogError, catalogErrorMessage, catalogCount, descriptionCoverage, serverRetrieval, retrievalMode, featureSync, featuresUpdated, dataUpdateVersion, featureMissing, canRetrySearch, retrySearch, mode, scope, includeEffectAudio, resultLimit, freeResultLimit, freeAvailable, freeStatus, freeQuota, freeError, modelConfig, errorMessage, createConversation, selectConversation, renameConversation, deleteConversation, send, stop, saveConfig, refreshFreeStatus, reloadCatalog } = useAISearch()
+let dataUpdateToastId: string | number | undefined
+watch(dataUpdateVersion, () => {
+  if (dataUpdateToastId !== undefined) toast.dismiss(dataUpdateToastId)
+  dataUpdateToastId = toast.info(t('aiSearch.dataUpdateNotice'), { duration: Infinity, closeButton: true })
+})
 const scopes = ['all', 'sound', 'effect', 'bgm'] as const
-// Temporarily hide the BGM suggestion on the new-conversation welcome screen.
-const examples = [{ kind: 'sound', icon: 'sound', key: 'exampleSound', titleKey: 'exampleSoundTitle' }, { kind: 'effect', icon: 'effect', key: 'exampleEffect', titleKey: 'exampleEffectTitle' }] as const
+const examples = [{ kind: 'sound', icon: 'sound', key: 'exampleSound', titleKey: 'exampleSoundTitle' }, { kind: 'effect', icon: 'effect', key: 'exampleEffect', titleKey: 'exampleEffectTitle' }, { kind: 'bgm', icon: 'music', key: 'exampleBgm', titleKey: 'exampleBgmTitle' }] as const
 const draft = ref('')
 const historyOpen = ref(false)
 const historyCollapsed = ref(false)
@@ -126,7 +139,50 @@ const settingsOpen = ref(false)
 const settingsError = ref('')
 const configMode = ref<SearchMode>(mode.value)
 const modelModes = [{ mode: 'free', icon: 'sparkles' }, { mode: 'custom', icon: 'settings' }, { mode: 'basic', icon: 'search' }] as const
-const configDraft = reactive({ baseUrl: '', model: '', apiKey: '', rememberKey: false })
+const configDraft = reactive<ModelConfig>({ baseUrl: '', model: '', apiKey: '', rememberKey: false, protocol: 'auto' })
+const probeStatus = ref<'idle' | 'running' | 'success' | 'error'>('idle')
+const probeResult = shallowRef<Awaited<ReturnType<typeof probeCustomModel>>>()
+const probeError = ref('')
+const probeDiagnostic = shallowRef<RequestDiagnostic>()
+let probeRun: { controller: AbortController; timer: ReturnType<typeof setTimeout>; timedOut: boolean } | undefined
+const canProbe = computed(() => settingsOpen.value && configMode.value === 'custom' && probeStatus.value !== 'running' && !!configDraft.baseUrl.trim() && !!configDraft.model.trim() && !!configDraft.apiKey.trim() && !busy.value)
+function clearModelProbe() {
+  const run = probeRun
+  probeRun = undefined
+  if (run) { clearTimeout(run.timer); run.controller.abort() }
+  probeStatus.value = 'idle'
+  probeResult.value = undefined
+  probeError.value = ''
+  probeDiagnostic.value = undefined
+}
+async function testModel() {
+  if (!canProbe.value) return
+  clearModelProbe()
+  const config = { ...configDraft }
+  const controller = new AbortController()
+  const run = { controller, timer: undefined as unknown as ReturnType<typeof setTimeout>, timedOut: false }
+  run.timer = setTimeout(() => { run.timedOut = true; controller.abort() }, 20000)
+  probeRun = run
+  probeStatus.value = 'running'
+  try {
+    const result = await probeCustomModel(config, controller.signal)
+    if (probeRun !== run || !settingsOpen.value || configMode.value !== 'custom') return
+    const publicResult = sanitizeRequestDiagnostic({ stage: 'model', kind: 'response', endpoint: result.endpoint, model: result.returnedModel }, [config.apiKey])
+    const requestedModel = sanitizeRequestDiagnostic({ stage: 'model', kind: 'response', model: result.requestedModel }, [config.apiKey])?.model || ''
+    probeResult.value = { ...result, requestedModel, returnedModel: publicResult?.model, endpoint: publicResult?.endpoint || '' }
+    probeStatus.value = 'success'
+  } catch (error) {
+    if (probeRun !== run || !settingsOpen.value || configMode.value !== 'custom') return
+    probeDiagnostic.value = error instanceof AISearchError ? sanitizeRequestDiagnostic(error.requestDiagnostic, [config.apiKey]) : undefined
+    probeError.value = run.timedOut ? t('aiSearch.modelProbe.timeout') : explainError(error)
+    probeStatus.value = 'error'
+  } finally {
+    clearTimeout(run.timer)
+    if (probeRun === run) probeRun = undefined
+  }
+}
+watch(() => [configDraft.baseUrl, configDraft.model, configDraft.apiKey, configDraft.protocol], clearModelProbe, { flush: 'sync' })
+watch(() => [settingsOpen.value, configMode.value], () => { if (!settingsOpen.value || configMode.value !== 'custom') clearModelProbe() }, { flush: 'sync' })
 const currentModelLabel = computed(() => mode.value === 'free' ? t('aiSearch.freeModelLabel') : mode.value === 'custom' ? modelConfig.value.model || t('aiSearch.modes.custom') : t('aiSearch.modes.basic'))
 const currentFreeRemaining = computed(() => mode.value === 'free' && freeQuota.value ? t('aiSearch.freeQuotaRemaining', { remaining: freeQuota.value.remaining }) : '')
 const currentModelSummary = computed(() => [currentModelLabel.value, currentFreeRemaining.value].filter(Boolean).join(' · '))
@@ -196,7 +252,7 @@ async function useBasicSearch() {
   await nextTick()
   composer.value?.focus()
 }
-function closeSettings() { if (settingsDialog.value) dialogBackdropStarts.delete(settingsDialog.value); settingsDialog.value?.close(); settingsOpen.value = false; configDraft.apiKey = ''; keyVisible.value = false; restoreFocus() }
+function closeSettings() { clearModelProbe(); if (settingsDialog.value) dialogBackdropStarts.delete(settingsDialog.value); settingsDialog.value?.close(); settingsOpen.value = false; configDraft.apiKey = ''; keyVisible.value = false; restoreFocus() }
 function selectConfigMode(value: SearchMode) { configMode.value = value; settingsError.value = ''; keyVisible.value = false }
 async function persistSettings() { if (configMode.value !== 'custom') { mode.value = configMode.value; errorMessage.value = ''; closeSettings() } else if (await saveConfig({ ...configDraft })) closeSettings(); else settingsError.value = errorMessage.value || t('aiSearch.invalidConfig') }
 async function openAction(kind: 'rename' | 'delete', id = '') { actionKind.value = kind; actionConversationId.value = id; renameDraft.value = conversations.value.find(item => item.id === id)?.title || ''; await showDialog(actionDialog.value) }
@@ -221,7 +277,19 @@ function handleDialogBackdrop(event: MouseEvent, close: () => void) {
 }
 watch(() => [messages.value.length, busy.value, messages.value[messages.value.length - 1]?.status], async () => { await nextTick(); const viewport = messageViewport.value; if (viewport) viewport.scrollTop = viewport.scrollHeight })
 watch(activeConversationId, async () => { await nextTick(); if (messageViewport.value) messageViewport.value.scrollTop = messageViewport.value.scrollHeight })
-onBeforeUnmount(() => { composerObserver?.disconnect(); settingsDialog.value?.close(); actionDialog.value?.close() })
+onBeforeUnmount(() => { clearModelProbe(); if (dataUpdateToastId !== undefined) toast.dismiss(dataUpdateToastId); composerObserver?.disconnect(); settingsDialog.value?.close(); actionDialog.value?.close() })
 </script>
 
 <style src="./AISearch.css"></style>
+
+<style scoped>
+#ai-model-protocol { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid #bbc5d9; border-radius: 8px; background: #fff; color: #273550; font: inherit; }
+.model-probe-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.model-probe-controls small { flex-basis: 100%; color: #65758e; font-size: 11px; line-height: 1.6; }
+.model-probe-result { margin-top: 12px; padding: 12px; border: 1px solid #acd5bf; border-radius: 8px; background: #f0faf4; color: #28604b; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.model-probe-result dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; margin: 8px 0; }
+.model-probe-result dt { color: #4d6f60; }
+.model-probe-result dd { margin: 0; }
+.model-probe-result small { display: block; }
+.model-probe-truncated { color: #7a601d; }
+</style>

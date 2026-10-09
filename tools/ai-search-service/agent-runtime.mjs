@@ -2,6 +2,8 @@
 import { ASSET_TOOLS } from "./mcp-handler.mjs";
 import { renderSystemPrompt } from "./system-prompt.mjs";
 import { withModelResponse } from "./model-response.mjs";
+import { parseModelJSON } from "./model-json.mjs";
+import { selectSuggestedUses } from "./asset-use-summary.mjs";
 
 const encoder = new TextEncoder();
 export const AGENT_LIMITS = Object.freeze({ available: true, maxModelRounds: 3, maxToolCalls: 4 });
@@ -39,14 +41,14 @@ export function buildAgentPrompt(request, config, sourceText) {
       * AGENT_LIMITS.maxModelRounds * config.costSafety) };
 }
 
-function compactRecord(item, details = false) {
+function compactRecord(item, details = false, query = "") {
   const detailDescription = item.description && item.fullDescription && !item.description.includes(item.fullDescription)
     ? `${item.description}\n${item.fullDescription}` : item.description || item.fullDescription || item.shortDescription;
   return { resourceId: item.resourceId, kind: item.kind, title: text(item.title, 200),
     description: text(details && item.kind === "effect" ? item.shortDescription || item.description : details ? detailDescription : item.shortDescription || item.description,
       details && item.kind === "effect" ? 160 : details ? 900 : 260),
     keywords: (item.keywords ?? []).slice(0, 10).map(word => text(word, 80)),
-    suggestedUses: (item.suggestedUses ?? []).slice(0, 3).map(word => text(word, 160)),
+    suggestedUses: selectSuggestedUses(item.suggestedUses ?? [], query, 3, 160),
     ...(item.audioMatch ? { audioMatch: true } : {}),
     ...(item.matchType ? { matchType: item.matchType } : {}),
     ...(item.duration === undefined ? {} : { duration: item.duration }),
@@ -111,13 +113,13 @@ async function boundedResponse(response, limit = 65536) {
   return new TextDecoder().decode(buffer);
 }
 
-async function modelRound(messages, tools, config, env, fetcher, forcedFinal, firstRound, remainingMs) {
+async function modelRound(messages, tools, config, env, fetcher, forcedFinal, remainingMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.min(config.timeoutMs, remainingMs));
   try {
     const deepSeekApi = new URL(config.upstream).hostname === "api.deepseek.com";
     const payload = { model: config.model, messages, max_tokens: config.maxOutputTokens, stream: false, tools,
-      tool_choice: forcedFinal ? "none" : firstRound ? "required" : "auto",
+      tool_choice: forcedFinal ? "none" : "auto",
       ...(forcedFinal ? { response_format: { type: "json_object" } } : {}),
       // DeepSeek thinking needs reasoning transcripts. Search uses its supported non-thinking tool path.
       ...(config.thinking === undefined && !deepSeekApi ? {} : { thinking: { type: "disabled" } }) };
@@ -160,7 +162,7 @@ function toolArguments(call) {
 export async function runAssetAgent(request, prompt, config, env, handlers, validateResult, fetcher = fetch) {
   config = resultConfig(request, config);
   const messages = structuredClone(prompt.messages), tools = prompt.tools;
-  const known = new Map(), steps = [], callIds = new Set();
+  const known = new Map(), knownQueries = new Map(), steps = [], callIds = new Set();
   let toolCount = 0, inputTokens = 0, outputTokens = 0, usageKnown = true, retrievalMode;
   const deadline = Date.now() + config.agentTimeoutMs;
   for (let round = 0; round < AGENT_LIMITS.maxModelRounds; round += 1) {
@@ -168,7 +170,7 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
     if (bytes({ messages, tools }) > config.maxPromptBytes) throw new AgentError(413, "PROMPT_TOO_LARGE", "工具结果与上下文过长，请开始新对话或缩小范围。");
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) throw new AgentError(503, "UPSTREAM_TIMEOUT", "资产搜索超时，请稍后重试同一请求。");
-    const response = await modelRound(messages, tools, config, env, fetcher, forcedFinal, round === 0, remainingMs);
+    const response = await modelRound(messages, tools, config, env, fetcher, forcedFinal, remainingMs);
     const usage = response.usage;
     if (Number.isInteger(usage?.prompt_tokens) && usage.prompt_tokens >= 0 && usage.prompt_tokens <= config.maxPromptBytes
       && Number.isInteger(usage?.completion_tokens) && usage.completion_tokens >= 0 && usage.completion_tokens <= config.maxOutputTokens) {
@@ -177,9 +179,19 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
     const message = response.message;
     if (!message.tool_calls?.length) {
       if (response.finishReason !== "stop" || typeof message.content !== "string") throw withModelResponse(new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "模型回答格式不正确。"), message, env);
-      // A first response that ignores required tools cannot prove any catalogue claim.
-      if (round === 0) throw new AgentError(502, "TOOLS_UNSUPPORTED", "模型未执行要求的资料库工具调用，请切换支持 function calling 的模型。");
-      let parsed; try { parsed = JSON.parse(message.content); } catch { throw withModelResponse(new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "模型最终回答不是有效 JSON。"), message, env); }
+      let parsed; try { parsed = parseModelJSON(message.content); } catch { throw withModelResponse(new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "模型最终回答不是有效 JSON。"), message, env); }
+      // Before any catalogue lookup, only an explicit clarification may finish without tools.
+      const clarification = object(parsed) && Object.hasOwn(parsed, "clarification");
+      if (clarification) {
+        if (parsed.clarification !== true || !Array.isArray(parsed.matches) || parsed.matches.length
+          || typeof parsed.answer !== "string" || !parsed.answer.trim()) {
+          throw withModelResponse(new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "模型澄清回答格式不正确。"), message, env);
+        }
+        // Consume only this protocol marker; keep all other fields for the existing result validator.
+        delete parsed.clarification;
+      } else if (round === 0) {
+        throw new AgentError(502, "TOOLS_UNSUPPORTED", "模型未执行要求的资料库工具调用，请切换支持 function calling 的模型。");
+      }
       let result;
       try { result = validateResult(parsed, [...known.values()], request.resultLimit ?? SEARCH_LIMITS.defaultResults); }
       catch (error) { throw withModelResponse(error, message, env); }
@@ -211,9 +223,9 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
             includeEffectAudio: request.includeEffectAudio, limit: Math.min(SEARCH_LIMITS.maxSearchLimit, Number.isInteger(args.limit) ? Math.max(1, args.limit) : Math.max(10, request.resultLimit ?? SEARCH_LIMITS.defaultResults)) });
           if (["keyword", "hybrid"].includes(result.mode)) retrievalMode = result.mode;
           const items = (result.items ?? result.candidates ?? []).map(item => scopedRecord(item, { ...request, scope, matchOn })).filter(Boolean);
-          for (const item of items) known.set(item.resourceId, item);
+          for (const item of items) { known.set(item.resourceId, item); knownQueries.set(item.resourceId, `${knownQueries.get(item.resourceId) || request.query} ${args.query}`); }
           value = { catalogVersion: result.catalogVersion ?? result.indexVersion, mode: result.mode, total: result.total,
-            items: items.map(item => compactRecord(item)), nextCursor: result.nextCursor, hasMore: Boolean(result.nextCursor),
+            items: items.map(item => compactRecord(item, false, knownQueries.get(item.resourceId))), nextCursor: result.nextCursor, hasMore: Boolean(result.nextCursor),
             ...(result.retrievalWarning ? { retrievalWarning: result.retrievalWarning } : {}),
             ...(result.retrievalNotice ? { retrievalNotice: result.retrievalNotice } : {}) };
           steps.push({ tool: call.function.name, query: text(args.query, 160), count: items.length });
@@ -224,7 +236,7 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
           const items = (result.items ?? result.assets ?? []).filter(item => args.ids.includes(item.resourceId) && known.has(item.resourceId))
             .map(item => scopedRecord(item, request, known.get(item.resourceId)?.audioMatch === true)).filter(Boolean);
           for (const item of items) known.set(item.resourceId, item);
-          value = { catalogVersion: result.catalogVersion ?? result.indexVersion, items: items.map(item => compactRecord(item, true)),
+          value = { catalogVersion: result.catalogVersion ?? result.indexVersion, items: items.map(item => compactRecord(item, true, knownQueries.get(item.resourceId) || request.query)),
             missingIds: [...(result.missingIds ?? []), ...args.ids.filter(id => !items.some(item => item.resourceId === id) && !(result.missingIds ?? []).includes(id))] };
           steps.push({ tool: call.function.name, count: items.length });
         } else {
@@ -242,7 +254,7 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
       messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(value) });
     }
     if (round === AGENT_LIMITS.maxModelRounds - 2 || toolCount >= AGENT_LIMITS.maxToolCalls) {
-      messages.push({ role: "user", content: "检索次数已到上限。现在根据本轮工具结果给出最终 JSON；没有可靠结果时返回空 matches 并说明资料不足。" });
+      messages.push({ role: "user", content: "检索次数已到上限。现在根据本轮工具结果给出最终 JSON。候选少也照常展示；用途请求优先给有声音依据的候选，近似方案说明吻合与差异，可同时追问期望感受。不把未命中说成资料不足，不编造资源或声学特征；仅在本轮没有可依据的候选时返回空 matches。" });
     }
   }
   throw new AgentError(502, "AGENT_LIMIT", "模型未在限定次数内完成回答。");

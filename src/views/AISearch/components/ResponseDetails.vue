@@ -1,14 +1,14 @@
 <template>
   <span class="response-details">
-    <button ref="trigger" type="button" class="response-details-trigger" :aria-label="t('aiSearch.responseDetails.open')"
+    <button ref="trigger" type="button" class="response-details-trigger" :aria-label="detailOpenLabel"
       :aria-expanded="opened" :aria-describedby="opened ? tooltipId : undefined"
       @pointerenter="enterTrigger" @pointerleave="leaveTrigger" @pointerdown="lastPointerType = $event.pointerType"
       @focus="focusTrigger" @blur="queueHide" @click="toggleDetails"><SearchIcon name="warning" /></button>
-    <NPopover :show="opened" trigger="manual" placement="bottom" :x="popupX" :y="popupY" raw :show-arrow="false" :animated="false" :z-index="1500">
+    <NPopover :to="to" :show="opened" trigger="manual" placement="bottom" :x="popupX" :y="popupY" raw :show-arrow="false" :animated="false" :z-index="1500">
       <section :id="tooltipId" ref="panel" class="response-details-popup" role="tooltip"
         @pointerenter="enterPanel" @pointerleave="leavePanel" @pointerdown="startTextSelection" @focusin="show" @focusout="queueHide">
-        <strong>{{ t('aiSearch.responseDetails.title') }}</strong>
-        <pre tabindex="0" :aria-label="t('aiSearch.responseDetails.title')">{{ content }}</pre>
+        <strong>{{ detailTitle }}</strong>
+        <pre tabindex="0" :aria-label="detailTitle">{{ content }}</pre>
       </section>
     </NPopover>
   </span>
@@ -20,8 +20,10 @@ import { NPopover } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import SearchIcon from './SearchIcon.vue'
 
-const props = defineProps<{ content: string; detailId: string }>()
+const props = defineProps<{ content: string; detailId: string; title?: string; openLabel?: string; to?: HTMLElement | string }>()
 const { t } = useI18n({ useScope: 'global' })
+const detailTitle = computed(() => props.title || t('aiSearch.responseDetails.title'))
+const detailOpenLabel = computed(() => props.openLabel || t('aiSearch.responseDetails.open'))
 const trigger = ref<HTMLButtonElement>()
 const panel = ref<HTMLElement>()
 const opened = ref(false)

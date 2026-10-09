@@ -1,5 +1,6 @@
 import { shallowRef } from "vue";
 import type { DialogueClip, SelectClip, FocusPushClip, PerformanceClip, PerformanceLine, DialogueNode } from "../types/DialogueNode";
+import { appendDialogueClip, getDialogueClips, getDialogueClipPlacementHint } from "./dialogueClips";
 
 export type TimelineClipSelection =
   | { kind: "dialogue"; clip: DialogueClip }
@@ -21,7 +22,8 @@ export function captureTimelineClip(selected: TimelineClipSelection): TimelineCl
 }
 
 export function findTimelineClip(node: DialogueNode, clipId: string): TimelineClipSelection | undefined {
-  if (node.dialogue?.id === clipId) return { kind: "dialogue", clip: node.dialogue };
+  const dialogue = getDialogueClips(node).find(clip => clip.id === clipId);
+  if (dialogue) return { kind: "dialogue", clip: dialogue };
   if (node.select?.id === clipId) return { kind: "select", clip: node.select };
   if (node.focusPush?.id === clipId) return { kind: "focusPush", clip: node.focusPush };
   for (const line of node.lines) {
@@ -30,7 +32,7 @@ export function findTimelineClip(node: DialogueNode, clipId: string): TimelineCl
   }
 }
 
-export function timelinePasteHint(node: DialogueNode, lane: TimelineLane, snapshot: TimelineClipSnapshot | undefined) {
+export function timelinePasteHint(node: DialogueNode, lane: TimelineLane, snapshot: TimelineClipSnapshot | undefined, startTime?: number) {
   if (!snapshot) return "请先复制 Clip";
   if (lane.kind === "performance") {
     const line = node.lines.find(line => line.id === lane.lineId);
@@ -38,13 +40,18 @@ export function timelinePasteHint(node: DialogueNode, lane: TimelineLane, snapsh
     if (snapshot.kind !== "performance" || snapshot.clip.type !== line.type) return "只能粘贴相同类型的 Clip";
   } else {
     if (snapshot.kind !== lane.kind) return "只能粘贴相同类型的 Clip";
-    if (node[lane.kind]) return "此轨道只允许一个 Clip，请先删除已有 Clip";
+    if (lane.kind === "dialogue" && snapshot.kind === "dialogue") {
+      if (startTime !== undefined) return getDialogueClipPlacementHint(node, snapshot.clip, Math.max(0, startTime));
+      if (snapshot.clip.advanceMode === "PlayerInput" && getDialogueClips(node).some(clip => clip.advanceMode === "PlayerInput")) {
+        return "对话行只允许一个玩家按下 Clip";
+      }
+    } else if (node[lane.kind]) return "此轨道只允许一个 Clip，请先删除已有 Clip";
   }
   return "";
 }
 
 export function pasteTimelineClip(node: DialogueNode, lane: TimelineLane, snapshot: TimelineClipSnapshot, startTime: number): TimelineClipSelection | undefined {
-  if (!Number.isFinite(startTime) || timelinePasteHint(node, lane, snapshot)) return;
+  if (!Number.isFinite(startTime) || timelinePasteHint(node, lane, snapshot, startTime)) return;
   const copy = clone(snapshot);
   copy.clip.id = id("clip");
   copy.clip.startTime = Math.max(0, startTime);
@@ -55,7 +62,7 @@ export function pasteTimelineClip(node: DialogueNode, lane: TimelineLane, snapsh
     line.clips.push(copy.clip);
     return { ...copy, line };
   }
-  if (copy.kind === "dialogue") { node.dialogue = copy.clip; return copy; }
+  if (copy.kind === "dialogue") { appendDialogueClip(node, copy.clip); return copy; }
   if (copy.kind === "select") { node.select = copy.clip; return copy; }
   if (copy.kind === "focusPush") { node.focusPush = copy.clip; return copy; }
 }

@@ -2,7 +2,7 @@ import { parseAssetFeatureSidecar, FEATURE_LOCALES } from '../../tools/ai-search
 import type { FeatureSidecar } from '../../tools/ai-search-service/asset-features.mjs';
 import { OSS_BASE_URL, createOss } from './oss';
 
-export type AssetFeatureProject = 'SoundEffectPlayer' | 'EffectPlayer';
+export type AssetFeatureProject = 'SoundEffectPlayer' | 'EffectPlayer' | 'BgmPlayer';
 export type AssetFeaturePart = 'audio' | 'standVisual' | 'tailVisual';
 export interface AssetFeatureIdentity { id: string | number; hasAudio?: boolean; audioPath?: string }
 export interface AssetFeatureDescription {
@@ -57,7 +57,7 @@ export function normalizeAssetFeatureLocale(locale: string): string {
 }
 
 function availableParts(project: AssetFeatureProject, identity: AssetFeatureIdentity): AssetFeaturePart[] {
-  if (project === 'SoundEffectPlayer') return ['audio'];
+  if (project !== 'EffectPlayer') return ['audio'];
   return identity.hasAudio === true && stringValue(identity.audioPath)
     ? PARTS : ['standVisual', 'tailVisual'];
 }
@@ -204,7 +204,7 @@ async function fetchFeatures(project: AssetFeatureProject, url: string, options:
   }
 }
 
-/** A per-project, 60-second parsed cache shared by both player pages. Failures never replace last-good data. */
+/** A per-project, 60-second parsed cache shared by asset player pages. Failures never replace last-good data. */
 export async function loadAssetFeatures(project: AssetFeatureProject, identities: readonly AssetFeatureIdentity[],
   options: AssetFeatureLoadOptions = {}): Promise<AssetFeatureCollection> {
   const url = assetFeatureUrl(project, options.baseUrl), key = `${project}:${url}`;

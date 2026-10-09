@@ -5,7 +5,8 @@ import { DEFAULT_QXQY_STRUCT_IDS, createQxqyStructWorkspace } from "./qxqyStruct
 import { createEmptyDialogueProject, createDialogueNode, createDialogueClip, createSelectClip, createSelectOption, createFocusPushClip, createConditionBranchNode, createConditionBranchOutput, createPerformanceLine, createPerformanceClip } from "./dialogueProject";
 import { resolveGroupOutlets, FOCUS_PUSH_OUTLET_ID } from "./groupOutlets";
 import { exportQxqyPerformance } from "./qxqyPerformanceExporter";
-import { getFlowClipDuration } from "./groupTimeline";
+import { getFlowClipDuration, MIN_CLIP_DURATION } from "./groupTimeline";
+import { appendDialogueClip, getDialogueClips } from "./dialogueClips";
 
 function table(entries: any[]) {
   const result = new Map<number, any>();
@@ -51,6 +52,7 @@ export function importQxqyPerformance(text: string) {
       project.dialogue.conditionBranches[id] = node;
     } else {
       const node = createDialogueNode(id); node.name = `Group ${index}`; node.dialogue = undefined; node.lines = []; node.timeline.duration = 0.1;
+      const dialogueActions = new Map<string, any>();
       for (const action of actions) {
         const duration = Number(action.duration);
         assertImport(duration >= 0, `Group ${index} 的动作时长不能为负数`);
@@ -62,13 +64,16 @@ export function importQxqyPerformance(text: string) {
           assertImport(source, `Group ${index} 引用不存在的 ${action.actionType} 数据 ${action.intParams[0]}`);
           referenced.add(`${action.actionType}:${Number(action.intParams[0])}`);
           if (action.actionType === "NOLOC_DIALOG") {
-            assertImport(!node.dialogue, `Group ${index} 有多个台词 Clip，当前编辑器不能无损还原`);
             const delay = Number(source.continueDelay);
             assertImport(delay === -1 || delay >= 0, "台词推进延迟只能为 -1 或非负数");
+            assertImport(delay !== -1 || duration >= MIN_CLIP_DURATION, `Group ${index} 的自由台词时长不足 ${MIN_CLIP_DURATION} 秒，当前编辑器不能无损还原`);
             const autoContinue = source.autoContinue == null ? -1 : Number(source.autoContinue);
             assertImport(Number.isFinite(autoContinue), "台词自动推进等待时间必须为有限数值");
-            node.dialogue = { ...createDialogueClip(), style: source.style, speaker: source.talker, subtitle: source.subtitle, content: source.content, nodeGraphEvent: source.prams,
-              startTime: action.time, advanceMode: delay === -1 ? "None" : "PlayerInput", continueDelayTime: Math.max(0, delay), autoContinue };
+            const dialogue = { ...createDialogueClip(), style: source.style, speaker: source.talker, subtitle: source.subtitle, content: source.content, nodeGraphEvent: source.prams,
+              startTime: action.time, advanceMode: delay === -1 ? "None" as const : "PlayerInput" as const, continueDelayTime: Math.max(0, delay), autoContinue,
+              ...(delay === -1 ? { duration } : {}) };
+            appendDialogueClip(node, dialogue);
+            dialogueActions.set(dialogue.id, action);
           } else if (action.actionType === "NOLOC_DIALOG_SELECT") {
             assertImport(!node.select && source.content.length === source.icons.length, `Group ${index} 的选项数据无法无损还原（重复 Clip或列表不匹配）`);
             node.select = { ...createSelectClip(), style: source.style, startTime: action.time, continueDelayTime: duration, params: source.params,
@@ -105,9 +110,11 @@ export function importQxqyPerformance(text: string) {
           line.clips.push(clip); node.lines.push(line);
         } else throw new Error(`Group ${index} 包含尚不支持的动作 ${action.actionType}，未导入`);
       }
-      if (node.dialogue) {
-        const action = actions.find((item: any) => item.actionType === "NOLOC_DIALOG");
-        assertImport(Number(getFlowClipDuration(node, node.dialogue).toFixed(2)) === Number(action.duration), `Group ${index} 的台词结束时间与其他 Clip 冲突，无法按当前 Timeline 模型无损还原`);
+      for (const dialogue of getDialogueClips(node)) {
+        const action = dialogueActions.get(dialogue.id);
+        if (dialogue.advanceMode === "PlayerInput") {
+          assertImport(Number(getFlowClipDuration(node, dialogue).toFixed(2)) === Number(action.duration), `Group ${index} 的玩家按下台词结束时间与其他 Clip 冲突，无法按当前 Timeline 模型无损还原`);
+        }
       }
       const outlets = resolveGroupOutlets(node).outlets;
       assertImport(outlets.length === group.NextGroup.length, `Group ${index} 的出口数量与 NextGroup 不一致`);

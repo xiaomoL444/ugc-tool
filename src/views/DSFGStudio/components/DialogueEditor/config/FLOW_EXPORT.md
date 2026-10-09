@@ -60,6 +60,8 @@ Custom Clip 使用单行输入框填写字符串，时间轴 Clip 标题直接�
 
 ## Public Event（公共事件）
 
+对话轨道支持多段台词。“玩家按下”的 Clip 右端跟随 Timeline 末尾，并使用原有的玩家按下出口；“不触发按下”的 Clip 保存独立持续时间，可拖动左右边缘或在参数面板调整，随后用轨道的 ＋ 继续添加下一段对话。新片段默认接在已有片段末尾；已有玩家按下片段时，先将其改为不触发按下再继续追加。导出逐段写入 `DialogueData`，不触发按下的 `continueDelay` 仍为 `-1`，`ActionClip.duration` 使用该片段的独立持续时间。旧单台词工程仍可打开。
+
 Timeline 的 Clip 移动、边缘拉伸及内部延迟拖动共用手势快照：按下时固定显示时长与每秒像素比例，坐标变化包含横向滚动增量，手势期间画布只扩展不缩短。松手后恢复自动适配，避免 Clip 末端改变自动时长后反过来改变拖动坐标。取消指针、窗口失焦、切换 Group 或卸载面板均结束手势并清理监听。
 
 Public Event Line 支持多个可设置持续时间的 Clip，默认 1 秒，允许 0 秒，旧文件的 0 秒保持不变。面板持续时间和 Timeline 片段长度共用 clip.duration，参与时间轴结束时间计算，导出 `NOLOC_TRIGGERPUBLIC` 的 `duration` 使用该值。预设定义事件名和带名称、类型、默认值的参数，Clip 内填写每个参数。事件名占 `stringParams[0]`，字符串参数从第 1 项开始；Int32、Guid、ConfigReference、EntityReference 分别写入 `intParams`、`guidParams`、`configParams`、`prefabParams`，各自从第 0 项开始。每个列表上限 100 项，因此最多 99 个字符串参数。

@@ -31,7 +31,10 @@ import {
   DEFAULT_CONTINUE_DELAY_TIME,
   isInstantPerformanceClip,
   DEFAULT_TIMELINE_DURATION,
+  getPerformanceClipDuration,
+  MIN_CLIP_DURATION,
 } from "./groupTimeline";
+import { getDialogueClips } from "./dialogueClips";
 import {
   createDefaultQxqyStructIds,
   normalizeQxqyStructIds,
@@ -189,6 +192,9 @@ export function createEmptyDialogueProject(): DialogueProject {
 function normalizeDialogueNode(id: string, value: unknown): DialogueNode {
   const source = isRecord(value) ? value : {};
   const sourceDialogue = isRecord(source.dialogue) ? source.dialogue : undefined;
+  const additionalDialogues = Array.isArray(source.additionalDialogues)
+    ? source.additionalDialogues.filter(isRecord).map(normalizeDialogueClip)
+    : [];
   const sourceSelect = isRecord(source.select) ? source.select : undefined;
   const lines = Array.isArray(source.lines)
     ? source.lines.map((line, index) => normalizeLine(line, index))
@@ -215,7 +221,7 @@ function normalizeDialogueNode(id: string, value: unknown): DialogueNode {
       : 0,
   );
 
-  return {
+  const node: DialogueNode = {
     id,
     name:
       typeof source.name === "string" && source.name.trim()
@@ -228,6 +234,7 @@ function normalizeDialogueNode(id: string, value: unknown): DialogueNode {
     durationMode: source.durationMode === "Fixed" ? "Fixed" : "Auto",
     duration: optionalNonNegativeNumber(source.duration),
     dialogue,
+    ...(additionalDialogues.length ? { additionalDialogues } : {}),
     select,
     focusPush: isRecord(source.focusPush)
       ? {
@@ -252,6 +259,29 @@ function normalizeDialogueNode(id: string, value: unknown): DialogueNode {
       ? source.next.filter((item): item is string => typeof item === "string")
       : [],
   };
+  if (!node.dialogue && node.additionalDialogues?.length) {
+    node.dialogue = node.additionalDialogues.shift();
+    if (!node.additionalDialogues.length) delete node.additionalDialogues;
+  }
+  // Earlier files anchored every dialogue to the complete Group. Preserve that
+  // endpoint once when converting old non-input clips into freely sized clips.
+  let legacyEnd = node.timeline.duration;
+  for (const clip of getDialogueClips(node)) {
+    legacyEnd = Math.max(legacyEnd, clip.startTime + (
+      clip.advanceMode === "None" && clip.duration !== undefined
+        ? clip.duration : clip.continueDelayTime));
+  }
+  if (node.select) legacyEnd = Math.max(legacyEnd, node.select.startTime + node.select.continueDelayTime);
+  if (node.focusPush) legacyEnd = Math.max(legacyEnd, node.focusPush.startTime);
+  for (const line of node.lines) for (const clip of line.clips) {
+    legacyEnd = Math.max(legacyEnd, clip.startTime + getPerformanceClipDuration(clip));
+  }
+  for (const clip of getDialogueClips(node)) {
+    if (clip.advanceMode === "None" && clip.duration === undefined) {
+      clip.duration = Math.max(MIN_CLIP_DURATION, legacyEnd - clip.startTime);
+    }
+  }
+  return node;
 }
 
 function normalizeConditionBranchNode(
@@ -318,6 +348,8 @@ function normalizeDialogueClip(value: unknown): DialogueClip {
       typeof source.content === "string" ? source.content : "新建台词",
     subtitle: typeof source.subtitle === "string" ? source.subtitle : "",
     startTime: nonNegativeNumber(source.startTime, 0),
+    ...(typeof source.duration === "number" && Number.isFinite(source.duration) && source.duration >= 0
+      ? { duration: Math.max(MIN_CLIP_DURATION, source.duration) } : {}),
     continueDelayTime: nonNegativeNumber(
       source.continueDelayTime,
       DEFAULT_CONTINUE_DELAY_TIME,

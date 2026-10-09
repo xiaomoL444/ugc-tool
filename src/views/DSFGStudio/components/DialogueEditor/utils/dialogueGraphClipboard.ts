@@ -4,6 +4,7 @@ import type { ConditionBranchNode } from "../types/ConditionBranchNode";
 import type { DialogueProject, FlowNodeData } from "../types/FileStruct";
 import { toSerializableDialogueProject } from "./dialogueProjectCodec";
 import { normalizeSourceHandle, resolveGroupOutlets, selectOutletId } from "./groupOutlets";
+import { getDialogueClips } from "./dialogueClips";
 
 type ClipboardNode =
   | { kind: "group"; graph: Node<FlowNodeData>; node: DialogueNode }
@@ -47,13 +48,18 @@ const list = (value: unknown, check: (item: unknown) => boolean) => Array.isArra
 const stringList = (value: unknown) => list(value, item => typeof item === "string");
 const identified = (value: unknown): value is Record<string, unknown> & { id: string } => record(value) && typeof value.id === "string" && !!value.id;
 
+function validDialogue(value: unknown) {
+  return identified(value) && strings(value, "style", "speaker", "content", "subtitle")
+    && numbers(value, "startTime", "continueDelayTime", "autoContinue")
+    && (value.duration === undefined || numbers(value, "duration"))
+    && ["PlayerInput", "None"].includes(String(value.advanceMode)) && stringList(value.nodeGraphEvent);
+}
+
 function validGroup(value: unknown) {
   if (!identified(value) || !strings(value, "name") || !["Dialogue", "Option", "Branch"].includes(String(value.nodeType))
     || !["Auto", "Fixed"].includes(String(value.durationMode)) || !record(value.timeline) || !numbers(value.timeline, "duration")) return false;
-  if (value.dialogue !== undefined && (!identified(value.dialogue)
-    || !strings(value.dialogue, "style", "speaker", "content", "subtitle")
-    || !numbers(value.dialogue, "startTime", "continueDelayTime", "autoContinue")
-    || !["PlayerInput", "None"].includes(String(value.dialogue.advanceMode)) || !stringList(value.dialogue.nodeGraphEvent))) return false;
+  if (value.dialogue !== undefined && !validDialogue(value.dialogue)) return false;
+  if (value.additionalDialogues !== undefined && !list(value.additionalDialogues, validDialogue)) return false;
   if (value.select !== undefined && (!identified(value.select) || !strings(value.select, "style")
     || !numbers(value.select, "startTime", "continueDelayTime") || !stringList(value.select.params)
     || !list(value.select.options, item => identified(item) && strings(item, "content") && numbers(item, "icon")))) return false;
@@ -121,7 +127,7 @@ export function pasteDialogueGraphNodes(source: DialogueProject, clipboard: Dial
     } else {
       const group = node as DialogueNode;
       group.next = [];
-      if (group.dialogue) group.dialogue.id = newId("dialogue");
+      for (const dialogue of getDialogueClips(group)) dialogue.id = newId("dialogue");
       if (group.select) {
         group.select.id = newId("select");
         for (const option of group.select.options) {

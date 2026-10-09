@@ -7,6 +7,8 @@ const SCOPES = ['all', 'sound', 'effect', 'bgm'];
 const ID = /^(sound|effect|bgm):\d{1,12}$/;
 const encoder = new TextEncoder();
 const catalogs = new WeakMap();
+// Query state is derived from the catalog; eviction leaves its assets, version and lexical shards intact.
+export function clearAssetSearchCache(catalog) { return catalogs.delete(catalog); }
 const aliases = [
   [/受到攻[击擊]|受擊|挨打|被打|被[击擊]中|被攻[击擊]|被弾|\bhurt\b|\bhit reaction\b/giu, '受击'],
   [/雷聲|雷鳴|\bthunder\b|гром\p{L}*/giu, '雷声'],
@@ -156,7 +158,7 @@ function stateFor(env = {}) {
       const asset = state.byId.get(id);
       if (!asset || !['feature', 'suggestion', 'audio', 'audioSuggestion'].includes(facet) || !Number.isInteger(length) || length < 1) fail('CATALOG_INVALID', 'Invalid lexical document', 503);
       const disabled = shard.excludeKinds?.includes(asset.kind) === true;
-      state.docs.push({ asset, facet, length, disabled, normalized: null, normalizedCache: state.normalizedDocs });
+      state.docs.push({ asset, facet, length, disabled, normalized: null, normalizedBoth: null, normalizedCache: state.normalizedDocs });
       if (!disabled) { totalLength += length; activeDocCount += 1; }
     }
     state.shards.push({ postings: index.postings, offset });
@@ -216,10 +218,10 @@ function detailFor(asset, locale) {
   return { resourceId: asset.resourceId, id: asset.id, kind: asset.kind, title: name.value, titleLocale: name.locale, href: hrefFor(asset),
     description: clip([desc.value, full.value].filter(Boolean).join('\n'), 1900), shortDescription: clip(desc.value || full.value, 220),
     fullDescription: clip(full.value, 1500), descriptionLocale: desc.locale || full.locale,
-    keywords: localValue(asset.keywords, locale, []).value.slice(0, 16), suggestedUses: localValue(asset.suggestedUses, locale, []).value.slice(0, 3),
+    keywords: localValue(asset.keywords, locale, []).value.slice(0, 16), suggestedUses: localValue(asset.suggestedUses, locale, []).value.slice(0, 10),
     audioDescription: clip([audioDesc.value, audioFull.value].filter(Boolean).join('\n'), 1900), audioShortDescription: clip(audioDesc.value || audioFull.value, 220),
     audioDescriptionLocale: audioDesc.locale || audioFull.locale, audioKeywords: localValue(asset.audio?.keywords, locale, []).value.slice(0, 16),
-    audioSuggestedUses: localValue(asset.audio?.suggestedUses, locale, []).value.slice(0, 3), hasAudio: asset.hasAudio === true,
+    audioSuggestedUses: localValue(asset.audio?.suggestedUses, locale, []).value.slice(0, 10), hasAudio: asset.hasAudio === true,
     ...(asset.duration != null ? { duration: asset.duration } : {}), ...(asset.isLoop != null ? { isLoop: asset.isLoop } : {}),
     ...(asset.category ? { category: asset.category } : {}), ...(asset.giVersion ? { giVersion: asset.giVersion } : {}) };
 }
@@ -273,11 +275,18 @@ function allowedDoc(doc, input, scope) {
     if (doc.normalized == null) {
       if (doc.normalizedCache.size >= 256) {
         const oldest = doc.normalizedCache.keys().next().value;
-        oldest.normalized = null; doc.normalizedCache.delete(oldest);
+        oldest.normalized = null; oldest.normalizedBoth = null; doc.normalizedCache.delete(oldest);
       }
       doc.normalized = normalizeAssetText(facetTextFor(asset, facet)); doc.normalizedCache.set(doc, true);
     }
-    if (f.includeTerms.some(term => !doc.normalized.includes(normalizeAssetText(term))) || f.excludeTerms.some(term => doc.normalized.includes(normalizeAssetText(term)))) return false;
+    // Hard terms may span observed features and suggested uses in the same
+    // evidence channel. Visual descriptions never satisfy an audio constraint.
+    if (input.searchType === 'both' && doc.normalizedBoth == null) {
+      const companion = audioMatch ? facet === 'audio' ? 'audioSuggestion' : 'audio' : facet === 'feature' ? 'suggestion' : 'feature';
+      doc.normalizedBoth = `${doc.normalized}\n${normalizeAssetText(facetTextFor(asset, companion))}`;
+    }
+    const text = input.searchType === 'both' ? doc.normalizedBoth : doc.normalized;
+    if (f.includeTerms.some(term => !text.includes(normalizeAssetText(term))) || f.excludeTerms.some(term => text.includes(normalizeAssetText(term)))) return false;
   }
   return true;
 }
@@ -299,20 +308,40 @@ function rankKeyword(state, input, scope) {
       const index = packed >> 3, tf = packed & 7;
       const doc = state.docs[index]; if (!allowedDoc(doc, input, scope)) continue;
       const normalization = tf + 1.2 * (0.25 + 0.75 * doc.length / state.averageLength);
-      scores.set(index, (scores.get(index) || 0) + idf * tf * 2.2 / normalization);
+      let item = scores.get(index);
+      if (!item) scores.set(index, item = { doc, termScores: new Map(), exactScore: 0 });
+      item.termScores.set(term, idf * tf * 2.2 / normalization);
     }
   }
   // Exact trusted IDs are searchable, without inventing auditory evidence for visual assets.
   const exactId = query.trim().match(/^(?:(sound|effect|bgm):)?(\d{1,12})$/);
   if (exactId) state.docs.forEach((doc, index) => {
-    if (doc.asset.id === exactId[2] && (!exactId[1] || doc.asset.kind === exactId[1]) && allowedDoc(doc, input, scope)) scores.set(index, 1000);
+    if (doc.asset.id === exactId[2] && (!exactId[1] || doc.asset.kind === exactId[1]) && allowedDoc(doc, input, scope)) scores.set(index, { doc, termScores: new Map(), exactScore: 1000 });
   });
-  const ranked = [...scores].map(([index, score]) => ({ doc: state.docs[index], score }));
+  // Combine complementary facets before resource deduplication. Count each
+  // query term once so repeating an acoustic word in use advice adds no bonus.
+  const channels = new Map();
+  for (const item of scores.values()) {
+    const audio = ['audio', 'audioSuggestion'].includes(item.doc.facet);
+    const key = `${item.doc.asset.resourceId}:${audio ? 'audio' : 'feature'}`;
+    let channel = channels.get(key);
+    if (!channel) channels.set(key, channel = { doc: item.doc, termScores: new Map(), exactScore: 0 });
+    if (['feature', 'audio'].includes(item.doc.facet)) channel.doc = item.doc;
+    channel.exactScore = Math.max(channel.exactScore, item.exactScore);
+    for (const [term, score] of item.termScores) channel.termScores.set(term, Math.max(channel.termScores.get(term) || 0, score));
+  }
+  const ranked = [...channels.values()].map(item => ({ doc: item.doc, score: item.exactScore || [...item.termScores.values()].reduce((sum, score) => sum + score, 0) }));
   ranked.sort((a, b) => b.score - a.score || a.doc.asset.resourceId.localeCompare(b.doc.asset.resourceId));
   return ranked;
 }
 function deduplicate(ranked) {
   const seen = new Set(); return ranked.filter(item => { const id = item.doc.asset.resourceId; if (seen.has(id)) return false; seen.add(id); return true; });
+}
+function evidenceKey(item) {
+  return `${item.doc.asset.resourceId}:${['audio', 'audioSuggestion'].includes(item.doc.facet) ? 'audio' : 'feature'}`;
+}
+function deduplicateEvidence(ranked) {
+  const seen = new Set(); return ranked.filter(item => { const key = evidenceKey(item); if (seen.has(key)) return false; seen.add(key); return true; });
 }
 function diversify(ranked) {
   const pool = deduplicate(ranked).slice(0, 600).map(item => ({ ...item, group: senseGroup(item.doc.asset) })), selected = [], categoryCounts = new Map();
@@ -371,10 +400,15 @@ async function hybridRank(state, keyword, input, scope, env) {
     }
     vectors.sort((a, b) => b.score - a.score);
     const fused = new Map();
-    for (const list of [deduplicate(keyword), deduplicate(vectors)]) list.slice(0, 200).forEach((item, index) => {
-      const id = item.doc.asset.resourceId, previous = fused.get(id);
+    for (const list of [deduplicateEvidence(keyword), deduplicateEvidence(vectors)]) list.slice(0, 200).forEach((item, index) => {
+      const key = evidenceKey(item), previous = fused.get(key);
       const addition = 1 / (60 + index + 1);
-      if (previous) previous.score += addition; else fused.set(id, { doc: item.doc, score: addition });
+      if (previous) {
+        previous.score += addition;
+        // Keep acoustic/visual facts available when a use-only lexical hit gains
+        // matching observed evidence from the vector result in this channel.
+        if (['suggestion', 'audioSuggestion'].includes(previous.doc.facet) && ['feature', 'audio'].includes(item.doc.facet)) previous.doc = item.doc;
+      } else fused.set(key, { doc: item.doc, score: addition });
     });
     return { ranked: diversify([...fused.values()].sort((a, b) => b.score - a.score)), mode: 'hybrid' };
   } catch {
@@ -396,18 +430,24 @@ async function fingerprint(input, version, scope, env) {
     model: env.EMBEDDING_MODEL || '', dimensions: env.EMBEDDING_DIMENSIONS || '' })));
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
-function candidateFor(item, locale) {
+function candidateFor(item, locale, queryTerms) {
   const asset = item.doc.asset, audioMatch = ['audio', 'audioSuggestion'].includes(item.doc.facet);
   const suggestion = ['suggestion', 'audioSuggestion'].includes(item.doc.facet);
   const desc = localValue(audioMatch ? asset.audio?.description : asset.description, locale);
   const full = localValue(audioMatch ? asset.audio?.detailedDescription : asset.detailedDescription, locale);
   const keywords = localValue(audioMatch ? asset.audio?.keywords : asset.keywords, locale, []).value;
-  const uses = localValue(audioMatch ? asset.audio?.suggestedUses : asset.suggestedUses, locale, []).value;
+  const uses = localValue(audioMatch ? asset.audio?.suggestedUses : asset.suggestedUses, locale, []).value
+    .map((value, index) => { const text = normalizeAssetText(value); return { value, index, score: queryTerms.filter(term => text.includes(term)).length }; })
+    .sort((a, b) => b.score - a.score || a.index - b.index).map(item => item.value);
+  const observed = clip(desc.value || full.value, 220);
+  const suggestedUses = uses.slice(0, 3).map(value => clip(value, 200));
   return { resourceId: asset.resourceId, title: localValue(asset.titles, locale, `${asset.kind} ${asset.id}`).value, kind: asset.kind,
-    description: clip(suggestion ? uses.join('；') : desc.value || full.value, 220), descriptionLocale: suggestion ? localValue(audioMatch ? asset.audio?.suggestedUses : asset.suggestedUses, locale, []).locale : desc.locale || full.locale,
-    keywords: keywords.slice(0, 6).map(value => clip(value, 80)), ...(suggestion ? { suggestedUses: uses.slice(0, 3).map(value => clip(value, 200)) } : {}),
+    // Audio-projected descriptions must stay auditory even for a use-only hit;
+    // older clients copy this field into audioDescription.
+    description: suggestion && !audioMatch ? clip(uses.join('；'), 220) : observed, descriptionLocale: suggestion && !audioMatch ? localValue(asset.suggestedUses, locale, []).locale : desc.locale || full.locale,
+    keywords: keywords.slice(0, 6).map(value => clip(value, 80)), suggestedUses,
     ...(asset.duration != null ? { duration: asset.duration } : {}), hasAudio: asset.hasAudio === true, href: hrefFor(asset),
-    matchType: suggestion ? 'suggestion' : 'feature', ...(audioMatch ? { audioMatch: true } : {}) };
+    matchType: suggestion ? 'suggestion' : 'feature', ...(audioMatch ? { audioMatch: true, audioDescription: observed, audioSuggestedUses: suggestedUses } : {}) };
 }
 function musicDescriptionsMissing(state) {
   let hasMusic = false;
@@ -451,9 +491,9 @@ export async function searchAssets(raw, env = {}) {
     if (state.resultsCache.size >= 50) state.resultsCache.delete(state.resultsCache.keys().next().value);
     state.resultsCache.set(hash, retrieval);
   }
-  const end = Math.min(offset + input.limit, retrieval.ranked.length);
+  const end = Math.min(offset + input.limit, retrieval.ranked.length), terms = tokenize(queryFor(input), true);
   return { indexVersion: state.catalog.indexVersion, mode: retrieval.mode, effectiveScope: scope, matchOn: input.matchOn, total: retrieval.ranked.length,
-    candidates: retrieval.ranked.slice(offset, end).map(item => candidateFor(item, input.locale)),
+    candidates: retrieval.ranked.slice(offset, end).map(item => candidateFor(item, input.locale, terms)),
     nextCursor: end < retrieval.ranked.length ? encodeCursor({ v: state.catalog.indexVersion, h: hash, o: end }) : null,
     coverage: state.catalog.coverage, ...(retrieval.retrievalWarning ? { retrievalWarning: retrieval.retrievalWarning } : {}),
     ...(scope === 'bgm' && retrieval.ranked.length === 0 && musicDescriptionsMissing(state)

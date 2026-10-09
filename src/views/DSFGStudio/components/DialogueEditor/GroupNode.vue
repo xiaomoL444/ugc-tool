@@ -16,6 +16,7 @@ import {
   getGroupTimelineEnd,
   getPerformanceClipDuration,
 } from "./utils/groupTimeline";
+import { getDialogueClips } from "./utils/dialogueClips";
 
 const props = withDefaults(defineProps<{
   id: string;
@@ -46,6 +47,10 @@ function toSeconds(value: unknown) {
 const performanceClips = computed(() =>
   props.node.lines.flatMap((line) => line.clips),
 );
+const dialogues = computed(() => getDialogueClips(props.node));
+const dialogueSummary = computed(() => dialogues.value.map(clip =>
+  `${clip.speaker ? `${clip.speaker}：` : ""}${clip.content}`,
+).join(" / "));
 const autoDuration = computed(() => getGroupTimelineEnd(props.node));
 
 const duration = computed(() =>
@@ -169,18 +174,15 @@ const previewSegments = computed(() => {
     <section class="group-content">
       <div
         class="group-dialogue"
-        :class="{ empty: !node.dialogue }"
-        :title="node.dialogue?.content"
+        :class="{ empty: !dialogues.length }"
+        :title="dialogueSummary"
       >
-        <template v-if="node.dialogue">
-          {{ node.dialogue.speaker ? `${node.dialogue.speaker}：` : "" }}{{
-            node.dialogue.content
-          }}
-        </template>
+        <template v-if="dialogues.length">{{ dialogueSummary }}</template>
         <template v-else>暂无 Dialogue Clip</template>
       </div>
 
       <div class="group-stats">
+        <span v-if="dialogues.length > 1">{{ dialogues.length }} 台词</span>
         <span>{{ performanceClips.length }} 演出</span>
         <span>{{ node.select?.options.length ?? 0 }} 选项</span>
       </div>

@@ -5,7 +5,7 @@ import type { AssetFeatureDescription } from '../../utils/assetFeatures';
 import { assetFeatureLabels } from './labels';
 import AssetFeaturePanel from './AssetFeaturePanel.vue';
 
-const props = defineProps<{ parts: AssetFeatureDescription[]; locale: string }>();
+const props = defineProps<{ parts: AssetFeatureDescription[]; locale: string; iconOnly?: boolean }>();
 const labels = computed(() => assetFeatureLabels(props.locale));
 const summary = computed(() => props.parts.map(part => part.short).filter(Boolean).join(' · '));
 const anchor = ref<HTMLElement | null>(null), tooltip = ref<HTMLElement | null>(null);
@@ -49,10 +49,11 @@ onBeforeUnmount(() => listen(false));
 
 <template>
   <span v-if="summary" ref="anchor" class="asset-feature-summary" role="button" tabindex="0"
+    :class="{ 'icon-only': iconOnly }"
     :aria-label="`${labels.expand}: ${summary}`" :aria-expanded="visible" :aria-describedby="visible ? tooltipId : undefined"
     @pointerenter="enter" @pointerleave="leave" @pointerdown.stop="pointerDown" @click.stop="click"
     @focus="focus" @blur="hide" @keydown="keyDown" @keydown.escape.stop="hide" @keydown.enter.stop.prevent="toggle" @keydown.space.stop.prevent="toggle">
-    <span class="asset-feature-summary-text">{{ summary }}</span>
+    <span v-if="!iconOnly" class="asset-feature-summary-text">{{ summary }}</span>
     <svg aria-hidden="true" viewBox="0 0 16 16" class="asset-feature-info"><circle cx="8" cy="8" r="5.8" /><path d="M8 7v4M8 4.5v.3" /></svg>
   </span>
   <Teleport to="body">
@@ -64,6 +65,7 @@ onBeforeUnmount(() => listen(false));
 
 <style scoped>
 .asset-feature-summary { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; color: #667f9e; cursor: help; font-size: 12px; line-height: 1.5; text-align: start; }
+.asset-feature-summary.icon-only { box-sizing: border-box; flex: none; justify-content: center; width: 24px; height: 23px; }
 .asset-feature-summary-text { display: block; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-feature-info { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; }
 .asset-feature-summary:hover, .asset-feature-summary:focus-visible { color: #1389e0; }

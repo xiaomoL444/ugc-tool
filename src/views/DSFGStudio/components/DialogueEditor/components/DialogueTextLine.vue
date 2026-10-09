@@ -5,14 +5,14 @@ import type { DialogueTextEdit, DialogueTextField } from "../utils/dialogueTextE
 import { normalizeDialogueInput, sanitizeDialogueInput, preventDialogueLineBreak } from "../utils/dialogueTextInput";
 import { dialogueStyleShowsTitle, getDialogueStyles } from "../config/dialogueStyleRegistry";
 import DialogueStyleSelect from "./DialogueStyleSelect.vue";
-const props = defineProps<{ line: TextPreviewLine; speakerAlias?: string; index: number; canMoveUp: boolean; canMoveDown: boolean; movable: boolean; repeatSpeaker?: boolean }>();
+const props = withDefaults(defineProps<{ line: TextPreviewLine; speakerAlias?: string; index: number; canMoveUp: boolean; canMoveDown: boolean; movable: boolean; canInsert?: boolean; repeatSpeaker?: boolean }>(), { canInsert: true });
 const avatarLabel = computed(() => props.speakerAlias || props.line.speaker.trim().slice(0, 1) || "旁");
 const emit = defineEmits<{
   edit: [edit: DialogueTextEdit]; move: [direction: number]; insert: []; configure: []; addDialogue: []; remove: []; pickSpeaker: [];
 }>();
 const field = (name: DialogueTextField) => computed({
   get: () => props.line[name],
-  set: (value: string) => emit("edit", { nodeId: props.line.nodeId, field: name, value: name === "content" ? normalizeDialogueInput(value) : value }),
+  set: (value: string) => emit("edit", { nodeId: props.line.nodeId, clipId: props.line.clipId, field: name, value: name === "content" ? normalizeDialogueInput(value) : value }),
 });
 const speaker = field("speaker");
 const subtitle = field("subtitle");
@@ -42,7 +42,7 @@ const hue = computed(() => [...props.line.speaker].reduce((hash, char) => (hash 
 function keydown(event: KeyboardEvent) {
   if (event.isComposing || event.keyCode === 229) return;
   if (event.key === "Enter" && (event.target as HTMLElement)?.tagName === "TEXTAREA") event.preventDefault();
-  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); emit("insert"); }
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); if (props.canInsert) emit("insert"); }
   if (event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) {
     event.preventDefault();
     if (event.key === "ArrowUp" ? props.canMoveUp : props.canMoveDown) emit("move", event.key === "ArrowUp" ? -1 : 1);
@@ -58,9 +58,9 @@ function keydown(event: KeyboardEvent) {
     </div>
     <div class="line-body">
       <div class="line-actions" role="group" aria-label="台词操作">
-        <button type="button" title="插入台词（Ctrl+Enter）" aria-label="插入台词" @click="emit('insert')">＋</button>
+        <button type="button" :disabled="!canInsert" :title="canInsert ? '插入台词（Ctrl+Enter）' : '此节点含多段对话，请在 Timeline 中添加'" aria-label="插入台词" @click="emit('insert')">＋</button>
         <button type="button" title="在节点图配置此句 Clip" @click="emit('configure')">Clip ↗</button>
-        <button type="button" class="delete-line" aria-label="删除对话" :title="line.clipCount ? `删除此句及附带的 ${line.clipCount} 个 Clip（带选项卡时保留选项与其他 Clip）` : '删除此句对话，可立即撤销'" @click="emit('remove')">删除</button>
+        <button type="button" class="delete-line" aria-label="删除对话" :title="(line.dialogueCount ?? 1) > 1 ? '删除当前 Dialogue Clip，保留其他台词与演出，可立即撤销' : line.clipCount ? `删除此句及附带的 ${line.clipCount} 个 Clip（带选项卡时保留选项与其他 Clip）` : '删除此句对话，可立即撤销'" @click="emit('remove')">删除</button>
       </div>
       <template v-if="line.hasDialogue">
         <div class="line-identity" :class="{ 'without-title': !showTitle }">
@@ -75,7 +75,7 @@ function keydown(event: KeyboardEvent) {
       </template>
       <button v-else class="add-dialogue" type="button" @click="emit('addDialogue')">＋ 为此段添加台词</button>
       <div v-if="line.clipCount > 0" class="line-clip-summary">
-        <button type="button" class="clip-count" :aria-label="`此句含 ${line.clipCount} 个演出 Clip，点击配置`" title="在节点图查看此句附带的 Clip" @click="emit('configure')">{{ line.clipCount }} 个 Clip ↗</button>
+        <button type="button" class="clip-count" :aria-label="`此节点含 ${line.clipCount} 个演出 Clip，点击配置`" title="在节点图查看此节点的 Clip" @click="emit('configure')">{{ line.clipCount }} 个 Clip ↗</button>
       </div>
     </div>
   </div>

@@ -21,10 +21,10 @@ function asset(kind, id, feature, options = {}) {
   return { resourceId: `${kind}:${id}`, id: String(id), kind, titles: { 'zh-CN': options.title || feature },
     description: { 'zh-CN': options.description || feature }, detailedDescription: {}, keywords: {},
     suggestedUses: options.uses ? { 'zh-CN': [options.uses] } : {},
-    audio: { description: audio ? { 'zh-CN': audio } : {}, detailedDescription: {}, keywords: {}, suggestedUses: {} },
+    audio: { description: audio ? { 'zh-CN': audio } : {}, detailedDescription: {}, keywords: {}, suggestedUses: options.audioUses ? { 'zh-CN': [options.audioUses] } : {} },
     hasAudio: kind === 'sound' || kind === 'bgm' || options.hasAudio === true,
     duration: options.duration ?? 1, isLoop: options.isLoop ?? false, category: options.category || kind,
-    facetTexts: { feature, audio, suggestion: options.uses || '', audioSuggestion: '' } };
+    facetTexts: { feature, audio, suggestion: options.uses || '', audioSuggestion: options.audioUses || '' } };
 }
 function fixture(assets, version = 'fixture-v1') {
   return { schemaVersion: 1, indexVersion: version, sourceBase: 'offline-fixture', coverage: { total: assets.length }, assets };
@@ -206,6 +206,85 @@ test('suggested use search is separately labeled and is not presented as observe
   assert.equal((await searchAssets({ query: '科幻电梯', searchType: 'feature' }, env)).total, 0);
 });
 
+test('sound searches combine use and acoustic evidence before deduplication without changing feature-only semantics', async () => {
+  const env = envFor([
+    asset('sound', 1, '尖锐 上扬', { title: '音色一' }),
+    asset('sound', 2, '低沉 闷响', { title: '音色二', uses: '升级反馈' }),
+    asset('sound', 3, '尖锐 上扬', { title: '音色三', uses: '升级反馈' }),
+  ]);
+  const input = { query: '升级 尖锐', scope: 'sound', matchOn: 'audio' };
+  const combined = await searchAssets(input, env);
+  assert.equal(combined.candidates[0].resourceId, 'sound:3');
+  assert.equal(combined.candidates[0].matchType, 'feature');
+  assert.equal(combined.candidates[0].description, '尖锐 上扬');
+  assert.deepEqual(combined.candidates[0].suggestedUses, ['升级反馈']);
+  assert.doesNotMatch(combined.candidates[0].description, /升级/);
+  const features = await searchAssets({ ...input, searchType: 'feature' }, env);
+  assert.deepEqual(features.candidates.map(item => item.resourceId), ['sound:1', 'sound:3'], 'Use advice cannot boost a feature-only search');
+  assert.equal((await searchAssets({ query: '升级', scope: 'sound', searchType: 'feature' }, env)).total, 0);
+  const uses = await searchAssets({ ...input, searchType: 'suggestion' }, env);
+  assert.deepEqual(uses.candidates.map(item => item.resourceId), ['sound:2', 'sound:3']);
+  assert.ok(uses.candidates.every(item => item.matchType === 'suggestion'));
+});
+
+test('hard include and exclude terms span only the selected feature/use channel in both mode', async () => {
+  const env = envFor([
+    asset('sound', 1, '尖锐 上扬', { title: '音色一' }),
+    asset('sound', 2, '低沉 闷响', { title: '音色二', uses: '升级反馈' }),
+    asset('sound', 3, '尖锐 上扬', { title: '音色三', uses: '升级反馈' }),
+  ]);
+  const input = { query: '尖锐', scope: 'sound', matchOn: 'audio', filters: { includeTerms: ['尖锐', '升级'] } };
+  assert.deepEqual((await searchAssets(input, env)).candidates.map(item => item.resourceId), ['sound:3']);
+  // These run against the same cache: a combined filter must never contaminate
+  // later explicit feature/suggestion filters or silently drop a hard term.
+  for (const searchType of ['feature', 'suggestion']) assert.equal((await searchAssets({ ...input, searchType }, env)).total, 0);
+  assert.deepEqual((await searchAssets({ ...input, filters: { includeTerms: ['尖锐'], excludeTerms: ['升级'] } }, env)).candidates.map(item => item.resourceId), ['sound:1']);
+  assert.deepEqual((await searchAssets({ ...input, searchType: 'feature', filters: { excludeTerms: ['升级'] } }, env)).candidates.map(item => item.resourceId), ['sound:1', 'sound:3']);
+});
+
+test('effect audio and visual uses cannot lend each other query scores or hard-filter evidence', async () => {
+  const env = envFor([
+    asset('effect', 1, '尖锐 光束', { title: '特效一', uses: '升级反馈', hasAudio: true, audio: '低沉 闷响', audioUses: '危险提示' }),
+    asset('effect', 2, '绿色 光环', { title: '特效二', hasAudio: true, audio: '尖锐 上扬', audioUses: '升级反馈' }),
+    asset('effect', 3, '绿色 光环', { title: '特效三', uses: '升级反馈', hasAudio: true, audio: '尖锐 上扬' }),
+    asset('effect', 4, '尖锐 光束', { title: '无声特效', uses: '升级反馈', hasAudio: false, audio: '尖锐 上扬', audioUses: '升级反馈' }),
+  ]);
+  const input = { query: '升级 尖锐', scope: 'effect', matchOn: 'audio', includeEffectAudio: false };
+  const audio = await searchAssets(input, env);
+  assert.equal(audio.candidates[0].resourceId, 'effect:2');
+  assert.deepEqual(audio.candidates.map(item => item.resourceId).sort(), ['effect:2', 'effect:3']);
+  assert.equal(audio.candidates[0].description, '尖锐 上扬');
+  assert.equal(audio.candidates[0].audioDescription, '尖锐 上扬');
+  assert.deepEqual(audio.candidates[0].suggestedUses, ['升级反馈']);
+  assert.ok(audio.candidates.every(item => item.audioMatch));
+  const hard = { ...input, filters: { includeTerms: ['升级', '尖锐'] } };
+  assert.deepEqual((await searchAssets(hard, env)).candidates.map(item => item.resourceId), ['effect:2']);
+  assert.deepEqual((await searchAssets({ ...hard, matchOn: 'any' }, env)).candidates.map(item => item.resourceId).sort(), ['effect:1', 'effect:2', 'effect:4'], 'An unrestricted query still cannot combine visual upgrade advice with an unrelated sharp soundtrack');
+  assert.deepEqual((await searchAssets({ ...hard, matchOn: 'visual', filters: { includeTerms: ['升级', '尖锐'], hasAudio: true } }, env)).candidates.map(item => item.resourceId), ['effect:1']);
+  assert.deepEqual((await searchAssets({ ...input, filters: { includeTerms: ['尖锐'], excludeTerms: ['绿色'] } }, env)).candidates.map(item => item.resourceId).sort(), ['effect:2', 'effect:3']);
+});
+
+test('feature summaries retain query-relevant uses, and use-only audio summaries never substitute advice for observed sound', async () => {
+  const sound = asset('sound', 1, '尖锐 上扬', { title: '提示音', uses: '无关用途' });
+  sound.suggestedUses['zh-CN'] = ['界面关闭', '战斗命中', '拾取道具', '升级反馈'];
+  sound.facetTexts.suggestion = sound.suggestedUses['zh-CN'].join(' ');
+  const env = envFor([sound, asset('effect', 2, '绿色 光环', { hasAudio: true, audio: '短促 清脆', audioUses: '升级反馈' }),
+    asset('effect', 3, '黄色 光环', { hasAudio: true, audioUses: '升级反馈' })]);
+  const combined = await searchAssets({ query: '尖锐 升级', scope: 'sound', includeEffectAudio: false }, env);
+  assert.equal(combined.candidates[0].matchType, 'feature');
+  assert.equal(combined.candidates[0].suggestedUses[0], '升级反馈');
+  const audio = await searchAssets({ query: '升级', scope: 'effect', matchOn: 'audio', searchType: 'suggestion' }, env);
+  const known = audio.candidates.find(item => item.resourceId === 'effect:2');
+  assert.equal(known.matchType, 'suggestion');
+  assert.equal(known.description, '短促 清脆');
+  assert.equal(known.audioDescription, '短促 清脆');
+  assert.deepEqual(known.suggestedUses, ['升级反馈']);
+  const unknown = audio.candidates.find(item => item.resourceId === 'effect:3');
+  assert.equal(unknown.description, '');
+  assert.equal(unknown.audioDescription, '');
+  assert.deepEqual(unknown.suggestedUses, ['升级反馈']);
+});
+
 test('all kinds have trusted deep links and unknown IDs are never synthesized', async () => {
   const env = envFor([asset('sound', 1, '同名'), asset('effect', 2, '同名'), asset('bgm', 3, '同名')]);
   const result = getAssetDetails(['sound:1', 'effect:2', 'bgm:3', 'sound:999'], 'zh-CN', env);
@@ -349,6 +428,28 @@ test('keyword and hybrid retrieval enforce the same visual/audio facets even if 
   assert.deepEqual(filters.at(-1), { kind: 'effect', facet: 'feature' });
 });
 
+test('hybrid fusion rewards agreement in one channel instead of adding visual advice to unrelated audio vectors', async () => {
+  const env = envFor([
+    asset('effect', 1, '绿色 光环', { title: '特效一', uses: '升级反馈', hasAudio: true, audio: '低沉 闷响' }),
+    asset('effect', 2, '蓝色 光环', { title: '特效二', uses: '升级反馈', hasAudio: true, audio: '短促 清脆', audioUses: '升级反馈' }),
+  ]);
+  Object.assign(env, { ASSET_EMBEDDING: { embedQuery: async () => [1] }, ASSET_VECTORIZE: { query: async () => ({ matches: [
+    { score: .99, metadata: { resourceId: 'effect:1', kind: 'effect', facet: 'audio', indexVersion: 'fixture-v1' } },
+    { score: .9, metadata: { resourceId: 'effect:2', kind: 'effect', facet: 'feature', indexVersion: 'fixture-v1' } },
+    { score: .8, metadata: { resourceId: 'effect:2', kind: 'effect', facet: 'audio', indexVersion: 'fixture-v1' } },
+  ] }) } });
+  const result = await searchAssets({ query: '升级', scope: 'effect', matchOn: 'any' }, env);
+  assert.equal(result.mode, 'hybrid');
+  assert.equal(result.candidates[0].resourceId, 'effect:2', 'Visual advice and unrelated audio on effect:1 cannot create cross-channel agreement');
+  assert.equal(result.candidates[0].matchType, 'feature', 'Observed vector evidence replaces a use-only representative from the same channel');
+  assert.deepEqual(result.candidates[0].suggestedUses, ['升级反馈']);
+  assert.doesNotMatch(result.candidates[0].description, /升级/);
+  const audio = await searchAssets({ query: '升级', scope: 'effect', matchOn: 'audio' }, env);
+  assert.equal(audio.candidates[0].resourceId, 'effect:2');
+  assert.equal(audio.candidates[0].description, '短促 清脆');
+  assert.deepEqual(audio.candidates[0].suggestedUses, ['升级反馈']);
+});
+
 test('missing/failed vector providers fall back honestly and keyword mode makes no embedding call', async () => {
   const env = envFor([asset('sound', 1, '雷声')]);
   const missing = await searchAssets({ query: '雷声' }, { ...env, ASSET_VECTORIZE: {} });
@@ -408,7 +509,7 @@ test('builder CLI accepts offline fixtures and produces a complete reproducible 
     }
     const identities = buildIdentityCatalog(snapshots());
     const { compileSidecar } = require('../../scripts/export-ai-asset-features.cjs');
-    for (const { project, kind } of SOURCES.filter(source => source.kind !== 'bgm')) {
+    for (const { project, kind } of SOURCES) {
       const sidecar = { schemaVersion: 1, project, kind, baseIndexVersion: identities.indexVersion, resources: {},
         i18n: Object.fromEntries(LOCALES.map(locale => [locale.toLowerCase(), {}])) };
       await compileSidecar(sidecar, identities);

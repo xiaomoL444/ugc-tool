@@ -1,3 +1,5 @@
+import type { RequestDiagnostic } from "./requestDiagnostics";
+
 export type SearchScope = "all" | "sound" | "effect" | "bgm";
 export type SearchMatchOn = "any" | "visual" | "audio";
 export type SearchMode = "basic" | "free" | "custom";
@@ -40,6 +42,8 @@ export interface ChatMessage {
   error?: boolean;
   /** Bounded plain model text for a failed response; excluded from model history. */
   rawResponse?: string;
+  /** Whitelisted, redacted diagnostics for a failed request; excluded from model history. */
+  requestDiagnostic?: RequestDiagnostic;
 }
 export interface Conversation {
   id: string;
@@ -48,18 +52,20 @@ export interface Conversation {
   messages: ChatMessage[];
   contextStart: number;
 }
+export type ModelProtocol = "auto" | "openai" | "anthropic";
 export interface ModelConfig {
   baseUrl: string;
   model: string;
   apiKey: string;
   rememberKey: boolean;
+  protocol?: ModelProtocol;
 }
 export interface FreeQuota { remaining: number; limit: number; resetAt: string }
 export interface SearchMatch { resourceId: string; reason: string; matchType: "feature" | "suggestion" }
 export type RetrievalMode = "local" | "keyword" | "hybrid";
 export interface FeatureSync {
   status: "ready" | "stale" | "disabled";
-  hashes: { sound?: string; effect?: string };
+  hashes: { sound?: string; effect?: string; bgm?: string };
   checkedAt?: number;
   lastGoodAt?: number;
   updatedAt?: number;

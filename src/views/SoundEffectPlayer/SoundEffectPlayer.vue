@@ -55,9 +55,12 @@
                           {{ t('soundEffectPlayer.ui.soundDetails', { id, duration: dataJson[id]?.duration }) }}
                         </div>
                       </div>
+                      <span v-if="featureParts(id).length" class="sound-description">
+                        <span class="sound-description-text">{{ featureSummary(id) }}</span>
+                      </span>
                     </ListButton>
-                    <div class="sound-description" @click.stop>
-                      <AssetFeatureSummary v-if="featureParts(id).length" :parts="featureParts(id)" :locale="locale" />
+                    <div v-if="featureParts(id).length" class="sound-details" @click.stop>
+                      <AssetFeatureSummary :parts="featureParts(id)" :locale="locale" icon-only />
                     </div>
                     </div>
                   </div>
@@ -410,11 +413,15 @@
 }
 
 .sound-card .sound-select {
+  position: relative;
   flex: 1;
   min-height: 0;
   padding-bottom: 29px;
 }
-.sound-description { position: absolute; inset: auto 0 0; box-sizing: border-box; display: flex; align-items: center; height: 23px; padding: 0 13px; color: #596b82; font-size: 11px; }
+.sound-description { position: absolute; inset: auto 0 0; box-sizing: border-box; display: flex; align-items: center; height: 23px; padding: 0 36px 0 13px; color: #667f9e; font-size: 12px; line-height: 1.5; text-align: start; }
+.sound-description-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sound-select:hover .sound-description { color: #1389e0; }
+.sound-details { position: absolute; right: 8px; bottom: 0; display: flex; align-items: center; height: 23px; }
 .sound-feature-details { text-align: left; }
 .feature-status { margin: 6px 0 0; color: #6e7a8c; font-size: 12px; line-height: 1.5; }
 
@@ -527,6 +534,7 @@ const featureSearchText = computed(() => new Map(Array.from(assetFeatures.value?
 const featuresLoading = ref(true);
 const featureStatus = computed(() => featuresLoading.value ? "loading" : assetFeatures.value?.status ?? "unavailable");
 const featureParts = (id: string) => assetFeatures.value?.get(id, locale.value) ?? [];
+const featureSummary = (id: string) => featureParts(id).map(part => part.short).filter(Boolean).join(' · ');
 
 const selectedId = ref(""); //选择的音效id
 const selectedFeatureParts = computed(() => featureParts(selectedId.value));

@@ -9,8 +9,8 @@ export interface FeatureIdentity {
 }
 export interface FeatureSidecar {
   schemaVersion: 1;
-  project: 'SoundEffectPlayer' | 'EffectPlayer';
-  kind: 'sound' | 'effect';
+  project: 'SoundEffectPlayer' | 'EffectPlayer' | 'BgmPlayer';
+  kind: 'sound' | 'effect' | 'bgm';
   baseIndexVersion: string;
   resources: Record<string, { searchMetadata: Record<string, unknown> }>;
   i18nSource?: 'project-i18n-v1';
@@ -32,11 +32,12 @@ export const FEATURE_LOCALES: string[];
 export const FEATURE_HASH_ALGORITHM: string;
 export const FEATURE_LIMITS: Record<string, number>;
 export class AssetFeatureError extends Error { code: string; status: number }
+export function extractAssetFeatureDictionary(project: string, dictionary: unknown): Record<string, string>;
 export function extractAssetFeatureDictionaries(project: string, dictionaries: Record<string, unknown>): Record<string, Record<string, string>>;
 export function computeAssetFeatureSourceHash(feature: string, dictionaryHashes: Record<string, string>): Promise<string>;
 export function parseAssetFeatureSidecar(raw: unknown, options?: FeatureParseOptions): FeatureSidecar;
 export function verifyAssetFeatureSidecar(raw: unknown, options?: FeatureParseOptions): Promise<FeatureSidecar>;
 export function computeLexicalFeatureHash(sidecar: FeatureSidecar): Promise<string>;
 export function computeLexicalIndexHash(lexical: Record<string, unknown>): Promise<string>;
-export function computeAssetCatalogVersion(baseIndexVersion: string, hashes: { sound: string; effect: string }): Promise<string>;
-export function normalizeAssetFeatureResources(sidecar: FeatureSidecar, identities: FeatureIdentities, options?: { includeFacetTexts?: boolean }): FeatureAsset[];
+export function computeAssetCatalogVersion(baseIndexVersion: string, hashes: { sound: string; effect: string; bgm?: string }): Promise<string>;
+export function normalizeAssetFeatureResources(sidecar: FeatureSidecar, identities: FeatureIdentities, options?: { includeFacetTexts?: boolean; reuseAsset?: (asset: FeatureAsset) => FeatureAsset }): FeatureAsset[];

@@ -1,10 +1,12 @@
 import type { DialogueProject } from "../types/FileStruct";
 import type { TextPreviewLine } from "./dialogueTextPreview";
+import { getDialogueClips } from "./dialogueClips";
 
 export type DialogueTextField = "speaker" | "subtitle" | "content" | "style";
 
 export interface DialogueTextEdit {
   nodeId: string;
+  clipId?: string;
   field: DialogueTextField;
   value: string;
 }
@@ -23,14 +25,16 @@ export function applyDialogueTextEdit(project: DialogueProject, edit: DialogueTe
   if (!edit || typeof edit !== "object" || typeof edit.nodeId !== "string" || typeof edit.value !== "string") {
     return false;
   }
-  const { nodeId, field, value } = edit;
+  const { nodeId, clipId, field, value } = edit;
+  if (clipId !== undefined && typeof clipId !== "string") return false;
   if (field !== "speaker" && field !== "subtitle" && field !== "content" && field !== "style") return false;
 
   const nodes = project?.dialogue?.nodes;
   if (!nodes || !Object.prototype.hasOwnProperty.call(nodes, nodeId)) return false;
   const node = nodes[nodeId];
-  if (!node || !Object.prototype.hasOwnProperty.call(node, "dialogue")) return false;
-  const dialogue = node.dialogue;
+  if (!node || (!Object.prototype.hasOwnProperty.call(node, "dialogue") &&
+      !Object.prototype.hasOwnProperty.call(node, "additionalDialogues"))) return false;
+  const dialogue = clipId === undefined ? node.dialogue : getDialogueClips(node).find(clip => clip.id === clipId);
   if (!dialogue || typeof dialogue !== "object" || Array.isArray(dialogue)) return false;
   if (dialogue[field] === value) return false;
 

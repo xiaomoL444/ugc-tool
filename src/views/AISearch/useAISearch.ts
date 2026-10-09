@@ -1,13 +1,16 @@
 import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import type { StorageClass } from "../../services/storage/storage";
 import { useI18n } from "vue-i18n";
-import { buildSearchResources, loadResourceCatalog, record, resourceHref, resolveSearchScope, resolveSearchIntent, retrieveResources } from "./resourceCatalog";
-import type { CatalogSnapshot } from "./resourceCatalog";
-import { AISearchError, featureHashesChanged, buildSearchContext, buildSearchPayload, chatCompletionsUrl, previousSearchQuery, requestSearch, requestServerCatalog, requestServerSearchBatch, requestServerAssets } from "./aiSearchService";
+import { record, resourceHref, resolveSearchScope, resolveSearchIntent } from "./resourceCatalog";
+import { AISearchError, fetchAISearch, readAISearchJSON, featureHashesChanged, buildSearchContext, buildSearchPayload, chatCompletionsUrl, previousSearchQuery, requestSearch, parseServerCatalog, requestServerCatalog, requestServerSearchBatch, requestServerAssets } from "./aiSearchService";
 import { buildAgentSearchPayload, requestAgentSearch } from "./agentSearchService";
 import { AISearchArchiveRepository } from "./archiveStorage";
 import { boundedRawResponse } from "./responseDiagnostics";
+import { sanitizeRequestDiagnostic, httpRequestDiagnostic, responseRequestDiagnostic } from "./requestDiagnostics";
+import type { RequestDiagnostic } from "./requestDiagnostics";
 import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS, normalizeResultLimit } from "./resultLimits";
+import { createDataUpdateMonitor } from "./dataUpdateMonitor";
+import { resolveModelProtocol, anthropicMessagesUrl } from "./modelProtocol";
 import type { ChatMessage, Conversation, FreeQuota, ModelConfig, ResourceCard, SearchMode, SearchScope, SearchResource, ServerCatalogInfo, RetrievalMode, FeatureSync } from "./types";
 
 const HISTORY_KEY = "ugc-tools.ai-search.history.v1";
@@ -17,6 +20,22 @@ const FREE_BASE = process.env.VUE_APP_AI_SEARCH_API_BASE || "/api/ai-search";
 const DEFAULT_MIN_BALANCE_CNY = 20;
 const uid = () => typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const text = (value: unknown, max = 4000) => typeof value === "string" ? value.slice(0, max) : "";
+
+// Keep only public catalogue metadata across route visits, independently of quota and credentials.
+type WarmCatalog = { catalog: ServerCatalogInfo; agent: boolean };
+let warmCatalog: WarmCatalog | undefined;
+let catalogRequest: Promise<ServerCatalogInfo> | undefined;
+function requestCatalog() {
+  if (!catalogRequest) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    catalogRequest = requestServerCatalog(FREE_BASE, controller.signal).finally(() => {
+      clearTimeout(timer);
+      catalogRequest = undefined;
+    });
+  }
+  return catalogRequest;
+}
 
 export { previousSearchQuery } from "./aiSearchService";
 
@@ -45,22 +64,25 @@ export function restoreConversations(raw: unknown): Conversation[] {
       const mode: SearchMode = item.mode === "free" || item.mode === "custom" ? item.mode : "basic";
       const status = item.status === "complete" ? "complete" : item.status === "error" ? "error" : "canceled";
       const rawResponse = item.role === "assistant" && status === "error" ? boundedRawResponse(item.rawResponse) : undefined;
+      const requestDiagnostic = item.role === "assistant" && status === "error" ? sanitizeRequestDiagnostic(item.requestDiagnostic) : undefined;
       return [{ id: text(item.id, 100) || uid(), role: item.role as ChatMessage["role"], content: text(item.content), cards, status,
-        mode, source: mode, model: text(item.model, 100), error: status === "error", ...(rawResponse ? { rawResponse } : {}) }];
+        mode, source: mode, model: text(item.model, 100), error: status === "error", ...(rawResponse ? { rawResponse } : {}), ...(requestDiagnostic ? { requestDiagnostic } : {}) }];
     });
     const contextStart = Number.isInteger(source.contextStart) ? Math.min(messages.length, Math.max(0, Number(source.contextStart) - Math.max(0, source.messages.length - 100))) : 0;
     return [{ id: source.id.slice(0, 100), title: text(source.title, 80), updatedAt: typeof source.updatedAt === "number" ? source.updatedAt : Date.now(), messages, contextStart }];
   });
 }
 function readSavedConfig(): ModelConfig {
-  const defaults: ModelConfig = { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-flash", apiKey: "", rememberKey: false };
+  const defaults: ModelConfig = { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-flash", apiKey: "", rememberKey: false, protocol: "auto" };
   try {
     const saved = record(JSON.parse(localStorage.getItem(CONFIG_KEY) || "null"));
     return { baseUrl: text(saved.baseUrl, 500) || defaults.baseUrl, model: text(saved.model, 100) || defaults.model,
+      protocol: saved.protocol === "openai" || saved.protocol === "anthropic" ? saved.protocol : "auto",
       rememberKey: saved.rememberKey === true, apiKey: saved.rememberKey === true ? text(saved.apiKey, 500) : sessionStorage.getItem(SESSION_KEY) || "" };
   } catch { return defaults; }
 }
 export function useAISearch() {
+  const cachedCatalog = warmCatalog;
   const { t, locale } = useI18n({ useScope: "global" });
   const storage = inject<StorageClass>("storage");
   const archive = storage ? new AISearchArchiveRepository(storage) : undefined;
@@ -75,38 +97,46 @@ export function useAISearch() {
   const includeEffectAudio = ref(true);
   const modelConfig = ref<ModelConfig>(readSavedConfig());
   const busy = ref(false);
-  const loadingCatalog = ref(true);
+  const loadingCatalog = ref(!cachedCatalog);
   const loadingArchive = ref(true);
   const archiveError = ref("");
   const catalogError = ref(false);
   const errorMessage = ref("");
-  const snapshot = shallowRef<CatalogSnapshot>({ sources: [], failures: [] });
-  const resources = computed(() => buildSearchResources(snapshot.value, locale.value));
-  const serverRetrieval = ref(false);
-  const serverAgent = ref(false);
-  const serverCatalog = shallowRef<ServerCatalogInfo | null>(null);
-  const retrievalMode = ref<RetrievalMode>("local");
+  const serverRetrieval = ref(true);
+  const serverAgent = ref(cachedCatalog?.agent ?? false);
+  const serverCatalog = shallowRef<ServerCatalogInfo | null>(cachedCatalog?.catalog ?? null);
+  const retrievalMode = ref<RetrievalMode>(cachedCatalog?.catalog.mode ?? "keyword");
   const catalogErrorMessage = ref("");
-  const featureSync = shallowRef<FeatureSync>();
+  const catalogDiagnostic = shallowRef<RequestDiagnostic>();
+  const featureSync = shallowRef<FeatureSync | undefined>(cachedCatalog?.catalog.featureSync);
   const featuresUpdated = ref(false);
+  const dataUpdateVersion = ref("");
+  const dataUpdateMonitor = createDataUpdateMonitor(version => { dataUpdateVersion.value = version; });
+  let dataUpdateTimer: ReturnType<typeof setInterval> | undefined;
+  let notifyOnFirstDataLoad = false;
+  function checkDataUpdate() {
+    if (loadingArchive.value) return;
+    if (typeof document === "undefined" || document.visibilityState !== "hidden") void dataUpdateMonitor.check(notifyOnFirstDataLoad);
+  }
   const featureMissing = ref(false);
   const retryQuery = ref("");
   const retryConversationId = ref("");
   const canRetrySearch = computed(() => !!retryQuery.value && retryConversationId.value === activeConversationId.value);
-  let observedHashes: FeatureSync["hashes"] = {};
+  let observedHashes: FeatureSync["hashes"] = { ...featureSync.value?.hashes };
   function observeFeatureSync(state?: FeatureSync) {
     if (!state) return;
     if (featureHashesChanged(observedHashes, state.hashes)) featuresUpdated.value = true;
     if (Object.keys(state.hashes).length) observedHashes = { ...state.hashes };
     featureSync.value = state;
   }
-  const catalogCount = computed(() => serverRetrieval.value ? serverCatalog.value?.total ?? 0 : resources.value.length);
-  const descriptionCoverage = computed(() => serverRetrieval.value ? serverCatalog.value?.coverage ?? 0 : resources.value.length ? resources.value.filter(item => item.description || item.audioDescription).length / resources.value.length : 0);
+  const catalogCount = computed(() => serverCatalog.value?.total ?? 0);
+  const descriptionCoverage = computed(() => serverCatalog.value?.coverage ?? 0);
   const freeAvailable = ref(false);
   const freeModel = ref("");
   const freeStatus = ref<"checking" | "available" | "unconfigured" | "unavailable">("checking");
   const freeQuota = ref<FreeQuota | null>(null);
   const freeError = ref("");
+  const freeDiagnostic = shallowRef<RequestDiagnostic>();
   const freeMinBalanceCny = ref(DEFAULT_MIN_BALANCE_CNY);
   let currentRun: { controller: AbortController; message: ChatMessage; timedOut: boolean } | undefined;
   let catalogGeneration = 0;
@@ -151,11 +181,13 @@ export function useAISearch() {
     busy.value = false;
   }
   function saveConfig(config: ModelConfig): boolean {
-    try { chatCompletionsUrl(config.baseUrl); } catch { errorMessage.value = t("aiSearch.errors.config"); return false; }
+    const protocol = config.protocol ?? "auto";
+    if (!["auto", "openai", "anthropic"].includes(protocol)) { errorMessage.value = t("aiSearch.errors.config"); return false; }
+    try { if (resolveModelProtocol({ ...config, protocol }) === "anthropic") anthropicMessagesUrl(config.baseUrl); else chatCompletionsUrl(config.baseUrl); } catch { errorMessage.value = t("aiSearch.errors.config"); return false; }
     if (!config.model.trim() || config.model.length > 100 || !config.apiKey.trim()) { errorMessage.value = t("aiSearch.errors.config"); return false; }
-    modelConfig.value = { baseUrl: config.baseUrl.trim(), model: config.model.trim(), apiKey: config.apiKey.trim(), rememberKey: config.rememberKey };
+    modelConfig.value = { baseUrl: config.baseUrl.trim(), model: config.model.trim(), apiKey: config.apiKey.trim(), rememberKey: config.rememberKey, protocol };
     try {
-      localStorage.setItem(CONFIG_KEY, JSON.stringify({ baseUrl: modelConfig.value.baseUrl, model: modelConfig.value.model, rememberKey: config.rememberKey,
+      localStorage.setItem(CONFIG_KEY, JSON.stringify({ baseUrl: modelConfig.value.baseUrl, model: modelConfig.value.model, rememberKey: config.rememberKey, protocol,
         ...(config.rememberKey ? { apiKey: modelConfig.value.apiKey } : {}) }));
       if (config.rememberKey) sessionStorage.removeItem(SESSION_KEY);
       else sessionStorage.setItem(SESSION_KEY, modelConfig.value.apiKey);
@@ -196,7 +228,11 @@ export function useAISearch() {
       // A failed read must never be mistaken for an empty save and overwritten.
       archiveError.value = t("aiSearch.errors.archiveRead");
       if (!activeConversationId.value) addConversation();
-    } finally { loadingArchive.value = false; }
+    } finally {
+      // Only restored messages count as old history; new searches must not trigger migration notices.
+      notifyOnFirstDataLoad = conversations.value.some(conversation => conversation.messages.length > 0);
+      loadingArchive.value = false;
+    }
   }
   function saveArchive() {
     if (destroyed || loadingArchive.value || !archiveWritable || !archive) return;
@@ -204,52 +240,58 @@ export function useAISearch() {
       .then(() => { if (!destroyed) archiveError.value = ""; })
       .catch(() => { if (!destroyed) archiveError.value = t("aiSearch.errors.storage"); });
   }
-  async function reloadCatalog() {
+  function applyServerCatalog(loaded: ServerCatalogInfo) {
+    serverCatalog.value = loaded;
+    warmCatalog = { catalog: loaded, agent: serverAgent.value };
+    observeFeatureSync(loaded.featureSync);
+    featureMissing.value = false;
+    retrievalMode.value = loaded.mode;
+    catalogError.value = false;
+    catalogErrorMessage.value = "";
+    catalogDiagnostic.value = undefined;
+  }
+  async function refreshCatalog(background = false) {
     const generation = ++catalogGeneration;
-    loadingCatalog.value = true;
+    loadingCatalog.value = !background || !catalogCount.value;
     try {
-      if (serverRetrieval.value) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 8000);
-        try {
-          const loaded = await requestServerCatalog(FREE_BASE, controller.signal);
-          if (generation !== catalogGeneration || destroyed) return;
-          serverCatalog.value = loaded;
-          observeFeatureSync(loaded.featureSync);
-          featureMissing.value = false;
-          retrievalMode.value = loaded.mode;
-          catalogError.value = false;
-          catalogErrorMessage.value = "";
-        } finally { clearTimeout(timer); }
-      } else {
-        const loaded = await loadResourceCatalog();
-        if (generation !== catalogGeneration || destroyed) return;
-        snapshot.value = loaded;
-        featureMissing.value = !!loaded.featureFailures?.length;
-        observeFeatureSync({ status: "ready", hashes: loaded.featureHashes ?? {} });
-        retrievalMode.value = "local";
-        catalogError.value = loaded.failures.length > 0;
-        catalogErrorMessage.value = catalogError.value ? t("aiSearch.catalogError") : "";
-      }
-    } catch (error) { if (generation === catalogGeneration && !destroyed) { catalogError.value = true; catalogErrorMessage.value = serverRetrieval.value ? t("aiSearch.errors.retrieval") : explainError(error); } }
+      const loaded = await requestCatalog();
+      if (generation !== catalogGeneration || destroyed) return;
+      applyServerCatalog(loaded);
+    } catch (error) { if (generation === catalogGeneration && !destroyed) { catalogError.value = true; catalogErrorMessage.value = explainError(error); catalogDiagnostic.value = error instanceof AISearchError ? sanitizeRequestDiagnostic(error.requestDiagnostic) : undefined; } }
     finally { if (generation === catalogGeneration && !destroyed) loadingCatalog.value = false; }
   }
+  function reloadCatalog() { return refreshCatalog(); }
   async function refreshFreeStatus() {
     const generation = ++freeGeneration;
+    let catalogLoaded = false;
     freeStatus.value = "checking";
+    freeDiagnostic.value = undefined;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
+    const endpoint = `${FREE_BASE.replace(/\/$/, "")}/config`;
+    const context = { stage: "site" as const, endpoint, startedAt: Date.now() };
     try {
-      const response = await fetch(`${FREE_BASE.replace(/\/$/, "")}/config`, { signal: controller.signal, cache: "no-store" });
-      if (!response.ok) throw new Error("FREE_UNAVAILABLE");
-      const raw = record(await response.json());
-      if (typeof raw.configured !== "boolean" || typeof raw.available !== "boolean") throw new Error("FREE_UNAVAILABLE");
+      const response = await fetchAISearch(endpoint, { signal: controller.signal, cache: "no-store" }, context, fetch, [], "FREE_UNAVAILABLE");
+      const diagnostic = response.ok ? undefined : await httpRequestDiagnostic(response, context);
+      let raw: Record<string, unknown>;
+      try { raw = await readAISearchJSON(response, context, controller.signal); }
+      catch (error) { if (diagnostic) throw new AISearchError("FREE_UNAVAILABLE", undefined, undefined, diagnostic); throw error; }
+      if (!response.ok) { const error = record(raw.error); throw new AISearchError(typeof error.code === "string" ? error.code : "FREE_UNAVAILABLE", error.reason, undefined, diagnostic); }
+      if (typeof raw.configured !== "boolean" || typeof raw.available !== "boolean") throw new AISearchError("FREE_UNAVAILABLE", undefined, undefined, responseRequestDiagnostic(response, context));
       if (generation !== freeGeneration || destroyed) return;
       const retrieval = record(raw.retrieval);
       const nextServerRetrieval = retrieval.available === true;
-      const retrievalChanged = serverRetrieval.value !== nextServerRetrieval;
-      serverRetrieval.value = nextServerRetrieval;
       serverAgent.value = record(raw.agent).available === true;
+      if (nextServerRetrieval) {
+        try {
+          const loaded = parseServerCatalog(retrieval);
+          // /config already carries the same validated public metadata as /catalog.
+          ++catalogGeneration;
+          applyServerCatalog(loaded);
+          loadingCatalog.value = false;
+          catalogLoaded = true;
+        } catch { /* Older services may only advertise retrieval availability. */ }
+      }
       const limits = record(raw.limits);
       freeMinBalanceCny.value = typeof limits.minBalanceCny === "number" && Number.isFinite(limits.minBalanceCny) && limits.minBalanceCny > 0
         ? limits.minBalanceCny : DEFAULT_MIN_BALANCE_CNY;
@@ -257,7 +299,6 @@ export function useAISearch() {
         ? Math.min(MAX_SEARCH_RESULTS, Number(limits.maxResults)) : 5;
       freePreviousIdLimit.value = Number.isInteger(limits.maxPreviousIds) && Number(limits.maxPreviousIds) >= 5
         ? Math.min(MAX_SEARCH_RESULTS, Number(limits.maxPreviousIds)) : 5;
-      if (retrievalChanged && !loadingCatalog.value) void reloadCatalog();
       freeAvailable.value = raw.configured && raw.available;
       freeModel.value = raw.configured ? text(raw.model, 100) : "";
       freeStatus.value = !raw.configured ? "unconfigured" : raw.available ? "available" : "unavailable";
@@ -265,12 +306,14 @@ export function useAISearch() {
       freeQuota.value = raw.configured && Number.isInteger(quota.remaining) && Number.isInteger(quota.limit) && typeof quota.resetAt === "string"
         ? { remaining: Math.max(0, Number(quota.remaining)), limit: Math.max(0, Number(quota.limit)), resetAt: quota.resetAt } : null;
       const serviceError = record(raw.error);
-      freeError.value = freeAvailable.value ? "" : explainError(new AISearchError(typeof serviceError.code === "string" ? serviceError.code : "FREE_UNAVAILABLE", serviceError.reason));
-    } catch {
-      if (generation === freeGeneration && !destroyed) { freeAvailable.value = false; freeModel.value = ""; freeStatus.value = "unconfigured"; freeQuota.value = null; freeError.value = t("aiSearch.errors.freeUnavailable"); }
+      freeDiagnostic.value = freeAvailable.value ? undefined : sanitizeRequestDiagnostic(serviceError.requestDiagnostic);
+      freeError.value = freeAvailable.value ? "" : explainError(new AISearchError(typeof serviceError.code === "string" ? serviceError.code : "FREE_UNAVAILABLE", serviceError.reason, undefined, freeDiagnostic.value));
+    } catch (error) {
+      if (generation === freeGeneration && !destroyed) { freeAvailable.value = false; freeModel.value = ""; freeStatus.value = "unconfigured"; freeQuota.value = null; freeError.value = explainError(error); freeDiagnostic.value = error instanceof AISearchError ? sanitizeRequestDiagnostic(error.requestDiagnostic) : undefined; }
     } finally { clearTimeout(timer); }
+    return catalogLoaded;
   }
-  function explainError(error: unknown): string {
+  function explainErrorCode(error: unknown): string {
     const code = error instanceof AISearchError ? error.code : "NETWORK";
     if (code === "PROVIDER_BALANCE_LOW") return t("aiSearch.errors.providerBalanceLow", { threshold: freeMinBalanceCny.value });
     if (code === "PROVIDER_BALANCE_UNAVAILABLE") {
@@ -280,6 +323,10 @@ export function useAISearch() {
     if (code === "PROMPT_UNAVAILABLE" || code === "SYSTEM_PROMPT_UNAVAILABLE") return t("aiSearch.errors.promptUnavailable");
     if (code === "CONFIG") return t("aiSearch.errors.config");
     if (code === "AUTH") return t("aiSearch.errors.auth");
+    if (code === "FORBIDDEN") return t("aiSearch.errors.forbidden");
+    if (code === "PROVIDER_RATE_LIMIT") return t("aiSearch.errors.providerRateLimit");
+    if (code === "MODEL_SERVICE_ERROR") return t("aiSearch.errors.modelServiceError");
+    if (code === "REQUEST_ABORTED") return t("aiSearch.errors.requestAborted");
     if (code === "CATALOG_CHANGED" || /CATALOG_VERSION/u.test(code)) return t("aiSearch.errors.catalogChanged");
     if (code === "ASSET_DETAILS") return t("aiSearch.errors.assetDetails");
     if (code === "RETRIEVAL_MATCH_ON_UNSUPPORTED") return t("aiSearch.errors.matchOnUnsupported");
@@ -299,13 +346,53 @@ export function useAISearch() {
     if (/CONFIGURED|UNAVAILABLE|SERVICE_ERROR/u.test(code)) return t("aiSearch.errors.freeUnavailable");
     return t("aiSearch.errors.network");
   }
+  function diagnosticHint(diagnostic: RequestDiagnostic): string | undefined {
+    if (diagnostic.kind === "network") return diagnostic.status === undefined ? "noResponse" : "bodyInterrupted";
+    if (diagnostic.kind === "timeout") return "timeout";
+    if (diagnostic.status === 401) return diagnostic.stage === "model" ? "auth" : "serviceAuth";
+    if (diagnostic.status === 403) return diagnostic.stage === "model" ? "forbidden" : "serviceAuth";
+    if (diagnostic.status === 429) return diagnostic.stage === "model" ? "rateLimit" : "serviceRateLimit";
+    if (diagnostic.status && diagnostic.status >= 500) return "serviceError";
+    if ([400, 404, 422].includes(diagnostic.status ?? 0)) return "rejected";
+    if (diagnostic.kind === "response") return "response";
+  }
+  function requestDiagnosticText(raw: RequestDiagnostic): string {
+    const diagnostic = sanitizeRequestDiagnostic(raw);
+    if (!diagnostic) return "";
+    const fields: [string, string | number | undefined][] = [
+      ["stage", t(`aiSearch.requestDiagnostics.stages.${diagnostic.stage}`)],
+      ["status", diagnostic.status === undefined ? undefined : `HTTP ${diagnostic.status}`],
+      ["endpoint", diagnostic.endpoint], ["model", diagnostic.model], ["round", diagnostic.round],
+      ["elapsed", diagnostic.elapsedMs === undefined ? undefined : t("aiSearch.requestDiagnostics.elapsedValue", { milliseconds: Math.round(diagnostic.elapsedMs) })],
+      ["providerCode", diagnostic.providerCode], ["providerMessage", diagnostic.providerMessage],
+      ["parameter", diagnostic.parameter], ["requestId", diagnostic.requestId], ["browserMessage", diagnostic.browserMessage],
+    ];
+    const lines = fields.filter(([, value]) => value !== undefined && value !== "").map(([field, value]) => `${t(`aiSearch.requestDiagnostics.${field}`)}: ${value}`);
+    const hint = diagnosticHint(diagnostic);
+    if (hint) lines.push("", t(`aiSearch.requestDiagnostics.hints.${hint}`));
+    return lines.join("\n");
+  }
+  function explainError(error: unknown, timedOut = false): string {
+    const diagnostic = error instanceof AISearchError ? sanitizeRequestDiagnostic(error.requestDiagnostic, [modelConfig.value.apiKey]) : undefined;
+    const code = error instanceof AISearchError ? error.code : "NETWORK";
+    const transportFailure = diagnostic?.kind === "network" && ["NETWORK", "FREE_UNAVAILABLE", "RETRIEVAL_FAILED", "RETRIEVAL_RESPONSE", "ASSET_DETAILS", "PROMPT_UNAVAILABLE", "SYSTEM_PROMPT_UNAVAILABLE"].includes(code);
+    const noResponse = transportFailure && diagnostic?.status === undefined;
+    const bodyInterrupted = transportFailure && diagnostic?.status !== undefined;
+    const serviceDenied = !!diagnostic && diagnostic.stage !== "model" && ["AUTH", "FORBIDDEN"].includes(code);
+    const base = timedOut ? t("aiSearch.errors.timeout") : noResponse ? t("aiSearch.errors.noResponse") : bodyInterrupted ? t("aiSearch.errors.bodyInterrupted") : serviceDenied ? t("aiSearch.errors.serviceDenied") : explainErrorCode(error);
+    if (!diagnostic) return base;
+    const context = `${t("aiSearch.requestDiagnostics.stage")}: ${t(`aiSearch.requestDiagnostics.stages.${diagnostic.stage}`)}${diagnostic.status === undefined ? "" : ` · HTTP ${diagnostic.status}`}`;
+    const reason = [diagnostic.providerCode, diagnostic.providerMessage].filter(Boolean).join(": ").slice(0, 240);
+    return [base, context, reason].filter(Boolean).join(" · ");
+  }
   async function send(input: string) {
     const query = input.trim();
     if (!query || query.length > 2000 || busy.value || loadingCatalog.value || loadingArchive.value) return;
+    checkDataUpdate();
     if (!catalogCount.value) { errorMessage.value = t("aiSearch.errors.catalog"); return; }
     const selectedMode = mode.value;
     const selectedResultLimit = selectedMode === "free" ? Math.min(normalizeResultLimit(resultLimit.value), freeResultLimit.value) : normalizeResultLimit(resultLimit.value);
-    const agentWorkflow = serverRetrieval.value && (selectedMode === "custom" || selectedMode === "free" && serverAgent.value);
+    const agentWorkflow = selectedMode === "custom" || selectedMode === "free" && serverAgent.value;
     if (selectedMode === "free" && !freeAvailable.value) { errorMessage.value = freeError.value || t("aiSearch.errors.freeUnavailable"); return; }
     if (selectedMode === "free" && freeQuota.value?.remaining === 0) { errorMessage.value = t("aiSearch.errors.quota"); return; }
     if (selectedMode === "custom" && !modelConfig.value.apiKey.trim()) { errorMessage.value = t("aiSearch.errors.config"); return; }
@@ -317,10 +404,7 @@ export function useAISearch() {
     if (scope.value !== "all" && (previousScope !== "all" && previousScope !== scope.value
       || previousCards.some(card => scope.value === "sound" ? card.kind !== "sound" && !card.audioMatch
         : card.kind !== scope.value))) { context = []; previousCards = []; }
-    const resourceMap = new Map(resources.value.map(item => [item.resourceId, item]));
-    const useServer = serverRetrieval.value;
-    const previous: SearchResource[] = useServer ? previousCards.map(card => ({ ...card, locale: locale.value, featureText: "", audioText: "", suggestionText: "" }))
-      : previousCards.flatMap(card => { const item = resourceMap.get(card.resourceId); return item ? [{ ...item, audioMatch: card.audioMatch }] : []; });
+    const previous: SearchResource[] = previousCards.map(card => ({ ...card, locale: locale.value, featureText: "", audioText: "", suggestionText: "" }));
     const selectedIntent = resolveSearchIntent(query, scope.value, previous, previousSearchQuery(context));
     const selectedScope = selectedIntent.scope;
     const moreAlternatives = /^(?:再[来來](?:[点點些]|一[点點些]|[几幾][个個]|一批)|多[来來](?:[点點些]|一[点點些]|[几幾][个個])|[换換](?:[几幾][个個]|一批|一些)|再找(?:[几幾][个個]|一些|一批)|更多(?:一些|一[点點])?|more|another|some more|a few more|show me more|もっと)[\s。.!！?？]*$/iu.test(query);
@@ -364,32 +448,17 @@ export function useAISearch() {
         reply.status = "complete";
         return;
       }
-      let candidates: SearchResource[];
-      let catalogVersion = "";
-      let musicDescriptionsMissing = false;
-      let effectAudioDescriptionsMissing = false;
-      if (useServer) {
-        const retrieved = await requestServerSearchBatch(FREE_BASE, { query, locale: requestLocale, scope: selectedScope, matchOn: selectedIntent.matchOn, includeEffectAudio: includeAudio, limit: Math.max(20, selectedResultLimit),
-          ...(selectedIntent.filters ? { filters: selectedIntent.filters, searchType: "feature" } : {}), previousIds: previousCards.slice(0, MAX_SEARCH_RESULTS).map(card => card.resourceId), previousQuery: previousSearchQuery(context), ...(excludeIds.length ? { excludeIds } : {}) }, run.controller.signal, undefined, serverCatalog.value?.maxSearchLimit,
-          { maxPreviousIds: serverCatalog.value?.maxPreviousIds, maxExcludeIds: serverCatalog.value?.maxExcludeIds });
-        if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
-        candidates = retrieved.items;
-        catalogVersion = retrieved.catalogVersion;
-        observeFeatureSync(retrieved.featureSync);
-        musicDescriptionsMissing = retrieved.retrievalNotice?.code === "MUSIC_DESCRIPTION_MISSING";
-        effectAudioDescriptionsMissing = retrieved.retrievalNotice?.code === "EFFECT_AUDIO_DESCRIPTION_MISSING";
-        // Search.total is the count of matches, not the catalogue size.
-        retrievalMode.value = retrieved.mode;
-      } else {
-        const audioEffects = resources.value.filter(item => item.kind === "effect" && item.hasAudio);
-        effectAudioDescriptionsMissing = selectedScope === "effect" && selectedIntent.matchOn === "audio" && audioEffects.length > 0
-          && audioEffects.every(item => !item.audioDescription && !item.audioKeywords?.length);
-        candidates = retrieveResources(resources.value, { query, scope: selectedScope, matchOn: selectedIntent.matchOn, includeEffectAudio: includeAudio, previous, previousQuery: previousSearchQuery(context), excludeIds, limit: Math.max(20, selectedResultLimit) });
-        if (!candidates.length && previous.length && context.length) {
-          const priorQuestion = previousSearchQuery(context);
-          candidates = retrieveResources(resources.value, { query: `${priorQuestion} ${query}`, scope: selectedScope, matchOn: selectedIntent.matchOn, includeEffectAudio: includeAudio, previous, limit: Math.max(20, selectedResultLimit) });
-        }
-      }
+      const retrieved = await requestServerSearchBatch(FREE_BASE, { query, locale: requestLocale, scope: selectedScope, matchOn: selectedIntent.matchOn, includeEffectAudio: includeAudio, limit: Math.max(20, selectedResultLimit),
+        ...(selectedIntent.filters ? { filters: selectedIntent.filters, searchType: "feature" } : {}), previousIds: previousCards.slice(0, MAX_SEARCH_RESULTS).map(card => card.resourceId), previousQuery: previousSearchQuery(context), ...(excludeIds.length ? { excludeIds } : {}) }, run.controller.signal, undefined, serverCatalog.value?.maxSearchLimit,
+        { maxPreviousIds: serverCatalog.value?.maxPreviousIds, maxExcludeIds: serverCatalog.value?.maxExcludeIds });
+      if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
+      const candidates = retrieved.items;
+      const catalogVersion = retrieved.catalogVersion;
+      observeFeatureSync(retrieved.featureSync);
+      const musicDescriptionsMissing = retrieved.retrievalNotice?.code === "MUSIC_DESCRIPTION_MISSING";
+      const effectAudioDescriptionsMissing = retrieved.retrievalNotice?.code === "EFFECT_AUDIO_DESCRIPTION_MISSING";
+      // Search.total is the count of matches, not the catalogue size.
+      retrievalMode.value = retrieved.mode;
       // With no retrieved evidence there is nothing for a paid model to choose.
       if (!candidates.length) {
         reply.content = t(effectAudioDescriptionsMissing ? "aiSearch.effectAudioDescriptionsMissing" : musicDescriptionsMissing && selectedScope === "bgm" ? "aiSearch.musicDescriptionsMissing" : "aiSearch.noSearchCandidates");
@@ -399,7 +468,7 @@ export function useAISearch() {
         return;
       }
       const detailsFor = async (chosen: SearchResource[]) => {
-        if (!useServer || !chosen.length) return chosen;
+        if (!chosen.length) return chosen;
         const details = await requestServerAssets(FREE_BASE, chosen.map(item => item.resourceId), requestLocale, catalogVersion, run.controller.signal, new Set(chosen.filter(item => item.audioMatch).map(item => item.resourceId)), undefined, state => { if (currentRun === run && !destroyed) observeFeatureSync(state); }, serverCatalog.value?.maxAssetIds);
         return chosen.map(summary => {
           const detail = details.find(item => item.resourceId === summary.resourceId)!;
@@ -416,7 +485,7 @@ export function useAISearch() {
         reply.cards = details.map((item, index) => ({ ...item, matchType: selected[index].matchType, matchReason: t(selected[index].matchType === "suggestion" ? "aiSearch.match.suggestion" : "aiSearch.match.feature") }));
         reply.content = t(reply.cards.length ? previous.length ? "aiSearch.basicRefine" : "aiSearch.basicAnswer" : "aiSearch.basicEmpty", { count: reply.cards.length });
       } else {
-        const serverFree = useServer && selectedMode === "free";
+        const serverFree = selectedMode === "free";
         const modelCandidates = selectedMode === "free" ? candidates.slice(0, freeResultLimit.value > 5 ? MAX_SEARCH_RESULTS : 12) : candidates;
         const payload = buildSearchPayload(query, requestLocale, selectedScope, context, serverFree ? [] : modelCandidates, uid(), selectedResultLimit, selectedIntent.matchOn);
         const boundedCandidates = serverFree ? modelCandidates : modelCandidates.filter(item => payload.candidates.some(candidate => candidate.resourceId === item.resourceId));
@@ -441,7 +510,9 @@ export function useAISearch() {
       if (currentRun !== run || destroyed) return;
       reply.status = "error";
       reply.error = true;
-      reply.content = run.timedOut ? t("aiSearch.errors.timeout") : explainError(error);
+      reply.content = explainError(error, run.timedOut);
+      const requestDiagnostic = error instanceof AISearchError ? sanitizeRequestDiagnostic(error.requestDiagnostic, [modelConfig.value.apiKey]) : undefined;
+      if (requestDiagnostic) reply.requestDiagnostic = requestDiagnostic;
       if (!run.timedOut && error instanceof AISearchError && error.rawResponse) reply.rawResponse = error.rawResponse;
       if (error instanceof AISearchError && (error.code === "CATALOG_CHANGED" || /CATALOG_VERSION/u.test(error.code))) {
         retryQuery.value = query;
@@ -471,10 +542,32 @@ export function useAISearch() {
   watch(activeConversationId, saveArchive);
   watch(mode, saveArchive);
   watch(resultLimit, saveArchive);
-  // Discover retrieval capability before downloading the legacy full catalogue.
-  onMounted(() => { void (async () => { await restoreArchive(); if (destroyed) return; await refreshFreeStatus(); if (!destroyed) { saveArchive(); await reloadCatalog(); } })(); });
-  onBeforeUnmount(() => { stop(); saveArchive(); destroyed = true; });
-  return { conversations, activeConversationId, messages, busy, loadingCatalog, loadingArchive, archiveError, catalogError, catalogErrorMessage, catalogCount, descriptionCoverage, serverRetrieval, retrievalMode, featureSync, featuresUpdated, featureMissing, canRetrySearch, retrySearch,
-    mode, scope, resultLimit, freeResultLimit, includeEffectAudio, freeAvailable, freeModel, freeStatus, freeQuota, freeError, modelConfig, errorMessage,
+  onMounted(() => {
+    checkDataUpdate();
+    if (typeof window !== "undefined") {
+      dataUpdateTimer = setInterval(checkDataUpdate, 60000);
+      window.addEventListener("focus", checkDataUpdate);
+      document.addEventListener("visibilitychange", checkDataUpdate);
+    }
+  });
+  // Restore history and check the Worker independently; no browser-side asset library download.
+  onMounted(() => { void (async () => {
+    const [, catalogLoaded] = await Promise.all([restoreArchive(), refreshFreeStatus()]);
+    if (destroyed) return;
+    checkDataUpdate();
+    saveArchive();
+    if (!catalogLoaded) await refreshCatalog(true);
+  })(); });
+  onBeforeUnmount(() => {
+    stop(); saveArchive(); destroyed = true;
+    dataUpdateMonitor.dispose();
+    clearInterval(dataUpdateTimer);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("focus", checkDataUpdate);
+      document.removeEventListener("visibilitychange", checkDataUpdate);
+    }
+  });
+  return { catalogDiagnostic, freeDiagnostic, conversations, activeConversationId, messages, busy, loadingCatalog, loadingArchive, archiveError, catalogError, catalogErrorMessage, catalogCount, descriptionCoverage, serverRetrieval, retrievalMode, featureSync, featuresUpdated, dataUpdateVersion, featureMissing, canRetrySearch, retrySearch,
+    explainError, requestDiagnosticText, mode, scope, resultLimit, freeResultLimit, includeEffectAudio, freeAvailable, freeModel, freeStatus, freeQuota, freeError, modelConfig, errorMessage,
     createConversation, selectConversation, renameConversation, deleteConversation, clearContext, send, stop, saveConfig, refreshFreeStatus, reloadCatalog };
 }

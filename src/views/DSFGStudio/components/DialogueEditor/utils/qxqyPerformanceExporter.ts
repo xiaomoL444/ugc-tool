@@ -40,6 +40,7 @@ import {
   resolveGroupOutlets,
 } from "./groupOutlets";
 import { getFlowClipDuration } from "./groupTimeline";
+import { getDialogueClips } from "./dialogueClips";
 
 const MAX_STRUCT_LIST_ITEMS = 100;
 
@@ -356,13 +357,13 @@ function collectSourceClips(node: DialogueNode): SourceClip[] {
   let registrationOrder = 0;
   const clips: Array<SourceClip & { registrationOrder: number }> = [];
 
-  if (node.dialogue) {
+  for (const dialogue of getDialogueClips(node)) {
     clips.push({
       source: "Dialogue",
-      startTime: node.dialogue.startTime,
-      duration: getFlowClipDuration(node, node.dialogue),
+      startTime: dialogue.startTime,
+      duration: getFlowClipDuration(node, dialogue),
       node,
-      dialogue: node.dialogue,
+      dialogue,
       registrationOrder: registrationOrder++,
     });
   }
