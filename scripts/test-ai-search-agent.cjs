@@ -5,7 +5,7 @@ const ts = require('typescript');
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
   fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
-const { buildAgentSearchPayload, requestAgentSearch: requestAgentSearchActual } = require('../src/views/AISearch/agentSearchService.ts');
+const { AGENT_SEARCH_TOOLS, buildAgentSearchPayload, requestAgentSearch: requestAgentSearchActual } = require('../src/views/AISearch/agentSearchService.ts');
 const { buildSearchPayload, chatToolCompatibilityOptions } = require('../src/views/AISearch/aiSearchService.ts');
 const promptFixture = '# External prompt fixture\nCURRENT query must define the requested asset. Return at most RESULT\\_LIMIT resources.\n';
 async function requestAgentSearch(payload, options) {
@@ -43,6 +43,53 @@ assert.ok(followup.messages[1].content.includes(asset.resourceId));
 assert.deepEqual(followup.previousIds, [asset.resourceId]);
 assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('音乐'), answer('error', [], 'error')], true, 'fresh').messages.length, 0);
 (async () => {
+  const { assetFunctionTools } = await import('../tools/ai-search-service/agent-runtime.mjs');
+  const workerQuery = assetFunctionTools().find(item => item.function.name === 'search_assets').function.parameters.properties.query.description;
+  const customQuery = AGENT_SEARCH_TOOLS.find(item => item.function.name === 'search_assets').function.parameters.properties.query.description;
+  assert.equal(customQuery, workerQuery, 'Site AI and custom models receive the same feature vocabulary guidance');
+  const sceneCases = [
+    { id: 'visual-scene', query: 'A mysterious blue ring slowly expands.', scope: 'effect', matchOn: 'visual',
+      terms: 'blue ring expanding', asset: { ...asset, description: 'A blue circular ring slowly expands.', hasAudio: false } },
+    { id: 'all-visual-scene', query: 'Find a blue expanding ring visual.', scope: 'all', matchOn: 'any', toolScope: 'effect', toolMatchOn: 'visual',
+      terms: 'blue ring expanding', asset: { ...asset, description: 'A blue circular ring slowly expands.', hasAudio: false } },
+    { id: 'effect-audio-scene', query: 'A brief shimmering portal opening sound.', scope: 'effect', matchOn: 'audio',
+      terms: 'brief bright chime', asset: { ...asset, audioMatch: true, audioDescription: 'A brief bright chime with a clean decay.', audioKeywords: ['chime'], hasAudio: true } },
+    { id: 'bgm-scene', query: 'Gentle piano music for quiet exploration.', scope: 'bgm', matchOn: 'audio',
+      terms: 'gentle piano light rhythm', asset: { resourceId: 'bgm:17', kind: 'bgm', title: 'Gentle piano', description: 'Gentle piano melody with a light steady pulse.', keywords: ['piano', 'gentle'], hasAudio: true } },
+  ];
+  for (const scene of sceneCases) {
+    let modelCalls = 0, searches = 0;
+    const scenePayload = buildAgentSearchPayload(scene.query, 'en-US', scene.scope, [], true, scene.id, 5, scene.matchOn);
+    const expectedScope = scene.toolScope ?? scene.scope, expectedMatchOn = scene.toolMatchOn ?? scene.matchOn;
+    const completed = await requestAgentSearch(scenePayload, { ...options, fetcher: async (url, input) => {
+      const sent = JSON.parse(input.body);
+      if (url.endsWith('/chat/completions')) {
+        modelCalls++;
+        const guide = sent.tools.find(item => item.function.name === 'search_assets').function.parameters.properties.query.description;
+        assert.equal(guide, workerQuery, 'The corrected instruction reaches the actual provider request');
+        assert.match(guide, /visual effects or matchOn=visual use color, shape, motion/);
+        assert.match(guide, /matchOn=audio use attack, timbre, pitch, rhythm and decay/);
+        assert.match(guide, /background music \(bgm\) use mood, tempo, instrumentation/);
+        assert.match(guide, /matchOn=any, follow the user's visual or audio intent/);
+        if (modelCalls === 1) return toolCall('search_assets', { query: scene.terms, scope: expectedScope, matchOn: expectedMatchOn, searchType: 'feature' }, scene.id);
+        return finalValue({ answer: 'Found a candidate for this scene.', matches: [{ resourceId: scene.asset.resourceId, reason: 'Use suggestion: the described properties may suit this scene.', matchType: 'suggestion' }] });
+      }
+      assert.equal(input.headers.Authorization, undefined);
+      if (url.endsWith('/search')) {
+        searches++;
+        assert.equal(sent.scope, expectedScope); assert.equal(sent.matchOn, expectedMatchOn);
+        assert.equal(sent.query, scene.terms); assert.equal(sent.locale, 'en-US');
+        assert.equal(sent.filters?.hasAudio, undefined, 'Visual and BGM requests must not receive an invented audio filter');
+        return result([scene.asset]);
+      }
+      if (url.endsWith('/assets')) return details([scene.asset]);
+      throw new Error(`Unexpected scene route ${url}`);
+    } });
+    assert.equal(modelCalls, 2); assert.equal(searches, 1);
+    assert.equal(completed.matches[0].resourceId, scene.asset.resourceId);
+    assert.equal(completed.resources[0].kind, scene.asset.kind);
+    assert.equal(Boolean(completed.resources[0].audioMatch), scene.matchOn === 'audio' && scene.scope === 'effect');
+  }
   const calls = []; let rounds = 0;
   const found = await requestAgentSearch(payload, { ...options, fetcher: async (url, input) => {
     const body = JSON.parse(input.body); calls.push({ url, body, headers: input.headers });
@@ -81,7 +128,7 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   for (const [content, expectedCode] of [
     ["{answer:'found',matches:[{resourceId:'effect:999',reason:'invented',matchType:'feature',}],}", 'RESPONSE_ASSET_ID'],
     ["{answer:'found',matches:[{resourceId:'effect:777',reason:'one',matchType:'feature'},{resourceId:'effect:777',reason:'two',matchType:'feature'},],}", 'RESPONSE_ASSET_ID'],
-    ["{answer:'found',matches:[{resourceId:'effect:777',reason:'wrong type',matchType:'unknown'},],}", 'RESPONSE_FORMAT'],
+    ["{answer:'found',matches:[{resourceId:'effect:777',reason:'wrong type',matchType:'unknown'},],}", 'RESPONSE_MATCH_TYPE'],
     ["{answer:'missing matches',}", 'RESPONSE_FORMAT'],
     [repairableFinal.slice(0, -2), 'RESPONSE_FORMAT'],
   ]) {

@@ -26,7 +26,7 @@ export function assetFunctionTools(request = {}) {
     let description = tool.description;
     if (tool.name === "search_assets") {
       parameters.properties.limit = { type: "integer", minimum: 1, maximum: SEARCH_LIMITS.maxSearchLimit, default: Math.max(10, request.resultLimit ?? SEARCH_LIMITS.defaultResults) };
-      parameters.properties.query.description = "For game-use requests, feature queries contain 2–4 acoustic terms (attack, texture, pitch, rhythm or decay), not game object names or use-case sentences. both queries contain short behavior/stage terms. Known-name lookup may use the exact name.";
+      parameters.properties.query.description = "For scene or game-use requests, choose 2–4 concise feature terms for the requested evidence: visual effects or matchOn=visual use color, shape, motion and appearance/disappearance; sound effects or an effect's own soundtrack or matchOn=audio use attack, timbre, pitch, rhythm and decay; background music (bgm) use mood, tempo, instrumentation and musical structure. For effect requests with matchOn=any, follow the user's visual or audio intent; do not force visual requests into acoustic terms. both queries contain short behavior/stage terms; feature queries describe sensory properties rather than whole use-case sentences. Known-name lookup may use the exact name. Do not infer audio properties from visual descriptions.";
     }
     if (tool.name === "search_assets") description += " For pagination, use only cursor from nextCursor and keep all other search arguments identical. A rewritten query starts without cursor. Never invent previousCursor.";
     if (tool.name === "get_assets") {

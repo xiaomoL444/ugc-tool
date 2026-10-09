@@ -1,14 +1,15 @@
 <template>
   <button ref="trigger" type="button" class="resource-description resource-details-trigger"
+    :class="{ 'is-pinned': pinned }"
     :aria-label="t('aiSearch.results.detailsLabel', { name: card.title })"
     :aria-expanded="opened" :aria-describedby="opened ? tooltipId : undefined"
     @pointerenter="enterTrigger" @pointerleave="leaveTrigger" @pointerdown="rememberPointer" @focus="show" @blur="blurTrigger" @click="toggleDetails" @wheel="scrollDetails">
     <span class="resource-details-summary">{{ summary }}</span><SearchIcon name="info" />
   </button>
   <Teleport to="body">
-    <div v-if="opened" :id="tooltipId" ref="popover" class="resource-details-popover" :class="{ 'is-wide': wideDetails, 'is-touch': touchInteractive }" role="tooltip"
+    <div v-if="opened" :id="tooltipId" ref="popover" class="resource-details-popover" :class="{ 'is-wide': wideDetails, 'is-pinned': pinned, 'is-touch': touchInteractive }" role="tooltip"
       :style="{ left: `${left}px`, top: `${top}px`, width: `${width}px`, visibility: positioned ? 'visible' : 'hidden' }"
-      :tabindex="scrollable ? 0 : -1" @pointerenter="enterPopover" @pointerleave="leavePopover" @focusin="clearCloseTimer" @focusout="queueHide">
+      :tabindex="pinned && scrollable ? 0 : -1">
       <strong class="resource-details-title">{{ card.title }}</strong>
       <span class="resource-details-label">{{ t('aiSearch.results.detailsTitle') }}</span>
       <p class="resource-details-description">{{ card.description || t('aiSearch.noDescription') }}</p>
@@ -36,28 +37,15 @@ const left = ref(12)
 const width = ref(360)
 const scrollable = ref(false)
 const touchInteractive = ref(false)
+const pinned = ref(false)
 const wideDetails = computed(() => props.card.kind === 'bgm' || props.card.description.length > 320)
 const tooltipId = computed(() => `resource-details-${props.detailId}`)
 const summary = computed(() => (props.card.description || t('aiSearch.noDescription')).replace(/\s+/g, ' ').trim())
 let triggerHovered = false
-let popoverHovered = false
-let pinned = false
 let lastPointerType = ''
 let generation = 0
-let closeTimer: ReturnType<typeof setTimeout> | undefined
-
-function clearCloseTimer() { if (closeTimer !== undefined) clearTimeout(closeTimer); closeTimer = undefined }
-function queueHide() {
-  clearCloseTimer()
-  closeTimer = setTimeout(() => {
-    const focused = document.activeElement
-    const keyboardFocused = (trigger.value === focused && trigger.value?.matches(':focus-visible')) || (popover.value === focused && popover.value?.matches(':focus-visible'))
-    if (!pinned && !triggerHovered && !popoverHovered && !keyboardFocused) hide()
-  }, 150)
-}
 
 async function show() {
-  clearCloseTimer()
   if (opened.value) return
   const request = ++generation
   const preferredWidth = props.card.kind === 'bgm' ? 720 : wideDetails.value ? 640 : 360
@@ -79,45 +67,29 @@ async function show() {
   positioned.value = true
 }
 function hide() {
-  clearCloseTimer()
   generation += 1
-  triggerHovered = popoverHovered = false
-  pinned = false
+  triggerHovered = false
+  pinned.value = false
   touchInteractive.value = false
   opened.value = positioned.value = false
 }
 function enterTrigger(event: PointerEvent) {
   if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
   lastPointerType = event.pointerType
-  touchInteractive.value = false
+  if (!pinned.value) touchInteractive.value = false
   triggerHovered = true
   void show()
 }
 function leaveTrigger(event: PointerEvent) {
   if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
   triggerHovered = false
-  queueHide()
-}
-function enterPopover(event: PointerEvent) {
-  if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
-  popoverHovered = true
-  clearCloseTimer()
-}
-function leavePopover(event: PointerEvent) {
-  if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
-  popoverHovered = false
-  queueHide()
+  if (!pinned.value) hide()
 }
 function rememberPointer(event: PointerEvent) { lastPointerType = event.pointerType }
-function blurTrigger() { if (!touchInteractive.value) pinned = false; queueHide() }
-function toggleDetails(event: MouseEvent) {
-  // Mouse clicks never pin the tooltip; touch and keyboard activation can toggle it.
-  if (event.detail !== 0 && lastPointerType !== 'touch') {
-    if (triggerHovered) void show()
-    return
-  }
-  if (pinned) { hide(); return }
-  pinned = true
+function blurTrigger() { if (!pinned.value && !triggerHovered) hide() }
+function toggleDetails() {
+  if (pinned.value) { hide(); return }
+  pinned.value = true
   touchInteractive.value = lastPointerType === 'touch'
   void show()
 }
@@ -170,15 +142,19 @@ watch(opened, value => {
   window.addEventListener('resize', hide)
 })
 watch(() => props.card, hide)
-onBeforeUnmount(() => { clearCloseTimer(); generation += 1; removeListeners() })
+onBeforeUnmount(() => { generation += 1; removeListeners() })
 </script>
 
 <style scoped>
-.resource-details-trigger { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 24px; padding: 0; border: 0; background: transparent; text-align: left; cursor: help; }
+.resource-details-trigger { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 24px; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .resource-details-trigger:hover, .resource-details-trigger[aria-expanded="true"] { color: #1976d2; }
-.resource-details-summary { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.resource-details-summary { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-decoration: none; text-decoration-color: #1976d280; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+@media (hover: hover) {
+  .resource-details-trigger:hover:not(.is-pinned) .resource-details-summary { text-decoration-line: underline; }
+}
 .resource-details-trigger svg { width: 13px; height: 13px; flex-shrink: 0; opacity: .75; }
-.resource-details-popover { position: fixed; z-index: 1400; pointer-events: auto; max-height: min(420px, 60dvh, calc(100dvh - 24px)); box-sizing: border-box; padding: 13px 15px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid #cdd5e5; border-radius: 9px; background: #fff; box-shadow: 0 5px 24px #26324b26; color: #52617a; font-family: var(--app-font-family, sans-serif); font-size: 12px; font-weight: 400; line-height: 1.65; text-align: left; overflow-wrap: anywhere; user-select: none; scrollbar-width: thin; }
+.resource-details-popover { position: fixed; z-index: 1400; pointer-events: none; max-height: min(420px, 60dvh, calc(100dvh - 24px)); box-sizing: border-box; padding: 13px 15px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid #cdd5e5; border-radius: 9px; background: #fff; box-shadow: 0 5px 24px #26324b26; color: #52617a; font-family: var(--app-font-family, sans-serif); font-size: 12px; font-weight: 400; line-height: 1.65; text-align: left; overflow-wrap: anywhere; user-select: none; scrollbar-width: thin; }
+.resource-details-popover.is-pinned { pointer-events: auto; }
 .resource-details-popover.is-touch { touch-action: pan-y; }
 .resource-details-title { display: block; margin-bottom: 9px; color: #25324c; font-size: 13px; }
 .resource-details-label { display: block; margin-bottom: 3px; color: #326ba9; font-size: 11px; font-weight: 600; }

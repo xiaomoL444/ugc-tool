@@ -26,6 +26,33 @@ test("agent tool descriptions agree with the enforced details limit and cursor p
   assert.match(search.description, /keep all other search arguments identical/);
 });
 
+test("visual scene searches describe appearance and motion rather than requiring acoustic terms", () => {
+  for (const input of [{ scope: "effect", matchOn: "visual" }, { scope: "all", matchOn: "any" }]) {
+    const query = assetFunctionTools(input).find(tool => tool.function.name === "search_assets").function.parameters.properties.query;
+    assert.match(query.description, /visual effects.*matchOn=visual.*color.*shape.*motion/i);
+    assert.match(query.description, /appearance\/disappearance/i);
+    assert.match(query.description, /matchOn=any.*visual or audio intent/i);
+    assert.doesNotMatch(query.description, /feature queries contain 2–4 acoustic terms/i);
+  }
+});
+
+test("sound and effect soundtrack searches retain acoustic guidance and their own audio evidence", () => {
+  for (const input of [{ scope: "sound", matchOn: "audio" }, { scope: "effect", matchOn: "audio" }]) {
+    const query = assetFunctionTools(input).find(tool => tool.function.name === "search_assets").function.parameters.properties.query;
+    assert.match(query.description, /sound effects.*effect's own soundtrack.*matchOn=audio.*attack.*timbre.*pitch.*rhythm.*decay/i);
+    assert.match(query.description, /effect's own soundtrack/i);
+    assert.match(query.description, /Do not infer audio properties from visual descriptions/i);
+  }
+});
+
+test("BGM scene searches cover musical features while preserving use-stage and exact-name lookup", () => {
+  const query = assetFunctionTools({ scope: "bgm", matchOn: "any" }).find(tool => tool.function.name === "search_assets").function.parameters.properties.query;
+  assert.match(query.description, /background music.*bgm.*mood.*tempo.*instrumentation.*musical structure/i);
+  assert.match(query.description, /2–4 concise feature terms/i);
+  assert.match(query.description, /both queries contain short behavior\/stage terms/i);
+  assert.match(query.description, /Known-name lookup may use the exact name/i);
+});
+
 test("more-results reasoning is passed to model and its rewritten query reaches the shared search tool", async () => {
   const req = request(), cfg = config(); let rounds = 0, searched;
   const result = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, { UPSTREAM_API_KEY: "mock-key" }, {

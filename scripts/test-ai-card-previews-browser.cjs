@@ -414,13 +414,15 @@ async function testDetailsDesktop(browser) {
     assert.equal(await card.locator('.match-reason,.resource-tags,.suggested-uses').count(), 0, 'Long explanations and tags do not expand the default card');
     assert.equal(await page.locator('.resource-details-popover').count(), 0);
     const trigger = card.locator('.resource-details-trigger');
-    const summary = await trigger.locator('.resource-details-summary').evaluate(element => { const styles = getComputedStyle(element); return { whitespace: styles.whiteSpace, overflow: styles.overflow, ellipsis: styles.textOverflow, truncated: element.scrollWidth > element.clientWidth, height: element.getBoundingClientRect().height }; });
+    const summary = await trigger.locator('.resource-details-summary').evaluate(element => { const styles = getComputedStyle(element); return { whitespace: styles.whiteSpace, overflow: styles.overflow, ellipsis: styles.textOverflow, decoration: styles.textDecorationLine, truncated: element.scrollWidth > element.clientWidth, height: element.getBoundingClientRect().height }; });
     assert.deepEqual([summary.whitespace, summary.overflow, summary.ellipsis], ['nowrap', 'hidden', 'ellipsis'], 'The default description uses a single ellipsis line');
     assert.ok(summary.truncated && summary.height <= 24);
+    assert.equal(summary.decoration, 'none', 'An idle description has no underline');
     const cardHeight = (await card.boundingBox()).height;
     const scrollHeight = await page.locator('.message-viewport').evaluate(element => element.scrollHeight);
     const beforeDetailsApi = state.apiRequests;
     await trigger.hover();
+    assert.equal(await trigger.locator('.resource-details-summary').evaluate(element => getComputedStyle(element).textDecorationLine), 'underline', 'Hovering an unpinned description shows its clickable underline');
     const popover = await assertDetailsContent(page);
     assert.ok(Math.abs((await popover.boundingBox()).width - 640) < 1, 'Long non-music details use the wider 640px panel');
     assert.ok((await popover.boundingBox()).height <= 420, 'Long details keep the same 420px height ceiling as compact details');
@@ -428,7 +430,18 @@ async function testDetailsDesktop(browser) {
     assert.ok(Math.abs((await card.boundingBox()).height - cardHeight) < 1, 'Showing complete details does not grow the card');
     assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollHeight), scrollHeight, 'Showing details does not grow the scrolling message surface');
     await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-desktop.png'), fullPage: true });
-    assert.equal(await popover.evaluate(element => getComputedStyle(element).pointerEvents), 'auto', 'Desktop details accept pointer interaction for reading and scrolling');
+    assert.equal(await popover.evaluate(element => getComputedStyle(element).pointerEvents), 'none', 'A temporary hover preview does not accept pointer interaction');
+    const previewPoint = await popover.evaluate(element => { const bounds = element.getBoundingClientRect(); return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }; });
+    await page.mouse.move(previewPoint.x, previewPoint.y);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    assert.equal(await popover.count(), 0, 'Moving off the summary into its temporary preview closes it immediately');
+    console.log('Desktop hover preview closes by the next animation frame after leaving its summary');
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    await trigger.locator('.resource-details-summary').click();
+    await assertDetailsContent(page);
+    assert.equal(await trigger.evaluate(element => document.activeElement === element), true, 'Clicking the description leaves focus on its trigger');
+    assert.equal(await trigger.locator('.resource-details-summary').evaluate(element => getComputedStyle(element).textDecorationLine), 'none', 'Pinning details removes the description underline');
+    assert.equal(await popover.evaluate(element => getComputedStyle(element).pointerEvents), 'auto', 'Clicking the description pins interactive details for reading and scrolling');
     const tooltipPoint = await popover.evaluate(element => {
       const bounds = element.getBoundingClientRect();
       const points = [{ x: bounds.left + 18, y: bounds.top + 18 }, { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }, { x: bounds.right - 18, y: bounds.bottom - 18 }];
@@ -438,7 +451,7 @@ async function testDetailsDesktop(browser) {
     assert.equal(await page.evaluate(point => !!document.elementFromPoint(point.x, point.y)?.closest('.resource-details-popover'), tooltipPoint), true, 'Hit testing reaches the visible details rather than content underneath');
     await page.mouse.move(tooltipPoint.x, tooltipPoint.y);
     await page.waitForTimeout(220);
-    assert.equal(await popover.count(), 1, 'Moving from the summary into its details cancels the leave timer and keeps the panel open');
+    assert.equal(await popover.count(), 1, 'Moving from the clicked summary into pinned details keeps the panel open');
     const mouseMessageScrollTop = await page.locator('.message-viewport').evaluate(element => element.scrollTop);
     await page.mouse.wheel(0, 300);
     await page.waitForFunction(() => document.querySelector('.resource-details-popover')?.scrollTop > 0);
@@ -458,29 +471,26 @@ async function testDetailsDesktop(browser) {
     assert.equal(await popover.count(), 1, 'Clicking the native details scrollbar does not dismiss the panel');
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
     await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-scrollbar-desktop.png'), fullPage: true });
-    await page.evaluate(() => {
-      const panel = document.querySelector('.resource-details-popover');
-      window.__detailsLeaveDelay = new Promise(resolve => {
-        panel.addEventListener('pointerleave', () => {
-          const start = performance.now();
-          const observer = new MutationObserver(() => { if (!panel.isConnected) { observer.disconnect(); resolve(performance.now() - start); } });
-          observer.observe(document.body, { childList: true, subtree: true });
-        }, { once: true });
-      });
-    });
     await page.mouse.move(5, 5);
-    await popover.waitFor({ state: 'hidden', timeout: 1500 });
-    const leaveDelay = await page.evaluate(() => window.__detailsLeaveDelay);
-    assert.ok(leaveDelay >= 100 && leaveDelay < 1000, `Leaving both the summary and details closes the panel after a short grace period: ${leaveDelay}ms`);
-    console.log('Desktop details leave grace:', Math.round(leaveDelay), 'ms');
-    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    await page.waitForTimeout(220);
+    assert.equal(await popover.count(), 1, 'Pinned details remain open after moving away from both the trigger and the panel');
+    await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-pinned-desktop.png'), fullPage: true });
     await trigger.click();
-    await assertDetailsContent(page);
-    assert.equal(await trigger.evaluate(element => document.activeElement === element), true, 'The mouse click leaves focus on the summary');
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    assert.equal(await popover.count(), 0, 'Clicking the same description again closes pinned details without reopening on hover');
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(await trigger.locator('.resource-details-summary').evaluate(element => getComputedStyle(element).textDecorationLine), 'underline', 'Closing pinned details restores the description underline');
     await page.mouse.move(5, 5);
+    assert.equal(await trigger.locator('.resource-details-summary').evaluate(element => getComputedStyle(element).textDecorationLine), 'none', 'Moving away from the unpinned description removes its underline');
+    await trigger.locator('svg').click();
+    await assertDetailsContent(page);
+    assert.equal(await popover.evaluate(element => getComputedStyle(element).pointerEvents), 'auto', 'Clicking the info icon also pins the details');
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(220);
+    assert.equal(await popover.count(), 1, 'Details pinned with the info icon remain open after the pointer leaves');
+    await page.mouse.click(5, 5);
     await page.locator('.resource-details-popover').waitFor({ state: 'hidden', timeout: 1500 });
-    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'A mouse click does not pin details after leaving both regions, even while the button remains focused');
-    assert.equal(await trigger.evaluate(element => document.activeElement === element), true);
+    assert.equal(await popover.count(), 0, 'An outside mouse click closes pinned details');
     await trigger.hover();
     const firstTooltipId = await (await assertDetailsContent(page)).getAttribute('id');
     const adjacentTrigger = reply.locator('.resource-card').nth(1).locator('.resource-details-trigger');
@@ -503,14 +513,14 @@ async function testDetailsDesktop(browser) {
     await page.mouse.move(5, 5);
     await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
     await showPreviewPosition(page, 1);
-    // Same-task enter/leave must still close after the grace period, even if
+    // Same-task enter/leave must still close immediately, even if
     // show() was waiting for its first Vue tick when the pointer left.
     await trigger.evaluate(element => {
       element.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
       element.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
     });
-    await page.waitForTimeout(220);
-    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'A pending positioning promise cannot reopen details after the leave grace period');
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'A pending positioning promise cannot reopen a hover preview after pointer leave');
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
     await page.locator('#asset-query').focus();
     await trigger.focus();
@@ -520,17 +530,23 @@ async function testDetailsDesktop(browser) {
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false', 'Escape closes details opened by keyboard focus');
     await trigger.press('Enter');
     await assertDetailsContent(page);
+    assert.equal(await page.locator('.resource-details-popover').evaluate(element => getComputedStyle(element).pointerEvents), 'auto', 'Keyboard Enter pins interactive details');
+    await trigger.press('Enter');
+    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'Repeating keyboard activation closes pinned details');
+    await trigger.press('Space');
+    await assertDetailsContent(page);
     await page.keyboard.press('Escape');
     await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
     await page.keyboard.press('Tab');
     await page.setViewportSize({ width: 1366, height: 480 });
     await trigger.scrollIntoViewIfNeeded();
     await page.waitForTimeout(150);
+    await trigger.hover();
     await trigger.focus();
+    await trigger.press('Enter');
     const scrollingDetails = await assertDetailsContent(page);
     const keyboardScrollState = await scrollingDetails.evaluate(element => ({ scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }));
     assert.ok(keyboardScrollState.scrollHeight > keyboardScrollState.clientHeight, 'The short viewport requires scrolling the complete details');
-    await trigger.hover();
     const messageScrollTop = await page.locator('.message-viewport').evaluate(element => element.scrollTop);
     const scrollingDetailsId = await scrollingDetails.getAttribute('id');
     await page.mouse.wheel(0, 300);
@@ -626,6 +642,10 @@ async function testDetailsMobile(browser) {
     await page.locator('#asset-query').tap();
     await page.locator('.resource-details-popover').waitFor({ state: 'hidden', timeout: 3000 });
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false', 'A tap outside closes pinned mobile details');
+    await trigger.tap();
+    await assertDetailsContent(page);
+    await trigger.tap();
+    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'Tapping the same description again closes pinned mobile details');
     const musicCard = await showPreviewPosition(page, 4);
     await musicCard.locator('.resource-details-trigger').tap();
     const musicDetails = await assertDetailsContent(page, cards[3]);
@@ -654,6 +674,6 @@ async function testDetailsMobile(browser) {
     if (!detailsOnly) { await testDesktop(browser); await testMobile(browser); }
     await testDetailsDesktop(browser);
     await testDetailsMobile(browser);
-    console.log(detailsOnly ? 'PASS AISearch compact details: single-line ellipsis, complete plain text, all tags/reasons/uses, 640px details and 720px BGM widths, shared 420px/60vh height limits, mouse entry/wheel/scrollbar access, delayed outside leave without mouse pinning, summary wheel and keyboard scroll without moving chat, native touch panel scrolling with outside close, pending positioning and page cleanup, fixed card height, no AI/search calls.' : 'PASS AISearch card previews and compact details: real WAV waveform and seek, smooth cursor without timeupdate, frozen paused progress, exclusive audio playback, effect icon/video links/hover audio, copy ID/name, trusted BGM song/album IDs, lazy iframe, scroll/conversation/page cleanup, cached metadata, mobile one-card pages preserve result order, no API requests on paging, mobile layout, complete plain-text interactive details with delayed outside leave, keyboard/mobile access and fixed card height.');
+    console.log(detailsOnly ? 'PASS AISearch compact details: single-line ellipsis, complete plain text, all tags/reasons/uses, 640px details and 720px BGM widths, shared 420px/60vh height limits, hover preview closes immediately on leaving the summary, description/info click pins mouse-readable details, native wheel to final content and scrollbar interaction without moving chat, pinned details persist away from both regions, repeated activation/outside click/Escape close, summary wheel and keyboard scroll isolation, native touch scrolling, pending positioning and page cleanup, fixed card height, no AI/search calls.' : 'PASS AISearch card previews and compact details: real WAV waveform and seek, smooth cursor without timeupdate, frozen paused progress, exclusive audio playback, effect icon/video links/hover audio, copy ID/name, trusted BGM song/album IDs, lazy iframe, scroll/conversation/page cleanup, cached metadata, mobile one-card pages preserve result order, no API requests on paging, mobile layout, temporary hover previews and click-pinned interactive details, keyboard/mobile access and fixed card height.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
