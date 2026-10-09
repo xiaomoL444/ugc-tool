@@ -59,7 +59,6 @@
   "aiSearch.results.paginationLabel": "リソース検索結果のページ切り替え",
   "aiSearch.results.detailsLabel": "{name} のリソース説明を表示",
   "aiSearch.results.detailsTitle": "リソース説明",
-  "aiSearch.results.scrollDetailsHint": "説明にカーソルを置いたままスクロールして全文を読む",
   "aiSearch.results.keywords": "キーワード",
   "aiSearch.resultCount": "候補の素材が {count} 件見つかりました",
   "aiSearch.openAsset": "素材ページを開く",

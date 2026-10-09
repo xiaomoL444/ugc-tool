@@ -59,7 +59,6 @@
   "aiSearch.results.paginationLabel": "Asset result pages",
   "aiSearch.results.detailsLabel": "View resource details for {name}",
   "aiSearch.results.detailsTitle": "Resource details",
-  "aiSearch.results.scrollDetailsHint": "Keep the pointer over the description and scroll to read more",
   "aiSearch.results.keywords": "Keywords",
   "aiSearch.resultCount": "Found {count} candidate assets",
   "aiSearch.openAsset": "Open asset page",

@@ -389,9 +389,10 @@ async function assertDetailsContent(page, expectedCard = cards[0]) {
   if (expectedCard.matchReason) assert.ok((await popover.locator('.match-reason').innerText()).includes(expectedCard.matchReason), 'Details include the complete matching reason');
   else assert.equal(await popover.locator('.match-reason').count(), 0);
   assert.deepEqual(await popover.locator('.suggested-uses .use-tag').allTextContents(), expectedCard.suggestedUses, 'All suggested uses are available in details');
-  const geometry = await popover.evaluate(element => { const rect = element.getBoundingClientRect(); return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight, clippedParent: !!element.closest('.message-viewport') }; });
+  const geometry = await popover.evaluate(element => { const rect = element.getBoundingClientRect(); return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, panelHeight: rect.height, width: innerWidth, height: innerHeight, clippedParent: !!element.closest('.message-viewport') }; });
   assert.equal(geometry.clippedParent, false, 'Details are teleported outside the scrolling message viewport');
   assert.ok(geometry.left >= 0 && geometry.top >= 0 && geometry.right <= geometry.width + 1 && geometry.bottom <= geometry.height + 1, `Complete details stay inside the screen: ${JSON.stringify(geometry)}`);
+  assert.ok(geometry.panelHeight <= Math.min(420, geometry.height * 0.6) + 1, `Every detail panel respects the 420px and 60vh height ceilings: ${JSON.stringify(geometry)}`);
   return popover;
 }
 
@@ -422,59 +423,94 @@ async function testDetailsDesktop(browser) {
     await trigger.hover();
     const popover = await assertDetailsContent(page);
     assert.ok(Math.abs((await popover.boundingBox()).width - 640) < 1, 'Long non-music details use the wider 640px panel');
-    assert.ok((await popover.boundingBox()).height <= 640, 'Wide details have a 640px height ceiling');
+    assert.ok((await popover.boundingBox()).height <= 420, 'Long details keep the same 420px height ceiling as compact details');
     assert.equal(await trigger.getAttribute('aria-describedby'), await popover.getAttribute('id'), 'The focused or hovered trigger identifies its tooltip');
     assert.ok(Math.abs((await card.boundingBox()).height - cardHeight) < 1, 'Showing complete details does not grow the card');
     assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollHeight), scrollHeight, 'Showing details does not grow the scrolling message surface');
     await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-desktop.png'), fullPage: true });
-    assert.equal(await popover.evaluate(element => getComputedStyle(element).pointerEvents), 'none', 'The description tooltip cannot intercept mouse or pen interaction');
+    assert.equal(await popover.evaluate(element => getComputedStyle(element).pointerEvents), 'auto', 'Desktop details accept pointer interaction for reading and scrolling');
     const tooltipPoint = await popover.evaluate(element => {
       const bounds = element.getBoundingClientRect();
       const points = [{ x: bounds.left + 18, y: bounds.top + 18 }, { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }, { x: bounds.right - 18, y: bounds.bottom - 18 }];
-      return points.find(point => !document.elementFromPoint(point.x, point.y)?.closest('.resource-details-trigger'));
+      return points.find(point => document.elementFromPoint(point.x, point.y)?.closest('.resource-details-popover'));
     });
-    assert.ok(tooltipPoint, 'The fixture has a tooltip coordinate outside the original and adjacent description lines');
-    assert.equal(await page.evaluate(point => !!document.elementFromPoint(point.x, point.y)?.closest('.resource-details-popover'), tooltipPoint), false, 'Hit testing at the visible tooltip reaches content underneath');
+    assert.ok(tooltipPoint, 'The fixture has an interactive coordinate inside complete details');
+    assert.equal(await page.evaluate(point => !!document.elementFromPoint(point.x, point.y)?.closest('.resource-details-popover'), tooltipPoint), true, 'Hit testing reaches the visible details rather than content underneath');
     await page.mouse.move(tooltipPoint.x, tooltipPoint.y);
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
-    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'Leaving the summary for its tooltip closes it by the next frame, with no hover grace period');
+    await page.waitForTimeout(220);
+    assert.equal(await popover.count(), 1, 'Moving from the summary into its details cancels the leave timer and keeps the panel open');
+    const mouseMessageScrollTop = await page.locator('.message-viewport').evaluate(element => element.scrollTop);
+    await page.mouse.wheel(0, 300);
+    await page.waitForFunction(() => document.querySelector('.resource-details-popover')?.scrollTop > 0);
+    assert.equal(await popover.count(), 1, 'Native mouse-wheel scrolling inside details keeps the panel open');
+    assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollTop), mouseMessageScrollTop, 'Scrolling inside complete details does not move the chat viewport');
+    await page.mouse.wheel(0, 10000);
+    await page.waitForFunction(() => { const panel = document.querySelector('.resource-details-popover'); return panel && panel.scrollTop >= panel.scrollHeight - panel.clientHeight - 1; });
+    assert.ok(await popover.locator('.use-tag').last().evaluate(element => { const bounds = element.getBoundingClientRect(); const panelBounds = element.closest('.resource-details-popover').getBoundingClientRect(); return bounds.top >= panelBounds.top && bounds.bottom <= panelBounds.bottom; }), 'Native wheel scrolling reaches the final suggested use inside the panel');
+    assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollTop), mouseMessageScrollTop, 'Reading the final detail content does not move the chat viewport');
+    await page.mouse.wheel(0, 300);
+    await page.waitForTimeout(50);
+    assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollTop), mouseMessageScrollTop, 'Native wheel gestures at the details bottom boundary do not move the chat viewport');
+    console.log('Desktop native details:', JSON.stringify(await popover.evaluate(element => ({ id: element.id, width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height, scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight, messageScrollTop: document.querySelector('.message-viewport').scrollTop }))));
+    const scrollbarPoint = await popover.evaluate(element => { const rect = element.getBoundingClientRect(); return { x: rect.right - 4, y: rect.top + rect.height * 0.8 }; });
+    await page.mouse.click(scrollbarPoint.x, scrollbarPoint.y);
+    await page.waitForTimeout(220);
+    assert.equal(await popover.count(), 1, 'Clicking the native details scrollbar does not dismiss the panel');
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+    await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-scrollbar-desktop.png'), fullPage: true });
+    await page.evaluate(() => {
+      const panel = document.querySelector('.resource-details-popover');
+      window.__detailsLeaveDelay = new Promise(resolve => {
+        panel.addEventListener('pointerleave', () => {
+          const start = performance.now();
+          const observer = new MutationObserver(() => { if (!panel.isConnected) { observer.disconnect(); resolve(performance.now() - start); } });
+          observer.observe(document.body, { childList: true, subtree: true });
+        }, { once: true });
+      });
+    });
+    await page.mouse.move(5, 5);
+    await popover.waitFor({ state: 'hidden', timeout: 1500 });
+    const leaveDelay = await page.evaluate(() => window.__detailsLeaveDelay);
+    assert.ok(leaveDelay >= 100 && leaveDelay < 1000, `Leaving both the summary and details closes the panel after a short grace period: ${leaveDelay}ms`);
+    console.log('Desktop details leave grace:', Math.round(leaveDelay), 'ms');
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
     await trigger.click();
     await assertDetailsContent(page);
     assert.equal(await trigger.evaluate(element => document.activeElement === element), true, 'The mouse click leaves focus on the summary');
     await page.mouse.move(5, 5);
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
-    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'A mouse click does not pin the tooltip after leaving the summary, even while the button remains focused');
+    await page.locator('.resource-details-popover').waitFor({ state: 'hidden', timeout: 1500 });
+    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'A mouse click does not pin details after leaving both regions, even while the button remains focused');
     assert.equal(await trigger.evaluate(element => document.activeElement === element), true);
     await trigger.hover();
     const firstTooltipId = await (await assertDetailsContent(page)).getAttribute('id');
     const adjacentTrigger = reply.locator('.resource-card').nth(1).locator('.resource-details-trigger');
     await adjacentTrigger.hover();
+    await page.waitForFunction(previousId => { const panels = document.querySelectorAll('.resource-details-popover'); return panels.length === 1 && panels[0].id !== previousId; }, firstTooltipId);
     const adjacentTooltip = page.locator('.resource-details-popover');
     await adjacentTooltip.waitFor();
     assert.equal(await adjacentTooltip.count(), 1, 'Moving directly to another description leaves only its own tooltip');
     assert.notEqual(await adjacentTooltip.getAttribute('id'), firstTooltipId);
     assert.equal(await adjacentTooltip.locator('.resource-details-description').innerText(), cards[1].description, 'The adjacent description has no stale content from the prior tooltip');
     await page.mouse.move(5, 5);
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    await adjacentTooltip.waitFor({ state: 'hidden', timeout: 1500 });
     assert.equal(await page.locator('.resource-details-popover').count(), 0);
     const musicCard = await showPreviewPosition(page, 4);
     await musicCard.locator('.resource-details-trigger').hover();
     const musicDetails = await assertDetailsContent(page, cards[3]);
     assert.ok(Math.abs((await musicDetails.boundingBox()).width - 720) < 1, 'Music details use a 720px panel for the longer musical description');
-    assert.ok((await musicDetails.boundingBox()).height <= 640, 'Music details keep the wide-panel height ceiling');
+    assert.ok((await musicDetails.boundingBox()).height <= 420, 'Music details keep the same 420px height ceiling');
     await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-bgm-desktop.png'), fullPage: true });
     await page.mouse.move(5, 5);
     await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
     await showPreviewPosition(page, 1);
-    // This same-task enter/leave leaves show() waiting on its first Vue tick,
-    // so it probes cancellation before the teleported panel can be positioned.
+    // Same-task enter/leave must still close after the grace period, even if
+    // show() was waiting for its first Vue tick when the pointer left.
     await trigger.evaluate(element => {
       element.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
       element.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
     });
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'A pending positioning promise cannot reopen details after an immediate leave');
+    await page.waitForTimeout(220);
+    assert.equal(await page.locator('.resource-details-popover').count(), 0, 'A pending positioning promise cannot reopen details after the leave grace period');
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
     await page.locator('#asset-query').focus();
     await trigger.focus();
@@ -494,12 +530,13 @@ async function testDetailsDesktop(browser) {
     const scrollingDetails = await assertDetailsContent(page);
     const keyboardScrollState = await scrollingDetails.evaluate(element => ({ scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }));
     assert.ok(keyboardScrollState.scrollHeight > keyboardScrollState.clientHeight, 'The short viewport requires scrolling the complete details');
-    const messageScrollTop = await page.locator('.message-viewport').evaluate(element => element.scrollTop);
     await trigger.hover();
-    assert.ok((await scrollingDetails.locator('.resource-details-scroll-hint').innerText()).length > 0, 'Scrollable desktop details explain how to use the summary wheel gesture');
+    const messageScrollTop = await page.locator('.message-viewport').evaluate(element => element.scrollTop);
+    const scrollingDetailsId = await scrollingDetails.getAttribute('id');
     await page.mouse.wheel(0, 300);
     await page.waitForFunction(() => document.querySelector('.resource-details-popover')?.scrollTop > 0);
     assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollTop), messageScrollTop, 'The wheel on the summary scrolls only complete details, not the chat viewport');
+    assert.equal(await scrollingDetails.getAttribute('id'), scrollingDetailsId, 'The summary wheel scrolls the same complete details panel');
     assert.equal(await scrollingDetails.count(), 1, 'The wheel keeps complete details open while the pointer stays on the summary');
     await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-scroll-desktop.png'), fullPage: true });
     await page.mouse.wheel(0, -10000);
@@ -516,8 +553,14 @@ async function testDetailsDesktop(browser) {
     assert.equal(await scrollingDetails.count(), 1, 'Scrolling inside complete details keeps the panel open');
     await page.keyboard.press('Home');
     assert.equal(await scrollingDetails.evaluate(element => element.scrollTop), 0);
+    await scrollingDetails.focus();
+    await page.keyboard.press('End');
+    assert.ok(await scrollingDetails.evaluate(element => element.scrollTop >= element.scrollHeight - element.clientHeight - 1), 'A focused details panel also supports keyboard End');
+    await page.keyboard.press('Home');
+    assert.equal(await scrollingDetails.evaluate(element => element.scrollTop), 0, 'A focused details panel also supports keyboard Home');
     await page.keyboard.press('Escape');
     await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
+    assert.equal(await trigger.evaluate(element => document.activeElement === element), true, 'Escape from the focused panel restores focus to its summary');
     await page.keyboard.press('Tab');
     await page.mouse.move(5, 5);
     await page.setViewportSize({ width: 780, height: 900 });
@@ -558,7 +601,6 @@ async function testDetailsMobile(browser) {
     await trigger.tap();
     const touchDetails = await assertDetailsContent(page);
     assert.equal(await touchDetails.evaluate(element => getComputedStyle(element).pointerEvents), 'auto', 'Pinned mobile details allow touch interaction inside the panel');
-    assert.equal(await touchDetails.locator('.resource-details-scroll-hint').count(), 0, 'Mobile details do not show the desktop wheel hint');
     assert.ok(await touchDetails.evaluate(element => element.scrollHeight > element.clientHeight), 'The long mobile fixture requires detail scrolling');
     const messageScrollTop = await page.locator('.message-viewport').evaluate(element => element.scrollTop);
     const bounds = await touchDetails.boundingBox();
@@ -588,7 +630,7 @@ async function testDetailsMobile(browser) {
     await musicCard.locator('.resource-details-trigger').tap();
     const musicDetails = await assertDetailsContent(page, cards[3]);
     assert.ok(Math.abs((await musicDetails.boundingBox()).width - (390 - 24)) < 1, 'Music details clamp the 720px preferred width to the mobile viewport with 12px margins');
-    assert.ok((await musicDetails.boundingBox()).height <= 640 && (await musicDetails.boundingBox()).height <= 844 - 24, 'Mobile music details remain inside the viewport height');
+    assert.ok((await musicDetails.boundingBox()).height <= 420 && (await musicDetails.boundingBox()).height <= 844 * 0.6, 'Mobile music details respect the same panel and viewport height ceilings');
     await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-bgm-mobile.png'), fullPage: true });
     await page.locator('#asset-query').tap();
     await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
@@ -607,11 +649,11 @@ async function testDetailsMobile(browser) {
 
 (async () => {
   await fs.mkdir(outputDirectory, { recursive: true });
-  const browser = await chromium.launch({ channel: process.env.AI_SEARCH_BROWSER_CHANNEL || 'msedge', headless: true });
+  const browser = await chromium.launch({ channel: process.env.AI_SEARCH_BROWSER_CHANNEL || 'msedge', headless: true, ignoreDefaultArgs: ['--hide-scrollbars'] });
   try {
     if (!detailsOnly) { await testDesktop(browser); await testMobile(browser); }
     await testDetailsDesktop(browser);
     await testDetailsMobile(browser);
-    console.log(detailsOnly ? 'PASS AISearch compact details: single-line ellipsis, complete plain text, all tags/reasons/uses, long-detail 640px and BGM 720px widths with viewport clamp, desktop noninteractive immediate leave/no mouse pinning, summary wheel and keyboard scroll without moving chat, native touch panel scrolling with outside close, pending positioning and page cleanup, fixed card height, no AI/search calls.' : 'PASS AISearch card previews and compact details: real WAV waveform and seek, smooth cursor without timeupdate, frozen paused progress, exclusive audio playback, effect icon/video links/hover audio, copy ID/name, trusted BGM song/album IDs, lazy iframe, scroll/conversation/page cleanup, cached metadata, mobile one-card pages preserve result order, no API requests on paging, mobile layout, complete plain-text noninteractive tooltip with immediate pointer leave, keyboard/mobile access and fixed card height.');
+    console.log(detailsOnly ? 'PASS AISearch compact details: single-line ellipsis, complete plain text, all tags/reasons/uses, 640px details and 720px BGM widths, shared 420px/60vh height limits, mouse entry/wheel/scrollbar access, delayed outside leave without mouse pinning, summary wheel and keyboard scroll without moving chat, native touch panel scrolling with outside close, pending positioning and page cleanup, fixed card height, no AI/search calls.' : 'PASS AISearch card previews and compact details: real WAV waveform and seek, smooth cursor without timeupdate, frozen paused progress, exclusive audio playback, effect icon/video links/hover audio, copy ID/name, trusted BGM song/album IDs, lazy iframe, scroll/conversation/page cleanup, cached metadata, mobile one-card pages preserve result order, no API requests on paging, mobile layout, complete plain-text interactive details with delayed outside leave, keyboard/mobile access and fixed card height.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

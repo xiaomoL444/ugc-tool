@@ -59,7 +59,6 @@
   "aiSearch.results.paginationLabel": "資源結果翻頁",
   "aiSearch.results.detailsLabel": "查看 {name} 的資源說明",
   "aiSearch.results.detailsTitle": "資源說明",
-  "aiSearch.results.scrollDetailsHint": "滑鼠停留在描述處，捲動可查看全文",
   "aiSearch.results.keywords": "關鍵字",
   "aiSearch.resultCount": "找到 {count} 個候選資產",
   "aiSearch.openAsset": "前往資產頁",

@@ -59,7 +59,6 @@
   "aiSearch.results.paginationLabel": "资源结果翻页",
   "aiSearch.results.detailsLabel": "查看 {name} 的资源说明",
   "aiSearch.results.detailsTitle": "资源说明",
-  "aiSearch.results.scrollDetailsHint": "鼠标停留在描述处，滚动可查看全文",
   "aiSearch.results.keywords": "关键词",
   "aiSearch.resultCount": "找到 {count} 个候选资产",
   "aiSearch.openAsset": "前往资产页",

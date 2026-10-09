@@ -59,7 +59,6 @@
   "aiSearch.results.paginationLabel": "Страницы результатов поиска ресурсов",
   "aiSearch.results.detailsLabel": "Просмотреть описание ресурса {name}",
   "aiSearch.results.detailsTitle": "Описание ресурса",
-  "aiSearch.results.scrollDetailsHint": "Наведите указатель на описание и прокрутите, чтобы прочитать полностью",
   "aiSearch.results.keywords": "Ключевые слова",
   "aiSearch.resultCount": "Найдено ресурсов: {count}",
   "aiSearch.openAsset": "Открыть страницу ресурса",
