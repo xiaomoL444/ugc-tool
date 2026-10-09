@@ -139,10 +139,10 @@ const FEATURE_FIELDS = ['searchMetadata', 'visualShortDescription', 'visualDescr
 function buildIdentityCatalog(snapshots, sourceBase = 'ugc-tool-data') {
   // Keep this input independent of both legacy flat AI fields and the new sidecar.
   const cleanSnapshots = snapshots.map(snapshot => {
-    if (snapshot.kind === 'bgm' || snapshot.project === 'BgmPlayer') return snapshot;
     const cleanRow = row => Object.fromEntries(Object.entries(row).filter(([key]) => !FEATURE_FIELDS.includes(key) && !FEATURE_FIELDS.some(field => key === `${field}I18nKey`)));
     const data = { ...snapshot.data };
     if (Array.isArray(data.data)) data.data = data.data.map(cleanRow);
+    if (Array.isArray(data.musicData)) data.musicData = data.musicData.map(cleanRow);
     if (data.effectData) data.effectData = Object.fromEntries(Object.entries(data.effectData).map(([id, row]) => [id, cleanRow(row)]));
     return { ...snapshot, data };
   });
@@ -173,7 +173,7 @@ function featureCoverage(assets) {
 async function buildFeatureCatalog(identities, sidecars, rawHashes) {
   const { normalizeAssetFeatureResources, verifyAssetFeatureSidecar, computeAssetCatalogVersion } = await import('../tools/ai-search-service/asset-features.mjs');
   const normalized = new Map();
-  for (const source of SOURCES.filter(item => item.kind !== 'bgm')) {
+  for (const source of SOURCES) {
     const sidecar = sidecars.find(item => item.project === source.project);
     if (!sidecar) throw new Error(`Missing feature sidecar ${source.project}`);
     await verifyAssetFeatureSidecar(sidecar, { project: source.project, kind: source.kind, baseIndexVersion: identities.indexVersion, identities });
@@ -228,7 +228,7 @@ async function main(argv = process.argv.slice(2)) {
   const identities = buildIdentityCatalog(snapshots);
   const featuresBase = options.featuresBase || options.base;
   const sidecars = [], rawHashes = {};
-  for (const source of SOURCES.filter(item => item.kind !== 'bgm')) {
+  for (const source of SOURCES) {
     const relative = `${source.project}/features.json`;
     const bytes = /^https?:\/\//.test(featuresBase) ? Buffer.from(await fetchText(`${featuresBase.replace(/\/$/, '')}/${relative}`)) : await fs.readFile(path.join(featuresBase, relative));
     const disk = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, ''));

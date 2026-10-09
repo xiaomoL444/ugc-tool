@@ -8,6 +8,16 @@
 
 `finish_reason=length` 等未完整生成状态仍在解析前拒绝，明显未闭合的最外层对象或数组不补齐。修复失败保留原始模型正文供错误提示查看，不使用修复后的文本替代诊断。HTTP 响应封装、接口请求、资产文件、存档及工具参数继续严格解析。本地修复不新增模型调用或 MCP 检索。上线自有模型需要发布前端；上线站点 AI 还需要重新部署 Worker。
 
+`jsonrepair@3.15.0` 是项目根目录的运行依赖，由根 `package.json` 和 `pnpm-lock.yaml` 管理。网页和 Worker 都使用它；本目录没有独立依赖清单。安装必须在包含根 `package.json` 的 `ugc-tools` 目录进行，随后再进入 Worker 目录操作：
+
+```powershell
+cd H:\Code\ugc-web\ugc-tools
+pnpm install --frozen-lockfile
+cd tools/ai-search-service
+```
+
+发布源码时必须一起提交或上传更新后的根 `package.json`、`pnpm-lock.yaml` 和共享解析器源码，不能只上传 `model-json.mjs`。本机 `node_modules` 不随 Git 提交，Cloudflare 构建环境须根据依赖清单重新安装。`Can't resolve 'jsonrepair' in .../tools/ai-search-service` 表示此源码的依赖解析失败；报错路径是导入文件的位置，不能仅据此判断构建根目录。检查线上构建分支的依赖声明、安装步骤及缓存，不通过硬编码本机 `node_modules` 路径解决。
+
 ## 外置系统提示词
 
 检索行为的系统提示词统一读取公开的 [`ugc-tool-data/AISearch/SystemPrompt.md`](https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPrompt.md)。网站免费 AI 由 Worker 读取，自有模型由网页通过 `OSS_BASE_URL` 读取；文件正文作为 `role: "system"` 发给模型，模型无需自行访问文件地址。基础搜索不读取此文件。
@@ -20,7 +30,7 @@ SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPro
 
 源码不保留旧的检索提示词作为回退。程序只追加当前运行协议：工具调用次数、候选模式、结果上限及 `answer/matches` JSON 格式。文件中的 `RESULT_LIMIT` 会替换为本轮所选的 1 至 50；兼容 Markdown 编辑器对下划线和方括号的转义，如 `search\_assets`、`RESULT\_LIMIT`。
 
-成功读取缓存 60 秒，每轮工具调用使用同一份正文。缓存到期后请求采用 `no-store` 和 `_t` 时间参数刷新，失败与取消不写缓存。文件要求 HTTPS、有效 UTF-8、非空且不超过 16 KiB，响应类型为 `text/markdown`、`text/x-markdown` 或 `text/plain`；读取正文在内的超时为 5 秒，重定向不跟随。`PROMPT_UNAVAILABLE` 表示无法读取合法文件，返回 HTTP 503；不再继续调用模型，也不消耗该次免费额度或预留月预算。
+成功读取缓存 60 秒，每轮工具调用使用同一份正文。缓存到期后请求采用 `no-store` 和 `_t` 时间参数刷新，失败与取消不写缓存。文件要求 HTTPS、有效 UTF-8、非空且原始正文不超过 32 KiB（32,768 字节），响应类型为 `text/markdown`、`text/x-markdown` 或 `text/plain`；OSS 缺失类型或返回 `application/octet-stream` 时仍按正文校验。读取正文在内的超时为 5 秒，重定向不跟随。`PROMPT_UNAVAILABLE` 表示无法读取合法文件，返回 HTTP 503；不再继续调用模型，也不消耗该次免费额度或预留月预算。网页读取失败的诊断会区分文件过大、编码、空正文、HTML、类型及重定向，并显示已知的正文大小和上限；HTTP 200 仅表示请求成功，不表示内容通过校验。文件读取上限与包含上下文、工具的整体模型消息预算独立，后者保持现有配置。
 
 首次接入需要部署本目录 Worker，并更新前端。接入完成后，只需将修改后的 Markdown 上传到相同 OSS 路径，后续请求在缓存到期后读取新内容，无需为提示词修改重新构建或部署。该文件是公开内容，不放密钥或私有资料。
 
@@ -32,7 +42,7 @@ SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPro
 
 区分对象、行为、阶段、听感和感受；多阶段效果可分别寻找动作接触、状态完成和界面反馈。环境地点与情绪氛围也分别考虑。单次触发、随操作重复、阶段持续和长期背景是使用方式，不证明素材能无缝循环。实验中的升级、尖刺与结算查询只作为历史示例回归；通用玩法理解需按跨行为、词库外需求的模型评估规格检查，不能据这几个例子宣称通用能力已经验证。
 
-依据已有音轨描述补充游戏用途的独立模板位于 [`ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt`](../../../ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt)。它只生成带听感证据、适配理由和条件的新增用途，不重做原音频分析，不改原描述、声学关键词、冻结模板或已有用途；新增用途也不能反过来证明实际声音属性。第一阶段的隔离样本与离线验证不等于已经批量补标、上传 OSS 或部署。`node --test tools/ai-search-service/system-prompt.test.mjs` 会验证真实本地正文可加载并符合 16 KiB 文件限制和 30 KB agent 消息预算；这类协议检查不能证明模型实际选音质量。
+依据已有音轨描述补充游戏用途的独立模板位于 [`ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt`](../../../ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt)。它只生成带听感证据、适配理由和条件的新增用途，不重做原音频分析，不改原描述、声学关键词、冻结模板或已有用途；新增用途也不能反过来证明实际声音属性。第一阶段的隔离样本与离线验证不等于已经批量补标、上传 OSS 或部署。`node --test tools/ai-search-service/system-prompt.test.mjs` 会验证真实本地正文可加载并符合 32 KiB 文件限制和 30 KB agent 消息预算；这类协议检查不能证明模型实际选音质量。
 
 ## DeepSeek 免费模型
 
@@ -43,7 +53,9 @@ DeepSeek 专用配置为 `wrangler.deepseek.example.toml`，使用官方 API `ht
 首次配置时，可以将专用示例复制为 `wrangler.toml`。如果已经生成了 `wrangler.toml`，直接检查并编辑它，保留已有部署设置。生产网站需将真实来源（协议、域名、端口，不带页面路径）追加到 `ALLOWED_ORIGINS`。
 
 ```powershell
-cd H:\Code\ugc-web\ugc-tools\tools\ai-search-service
+cd H:\Code\ugc-web\ugc-tools
+pnpm install --frozen-lockfile
+cd tools/ai-search-service
 # 仅首次创建配置时执行；已存在的配置应直接编辑。
 if (-not (Test-Path -LiteralPath wrangler.toml)) {
   Copy-Item -LiteralPath wrangler.deepseek.example.toml -Destination wrangler.toml
@@ -99,7 +111,9 @@ VUE_APP_AI_SEARCH_API_BASE=https://你的Worker地址/api/ai-search
 已有站点需要重新部署 Worker，并重新构建、发布前端，才能启用保护与停用提示；仅修改本地配置不会更新线上服务。检查主配置中的 `MIN_BALANCE_CNY="20"`、`GUEST_DAILY_LIMIT="10"`、`MONTHLY_BUDGET_CNY="50"` 与 `MAX_OUTPUT_TOKENS="5400"`，保留现有 secrets 和来源域名。以下是维护者更新时执行的步骤，本次未部署：
 
 ```powershell
-cd H:\Code\ugc-web\ugc-tools\tools\ai-search-service
+cd H:\Code\ugc-web\ugc-tools
+pnpm install --frozen-lockfile
+cd tools/ai-search-service
 npx wrangler deploy
 cd ../..
 npm run build
@@ -117,6 +131,9 @@ npm run build
 示例操作（由维护者执行，secret 命令交互输入密钥）：
 
 ```powershell
+cd H:\Code\ugc-web\ugc-tools
+pnpm install --frozen-lockfile
+cd tools/ai-search-service
 if (-not (Test-Path -LiteralPath wrangler.toml)) {
   Copy-Item -LiteralPath wrangler.example.toml -Destination wrangler.toml
 }
@@ -416,7 +433,7 @@ MCP 查询不调用本站聊天模型，不需要把 DeepSeek Key 交给 MCP 客
 
 ## 本地验证
 
-本目录无需安装运行依赖。用 Node 20+ 执行：
+先在项目根目录安装依赖（见“模型返回格式修复”），再在本目录用 Node 20+ 执行：
 
 ```powershell
 node --test worker.test.mjs

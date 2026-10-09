@@ -347,8 +347,11 @@ export function useAISearch() {
     return t("aiSearch.errors.network");
   }
   function diagnosticHint(diagnostic: RequestDiagnostic): string | undefined {
+    if (diagnostic.stage === "prompt" && diagnostic.validationCode) return "promptValidation";
+    if (diagnostic.stage === "prompt" && diagnostic.kind === "response") return "promptResponse";
     if (diagnostic.kind === "network") return diagnostic.status === undefined ? "noResponse" : "bodyInterrupted";
     if (diagnostic.kind === "timeout") return "timeout";
+    if (diagnostic.stage === "prompt") return "promptResponse";
     if (diagnostic.status === 401) return diagnostic.stage === "model" ? "auth" : "serviceAuth";
     if (diagnostic.status === 403) return diagnostic.stage === "model" ? "forbidden" : "serviceAuth";
     if (diagnostic.status === 429) return diagnostic.stage === "model" ? "rateLimit" : "serviceRateLimit";
@@ -365,6 +368,8 @@ export function useAISearch() {
       ["endpoint", diagnostic.endpoint], ["model", diagnostic.model], ["round", diagnostic.round],
       ["elapsed", diagnostic.elapsedMs === undefined ? undefined : t("aiSearch.requestDiagnostics.elapsedValue", { milliseconds: Math.round(diagnostic.elapsedMs) })],
       ["providerCode", diagnostic.providerCode], ["providerMessage", diagnostic.providerMessage],
+      ["validationCode", diagnostic.stage === "prompt" && diagnostic.validationCode ? t("aiSearch.errors.promptValidation." + diagnostic.validationCode) + " (" + diagnostic.validationCode + ")" : diagnostic.validationCode],
+      ["responseBytes", diagnostic.responseBytes], ["responseByteLimit", diagnostic.responseByteLimit], ["contentType", diagnostic.contentType],
       ["parameter", diagnostic.parameter], ["requestId", diagnostic.requestId], ["browserMessage", diagnostic.browserMessage],
     ];
     const lines = fields.filter(([, value]) => value !== undefined && value !== "").map(([field, value]) => `${t(`aiSearch.requestDiagnostics.${field}`)}: ${value}`);
@@ -379,11 +384,15 @@ export function useAISearch() {
     const noResponse = transportFailure && diagnostic?.status === undefined;
     const bodyInterrupted = transportFailure && diagnostic?.status !== undefined;
     const serviceDenied = !!diagnostic && diagnostic.stage !== "model" && ["AUTH", "FORBIDDEN"].includes(code);
-    const base = timedOut ? t("aiSearch.errors.timeout") : noResponse ? t("aiSearch.errors.noResponse") : bodyInterrupted ? t("aiSearch.errors.bodyInterrupted") : serviceDenied ? t("aiSearch.errors.serviceDenied") : explainErrorCode(error);
+    const promptValidation = diagnostic?.stage === "prompt" && diagnostic.validationCode ? t("aiSearch.errors.promptValidation." + diagnostic.validationCode) : undefined;
+    const base = promptValidation ?? (timedOut ? t("aiSearch.errors.timeout") : noResponse ? t("aiSearch.errors.noResponse") : bodyInterrupted ? t("aiSearch.errors.bodyInterrupted") : serviceDenied ? t("aiSearch.errors.serviceDenied") : explainErrorCode(error));
     if (!diagnostic) return base;
     const context = `${t("aiSearch.requestDiagnostics.stage")}: ${t(`aiSearch.requestDiagnostics.stages.${diagnostic.stage}`)}${diagnostic.status === undefined ? "" : ` · HTTP ${diagnostic.status}`}`;
     const reason = [diagnostic.providerCode, diagnostic.providerMessage].filter(Boolean).join(": ").slice(0, 240);
-    return [base, context, reason].filter(Boolean).join(" · ");
+    const promptSize = promptValidation && diagnostic.responseBytes !== undefined
+      ? diagnostic.responseByteLimit !== undefined ? t("aiSearch.errors.promptSize", { bytes: diagnostic.responseBytes, limit: diagnostic.responseByteLimit })
+        : t("aiSearch.errors.promptBytes", { bytes: diagnostic.responseBytes }) : undefined;
+    return [base, context, promptSize, reason].filter(Boolean).join(" · ");
   }
   async function send(input: string) {
     const query = input.trim();

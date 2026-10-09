@@ -315,6 +315,24 @@ assert.ok(new TextEncoder().encode(JSON.stringify(huge)).length <= 21000);
   }
   const fenced = await requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(`\n\x60\x60\x60json\n${noMatch}\n\x60\x60\x60\n`, { finish_reason: 'stop' }) });
   assert.equal(fenced.answer, '没有符合条件的资源');
+  const repairable = "{answer:'匹配音轨', matches:[{resourceId:'effect:1', reason:'雷声', matchType:'feature',}],}";
+  let repairedCalls = 0;
+  const repaired = await requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => {
+    repairedCalls++;
+    return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: repairable } }] }));
+  } });
+  assert.equal(repaired.matches[0].resourceId, 'effect:1');
+  assert.equal(repairedCalls, 1, 'Repairing final JSON does not issue a new paid model request');
+  const repairedInvalidId = "{answer:'found',matches:[{resourceId:'effect:999',reason:'invented',matchType:'feature',}],}";
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(repairedInvalidId, { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_ASSET_ID' && error.rawResponse === repairedInvalidId, 'Repair never bypasses the ID allowlist, and diagnostics keep the original model text');
+  const repairedDuplicate = "{answer:'found',matches:[{resourceId:'effect:1',reason:'one',matchType:'feature'},{resourceId:'effect:1',reason:'duplicate',matchType:'feature'},],}";
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(repairedDuplicate, { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_ASSET_ID', 'Repair does not remove duplicate matches');
+  const tooMany = "{answer:'found',matches:[" + Array.from({ length: payload.resultLimit + 1 }, () => "{resourceId:'effect:1',reason:'one',matchType:'feature'}").join(',') + ",],}";
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(tooMany, { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_FORMAT', 'Repaired output retains the configured result-count bound');
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply("{answer:'missing matches',}", { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_FORMAT', 'Repair cannot invent required fields');
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(repairable.slice(0, -2), { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_FORMAT', 'An obviously unfinished outer object remains an error even without the provider length flag');
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(repairable.slice(0, -2), { finish_reason: 'length' }) }), error => error.code === 'OUTPUT_TRUNCATED', 'Provider truncation is rejected even when jsonrepair could close the brackets');
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => new Response('{choices:[{message:{content:"{}"},}],}') }), error => error.code === 'INVALID_RESPONSE', 'Provider HTTP envelopes remain strict JSON');
   await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: null, reasoning_content: noMatch } }] })) }), error => error.code === 'EMPTY_RESPONSE', 'Reasoning text never replaces a missing final answer');
   for (const content of ['这里是结果：' + noMatch, '{"answer":"没有匹配"}', '{"answer":"found","matches":[{"resourceId":"effect:1","reason":"雷声"}]}']) {
     await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(content, { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_FORMAT');

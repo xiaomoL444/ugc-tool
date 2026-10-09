@@ -6,6 +6,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
 const { buildAgentSearchPayload, requestAgentSearch: requestAgentSearchActual } = require('../src/views/AISearch/agentSearchService.ts');
+const { buildSearchPayload } = require('../src/views/AISearch/aiSearchService.ts');
 const promptFixture = '# External prompt fixture\nCURRENT query must define the requested asset. Return at most RESULT\\_LIMIT resources.\n';
 async function requestAgentSearch(payload, options) {
   const fetcher = options.fetcher;
@@ -29,7 +30,8 @@ const asset = { resourceId: 'effect:777', kind: 'effect', title: '爆炸', descr
 const result = items => new Response(JSON.stringify({ ...metadata, total: items.length, items, hasMore: false }));
 const details = items => new Response(JSON.stringify({ catalogVersion: version, items, missingIds: [] }));
 const toolCall = (name, args, id = 'call-1') => new Response(JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] }));
-const final = (matches = [{ resourceId: asset.resourceId, reason: '爆炸名称', matchType: 'feature' }]) => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: '已找到', matches }) } }] }));
+const finalValue = value => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] }));
+const final = (matches = [{ resourceId: asset.resourceId, reason: '爆炸名称', matchType: 'feature' }]) => finalValue({ answer: '已找到', matches });
 const config = { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash', apiKey: 'mock-key-only', rememberKey: false };
 const options = { mode: 'custom', config, freeBase: '/api/ai-search', signal: new AbortController().signal };
 const payload = buildAgentSearchPayload('来点爆炸特效', 'zh-CN', 'all', [], true, 'agent-request');
@@ -48,7 +50,7 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
       rounds++;
       assert.deepEqual(body.thinking, { type: 'disabled' });
       assert.ok(!input.body.includes(config.apiKey));
-      if (rounds === 1) { assert.equal(body.tool_choice, 'required'); assert.ok(!body.response_format); return toolCall('search_assets', { query: '炮火', scope: 'effect' }); }
+      if (rounds === 1) { assert.equal(body.tool_choice, 'auto'); assert.ok(!body.response_format); return toolCall('search_assets', { query: '炮火', scope: 'effect' }); }
       if (rounds === 2) {
         assert.ok(body.messages.some(message => message.role === 'tool' && JSON.parse(message.content).items.length === 0), 'Model must receive empty evidence and be allowed to rewrite the query');
         return toolCall('search_assets', { query: '爆炸', scope: 'effect' }, 'call-2');
@@ -65,6 +67,106 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   assert.equal(rounds, 3); assert.equal(found.resources[0].href, '/EffectPlayer?id=777');
   assert.equal(found.retrievalMode, 'keyword', 'The latest actual search mode overrides an earlier hybrid mode after fallback');
   assert.equal(found.matches[0].resourceId, asset.resourceId);
+
+  const repairableFinal = "{answer:'已找到',matches:[{resourceId:'effect:777',reason:'名称为爆炸',matchType:'feature',}],}";
+  let repairRounds = 0;
+  const repairedAgent = await requestAgentSearch(payload, { ...options, fetcher: async (url) => {
+    if (url.endsWith('/chat/completions')) return ++repairRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' })
+      : new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: repairableFinal } }] }));
+    if (url.endsWith('/search')) return result([asset]);
+    return details([asset]);
+  } });
+  assert.equal(repairedAgent.matches[0].resourceId, asset.resourceId);
+  assert.equal(repairRounds, 2, 'Repair uses the received model text without another model round');
+  for (const [content, expectedCode] of [
+    ["{answer:'found',matches:[{resourceId:'effect:999',reason:'invented',matchType:'feature',}],}", 'RESPONSE_ASSET_ID'],
+    ["{answer:'found',matches:[{resourceId:'effect:777',reason:'one',matchType:'feature'},{resourceId:'effect:777',reason:'two',matchType:'feature'},],}", 'RESPONSE_ASSET_ID'],
+    ["{answer:'found',matches:[{resourceId:'effect:777',reason:'wrong type',matchType:'unknown'},],}", 'RESPONSE_FORMAT'],
+    ["{answer:'missing matches',}", 'RESPONSE_FORMAT'],
+    [repairableFinal.slice(0, -2), 'RESPONSE_FORMAT'],
+  ]) {
+    let rounds = 0;
+    await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async url => {
+      if (url.endsWith('/chat/completions')) return ++rounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' })
+        : new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content } }] }));
+      return result([asset]);
+    } }), error => error.code === expectedCode && error.rawResponse === content, 'Repaired finals still validate IDs, duplicates and shape, with unchanged raw diagnostics');
+    assert.equal(rounds, 2, 'Invalid repaired fields do not trigger paid retry');
+  }
+  let truncatedRepairRounds = 0;
+  await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async url => url.endsWith('/chat/completions')
+    ? ++truncatedRepairRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' }) : new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: repairableFinal.slice(0, -2) } }] }))
+    : result([asset]) }), error => error.code === 'OUTPUT_TRUNCATED', 'A truncated agent final cannot be repaired into apparent success');
+  await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async () => new Response('{choices:[{message:{content:"{}"},}],}') }), error => error.code === 'INVALID_RESPONSE', 'Agent provider envelopes remain strict JSON');
+
+  const unclearQuery = '想做解锁反馈，但还没想好声音，先聊聊可以是什么感觉';
+  const clarificationPayload = buildAgentSearchPayload(unclearQuery, 'zh-CN', 'sound', [], true, 'clarification');
+  let clarificationModelCalls = 0, clarificationRetrievalCalls = 0;
+  const clarified = await requestAgentSearch(clarificationPayload, { ...options, fetcher: async (url, input) => {
+    if (!url.endsWith('/chat/completions')) { clarificationRetrievalCalls++; throw new Error(`Unexpected clarification retrieval ${url}`); }
+    clarificationModelCalls++;
+    assert.equal(JSON.parse(input.body).tool_choice, 'auto', 'DeepSeek may ask a useful question before searching');
+    return finalValue({ answer: '更想要轻巧咔哒、清脆上扬，还是柔和的电子音？', matches: [], clarification: true });
+  } });
+  assert.equal(clarificationModelCalls, 1, 'Direct clarification finishes after one model request');
+  assert.equal(clarificationRetrievalCalls, 0, 'Direct clarification does not search or read details');
+  assert.deepEqual(clarified.matches, []); assert.deepEqual(clarified.resources, []);
+  assert.equal(Object.hasOwn(clarified, 'clarification'), false, 'The host consumes the protocol marker');
+
+  const directionPayload = buildAgentSearchPayload('清脆上扬，短一点', 'zh-CN', 'sound', [question(unclearQuery), answer(clarified.answer, [])], true, 'direction');
+  assert.equal(directionPayload.messages.length, 2, 'A completed clarification without cards stays in the next turn');
+  assert.deepEqual(directionPayload.previousIds, []);
+  const directionAsset = { resourceId: 'sound:50928', kind: 'sound', title: '提示性UI_重_提示_03', description: '短促清脆金属撞击，伴明亮鸣响迅速衰减。', keywords: ['短促', '清脆'], hasAudio: true };
+  let directionModelCalls = 0, directionSearchCalls = 0, directionDetailCalls = 0;
+  const direction = await requestAgentSearch(directionPayload, { ...options, fetcher: async (url, input) => {
+    const body = JSON.parse(input.body);
+    if (url.endsWith('/chat/completions')) {
+      if (++directionModelCalls === 1) {
+        assert.equal(body.messages[1].content, unclearQuery);
+        assert.equal(body.messages[2].content, clarified.answer, 'The question and its offered directions reach the model');
+        return toolCall('search_assets', { query: '短促 清脆 上扬', scope: 'sound', matchOn: 'audio', searchType: 'feature' });
+      }
+      return final([{ resourceId: directionAsset.resourceId, reason: '用途建议：短促清脆的听感可尝试用于解锁反馈', matchType: 'suggestion' }]);
+    }
+    if (url.endsWith('/search')) { directionSearchCalls++; assert.equal(body.searchType, 'feature'); return result([directionAsset]); }
+    if (url.endsWith('/assets')) { directionDetailCalls++; return details([directionAsset]); }
+    throw new Error(`Unexpected direction route ${url}`);
+  } });
+  assert.equal(directionModelCalls, 2); assert.equal(directionSearchCalls, 1); assert.equal(directionDetailCalls, 1);
+  assert.equal(direction.matches[0].resourceId, directionAsset.resourceId);
+  assert.equal(direction.matches[0].matchType, 'suggestion', 'Feature evidence can support a clearly labeled use recommendation');
+
+  for (const value of [
+    { answer: '选哪个方向？', matches: [], clarification: false },
+    { answer: '选哪个方向？', matches: [], clarification: 'true' },
+    { answer: '选哪个方向？', matches: [], clarification: null },
+    { answer: '选哪个方向？', matches: [], clarification: true, unknown: 'Do not discard this field' },
+    { answer: '选哪个方向？', matches: [], unknown: true },
+    { answer: ' ', matches: [], clarification: true },
+    { answer: '选哪个方向？', clarification: true },
+    { answer: '选哪个方向？', matches: {}, clarification: true },
+    { answer: '未经搜索的资源', matches: [{ resourceId: asset.resourceId, reason: '猜测', matchType: 'feature' }], clarification: true },
+  ]) {
+    await assert.rejects(() => requestAgentSearch(clarificationPayload, { ...options, fetcher: async () => finalValue(value) }), error => error.code === 'RESPONSE_FORMAT', 'A clarification accepts only the true marker, nonempty answer and empty matches, without extra fields');
+  }
+
+  let afterSearchModelCalls = 0, afterSearchDetailCalls = 0;
+  const afterSearchClarification = await requestAgentSearch(payload, { ...options, fetcher: async url => {
+    if (url.endsWith('/chat/completions')) return ++afterSearchModelCalls === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' })
+      : finalValue({ answer: '更想要烟尘还是明亮的闪光？', matches: [], clarification: true });
+    if (url.endsWith('/search')) return result([asset]);
+    afterSearchDetailCalls++; throw new Error(`Unexpected empty-match detail route ${url}`);
+  } });
+  assert.equal(afterSearchModelCalls, 2); assert.equal(afterSearchDetailCalls, 0);
+  assert.deepEqual(afterSearchClarification.matches, [], 'The same clarification protocol works after tools');
+  for (const value of [
+    { answer: '确认一下？', matches: [], clarification: false },
+    { answer: '确认一下？', matches: [{ resourceId: asset.resourceId, reason: '已搜索资源', matchType: 'feature' }], clarification: true },
+  ]) {
+    let modelCalls = 0;
+    await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async url => url.endsWith('/search') ? result([asset])
+      : ++modelCalls === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' }) : finalValue(value) }), error => error.code === 'RESPONSE_FORMAT', 'Tool evidence does not permit invalid clarification markers or nonempty clarification matches');
+  }
 
   let moreRounds = 0, excluded;
   const newAsset = { ...asset, resourceId: 'effect:778', title: '黄色爆炸' };
@@ -191,5 +293,32 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
     return new Response('{"error":{"code":"INVALID_SEARCH"}}', { status: 400 });
   } }), error => error.code === 'RETRIEVAL_MATCH_ON_UNSUPPORTED');
   assert.equal(oldWorkerModelCalls, 1, 'An old Worker rejection does not trigger a paid retry with weaker visual evidence');
-  console.log('PASS agent search: model-first tools, empty-search rewrite, bounded rounds/tools, previous alternatives, trusted IDs/routes, no BYOK leakage, unsupported-tools no retry, and free agent protocol');
+  const gameUse = '升级完成反馈：短促尖锐起音可用于有穿透力的强化确认';
+  const gameSound = { resourceId: 'sound:50941', kind: 'sound', title: '短音', description: '短促尖锐电子音', keywords: ['短促', '尖锐'],
+    suggestedUses: ['影视转场：短促尖锐电子音', '消息通知：短促尖锐电子音', '视频剪辑点缀：短促尖锐电子音', gameUse] };
+  let gameRounds = 0;
+  const gameFound = await requestAgentSearch(buildAgentSearchPayload('更短', 'zh-CN', 'sound', [question('适合升级的尖锐音效'), answer('可尝试尖锐的强化确认。', [])], true, 'game-upgrade', 10, 'audio'), {
+    ...options, fetcher: async (url, input) => {
+      const body = JSON.parse(input.body);
+      if (url.endsWith('/chat/completions')) {
+        if (++gameRounds === 1) return toolCall('search_assets', { query: '升级 短促 尖锐', scope: 'sound', matchOn: 'audio', searchType: 'feature' });
+        const observed = JSON.parse(body.messages.filter(message => message.role === 'tool').at(-1).content).items[0];
+        assert.equal(observed.suggestedUses[0], gameUse, 'Custom AI sees the relevant added game use beyond the first three legacy entries');
+        assert.equal(observed.description, gameSound.description);
+        if (gameRounds === 2) return toolCall('get_assets', { ids: [gameSound.resourceId] }, 'game-detail');
+        assert.equal(body.tool_choice, 'none');
+        assert.ok(body.messages.at(-1).content.includes('Show useful candidates even when few'));
+        return finalValue({ answer: '先试这个短音；你想要轻量还是更有力度的升级反馈？', matches: [
+          { resourceId: gameSound.resourceId, reason: '用途建议：短促尖锐起音可用于强化确认。', matchType: 'suggestion' },
+        ] });
+      }
+      return url.endsWith('/search') ? result([gameSound]) : details([gameSound]);
+    },
+  });
+  assert.equal(gameRounds, 3); assert.equal(gameFound.matches[0].resourceId, gameSound.resourceId);
+  assert.deepEqual(gameFound.resources[0].suggestedUses, gameSound.suggestedUses, 'Prompt excerpts do not change stored uses');
+  const legacyPayload = buildSearchPayload('适合升级的尖锐音效', 'zh-CN', 'sound', [], [gameFound.resources[0]], 'legacy-game-upgrade');
+  assert.equal(legacyPayload.candidates[0].suggestedUses[0], gameUse, 'Candidate-only AI also receives the relevant game use');
+  assert.ok(legacyPayload.candidates[0].description.includes(gameSound.description));
+  console.log('PASS agent search: direct and post-tool clarification, retained clarification history, acoustic use recommendations, model-first tools, empty-search rewrite, bounded rounds/tools, previous alternatives, trusted IDs/routes, no BYOK leakage, unsupported-tools no retry, and free agent protocol');
 })().catch(error => { console.error(error); process.exitCode = 1; });

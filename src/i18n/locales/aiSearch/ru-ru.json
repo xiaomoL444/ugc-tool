@@ -240,5 +240,21 @@
   "aiSearch.modelProbe.notReturned": "Сервис не вернул ID модели",
   "aiSearch.modelProbe.basicNote": "Проверяется только базовый вызов. Вызовы инструментов и поиск ресурсов нужно проверять при реальном поиске.",
   "aiSearch.modelProbe.timeout": "Проверка модели превысила 20 секунд. Проверьте соединение.",
-  "aiSearch.modelProbe.truncated": "Ответ получен, но тестовый вывод был обрезан."
+  "aiSearch.modelProbe.truncated": "Ответ получен, но тестовый вывод был обрезан.",
+  "aiSearch.requestDiagnostics.validationCode": "Причина ошибки проверки файла",
+  "aiSearch.requestDiagnostics.responseBytes": "Размер ответа (байт)",
+  "aiSearch.requestDiagnostics.responseByteLimit": "Лимит чтения (байт)",
+  "aiSearch.requestDiagnostics.contentType": "Тип содержимого ответа",
+  "aiSearch.errors.promptValidation.PROMPT_TOO_LARGE": "Файл промпта превышает лимит чтения.",
+  "aiSearch.errors.promptValidation.UNSUPPORTED_CONTENT_TYPE": "Тип содержимого ответа с файлом промпта не поддерживается.",
+  "aiSearch.errors.promptValidation.INVALID_UTF8": "Файл промпта не является допустимым текстом UTF-8.",
+  "aiSearch.errors.promptValidation.EMPTY_PROMPT": "Файл промпта пуст.",
+  "aiSearch.errors.promptValidation.HTML_RESPONSE": "Адрес промпта вернул HTML-страницу.",
+  "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "Файл промпта содержит недопустимые управляющие символы.",
+  "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "Адрес промпта вернул перенаправление, поэтому файл нельзя прочитать напрямую.",
+  "aiSearch.errors.promptValidation.MISSING_BODY": "В ответе с промптом нет доступного для чтения тела.",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "Ошибка возникла при чтении публичного файла промпта до вызова модели. Проверьте содержимое, кодировку, тип содержимого и указанный лимит чтения.",
+  "aiSearch.requestDiagnostics.hints.promptResponse": "Проверьте адрес публичного файла промпта, права доступа, тело и ответ сервера. Ошибка возникла до вызова модели.",
+  "aiSearch.errors.promptSize": "Ответ: {bytes} байт; лимит чтения: {limit} байт.",
+  "aiSearch.errors.promptBytes": "Прочитано {bytes} байт."
 }

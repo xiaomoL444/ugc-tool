@@ -240,5 +240,21 @@
   "aiSearch.modelProbe.notReturned": "The service did not return a model ID",
   "aiSearch.modelProbe.basicNote": "This checks a basic call only. Tool calls and asset search must be verified through an actual search.",
   "aiSearch.modelProbe.timeout": "The model test timed out after 20 seconds. Check the connection.",
-  "aiSearch.modelProbe.truncated": "A response was received, but the test output was truncated."
+  "aiSearch.modelProbe.truncated": "A response was received, but the test output was truncated.",
+  "aiSearch.requestDiagnostics.validationCode": "File validation reason",
+  "aiSearch.requestDiagnostics.responseBytes": "Response size (bytes)",
+  "aiSearch.requestDiagnostics.responseByteLimit": "Read limit (bytes)",
+  "aiSearch.requestDiagnostics.contentType": "Response content type",
+  "aiSearch.errors.promptValidation.PROMPT_TOO_LARGE": "The prompt file exceeds the read limit.",
+  "aiSearch.errors.promptValidation.UNSUPPORTED_CONTENT_TYPE": "The prompt file’s response content type is unsupported.",
+  "aiSearch.errors.promptValidation.INVALID_UTF8": "The prompt file is not valid UTF-8 text.",
+  "aiSearch.errors.promptValidation.EMPTY_PROMPT": "The prompt file is empty.",
+  "aiSearch.errors.promptValidation.HTML_RESPONSE": "The prompt URL returned an HTML page.",
+  "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "The prompt file contains disallowed control characters.",
+  "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "The prompt URL returned a redirect, so the file could not be read directly.",
+  "aiSearch.errors.promptValidation.MISSING_BODY": "The prompt response has no readable body.",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "This failed while reading the public prompt file, before calling the model. Check the file content, encoding, content type, and displayed read limit.",
+  "aiSearch.requestDiagnostics.hints.promptResponse": "Check the public prompt file’s URL, access permissions, body, and server response. This failure occurred before calling the model.",
+  "aiSearch.errors.promptSize": "Response: {bytes} bytes; read limit: {limit} bytes.",
+  "aiSearch.errors.promptBytes": "Read {bytes} bytes."
 }

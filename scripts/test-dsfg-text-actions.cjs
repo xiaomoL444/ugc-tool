@@ -20,7 +20,8 @@ async function main() {
   }).outputText, filename);
   try {
     const { applyDialogueTextAction: act } = require(path.join(base, 'dialogueTextActions.ts'));
-    const { createEmptyDialogueProject: empty, createConditionBranchNode, createPerformanceClip } = require(path.join(base, 'dialogueProject.ts'));
+    const { createEmptyDialogueProject: empty, createConditionBranchNode, createPerformanceClip, createDialogueClip } = require(path.join(base, 'dialogueProject.ts'));
+    const { getDialogueClips } = require(path.join(base, 'dialogueClips.ts'));
     const { buildDialogueTextPreview: preview } = require(path.join(base, 'dialogueTextPreview.ts'));
     const { encodeDialogueProject: encode, decodeDialogueProject: decode } = require(path.join(base, 'dialogueProjectCodec.ts'));
     const { captureDialogueDeletion: captureDeletion, canUndoDialogueDeletion: canUndoDeletion } = require(path.join(base, 'dialogueDeletionUndo.ts'));
@@ -90,6 +91,28 @@ async function main() {
       assert.equal(closed, 2); assert.deepEqual(events.at(-1), ['close']);
       unmounted.forEach(fn => fn()); scope.stop();
       assert.equal(closed, 3);
+    });
+    test('Deleting one of multiple dialogue Clips keeps the Group, other sentences, performances and graph connections', () => {
+      const { project, ids } = sequence(); const node = project.dialogue.nodes[ids[1]];
+      node.dialogue.advanceMode = 'None'; node.dialogue.duration = 1;
+      const second = createDialogueClip(); second.startTime = 2; second.content = '第二句';
+      node.additionalDialogues = [second];
+      node.lines[0].clips.push(createPerformanceClip('Camera'));
+      const before = structuredClone(project);
+      for (const clipId of [node.dialogue.id, second.id]) {
+        const result = act(project, { type: 'delete', nodeId: ids[1], clipId });
+        assert.deepEqual(project, before, 'Structural editing never changes the source');
+        assert.deepEqual(result.project.graph, project.graph, 'Deleting a Clip never rewires its Group');
+        assert.deepEqual(result.project.dialogue.nodes[ids[1]].lines, node.lines);
+        const remaining = getDialogueClips(result.project.dialogue.nodes[ids[1]]);
+        assert.equal(remaining.length, 1); assert.notEqual(remaining[0].id, clipId);
+        assert.deepEqual(getDialogueClips(decode(encode(result.project)).dialogue.nodes[ids[1]]).map(clip => clip.id), remaining.map(clip => clip.id));
+      }
+      assert.equal(act(project, { type: 'delete', nodeId: ids[1], clipId: 'stale' }), undefined);
+      assert.equal(act(project, { type: 'insert', nodeId: ids[1], before: true }), undefined);
+      assert.equal(act(project, { type: 'insert', nodeId: ids[1] }), undefined);
+      assert.equal(act(project, { type: 'move', nodeId: ids[0], targetId: ids[2] }), undefined, 'Node-level sorting cannot cross a multi-Clip Group');
+      assert.equal(act(project, { type: 'move', nodeId: ids[1], targetId: ids[2] }), undefined);
     });
     test('Editing a condition preserves outlet identities, connections and source project through save/reload', () => {
       const { project, ids } = sequence();

@@ -64,6 +64,47 @@ const unavailable = error => error.code === 'PROMPT_UNAVAILABLE';
   const literalHtml = '# Valid Markdown\nDo not produce <html> or HTML players. Return RESULT_LIMIT assets.';
   assert.ok((await loadSystemPrompt(signal, async () => promptResponse(literalHtml), 'https://fixture.invalid/literal')).includes('<html>'), 'A legitimate Markdown instruction may mention literal HTML without being rejected as a page');
 
+  const onlineSizedSource = '# Prompt\n' + 'a'.repeat(16783 - 9);
+  const onlineSizedFetch = async () => new Response(new TextEncoder().encode(onlineSizedSource), { headers: { 'Content-Length': '16783' } });
+  assert.equal(await loadSystemPrompt(signal, onlineSizedFetch, 'https://fixture.invalid/online-size'), onlineSizedSource,
+    'The 16,783-byte source that failed at the former 16 KiB limit is accepted with missing OSS MIME');
+  for (const boundary of ['a'.repeat(32768), '中'.repeat(10922) + 'aa']) {
+    assert.equal(new TextEncoder().encode(boundary).byteLength, 32768);
+    assert.equal(await loadSystemPrompt(signal, async () => promptResponse(boundary), 'https://fixture.invalid/boundary'), boundary,
+      'The limit counts UTF-8 bytes and permits exactly 32 KiB');
+    for (const declaredLength of [false, true]) {
+      const fetcher = async () => new Response(boundary + 'a', { headers: {
+        'Content-Type': 'text/markdown', ...(declaredLength ? { 'Content-Length': '32769' } : {}),
+      } });
+      await assert.rejects(() => loadSystemPrompt(signal, fetcher, 'https://fixture.invalid/oversized-boundary'), error => {
+        assert.equal(error.code, 'PROMPT_UNAVAILABLE');
+        assert.equal(error.requestDiagnostic.stage, 'prompt');
+        assert.equal(error.requestDiagnostic.kind, 'response');
+        assert.equal(error.requestDiagnostic.status, 200);
+        assert.equal(error.requestDiagnostic.validationCode, 'PROMPT_TOO_LARGE');
+        assert.equal(error.requestDiagnostic.responseBytes, 32769);
+        assert.equal(error.requestDiagnostic.responseByteLimit, 32768);
+        assert.equal(error.rawResponse, undefined, 'Diagnostics do not store the prompt body');
+        return true;
+      }, 'Both declared lengths and actual streamed bytes retain a precise size diagnostic');
+    }
+  }
+  for (const [code, makeResponse] of [
+    ['EMPTY_PROMPT', () => promptResponse(' \n ')],
+    ['HTML_RESPONSE', () => promptResponse('<html>Gateway page</html>')],
+    ['UNSUPPORTED_CONTENT_TYPE', () => new Response('Looks like text', { headers: { 'Content-Type': 'text/html' } })],
+    ['INVALID_UTF8', () => promptResponse(new Uint8Array([0xc3, 0x28]))],
+    ['INVALID_CONTROL_CHARACTERS', () => promptResponse('a\u0000b')],
+    ['REDIRECTED_RESPONSE', () => new Response('redirect', { status: 302, headers: { Location: 'https://fixture.invalid/other' } })],
+    ['MISSING_BODY', () => new Response(null)],
+  ]) {
+    await assert.rejects(() => loadSystemPrompt(signal, async () => makeResponse(), 'https://fixture.invalid/diagnostics'), error => {
+      assert.equal(error.code, 'PROMPT_UNAVAILABLE');
+      assert.equal(error.requestDiagnostic.validationCode, code);
+      assert.equal(error.requestDiagnostic.kind, 'response', 'A content validation failure is not a network failure');
+      return true;
+    });
+  }
 
   // R2 uploads can lack Content-Type metadata; generic files are decoded and
   // checked as text instead of being rejected solely by their response MIME.
@@ -80,7 +121,7 @@ const unavailable = error => error.code === 'PROMPT_UNAVAILABLE';
       ['empty', new TextEncoder().encode(' \n ')],
       ['HTML', new TextEncoder().encode('<!doctype html><html>Gateway error</html>')],
       ['control bytes', new Uint8Array([65, 0, 66])],
-      ['oversized', new TextEncoder().encode('中'.repeat(6000))],
+      ['oversized', new TextEncoder().encode('中'.repeat(11000))],
       ['invalid UTF-8', new Uint8Array([0xc3, 0x28])],
     ]) {
       const invalidFetch = async () => new Response(bytes, { headers });
@@ -135,7 +176,7 @@ const unavailable = error => error.code === 'PROMPT_UNAVAILABLE';
     ['HTML type', () => new Response('Apparently a prompt', { headers: { 'Content-Type': 'text/html' } })],
     ['nontext type', () => new Response('{}', { headers: { 'Content-Type': 'application/json' } })],
     ['redirected', () => { const response = promptResponse(); Object.defineProperty(response, 'redirected', { value: true }); return response; }],
-    ['oversized', () => promptResponse('中'.repeat(6000))],
+    ['oversized', () => promptResponse('中'.repeat(11000))],
     ['invalid UTF-8', () => promptResponse(new Uint8Array([0xc3, 0x28]))],
   ];
   for (const [label, response] of failures) for (const workflow of ['agent', 'candidates']) {

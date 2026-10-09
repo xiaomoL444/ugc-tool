@@ -97,7 +97,7 @@ async function waitUntil(condition) {
       return true;
     });
     await assert.rejects(() => invoke(fixtureFetch(async () => customResponse(failingBody, 'stop', { apiKey: 'fixture-message-secret' }))), expectRaw('RESPONSE_FORMAT', failingBody));
-    await assert.rejects(() => invoke(fixtureFetch(async () => Response.json({ error: { code: 'NETWORK', rawResponse: failingBody }, content: 'not-model-output' }, { status: 500 }))), expectRaw('NETWORK', undefined));
+    await assert.rejects(() => invoke(fixtureFetch(async () => Response.json({ error: { code: 'NETWORK', rawResponse: failingBody }, content: 'not-model-output' }, { status: 500 }))), expectRaw('MODEL_SERVICE_ERROR', undefined));
   }
   for (const invoke of [
     fetcher => requestSearch(payload, [asset], { ...options, mode: 'free', fetcher }),
@@ -109,12 +109,14 @@ async function waitUntil(condition) {
     await assert.rejects(() => invoke(async () => Response.json({ error: { code: 'UPSTREAM_RESPONSE_INVALID', message: 'not the model body' } }, { status: 502 })), expectRaw('UPSTREAM_RESPONSE_INVALID', undefined));
     await assert.rejects(() => invoke(async () => Response.json({ error: { code: 'PROVIDER_BALANCE_LOW', rawResponse: failingBody, reason: 'NETWORK' } }, { status: 503 })), expectRaw('PROVIDER_BALANCE_LOW', undefined));
   }
+  const promptDiagnostic = { stage: 'prompt', kind: 'response', status: 200, endpoint: 'https://oss.fixture.invalid/AISearch/SystemPrompt.md', validationCode: 'PROMPT_TOO_LARGE', responseBytes: 32769, responseByteLimit: 32768, contentType: 'text/markdown' };
   const messages = [
     { id: 'bad-model', role: 'assistant', content: 'localized format error', cards: [], status: 'error', mode: 'custom', rawResponse: failingBody },
     { id: 'complete', role: 'assistant', content: 'success', cards: [], status: 'complete', mode: 'custom', rawResponse: 'must not retain' },
     { id: 'user', role: 'user', content: 'question', cards: [], status: 'error', mode: 'custom', rawResponse: 'must not retain' },
     { id: 'unsafe', role: 'assistant', content: 'error', cards: [], status: 'error', mode: 'custom', rawResponse: { apiKey: 'must not retain' } },
     { id: 'old', role: 'assistant', content: 'legacy error', cards: [], status: 'error', mode: 'custom' },
+    { id: 'prompt', role: 'assistant', content: 'prompt size error', cards: [], status: 'error', mode: 'custom', requestDiagnostic: { ...promptDiagnostic, body: 'PRIVATE_PROMPT_BODY' } },
   ];
   const archiveInput = { conversations: [{ id: 'conversation', title: 'fixture', updatedAt: 1, contextStart: 0, messages }], activeConversationId: 'conversation', selectedMode: 'custom' };
   const saved = JSON.parse(serializeAISearchArchive(archiveInput));
@@ -122,6 +124,8 @@ async function waitUntil(condition) {
   assert.equal(restored[0].content, messages[0].content);
   assert.equal(restored[0].rawResponse, failingBody, 'Both the localized error and its real body survive reopening');
   assert.equal(restored[0].error, true);
+  assert.deepEqual(restored.at(-1).requestDiagnostic, promptDiagnostic, 'Public prompt validation fields survive safe archive restoration');
+  assert.ok(!JSON.stringify(saved).includes('PRIVATE_PROMPT_BODY'));
   for (const message of restored.slice(1)) assert.equal(message.rawResponse, undefined);
   assert.ok(!JSON.stringify(saved).includes('must not retain'));
   const boundedArchive = { ...archiveInput, conversations: [{ ...archiveInput.conversations[0], messages: [{ ...messages[0], rawResponse: '雷'.repeat(MAX_RAW_RESPONSE_BYTES) }] }] };
@@ -153,6 +157,19 @@ async function waitUntil(condition) {
   app.mount({ children: [] });
   try {
     await waitUntil(() => !state.loadingCatalog.value && !state.loadingArchive.value);
+    const localizedPromptError = state.explainError(new AISearchError('PROMPT_UNAVAILABLE', undefined, undefined, promptDiagnostic));
+    assert.ok(localizedPromptError.includes('The prompt file exceeds the read limit.') && localizedPromptError.includes('32769') && localizedPromptError.includes('32768'), localizedPromptError);
+    const promptDetail = state.requestDiagnosticText(promptDiagnostic);
+    assert.ok(promptDetail.includes('PROMPT_TOO_LARGE') && promptDetail.includes('Response size (bytes): 32769') && promptDetail.includes('Read limit (bytes): 32768') && promptDetail.includes('Response content type: text/markdown'), promptDetail);
+    assert.ok(promptDetail.includes('before calling the model') && !promptDetail.includes('Check API compatibility'), 'Prompt validation uses a file-specific hint');
+    const reasonMessages = { UNSUPPORTED_CONTENT_TYPE: 'content type is unsupported', INVALID_UTF8: 'not valid UTF-8 text', EMPTY_PROMPT: 'file is empty', HTML_RESPONSE: 'returned an HTML page', INVALID_CONTROL_CHARACTERS: 'disallowed control characters', REDIRECTED_RESPONSE: 'returned a redirect', MISSING_BODY: 'no readable body' };
+    for (const [validationCode, expected] of Object.entries(reasonMessages)) {
+      const diagnostic = { ...promptDiagnostic, validationCode, responseBytes: 16783 };
+      const explanation = state.explainError(new AISearchError('PROMPT_UNAVAILABLE', undefined, undefined, diagnostic));
+      assert.ok(explanation.includes(expected) && explanation.includes('16783') && explanation.includes('32768'), explanation);
+    }
+    const genericPromptDetail = state.requestDiagnosticText({ stage: 'prompt', kind: 'response', status: 200 });
+    assert.ok(genericPromptDetail.includes('public prompt file') && !genericPromptDetail.includes('API compatibility'));
     await state.send('rumble');
     const failed = state.messages.value.at(-1);
     assert.equal(failed.status, 'error');

@@ -240,5 +240,21 @@
   "aiSearch.modelProbe.notReturned": "服務未傳回型號",
   "aiSearch.modelProbe.basicNote": "此次僅驗證基本呼叫。工具呼叫和資產搜尋需在實際搜尋時驗證。",
   "aiSearch.modelProbe.timeout": "模型測試逾時（20 秒），請檢查服務連線。",
-  "aiSearch.modelProbe.truncated": "已收到回應，但測試輸出遭截斷。"
+  "aiSearch.modelProbe.truncated": "已收到回應，但測試輸出遭截斷。",
+  "aiSearch.requestDiagnostics.validationCode": "檔案驗證原因",
+  "aiSearch.requestDiagnostics.responseBytes": "回應大小（位元組）",
+  "aiSearch.requestDiagnostics.responseByteLimit": "讀取上限（位元組）",
+  "aiSearch.requestDiagnostics.contentType": "回應內容類型",
+  "aiSearch.errors.promptValidation.PROMPT_TOO_LARGE": "提示詞檔案超過讀取上限。",
+  "aiSearch.errors.promptValidation.UNSUPPORTED_CONTENT_TYPE": "提示詞檔案的回應內容類型不受支援。",
+  "aiSearch.errors.promptValidation.INVALID_UTF8": "提示詞檔案不是有效的 UTF-8 文字。",
+  "aiSearch.errors.promptValidation.EMPTY_PROMPT": "提示詞檔案為空。",
+  "aiSearch.errors.promptValidation.HTML_RESPONSE": "提示詞網址回傳了 HTML 網頁。",
+  "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "提示詞檔案含有不允許的控制字元。",
+  "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "提示詞網址回傳了重新導向，無法直接讀取檔案。",
+  "aiSearch.errors.promptValidation.MISSING_BODY": "提示詞回應沒有可讀取的本文。",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "此錯誤發生於讀取公開提示詞檔案時，尚未呼叫模型。請檢查檔案內容、編碼、內容類型和顯示的讀取上限。",
+  "aiSearch.requestDiagnostics.hints.promptResponse": "請檢查公開提示詞檔案的網址、存取權限、本文內容和伺服器回應。本次失敗發生於呼叫模型之前。",
+  "aiSearch.errors.promptSize": "回應 {bytes} 位元組，讀取上限 {limit} 位元組。",
+  "aiSearch.errors.promptBytes": "已讀取 {bytes} 位元組。"
 }

@@ -150,6 +150,50 @@ async function main() {
 
   const previewElements = elements(preview.descriptor.template.ast);
   const cardElement = withClass(previewElements, "text-flow-block");
+  await test("Additional dialogue rows have distinct keys and speaker/delete handlers retain the exact Clip ID", () => {
+    const vue = require("vue");
+    const events = [], actions = [];
+    const context = vm.createContext({ speakerPickerNodeId: vue.ref(""), speakerPickerClipId: vue.ref(),
+      emit: (...args) => events.push(copy(args)), act: action => actions.push(copy(action)) });
+    vm.runInContext(transpile([preview.functionText("openSpeakerPicker"), preview.functionText("selectSpeaker")].join("\n"), preview.filename), context);
+    const lineElement = previewElements.find(node => node.tag === "DialogueTextLine");
+    const slot = withClass(previewElements, "text-line-slot");
+    const keys = [];
+    for (const clipId of ["primary", "secondary"]) {
+      context.line = { nodeId: "B", clipId };
+      vm.runInContext(directive(lineElement, "on", "pick-speaker").exp.content, context);
+      context.selectSpeaker(`speaker-${clipId}`);
+      vm.runInContext(directive(lineElement, "on", "remove").exp.content, context);
+      keys.push(vm.runInContext(directive(slot, "bind", "key").exp.content, context));
+    }
+    assert.deepEqual(events, [
+      ["edit", { nodeId: "B", clipId: "primary", field: "speaker", value: "speaker-primary" }],
+      ["edit", { nodeId: "B", clipId: "secondary", field: "speaker", value: "speaker-secondary" }],
+    ]);
+    assert.deepEqual(actions, [
+      { type: "delete", nodeId: "B", clipId: "primary" },
+      { type: "delete", nodeId: "B", clipId: "secondary" },
+    ]);
+    assert.equal(new Set(keys).size, 2, "Sibling rows in the same Group must retain separate input state");
+  });
+  await test("Actual text input setter keeps the additional Clip ID, and Ctrl+Enter is disabled only for multi-Clip rows", () => {
+    const vue = require("vue");
+    const component = readSfc("components/DialogueTextLine.vue");
+    const ast = ts.createSourceFile(component.filename, component.descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const field = ast.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration => declaration.name.getText(ast) === "field"));
+    const events = [], props = { line: { nodeId: "B", clipId: "secondary", content: "原文" }, canInsert: false };
+    const context = vm.createContext({ props, computed: vue.computed, normalizeDialogueInput: value => value,
+      emit: (...args) => events.push(copy(args)) });
+    vm.runInContext(transpile(`${field.getText(ast)}\n${component.functionText("keydown")}\nthis.content = field("content");`, component.filename), context);
+    context.content.value = "新台词";
+    assert.deepEqual(events, [["edit", { nodeId: "B", clipId: "secondary", field: "content", value: "新台词" }]]);
+    let prevented = 0;
+    const event = { key: "Enter", ctrlKey: true, target: { tagName: "TEXTAREA" }, preventDefault() { prevented++; } };
+    context.keydown(event); assert.equal(events.length, 1);
+    props.canInsert = true; context.keydown(event);
+    assert.deepEqual(events.at(-1), ["insert"]);
+    assert.ok(prevented > 0);
+  });
   await test("Explicit Clip and node buttons navigate without stealing double-click text selection", () => {
     const lineElement = previewElements.find((node) => node.tag === "DialogueTextLine");
     const cardButton = previewElements.find((node) => directive(node, "on", "click")?.exp?.content === "navigateToBlock(placed.block)");

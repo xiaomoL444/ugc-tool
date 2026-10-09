@@ -23,7 +23,15 @@ function transpile(source, sourcePath) {
 // Run the real timing helpers and the complete component script. Vue's reactive
 // computed values reproduce the feedback loop that isolated handler mocks miss.
 const helpers = { exports: {} };
-vm.runInNewContext(transpile(fs.readFileSync(path.join(editor, "utils/groupTimeline.ts"), "utf8")), { exports: helpers.exports });
+const dialogueHelpers = { exports: {} };
+vm.runInNewContext(transpile(fs.readFileSync(path.join(editor, "utils/dialogueClips.ts"), "utf8")), { exports: dialogueHelpers.exports });
+vm.runInNewContext(transpile(fs.readFileSync(path.join(editor, "utils/groupTimeline.ts"), "utf8")), {
+  exports: helpers.exports,
+  require: request => {
+    assert.equal(request, './dialogueClips');
+    return dialogueHelpers.exports;
+  },
+});
 const scriptAst = ts.createSourceFile(filename + ".ts", parsed.descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 const componentScript = scriptAst.statements.filter(statement => !ts.isImportDeclaration(statement)).map(statement => statement.getText(scriptAst)).join("\n");
 const exposed = `globalThis.api = {
@@ -67,6 +75,7 @@ function harness(node = group()) {
   const scope = vue.effectScope();
   const context = vm.createContext({
     ...helpers.exports,
+    ...dialogueHelpers.exports,
     computed: vue.computed, ref: vue.ref, watch: vue.watch,
     onMounted: callback => mounted.push(callback),
     onBeforeUnmount: callback => unmounted.push(callback),

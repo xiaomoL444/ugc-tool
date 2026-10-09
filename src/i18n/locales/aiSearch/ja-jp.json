@@ -240,5 +240,21 @@
   "aiSearch.modelProbe.notReturned": "モデル ID は返されませんでした",
   "aiSearch.modelProbe.basicNote": "今回は基本的な呼び出しのみ確認します。ツール呼び出しとアセット検索は、実際に検索して確認してください。",
   "aiSearch.modelProbe.timeout": "モデルテストが 20 秒でタイムアウトしました。接続を確認してください。",
-  "aiSearch.modelProbe.truncated": "応答を受信しましたが、テスト出力は切り詰められました。"
+  "aiSearch.modelProbe.truncated": "応答を受信しましたが、テスト出力は切り詰められました。",
+  "aiSearch.requestDiagnostics.validationCode": "ファイル検証の理由",
+  "aiSearch.requestDiagnostics.responseBytes": "応答サイズ（バイト）",
+  "aiSearch.requestDiagnostics.responseByteLimit": "読み取り上限（バイト）",
+  "aiSearch.requestDiagnostics.contentType": "応答のコンテンツタイプ",
+  "aiSearch.errors.promptValidation.PROMPT_TOO_LARGE": "プロンプトファイルが読み取り上限を超えています。",
+  "aiSearch.errors.promptValidation.UNSUPPORTED_CONTENT_TYPE": "プロンプトファイルの応答コンテンツタイプは未対応です。",
+  "aiSearch.errors.promptValidation.INVALID_UTF8": "プロンプトファイルは有効な UTF-8 テキストではありません。",
+  "aiSearch.errors.promptValidation.EMPTY_PROMPT": "プロンプトファイルが空です。",
+  "aiSearch.errors.promptValidation.HTML_RESPONSE": "プロンプトの URL から HTML ページが返されました。",
+  "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "プロンプトファイルに許可されていない制御文字が含まれています。",
+  "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "プロンプトの URL からリダイレクトが返され、ファイルを直接読み取れませんでした。",
+  "aiSearch.errors.promptValidation.MISSING_BODY": "プロンプトの応答に読み取り可能な本文がありません。",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "公開プロンプトファイルの読み取り中に失敗し、モデルはまだ呼び出していません。内容、文字コード、コンテンツタイプ、表示された読み取り上限を確認してください。",
+  "aiSearch.requestDiagnostics.hints.promptResponse": "公開プロンプトファイルの URL、アクセス権限、本文、サーバーの応答を確認してください。モデルを呼び出す前に失敗しています。",
+  "aiSearch.errors.promptSize": "応答: {bytes} バイト、読み取り上限: {limit} バイト。",
+  "aiSearch.errors.promptBytes": "{bytes} バイトを読み取りました。"
 }

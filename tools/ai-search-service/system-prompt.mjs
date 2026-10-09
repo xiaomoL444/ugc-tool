@@ -1,6 +1,6 @@
 /* The site's editable Markdown is the only source of search instructions. */
 export const SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPrompt.md";
-const MAX_BYTES = 16384;
+const MAX_BYTES = 32768;
 const CACHE_MS = 60000;
 export class SystemPromptError extends Error {
   constructor() {

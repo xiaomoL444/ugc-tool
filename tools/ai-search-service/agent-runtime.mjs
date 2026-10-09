@@ -86,6 +86,7 @@ function compactSearchValue(value, callId, messages, tools, maxPromptBytes) {
   });
   for (const level of [
     [180, 120, 4, 60, 1], [120, 100, 2, 40, 1], [80, 80, 1, 32, 1], [40, 60, 1, 24, 1], [24, 40, 1, 16, 1],
+    [16, 32, 1, 12, 1], [8, 20, 1, 8, 1], [8, 12, 1, 8, 0],
   ]) {
     const candidate = shorten(value, level);
     if (fits(candidate)) return candidate;

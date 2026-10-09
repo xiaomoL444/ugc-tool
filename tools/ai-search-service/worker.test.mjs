@@ -113,6 +113,7 @@ test("prompt read failure returns a safe specific error before model, quota or b
         () => new Response("not found private-source-detail", { status: 404, headers: { "content-type": "text/plain" } }),
         () => new Response("<html>private-source-detail</html>", { headers: { "content-type": "text/html" } }),
         () => new Response("  ", { headers: { "content-type": "text/markdown" } }),
+        () => new Response("x".repeat(32769), { headers: { "content-type": "text/markdown" } }),
       ]) {
         const { service, storage } = ledger(); let reads = 0, models = 0;
         globalThis.fetch = async (_url, options) => {

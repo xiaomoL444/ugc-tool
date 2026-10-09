@@ -13,10 +13,13 @@ const source = ts.createSourceFile(filename + '.ts', descriptor.scriptSetup.cont
 const script = ts.transpileModule(source.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(source)).join('\n'), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.None },
 }).outputText;
-const timing = {};
+const timing = {}, dialogues = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(directory, 'utils/dialogueClips.ts'), 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+}).outputText, { exports: dialogues });
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(directory, 'utils/groupTimeline.ts'), 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
-}).outputText, { exports: timing });
+}).outputText, { exports: timing, require: name => { assert.equal(name, './dialogueClips'); return dialogues; } });
 async function main() {
   const props = vue.reactive({ node: { id: 'group-a', dialogue: { id: 'dialogue-a', content: '原台词', startTime: 0, continueDelayTime: 0.5 },
     lines: [{ id: 'line-a', type: 'PublicEvent', clips: [{ id: 'event-a', type: 'PublicEvent', name: '事件', startTime: 0, duration: 1 }] }], timeline: { duration: 2 } } });
@@ -34,7 +37,7 @@ async function main() {
   }
   function click(...path) { fire('click', path); }
   const marker = attribute => ({ matches: selector => selector.includes(`[${attribute}]`) });
-  const context = vm.createContext({ ...timing, ref: vue.ref, computed: vue.computed, watch: (...args) => { const stop = vue.watch(...args); stops.push(stop); },
+  const context = vm.createContext({ ...dialogues, ...timing, ref: vue.ref, computed: vue.computed, watch: (...args) => { const stop = vue.watch(...args); stops.push(stop); },
     defineProps: () => props, defineEmits: () => (...args) => { events.push(args); if (args[0] === 'inspectorOpen') parentState.clipInspectorOpen = args[1]; },
     onMounted: fn => { mount = fn; }, onBeforeUnmount: fn => { unmount = fn; },
     usePublicEventPresets: () => ({ availablePresets: vue.ref([]) }), getLineDefinitions: () => [],

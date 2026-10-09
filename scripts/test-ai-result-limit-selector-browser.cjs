@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const base = process.argv[2] || 'http://127.0.0.1:8080';
-const output = path.join(__dirname, '../tools/ai-search-service/.wrangler');
+const output = path.resolve(__dirname, '../../ugc-ai-search-file/verification/browser');
 
 async function check(browser, mobile) {
   const context = await browser.newContext({ locale: 'zh-CN', viewport: mobile ? { width: 390, height: 844 } : { width: 1366, height: 900 }, ...(mobile ? { isMobile: true, hasTouch: true } : {}) });

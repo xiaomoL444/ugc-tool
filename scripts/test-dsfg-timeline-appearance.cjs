@@ -13,6 +13,16 @@ async function main() {
   const filename = path.join(editor, "GroupTimelineV3.vue");
   const parsed = parse(fs.readFileSync(filename, "utf8"), { filename });
   const descriptor = parsed.descriptor;
+  const dialogueHelpers = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(editor, 'utils/dialogueClips.ts'), 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports: dialogueHelpers });
+  const timingHelpers = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(editor, 'utils/groupTimeline.ts'), 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports: timingHelpers, require: request => {
+    assert.equal(request, './dialogueClips'); return dialogueHelpers;
+  } });
   let passed = 0;
   function test(name, check) { check(); passed += 1; console.log(`PASS ${name}`); }
 
@@ -48,7 +58,7 @@ async function main() {
   function evaluateStyle(node, bindings) {
     const expression = directive(node, "bind", "style")?.exp?.content;
     assert.ok(expression, "Clip must bind its time-based position");
-    return JSON.parse(JSON.stringify(vm.runInNewContext(`(${expression})`, { labelWidth: 118, pixelsPerSecond: 80, isInstantPerformanceClip: clip => clip.type === "Custom", ...bindings }, { timeout: 1000 })));
+    return JSON.parse(JSON.stringify(vm.runInNewContext(`(${expression})`, { labelWidth: 118, pixelsPerSecond: 80, ...timingHelpers, ...bindings }, { timeout: 1000 })));
   }
   const css = compileStyle({ filename, id: "timeline-appearance-test", source: descriptor.styles.map((style) => style.content).join("\n") });
   function declarations(selector) {
@@ -76,7 +86,42 @@ async function main() {
     assert.ok(ratio >= 4.5, `Public event label contrast is ${ratio}`);
   });
 
-  for (const kind of ["dialogue", "select"]) {
+  const dialogueElement = elementWithClass('dialogue-clip');
+  test('Dialogue waits at the visual right edge only in PlayerInput mode; None uses independent width', () => {
+    for (const startTime of [0, 2.9, 25]) {
+      const clip = { id: 'dialogue', startTime, continueDelayTime: 0.5, advanceMode: 'PlayerInput', duration: 1.25 };
+      const node = { dialogue: clip, timeline: { duration: 30 }, lines: [] };
+      const classes = directive(dialogueElement, 'bind', 'class').exp.content;
+      assert.deepEqual(evaluateStyle(dialogueElement, { node, clip }), { left: `${118 + startTime * 80}px` });
+      assert.equal(vm.runInNewContext(`(${classes})`, { selectedId: '', clip, ...timingHelpers })['waiting-dialogue-clip'], true);
+      clip.advanceMode = 'None';
+      assert.deepEqual(evaluateStyle(dialogueElement, { node, clip }), { left: `${118 + startTime * 80}px`, width: '100px' });
+      assert.equal(vm.runInNewContext(`(${classes})`, { selectedId: '', clip, ...timingHelpers })['waiting-dialogue-clip'], false);
+    }
+    assert.equal(declarations('.dialogue-clip').right, undefined);
+    assert.equal(declarations('.waiting-dialogue-clip').right, '0');
+    const loop = dialogueElement.props.find(prop => prop.type === 7 && prop.name === 'for');
+    assert.equal(loop.exp.content, 'clip in dialogueClips');
+    assert.equal(directive(dialogueElement, 'on', 'pointerdown').exp.content, 'startDrag($event, clip)');
+  });
+  test('None Dialogue has both resize boundaries while PlayerInput displays only its start handle', () => {
+    const handles = findAll(dialogueElement, node => hasClass(node, 'clip-resize-handle'));
+    assert.equal(handles.length, 2);
+    const start = handles.find(node => hasClass(node, 'resize-start')), end = handles.find(node => hasClass(node, 'resize-end'));
+    assert.equal(directive(start, 'on', 'pointerdown').exp.content, "startResize($event, clip, 'start')");
+    assert.equal(directive(end, 'on', 'pointerdown').exp.content, "startResize($event, clip, 'end')");
+    const condition = end.props.find(prop => prop.type === 7 && prop.name === 'if').exp.content;
+    for (const advanceMode of ['None', 'PlayerInput']) assert.equal(vm.runInNewContext(condition, { clip: { advanceMode }, ...timingHelpers }), advanceMode === 'None');
+    assert.ok(dialogueElement.loc.source.includes('时间轴末尾'));
+  });
+  test('Dialogue retains its independent ContinueDelayTime marker in seconds', () => {
+    const handles = findAll(dialogueElement, node => hasClass(node, 'continue-delay-handle'));
+    assert.equal(handles.length, 1);
+    for (const continueDelayTime of [0, 0.5, 2.9]) assert.deepEqual(evaluateStyle(handles[0], { clip: { continueDelayTime } }), { left: `${continueDelayTime * 80}px` });
+    assert.equal(directive(handles[0], 'on', 'pointerdown').exp.content, 'startContinueDelayDrag($event, clip)');
+  });
+
+  for (const kind of ["select"]) {
     const clipElement = elementWithClass(`${kind}-clip`);
     test(`${kind} keeps its start in seconds and extends to the row's right edge`, () => {
       for (const startTime of [0, 2.9, 25]) {
@@ -282,6 +327,7 @@ async function main() {
       const project = createEmptyDialogueProject();
       const group = createDialogueNode("group");
       group.dialogue.advanceMode = "None";
+      group.dialogue.duration = 1.25;
       group.timeline.displayDuration = 120;
       group.select = createSelectClip();
       group.select.startTime = 2.9;
@@ -295,7 +341,7 @@ async function main() {
       const table = (dictionary) => dictionary.value.flatMap((item) => item.value.value);
       const exportedGroup = table(decoded.value.ActionGroup)[0].value;
       const actions = table(exportedGroup.ActionClip);
-      assert.equal(actions.find((action) => action.value.actionType.value === "NOLOC_DIALOG").value.duration.value, "3.40");
+      assert.equal(actions.find((action) => action.value.actionType.value === "NOLOC_DIALOG").value.duration.value, "1.25");
       assert.equal(actions.find((action) => action.value.actionType.value === "NOLOC_DIALOG_SELECT").value.duration.value, "0.50");
       assert.deepEqual(exportedGroup.Timer.value.map((item) => item.value.value), ["0.00", "2.90"]);
       assert.equal(table(decoded.value.DialogueData)[0].value.continueDelay.value, "-1.00");

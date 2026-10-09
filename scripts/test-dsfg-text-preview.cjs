@@ -98,6 +98,26 @@ try {
     assert.equal(find(preview(source), 'Performance').kind, 'action');
   });
 
+  test("Multiple dialogue Clips project chronologically inside one Group and preserve Group navigation and connections", () => {
+    const source = project(); const node = group(source, "A"); group(source, "B");
+    const original = node.dialogue;
+    original.startTime = 0; original.advanceMode = "None"; original.duration = 1;
+    node.additionalDialogues = [
+      { ...original, id: "last", startTime: 4, advanceMode: "PlayerInput", speaker: "末尾", content: "第三句" },
+      { ...original, id: "middle", startTime: 2, speaker: "中间", content: "第二句" },
+    ];
+    node.lines = [{ type: "Camera", clips: [{ id: "camera" }] }];
+    connect(source, "start", "A"); connect(source, "A", "B");
+    const before = JSON.stringify(source);
+    const result = preview(source); const collection = find(result, "A");
+    assert.deepEqual(collection.nodeIds, ["A", "B"]);
+    assert.deepEqual(collection.lines.map(line => line.clipId), [original.id, "middle", "last", "B-dialogue"]);
+    assert.deepEqual(collection.lines.slice(0, 3).map(line => [line.nodeId, line.dialogueCount, line.clipCount]), Array.from({ length: 3 }, () => ["A", 3, 1]));
+    assert.deepEqual(collection.lines.slice(0, 3).map(line => line.content), ["text A", "第二句", "第三句"]);
+    assert.equal(result.edges.length, 1, "Multiple lines never create duplicate graph connections");
+    assert.equal(JSON.stringify(source), before, "Projection leaves saved clip order untouched");
+  });
+
   test("Condition expressions are per outlet, literal and traversed in declared order", () => {
     const source = project(); condition(source, "Q", ["  flag == '你好'\n", "globalThis.shouldNeverRun = 1", ""]); group(source, "B"); group(source, "A");
     connect(source, "Q", "B", "branch-1"); connect(source, "Q", "A", "branch-0"); connect(source, "start", "Q");

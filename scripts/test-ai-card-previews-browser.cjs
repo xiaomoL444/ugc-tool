@@ -5,10 +5,11 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 const base = process.argv.slice(2).find(argument => !argument.startsWith('--')) || 'http://127.0.0.1:8080';
 const detailsOnly = process.argv.includes('--details-only');
-const outputDirectory = path.join(__dirname, '../tools/ai-search-service/.wrangler');
+const outputDirectory = path.resolve(__dirname, '../../ugc-ai-search-file/verification/browser');
 const effect = { id: '64', duration: 12, isLoop: false, tagList: [], icon: '64.png', standPath: '64.mp4', tailPath: '64-tail.mp4', hasAudio: true, audioPath: '64.m4a' };
 const bgm = { id: 1, song_id: 2635292815, album_id: 250336341, time: 180000, minute: 3, second: 0, nameI18nKey: 'bgmPlayer.data.1', albumI18nKey: 'bgmPlayer.album.250336341', category: 101 };
-const longDescription = '远处先传来低沉的滚动雷声，随后响度逐渐上升，中段伴随密集而细碎的轰鸣，最后留下缓慢消散的低频尾音。声音没有对白和音乐，适合需要持续雷鸣的环境。完整描述应该在浮层中可以阅读，卡片里只占一行。' + '可以分辨多次雷鸣之间的细微间隔，音色由模糊的低频逐渐变得厚重，再回到远处的环境底噪。这段详细说明用于验证长资产资料可以通过浮层滚动完整阅读，而不展开整个卡片或移动聊天记录。'.repeat(4) + '<b>这是一段普通文本，不能变成 HTML。</b>';
+const longDescription = '远处先传来低沉的滚动雷声，随后响度逐渐上升，中段伴随密集而细碎的轰鸣，最后留下缓慢消散的低频尾音。声音没有对白和音乐，适合需要持续雷鸣的环境。完整描述应该在浮层中可以阅读，卡片里只占一行。' + '可以分辨多次雷鸣之间的细微间隔，音色由模糊的低频逐渐变得厚重，再回到远处的环境底噪。这段详细说明用于验证长资产资料可以通过浮层滚动完整阅读，而不展开整个卡片或移动聊天记录。'.repeat(12) + '<b>这是一段普通文本，不能变成 HTML。</b>';
+const longBgmDescription = '轻柔的木管旋律伴随弦乐铺底，音乐逐渐展开，保持平稳而舒适的节奏，适合森林探索与安静的户外场景。' + '细听时可以分辨弦乐与木管之间的呼应，旋律在不同段落中缓慢变化，低声部维持温暖的和声。中段逐步加入明亮的点缀，尾段回到平静主题。这段完整音乐说明用于验证宽浮层能显示更多文字，同时在短视口和移动设备上仍然能够滚动阅读。'.repeat(10);
 const detailKeywords = ['雷声', '低沉', '持续', '轰鸣', '自然环境', '阴沉', '雷雨前奏', '远处'];
 const detailUses = ['暴风雨场景', '紧张气氛', '夜间探索'];
 const detailReason = '完整匹配原因：低沉且持续的真实声音特征符合查询；尾音较长，可在原资产页进一步确认。';
@@ -16,7 +17,7 @@ const cards = [
   { kind: 'sound', id: '10001', title: '环境_雷声_低沉', description: longDescription, keywords: detailKeywords, suggestedUses: detailUses, matchReason: detailReason, matchType: 'feature', duration: 12 },
   { kind: 'sound', id: '10002', title: '环境_雷声_短促', description: '另一段声音，用于检查切换试听会停止上一段。', duration: 12 },
   { kind: 'effect', id: '64', title: '蓝色法阵', description: '蓝色光环与拖尾效果，悬停试听同步音轨。', duration: 12, hasAudio: true },
-  { kind: 'bgm', id: '1', title: '森林探索', description: '在结果卡片中展开音乐播放器。', duration: 180 },
+  { kind: 'bgm', id: '1', title: '森林探索', description: longBgmDescription, keywords: ['木管', '弦乐', '舒缓', '森林', '探索'], suggestedUses: ['户外探索', '宁静村庄'], matchReason: '完整匹配原因：舒缓旋律与森林探索场景相符。', duration: 180 },
 ].map(card => ({ keywords: [], suggestedUses: [], ...card, resourceId: `${card.kind}:${card.id}`, href: '/ignored-history-url' }));
 const history = [
   { id: 'preview-fixture', title: '预览验证', updatedAt: 2, contextStart: 0, messages: [
@@ -112,7 +113,7 @@ async function waitForCards(page) {
   await page.locator('.chat-message').first().locator('.resource-card').first().waitFor();
   await page.locator('.retrieval-status').waitFor();
   await page.waitForFunction(() => !document.querySelector('.inline-notice')?.textContent?.includes('读取'));
-  assert.equal(await page.locator('.model-trigger').getAttribute('data-search-mode'), 'basic');
+  assert.equal(await page.locator('.model-trigger').getAttribute('data-search-mode'), 'free', 'Restored history keeps the current default site-model selection without making any model request');
 }
 async function showPreviewPosition(page, position) {
   const reply = page.locator('.chat-message').first();
@@ -378,15 +379,16 @@ async function testMobile(browser) {
   await context.close();
 }
 
-async function assertDetailsContent(page) {
+async function assertDetailsContent(page, expectedCard = cards[0]) {
   const popover = page.locator('.resource-details-popover');
   await popover.waitFor();
   assert.equal(await popover.getAttribute('role'), 'tooltip');
-  assert.equal(await popover.locator('.resource-details-description').innerText(), longDescription, 'The complete description remains readable as plain text');
+  assert.equal(await popover.locator('.resource-details-description').innerText(), expectedCard.description, 'The complete description remains readable as plain text');
   assert.equal(await popover.locator('.resource-details-description b').count(), 0, 'Description markup is displayed as literal text');
-  assert.deepEqual(await popover.locator('.resource-details-keywords .resource-details-tags>span').allTextContents(), detailKeywords, 'All keywords are available in details');
-  assert.ok((await popover.locator('.match-reason').innerText()).includes(detailReason), 'Details include the complete matching reason');
-  assert.deepEqual(await popover.locator('.suggested-uses .use-tag').allTextContents(), detailUses, 'All suggested uses are available in details');
+  assert.deepEqual(await popover.locator('.resource-details-keywords .resource-details-tags>span').allTextContents(), expectedCard.keywords, 'All keywords are available in details');
+  if (expectedCard.matchReason) assert.ok((await popover.locator('.match-reason').innerText()).includes(expectedCard.matchReason), 'Details include the complete matching reason');
+  else assert.equal(await popover.locator('.match-reason').count(), 0);
+  assert.deepEqual(await popover.locator('.suggested-uses .use-tag').allTextContents(), expectedCard.suggestedUses, 'All suggested uses are available in details');
   const geometry = await popover.evaluate(element => { const rect = element.getBoundingClientRect(); return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight, clippedParent: !!element.closest('.message-viewport') }; });
   assert.equal(geometry.clippedParent, false, 'Details are teleported outside the scrolling message viewport');
   assert.ok(geometry.left >= 0 && geometry.top >= 0 && geometry.right <= geometry.width + 1 && geometry.bottom <= geometry.height + 1, `Complete details stay inside the screen: ${JSON.stringify(geometry)}`);
@@ -419,6 +421,8 @@ async function testDetailsDesktop(browser) {
     const beforeDetailsApi = state.apiRequests;
     await trigger.hover();
     const popover = await assertDetailsContent(page);
+    assert.ok(Math.abs((await popover.boundingBox()).width - 640) < 1, 'Long non-music details use the wider 640px panel');
+    assert.ok((await popover.boundingBox()).height <= 640, 'Wide details have a 640px height ceiling');
     assert.equal(await trigger.getAttribute('aria-describedby'), await popover.getAttribute('id'), 'The focused or hovered trigger identifies its tooltip');
     assert.ok(Math.abs((await card.boundingBox()).height - cardHeight) < 1, 'Showing complete details does not grow the card');
     assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollHeight), scrollHeight, 'Showing details does not grow the scrolling message surface');
@@ -454,6 +458,15 @@ async function testDetailsDesktop(browser) {
     await page.mouse.move(5, 5);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
     assert.equal(await page.locator('.resource-details-popover').count(), 0);
+    const musicCard = await showPreviewPosition(page, 4);
+    await musicCard.locator('.resource-details-trigger').hover();
+    const musicDetails = await assertDetailsContent(page, cards[3]);
+    assert.ok(Math.abs((await musicDetails.boundingBox()).width - 720) < 1, 'Music details use a 720px panel for the longer musical description');
+    assert.ok((await musicDetails.boundingBox()).height <= 640, 'Music details keep the wide-panel height ceiling');
+    await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-bgm-desktop.png'), fullPage: true });
+    await page.mouse.move(5, 5);
+    await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
+    await showPreviewPosition(page, 1);
     // This same-task enter/leave leaves show() waiting on its first Vue tick,
     // so it probes cancellation before the teleported panel can be positioned.
     await trigger.evaluate(element => {
@@ -482,6 +495,18 @@ async function testDetailsDesktop(browser) {
     const keyboardScrollState = await scrollingDetails.evaluate(element => ({ scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }));
     assert.ok(keyboardScrollState.scrollHeight > keyboardScrollState.clientHeight, 'The short viewport requires scrolling the complete details');
     const messageScrollTop = await page.locator('.message-viewport').evaluate(element => element.scrollTop);
+    await trigger.hover();
+    assert.ok((await scrollingDetails.locator('.resource-details-scroll-hint').innerText()).length > 0, 'Scrollable desktop details explain how to use the summary wheel gesture');
+    await page.mouse.wheel(0, 300);
+    await page.waitForFunction(() => document.querySelector('.resource-details-popover')?.scrollTop > 0);
+    assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollTop), messageScrollTop, 'The wheel on the summary scrolls only complete details, not the chat viewport');
+    assert.equal(await scrollingDetails.count(), 1, 'The wheel keeps complete details open while the pointer stays on the summary');
+    await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-scroll-desktop.png'), fullPage: true });
+    await page.mouse.wheel(0, -10000);
+    await page.waitForFunction(() => document.querySelector('.resource-details-popover')?.scrollTop === 0);
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(50);
+    assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollTop), messageScrollTop, 'Wheel gestures at the details boundary do not leak into the chat viewport');
     await page.keyboard.press('PageDown');
     await page.waitForFunction(() => document.querySelector('.resource-details-popover')?.scrollTop > 0);
     await page.keyboard.press('End');
@@ -494,6 +519,7 @@ async function testDetailsDesktop(browser) {
     await page.keyboard.press('Escape');
     await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
     await page.keyboard.press('Tab');
+    await page.mouse.move(5, 5);
     await page.setViewportSize({ width: 780, height: 900 });
     await page.waitForFunction(() => document.querySelector('.chat-message')?.querySelectorAll('.resource-card').length === 2);
     await trigger.scrollIntoViewIfNeeded();
@@ -530,12 +556,43 @@ async function testDetailsMobile(browser) {
     const trigger = card.locator('.resource-details-trigger');
     const height = (await card.boundingBox()).height;
     await trigger.tap();
-    await assertDetailsContent(page);
+    const touchDetails = await assertDetailsContent(page);
+    assert.equal(await touchDetails.evaluate(element => getComputedStyle(element).pointerEvents), 'auto', 'Pinned mobile details allow touch interaction inside the panel');
+    assert.equal(await touchDetails.locator('.resource-details-scroll-hint').count(), 0, 'Mobile details do not show the desktop wheel hint');
+    assert.ok(await touchDetails.evaluate(element => element.scrollHeight > element.clientHeight), 'The long mobile fixture requires detail scrolling');
+    const messageScrollTop = await page.locator('.message-viewport').evaluate(element => element.scrollTop);
+    const bounds = await touchDetails.boundingBox();
+    const touchSession = await context.newCDPSession(page);
+    try {
+      const x = bounds.x + bounds.width / 2;
+      const start = bounds.y + bounds.height - 60;
+      const end = bounds.y + 60;
+      const point = y => ({ x, y, radiusX: 4, radiusY: 4, force: 1, id: 1 });
+      await touchSession.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(start)] });
+      for (let index = 1; index <= 10; index++) {
+        await touchSession.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(start + (end - start) * index / 10)] });
+        await page.waitForTimeout(20);
+      }
+      await touchSession.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForFunction(() => document.querySelector('.resource-details-popover')?.scrollTop > 0);
+      assert.equal(await touchDetails.count(), 1, 'A native touch swipe inside pinned details does not close the panel');
+      assert.equal(await page.locator('.message-viewport').evaluate(element => element.scrollTop), messageScrollTop, 'A touch swipe scrolls complete details without moving the chat viewport');
+      await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-touch-scroll-mobile.png'), fullPage: true });
+    } finally { await touchSession.detach(); }
     assert.ok(Math.abs((await card.boundingBox()).height - height) < 1, 'Tapping details does not expand a mobile card');
     await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-mobile.png'), fullPage: true });
     await page.locator('#asset-query').tap();
     await page.locator('.resource-details-popover').waitFor({ state: 'hidden', timeout: 3000 });
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false', 'A tap outside closes pinned mobile details');
+    const musicCard = await showPreviewPosition(page, 4);
+    await musicCard.locator('.resource-details-trigger').tap();
+    const musicDetails = await assertDetailsContent(page, cards[3]);
+    assert.ok(Math.abs((await musicDetails.boundingBox()).width - (390 - 24)) < 1, 'Music details clamp the 720px preferred width to the mobile viewport with 12px margins');
+    assert.ok((await musicDetails.boundingBox()).height <= 640 && (await musicDetails.boundingBox()).height <= 844 - 24, 'Mobile music details remain inside the viewport height');
+    await page.screenshot({ path: path.join(outputDirectory, 'ai-search-resource-details-bgm-mobile.png'), fullPage: true });
+    await page.locator('#asset-query').tap();
+    await page.locator('.resource-details-popover').waitFor({ state: 'hidden' });
+    await showPreviewPosition(page, 1);
     await trigger.tap();
     const popover = await assertDetailsContent(page);
     const oldPopover = await popover.elementHandle();
@@ -550,11 +607,11 @@ async function testDetailsMobile(browser) {
 
 (async () => {
   await fs.mkdir(outputDirectory, { recursive: true });
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const browser = await chromium.launch({ channel: process.env.AI_SEARCH_BROWSER_CHANNEL || 'msedge', headless: true });
   try {
     if (!detailsOnly) { await testDesktop(browser); await testMobile(browser); }
     await testDetailsDesktop(browser);
     await testDetailsMobile(browser);
-    console.log(detailsOnly ? 'PASS AISearch compact details: single-line ellipsis, complete plain text, all tags/reasons/uses, unclipped noninteractive tooltip, immediate pointer leave and no mouse pinning, adjacent/pending positioning cleanup, fixed card height, keyboard focus/Enter/scroll/Escape, mobile tap/outside and page cleanup, no AI/search calls.' : 'PASS AISearch card previews and compact details: real WAV waveform and seek, smooth cursor without timeupdate, frozen paused progress, exclusive audio playback, effect icon/video links/hover audio, copy ID/name, trusted BGM song/album IDs, lazy iframe, scroll/conversation/page cleanup, cached metadata, mobile one-card pages preserve result order, no API requests on paging, mobile layout, complete plain-text noninteractive tooltip with immediate pointer leave, keyboard/mobile access and fixed card height.');
+    console.log(detailsOnly ? 'PASS AISearch compact details: single-line ellipsis, complete plain text, all tags/reasons/uses, long-detail 640px and BGM 720px widths with viewport clamp, desktop noninteractive immediate leave/no mouse pinning, summary wheel and keyboard scroll without moving chat, native touch panel scrolling with outside close, pending positioning and page cleanup, fixed card height, no AI/search calls.' : 'PASS AISearch card previews and compact details: real WAV waveform and seek, smooth cursor without timeupdate, frozen paused progress, exclusive audio playback, effect icon/video links/hover audio, copy ID/name, trusted BGM song/album IDs, lazy iframe, scroll/conversation/page cleanup, cached metadata, mobile one-card pages preserve result order, no API requests on paging, mobile layout, complete plain-text noninteractive tooltip with immediate pointer leave, keyboard/mobile access and fixed card height.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -35,6 +35,10 @@ test("Cloudflare native fetch reads external Markdown, caches for 60s and reject
     if (scenario === "redirect") return new Response("redirect", { status: 302,
       headers: { "content-type": "text/markdown", location: "https://untrusted.example/second-target" } });
     if (scenario === "html") return new Response("<html>gateway failure</html>", { headers: { "content-type": "text/html" } });
+    if (scenario === "published") return new Response(new TextEncoder().encode("x".repeat(16783)));
+    if (scenario === "unicode-boundary") return new Response("字".repeat(10922) + "ab", { headers: { "content-type": "text/markdown" } });
+    if (scenario === "unicode-overflow") return new Response("字".repeat(10923), { headers: { "content-type": "text/markdown" } });
+    if (scenario === "invalid-utf8") return new Response(new Uint8Array([0xc3, 0x28]), { headers: { "content-type": "application/octet-stream" } });
     return new Response(`${scenario === "updated" ? "UPDATED" : "RUNTIME"}_SOURCE search\\_assets RESULT\\_LIMIT matches:\\[\\]`, {
       headers: { "content-type": "text/markdown; charset=utf-8" },
     });
@@ -70,6 +74,28 @@ test("Cloudflare native fetch reads external Markdown, caches for 60s and reject
       assert.equal(request.method, "GET"); assert.equal(request.authorization, null); assert.equal(request.cookie, null);
       assert.equal(request.accept, "text/markdown, text/plain");
     }
+    scenario = "published";
+    const published = await dispatch(120002); assert.equal(published.status, 200);
+    assert.ok((await published.json()).content.startsWith("x".repeat(16783)));
+    assert.equal((await dispatch(120003)).status, 200);
+    assert.equal(requests.length, 5, "the current 16,783-byte OSS-sized source is cached");
+
+    scenario = "unicode-boundary";
+    const boundary = "字".repeat(10922) + "ab";
+    assert.equal(Buffer.byteLength(boundary), 32768);
+    const accepted = await dispatch(180002); assert.equal(accepted.status, 200);
+    assert.ok((await accepted.json()).content.startsWith(boundary));
+    assert.equal(requests.length, 6);
+    scenario = "unicode-overflow";
+    for (const clock of [240002, 240003]) {
+      const response = await dispatch(clock); assert.equal(response.status, 503);
+      assert.equal((await response.json()).error.code, "PROMPT_UNAVAILABLE");
+    }
+    assert.equal(requests.length, 8, "a 32,769-byte source is rejected on every read without caching");
+    scenario = "invalid-utf8";
+    const malformed = await dispatch(240004); assert.equal(malformed.status, 503);
+    assert.equal((await malformed.json()).error.code, "PROMPT_UNAVAILABLE");
+    assert.equal(requests.length, 9, "a higher byte limit still rejects malformed UTF-8 in generic OSS downloads");
     assert.ok(requests.every(request => !/deepseek|chat\/completions/.test(request.url)), "loading a prompt never calls a paid model");
   } finally { await mf.dispose(); }
 });

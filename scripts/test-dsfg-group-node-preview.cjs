@@ -5,8 +5,15 @@ const path = require("node:path");
 const Vue = require("vue");
 const { renderToString } = require("vue/server-renderer");
 const { parse, compileScript, compileTemplate, compileStyle } = require("@vue/compiler-sfc");
+const ts = require("typescript");
+const vm = require("node:vm");
 
 async function main() {
+  const utility = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, "../src/views/DSFGStudio/components/DialogueEditor/utils/dialogueClips.ts"), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText, utility);
+  const { getDialogueClips } = utility.exports;
   const filename = path.resolve(__dirname, "../src/views/DSFGStudio/components/DialogueEditor/GroupNode.vue");
   const parsed = parse(fs.readFileSync(filename, "utf8"), { filename });
   assert.deepEqual(parsed.errors, []);
@@ -26,7 +33,9 @@ async function main() {
   });
   async function html(state) {
     const before = JSON.stringify(state);
-    const app = Vue.createSSRApp({ setup: () => state, render });
+    const dialogues = getDialogueClips(state.node);
+    const dialogueSummary = dialogues.map(clip => `${clip.speaker ? `${clip.speaker}：` : ""}${clip.content}`).join(" / ");
+    const app = Vue.createSSRApp({ setup: () => ({ ...state, dialogues, dialogueSummary }), render });
     app.component("Handle", { props: ["id", "type", "position"], setup: props => () => Vue.h("i", { "data-handle": props.id, "data-type": props.type, "data-position": props.position }) });
     const output = await renderToString(app);
     assert.equal(JSON.stringify(state), before, "Rendering must not change node data");
@@ -61,6 +70,13 @@ async function main() {
   focus.outlets.push({ id: "focus-push", kind: "FocusPush", label: "Focus Push（强制跳过）" });
   const withFocus = await html(focus);
   for (const retained of ["玩家按下", "Focus Push（强制跳过）", 'data-handle="dialogue"', 'data-handle="focus-push"', "outlet-focuspush"]) assert.ok(withFocus.includes(retained));
+  const multi = fixture(); multi.node.dialogue.startTime = 0;
+  multi.node.additionalDialogues = [{ id: "later", startTime: 4, speaker: "后来", content: "第三句" }, { id: "earlier", startTime: 2, speaker: "中间", content: "第二句" }];
+  const withMultiple = await html(multi);
+  assert.ok(withMultiple.includes("3 台词"));
+  assert.ok(withMultiple.includes("123456：新建台词 / 中间：第二句 / 后来：第三句"));
+  assert.equal((withMultiple.match(/data-handle="dialogue"/g) ?? []).length, 1);
+  console.log("PASS Multiple dialogue Clips render chronological text and a count without duplicating Group handles");
   console.log("PASS Focus Push renders alongside the existing Dialogue outlet");
   console.log("PASS GroupNode script/template/styles compile");
   console.log("PASS Removed labels and empty preview are absent from rendered markup");

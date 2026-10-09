@@ -2,9 +2,9 @@ import { OSS_BASE_URL } from "../../utils/oss";
 import { AISearchError } from "./aiSearchService";
 import { normalizeResultLimit } from "./resultLimits";
 import { httpRequestDiagnostic, responseRequestDiagnostic, transportRequestDiagnostic } from "./requestDiagnostics";
-import type { RequestContext } from "./requestDiagnostics";
+import type { PromptValidationCode, RequestContext } from "./requestDiagnostics";
 
-const MAX_PROMPT_BYTES = 16384;
+const MAX_PROMPT_BYTES = 32768;
 const PROMPT_TIMEOUT_MS = 5000;
 const PROMPT_CACHE_MS = 60000;
 type CachedSource = { source?: string; expires: number; revision: number };
@@ -22,19 +22,31 @@ function normalizeSource(source: string): string {
   return source.replace(/\\([_[\]])/g, "$1").trim();
 }
 
+function invalidSource(response: Response, context: RequestContext, validationCode: PromptValidationCode, responseBytes?: number): AISearchError {
+  return new AISearchError("PROMPT_UNAVAILABLE", undefined, undefined, {
+    ...responseRequestDiagnostic(response, context), validationCode, responseBytes, responseByteLimit: MAX_PROMPT_BYTES,
+    contentType: (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() || undefined,
+  });
+}
+
 async function readSource(response: Response, signal: AbortSignal, context: RequestContext): Promise<string> {
   const type = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
   // Object storage may omit Markdown metadata or serve it as a generic download.
   // Unknown/generic MIME still goes through the bounded UTF-8 and text checks below.
-  if (!response.ok) throw new AISearchError("PROMPT_UNAVAILABLE", undefined, undefined, await httpRequestDiagnostic(response, context));
-  if (response.redirected || !response.body || !["", "text/plain", "text/markdown", "text/x-markdown", "application/octet-stream"].includes(type)) {
+  if (response.redirected || response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
     void response.body?.cancel().catch(() => undefined);
-    throw new AISearchError("PROMPT_UNAVAILABLE");
+    throw invalidSource(response, context, "REDIRECTED_RESPONSE");
+  }
+  if (!response.ok) throw new AISearchError("PROMPT_UNAVAILABLE", undefined, undefined, await httpRequestDiagnostic(response, context));
+  if (!response.body) throw invalidSource(response, context, "MISSING_BODY");
+  if (!["", "text/plain", "text/markdown", "text/x-markdown", "application/octet-stream"].includes(type)) {
+    void response.body.cancel().catch(() => undefined);
+    throw invalidSource(response, context, "UNSUPPORTED_CONTENT_TYPE");
   }
   const length = response.headers.get("content-length");
   if (length && /^\d+$/u.test(length) && Number(length) > MAX_PROMPT_BYTES) {
     void response.body.cancel().catch(() => undefined);
-    throw new AISearchError("PROMPT_UNAVAILABLE");
+    throw invalidSource(response, context, "PROMPT_TOO_LARGE", Number(length));
   }
   const reader = response.body.getReader();
   const stop = () => { void reader.cancel().catch(() => { /* The transport may already be closed. */ }); };
@@ -48,15 +60,19 @@ async function readSource(response: Response, signal: AbortSignal, context: Requ
       if (signal.aborted) throw aborted();
       if (chunk.done) break;
       size += chunk.value.byteLength;
-      if (size > MAX_PROMPT_BYTES) { stop(); throw new AISearchError("PROMPT_UNAVAILABLE"); }
+      if (size > MAX_PROMPT_BYTES) { stop(); throw invalidSource(response, context, "PROMPT_TOO_LARGE", size); }
       chunks.push(chunk.value);
     }
     const bytes = new Uint8Array(size);
     let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    const source = normalizeSource(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-    if (!source || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(source)
-      || /^\s*<(?:!doctype\s+html\b|html\b|head\b|body\b)/iu.test(source)) throw new AISearchError("PROMPT_UNAVAILABLE");
+    let decoded: string;
+    try { decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+    catch { throw invalidSource(response, context, "INVALID_UTF8", size); }
+    const source = normalizeSource(decoded);
+    if (!source) throw invalidSource(response, context, "EMPTY_PROMPT", size);
+    if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(source)) throw invalidSource(response, context, "INVALID_CONTROL_CHARACTERS", size);
+    if (/^\s*<(?:!doctype\s+html\b|html\b|head\b|body\b)/iu.test(source)) throw invalidSource(response, context, "HTML_RESPONSE", size);
     return source;
   } finally {
     signal.removeEventListener("abort", stop);

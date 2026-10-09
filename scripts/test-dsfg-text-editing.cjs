@@ -127,6 +127,22 @@ try {
     assert.equal(source.dialogue.nodes.A.dialogue.content, "继承的原文");
   });
 
+  test("A Clip ID edits exactly the selected additional dialogue and stale IDs never edit the primary", () => {
+    const source = project(); const node = source.dialogue.nodes.A;
+    node.additionalDialogues = [{ ...copy(node.dialogue), id: "second", startTime: 3, content: "第二句", speaker: "第二人" }];
+    const primary = copy(node.dialogue), graph = copy(source.graph), performance = copy(node.lines);
+    for (const field of ["speaker", "subtitle", "style", "content"]) {
+      assert.equal(apply(source, { nodeId: "A", clipId: "second", field, value: `新${field}` }), true);
+      assert.equal(node.additionalDialogues[0][field], `新${field}`);
+      assert.equal(apply(source, { nodeId: "A", clipId: "second", field, value: `新${field}` }), false);
+    }
+    for (const clipId of ["missing", "", 7, null]) assert.equal(apply(source, { nodeId: "A", clipId, field: "content", value: "错误覆盖" }), false);
+    assert.deepEqual(node.dialogue, primary);
+    assert.deepEqual(source.graph, graph); assert.deepEqual(node.lines, performance);
+    assert.equal(apply(source, { nodeId: "A", field: "content", value: "原有单Clip调用" }), true);
+    assert.equal(node.dialogue.content, "原有单Clip调用");
+  });
+
   test("First line is shown, and only identical adjacent speaker/subtitle pairs collapse", () => {
     const lines = [line(), line(), line("第二人"), line("第二人"), line("说话人")];
     assert.deepEqual(lines.map((_, index) => show(lines, index)), [true, false, true, false, true]);

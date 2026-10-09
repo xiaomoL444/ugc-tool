@@ -240,5 +240,21 @@
   "aiSearch.modelProbe.notReturned": "服务未返回型号",
   "aiSearch.modelProbe.basicNote": "此次仅验证基础调用。工具调用和资产搜索需在实际搜索时验证。",
   "aiSearch.modelProbe.timeout": "模型测试超时（20 秒），请检查服务连接。",
-  "aiSearch.modelProbe.truncated": "已返回响应，但测试输出被截断。"
+  "aiSearch.modelProbe.truncated": "已返回响应，但测试输出被截断。",
+  "aiSearch.requestDiagnostics.validationCode": "文件校验原因",
+  "aiSearch.requestDiagnostics.responseBytes": "响应大小（字节）",
+  "aiSearch.requestDiagnostics.responseByteLimit": "读取上限（字节）",
+  "aiSearch.requestDiagnostics.contentType": "响应内容类型",
+  "aiSearch.errors.promptValidation.PROMPT_TOO_LARGE": "提示词文件超过读取上限。",
+  "aiSearch.errors.promptValidation.UNSUPPORTED_CONTENT_TYPE": "提示词文件的响应内容类型不受支持。",
+  "aiSearch.errors.promptValidation.INVALID_UTF8": "提示词文件不是有效的 UTF-8 文本。",
+  "aiSearch.errors.promptValidation.EMPTY_PROMPT": "提示词文件为空。",
+  "aiSearch.errors.promptValidation.HTML_RESPONSE": "提示词地址返回了 HTML 网页。",
+  "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "提示词文件含有不允许的控制字符。",
+  "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "提示词地址返回了重定向，无法直接读取文件。",
+  "aiSearch.errors.promptValidation.MISSING_BODY": "提示词响应没有可读取的正文。",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "此错误发生在读取公共提示词文件时，模型尚未调用。请检查文件内容、编码、内容类型和显示的读取上限。",
+  "aiSearch.requestDiagnostics.hints.promptResponse": "请检查公共提示词文件的地址、访问权限、正文内容和服务器响应。本次失败发生在模型调用前。",
+  "aiSearch.errors.promptSize": "响应 {bytes} 字节，读取上限 {limit} 字节。",
+  "aiSearch.errors.promptBytes": "已读取 {bytes} 字节。"
 }

@@ -1,5 +1,8 @@
 import { boundedRawResponse } from "./responseDiagnostics";
 
+const promptValidationCodes = ["PROMPT_TOO_LARGE", "UNSUPPORTED_CONTENT_TYPE", "INVALID_UTF8", "EMPTY_PROMPT", "HTML_RESPONSE", "INVALID_CONTROL_CHARACTERS", "REDIRECTED_RESPONSE", "MISSING_BODY"] as const;
+export type PromptValidationCode = typeof promptValidationCodes[number];
+
 export interface RequestDiagnostic {
   stage: "model" | "site" | "catalog" | "search" | "assets" | "prompt";
   kind: "http" | "network" | "timeout" | "response";
@@ -13,6 +16,10 @@ export interface RequestDiagnostic {
   round?: number;
   elapsedMs?: number;
   browserMessage?: string;
+  validationCode?: PromptValidationCode;
+  responseBytes?: number;
+  responseByteLimit?: number;
+  contentType?: string;
 }
 export interface RequestContext {
   stage: RequestDiagnostic["stage"];
@@ -52,13 +59,16 @@ export function sanitizeRequestDiagnostic(raw: unknown, secrets: readonly string
   const result: RequestDiagnostic = { stage: source.stage as RequestDiagnostic["stage"], kind: source.kind as RequestDiagnostic["kind"] };
   const endpoint = safeEndpoint(source.endpoint, secrets);
   if (endpoint) result.endpoint = endpoint;
-  for (const [field, limit] of [["providerCode", 160], ["providerMessage", 1200], ["parameter", 160], ["requestId", 200], ["model", 200], ["browserMessage", 400]] as const) {
+  for (const [field, limit] of [["contentType", 160], ["providerCode", 160], ["providerMessage", 1200], ["parameter", 160], ["requestId", 200], ["model", 200], ["browserMessage", 400]] as const) {
     const value = safeText(source[field], limit, secrets);
     if (value) result[field] = value;
   }
   if (Number.isInteger(source.status) && Number(source.status) >= 100 && Number(source.status) <= 599) result.status = Number(source.status);
   if (Number.isInteger(source.round) && Number(source.round) >= 1 && Number(source.round) <= 3) result.round = Number(source.round);
   if (typeof source.elapsedMs === "number" && Number.isFinite(source.elapsedMs) && source.elapsedMs >= 0) result.elapsedMs = Math.min(3600000, Math.round(source.elapsedMs));
+  if (promptValidationCodes.includes(source.validationCode as PromptValidationCode)) result.validationCode = source.validationCode as PromptValidationCode;
+  if (Number.isInteger(source.responseBytes) && Number(source.responseBytes) >= 0 && Number(source.responseBytes) <= 1048576) result.responseBytes = Number(source.responseBytes);
+  if (Number.isInteger(source.responseByteLimit) && Number(source.responseByteLimit) >= 1 && Number(source.responseByteLimit) <= 1048576) result.responseByteLimit = Number(source.responseByteLimit);
   return result;
 }
 export function responseRequestDiagnostic(response: Response, context: RequestContext, kind: RequestDiagnostic["kind"] = "response", secrets: readonly string[] = []): RequestDiagnostic {

@@ -1,8 +1,8 @@
 // Synthetic complete sidecars for frontend tests; no source files or services are read.
 const locales = ['zh-cn', 'zh-tw', 'en-us', 'ja-jp', 'ru-ru'];
 function createFeatureSidecar(project, entries) {
-  const kind = project === 'SoundEffectPlayer' ? 'sound' : 'effect';
-  const namespace = kind === 'sound' ? 'soundEffectPlayer' : 'effectPlayer';
+  const kind = project === 'SoundEffectPlayer' ? 'sound' : project === 'BgmPlayer' ? 'bgm' : 'effect';
+  const namespace = kind === 'sound' ? 'soundEffectPlayer' : kind === 'bgm' ? 'bgmPlayer' : 'effectPlayer';
   const sidecar = { schemaVersion: 1, project, kind, baseIndexVersion: 'fixture-identities', resources: {}, i18n: Object.fromEntries(locales.map(locale => [locale, {}])) };
   for (const [id, parts] of Object.entries(entries)) {
     const searchMetadata = { schemaVersion: 1 };

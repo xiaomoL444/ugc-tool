@@ -26,9 +26,77 @@ function assertLocalOutput(filename) {
   return absolute;
 }
 function stripMetadata(data, kind) {
-  const result = structuredClone(data), rows = kind === 'effect' ? Object.values(result.effectData) : result.data;
+  const result = structuredClone(data), rows = kind === 'effect' ? Object.values(result.effectData) : kind === 'bgm' && !Array.isArray(result.data) ? result.musicData : result.data;
   for (const row of rows) delete row.searchMetadata;
   return result;
+}
+function suggestionLoss(project, id, part, reason) {
+  const error = new Error(`Suggested uses preservation failed: ${project}/${id}/${part}: ${reason}. Apply the restored suggested-uses overlay to the export input before retrying.`);
+  error.code = 'ASSET_SUGGESTED_USES_LOSS';
+  return error;
+}
+function hasChangedMedia(previous, candidate) {
+  // A matching hash still identifies the same media, even if its encoding changed.
+  // Missing provenance cannot prove that an empty replacement is a new source.
+  return ['sourceSha256', 'inputSha256'].every(field =>
+    typeof previous?.[field] === 'string' && /^[a-f0-9]{64}$/i.test(previous[field]) &&
+    typeof candidate?.[field] === 'string' && /^[a-f0-9]{64}$/i.test(candidate[field]) &&
+    previous[field].toLowerCase() !== candidate[field].toLowerCase());
+}
+const resolvesUse = (table, key) => typeof key === 'string' && Object.hasOwn(table, key) && typeof table[key] === 'string' && !!table[key].trim();
+async function assertSuggestedUsesPreserved(outputDirectory, drafts, snapshots) {
+  for (const draft of drafts) {
+    const source = SOURCES.find(item => item.project === draft.project && item.kind === draft.kind);
+    if (!source) throw new Error('Unknown feature project in suggested uses preservation check');
+    const snapshot = snapshots.find(item => item.project === draft.project && item.kind === draft.kind);
+    const effectData = snapshot?.data?.effectData;
+    const rows = draft.kind === 'effect' ? effectData && typeof effectData === 'object' && !Array.isArray(effectData) ? Object.values(effectData) : undefined : draft.kind === 'bgm' && !Array.isArray(snapshot?.data?.data) ? snapshot?.data?.musicData : snapshot?.data?.data;
+    if (!Array.isArray(rows)) throw new Error(`${draft.project}: invalid base data in suggested uses preservation check`);
+    const ids = rows.map(row => String(row?.id ?? ''));
+    if (ids.some(id => !/^\d{1,12}$/.test(id)) || new Set(ids).size !== ids.length) throw new Error(`${draft.project}: invalid base IDs in suggested uses preservation check`);
+    const baseIds = new Set(ids);
+    let bytes;
+    try { bytes = await fs.readFile(path.join(outputDirectory, draft.project, 'features.json')); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; continue; }
+    const previous = parse(bytes);
+    assert.equal(previous.schemaVersion, 1, 'Existing output feature schema mismatch');
+    assert.equal(previous.project, draft.project, 'Existing output feature project mismatch');
+    assert.equal(previous.kind, draft.kind, 'Existing output feature kind mismatch');
+    const protectedParts = [];
+    for (const [id, resource] of Object.entries(previous.resources || {})) {
+      // Only a removal from validated base data counts as an asset deletion.
+      if (!baseIds.has(id)) continue;
+      for (const part of draft.kind === 'effect' ? ['standVisual', 'tailVisual', 'audio'] : ['audio']) {
+        const oldPart = resource?.searchMetadata?.[part];
+        if (Array.isArray(oldPart?.suggestedUsesI18nKeys) && oldPart.suggestedUsesI18nKeys.length &&
+            !hasChangedMedia(oldPart, draft.resources?.[id]?.searchMetadata?.[part])) protectedParts.push({ id, part, oldPart });
+      }
+    }
+    if (!protectedParts.length) continue;
+    const oldDictionaries = {}, candidateDictionaries = {};
+    for (const locale of LOCALES) {
+      const lower = locale.toLowerCase();
+      let raw;
+      try { raw = parse(await fs.readFile(path.join(outputDirectory, draft.project, 'i18n', lower + '.json'))); }
+      catch (error) { throw suggestionLoss(draft.project, '*', '*', `existing ${lower} dictionary cannot be read: ${error.message}`); }
+      oldDictionaries[lower] = dictionary(raw, source.namespace);
+      candidateDictionaries[lower] = dictionary(draft.i18n?.[lower], source.namespace);
+    }
+    for (const { id, part, oldPart } of protectedParts) {
+      for (const locale of LOCALES.map(value => value.toLowerCase())) {
+        if (oldPart.suggestedUsesI18nKeys.some(key => !resolvesUse(oldDictionaries[locale], key)))
+          throw suggestionLoss(draft.project, id, part, `existing ${locale} suggested uses do not resolve`);
+      }
+      const nextPart = draft.resources?.[id]?.searchMetadata?.[part];
+      if (!nextPart) throw suggestionLoss(draft.project, id, part, 'candidate part is missing');
+      const refs = nextPart.suggestedUsesI18nKeys;
+      if (!Array.isArray(refs) || !refs.length) throw suggestionLoss(draft.project, id, part, 'candidate suggested uses are empty');
+      for (const locale of LOCALES.map(value => value.toLowerCase())) {
+        if (refs.some(key => !resolvesUse(candidateDictionaries[locale], key)))
+          throw suggestionLoss(draft.project, id, part, `candidate ${locale} suggested uses do not resolve`);
+      }
+    }
+  }
 }
 async function compileSidecar(sidecar, identities, options = {}) {
   const { parseAssetFeatureSidecar, normalizeAssetFeatureResources, computeLexicalFeatureHash, computeLexicalIndexHash, verifyAssetFeatureSidecar, FEATURE_HASH_ALGORITHM } = await import('../tools/ai-search-service/asset-features.mjs');
@@ -78,8 +146,34 @@ async function main(argv = process.argv.slice(2)) {
       sourceFiles.set(relative, bytes); currentDictionaries[locale.toLowerCase()] = parse(bytes);
     }
     if (source.kind === 'bgm') {
-      for (const locale of LOCALES) dictionaries[locale] = dictionary(currentDictionaries[locale.toLowerCase()], source.namespace);
+      const rows = Array.isArray(currentData.data) ? currentData.data : currentData.musicData;
+      assert(Array.isArray(rows), 'BgmPlayer: invalid base data');
+      let resources = Object.fromEntries(rows.filter(row => row.searchMetadata).map(row => [row.id, { searchMetadata: row.searchMetadata }]));
+      const relative = source.project + '/features.json';
+      let previousBytes;
+      try { previousBytes = await fs.readFile(path.join(options.source, relative)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if (previousBytes) {
+        const previous = parse(previousBytes);
+        assert.equal(previous.schemaVersion, 1, 'Existing feature schema mismatch');
+        assert.equal(previous.project, source.project, 'Existing feature project mismatch');
+        assert.equal(previous.kind, source.kind, 'Existing feature kind mismatch');
+        if (!Object.keys(resources).length) resources = previous.resources;
+        sourceFiles.set(relative, previousBytes);
+      }
+      const featureI18n = {}, prefix = source.namespace + '.search.';
+      restorationFiles.set(dataRelative, dataBytes);
+      for (const locale of LOCALES) {
+        const lower = locale.toLowerCase(), relative = source.project + '/i18n/' + lower + '.json';
+        dictionaries[locale] = dictionary(currentDictionaries[lower], source.namespace);
+        featureI18n[lower] = Object.fromEntries(Object.entries(dictionaries[locale]).filter(([key]) => key.startsWith(prefix)));
+        // BGM has no baseline migration. Preserve its base data and all five
+        // original project dictionaries byte-for-byte in the upload package.
+        restorationFiles.set(relative, sourceFiles.get(relative));
+      }
       snapshots.push({ ...source, data: currentData, dictionaries });
+      drafts.push({ schemaVersion: 1, project: source.project, kind: source.kind, resources, i18n: featureI18n });
+      report.push({ project: source.project, kind: source.kind, resourceCount: rows.length, featureResourceCount: Object.keys(resources).length,
+        searchKeysPerLocale: Object.fromEntries(Object.entries(featureI18n).map(([locale, table]) => [locale, Object.keys(table).length])), baselineDirectory: null });
       continue;
     }
     const baseline = { ...BASELINES[source.project], root: source.kind === 'sound' ? options.soundBaseline || BASELINES[source.project].root : options.effectBaseline || BASELINES[source.project].root };
@@ -119,6 +213,9 @@ async function main(argv = process.argv.slice(2)) {
     report.push({ project: source.project, kind: source.kind, resourceCount: rows.length, featureResourceCount: Object.keys(resources).length,
       searchKeysPerLocale: Object.fromEntries(Object.entries(featureI18n).map(([locale, table]) => [locale, Object.keys(table).length])), baselineDirectory: path.resolve(baseline.root) });
   }
+  // This reads the current publication independently of the source fallback,
+  // including when source === output. Reject loss before backups or identities.
+  await assertSuggestedUsesPreserved(options.output, drafts, snapshots);
   const sourceHashes = Object.fromEntries([...sourceFiles].map(([relative, bytes]) => [relative, sha256(bytes)]));
   const sourceVersion = sha256(Buffer.from(JSON.stringify(sourceHashes))), backupRoot = path.join(options.backups, sourceVersion);
   // All current source files are backed up byte-for-byte before publication files are written.
@@ -148,11 +245,11 @@ async function main(argv = process.argv.slice(2)) {
   const manifest = { schemaVersion: 1, sourceDirectory: path.resolve(options.source), sourceVersion, backupDirectory: backupRoot,
     publicationDirectory: options.output, baseIndexVersion: identities.indexVersion, sourceHashes, outputHashes, projects: report,
     preservedOriginalDataBytes: true, preservedOriginalTranslationEntries: true, preservedOriginalBytes: false, translationStorage: 'project-i18n-v1', sourceChanged: false, apiCalls: 0, bgmAuxiliarySourceDirectory: options.bgmSourceOutput,
-    bgmUploadRequired: false, reindexCommand: 'node scripts/export-ai-asset-features.cjs --reindex exports/ugc-tool-data/<Project>/features.json' };
+    bgmUploadRequired: true, reindexCommand: 'node scripts/export-ai-asset-features.cjs --reindex exports/ugc-tool-data/<Project>/features.json' };
   await writeIfChanged(path.join(backupRoot, 'manifest.json'), serialized({ schemaVersion: 1, sourceVersion, sourceHashes }));
   const manifestFilename = options.manifest;
   await writeIfChanged(manifestFilename, serialized(manifest));
   console.log(JSON.stringify({ manifest: manifestFilename, backupDirectory: backupRoot, baseIndexVersion: identities.indexVersion, identitiesBytes: serialized(identities).length, projects: report, apiCalls: 0 }, null, 2));
 }
-module.exports = { main, compileSidecar, reindex, stripMetadata, writeIfChanged };
+module.exports = { main, compileSidecar, reindex, stripMetadata, writeIfChanged, assertSuggestedUsesPreserved };
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });

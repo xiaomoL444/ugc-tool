@@ -15,7 +15,7 @@ test("prompt source is bounded Markdown and rendering handles escaped identifier
   assert.match(agent, /最多 3 轮模型调用、4 次工具调用/);
   assert.match(legacy, /FROM_FILE search_assets 10 matches:\[\] 10/);
   assert.match(legacy, /没有可调用工具/);
-  for (const bad of [undefined, "", "  ", "x".repeat(16385), "<!doctype html><html>error</html>"]) {
+  for (const bad of [undefined, "", "  ", "x".repeat(32769), "<!doctype html><html>error</html>"]) {
     assert.throws(() => renderSystemPrompt(bad), unavailable);
   }
   assert.match(renderSystemPrompt("Markdown 可包含 `<html>` 示例。", 5), /<html>/);
@@ -65,7 +65,7 @@ test("bad status, redirects, HTML, empty, oversized and malformed UTF-8 sources 
     () => new Response("{}", { headers: { "content-type": "application/json" } }),
     () => promptResponse(""), () => promptResponse("   "),
     () => promptResponse("<html><body>cached gateway error</body></html>"),
-    () => promptResponse("x".repeat(16385)), () => promptResponse("字".repeat(6000)),
+    () => promptResponse("x".repeat(32769)), () => promptResponse("字".repeat(10923)),
     () => new Response(new Uint8Array([0xff, 0xfe]), { headers: { "content-type": "text/markdown" } }),
   ];
   for (const make of cases) {
@@ -83,10 +83,59 @@ test("missing or generic OSS MIME metadata accepts validated Markdown and retain
     const loader = createSystemPromptLoader({ fetcher: async () => response(source) });
     assert.equal(await loader.read(), source);
     for (const invalid of ["", "   ", "<html><body>gateway error</body></html>", "<!doctype html><html>gateway error</html>",
-      "hidden\u0000instruction", "字".repeat(6000), new Uint8Array([0xff, 0xfe])]) {
+      "hidden\u0000instruction", "字".repeat(10923), new Uint8Array([0xff, 0xfe])]) {
       const rejected = createSystemPromptLoader({ fetcher: async () => response(invalid) });
       await assert.rejects(rejected.read(), unavailable);
     }
+  }
+});
+
+test("the current OSS-sized prompt is accepted and cached with missing MIME metadata", async () => {
+  const source = "# Published prompt\n" + "x".repeat(16783 - Buffer.byteLength("# Published prompt\n"));
+  assert.equal(Buffer.byteLength(source), 16783);
+  let calls = 0;
+  const loader = createSystemPromptLoader({ fetcher: async () => {
+    calls += 1; return new Response(new TextEncoder().encode(source));
+  } });
+  assert.equal(await loader.read(), source);
+  assert.equal(await loader.read(), source);
+  assert.equal(calls, 1);
+});
+
+test("the 32KiB boundary counts UTF-8 bytes, including BOM and CRLF before normalization", async () => {
+  const exact = "字".repeat(10922) + "ab";
+  const oversized = "字".repeat(10923);
+  assert.equal(Buffer.byteLength(exact), 32768);
+  assert.equal(Buffer.byteLength(oversized), 32769);
+  assert.ok(exact.length < 32768);
+  assert.ok(renderSystemPrompt(exact).startsWith(exact));
+  assert.throws(() => renderSystemPrompt(oversized), unavailable);
+
+  const acceptedWithFormatting = "\ufeff" + "x".repeat(32763) + "\r\n";
+  const rejectedWithFormatting = "\ufeff" + "x".repeat(32764) + "\r\n";
+  assert.equal(Buffer.byteLength(acceptedWithFormatting), 32768);
+  assert.equal(Buffer.byteLength(rejectedWithFormatting), 32769);
+  for (const source of [exact, acceptedWithFormatting]) {
+    let calls = 0;
+    const loader = createSystemPromptLoader({ fetcher: async () => { calls += 1; return promptResponse(source); } });
+    assert.equal(await loader.read(), source.trim());
+    assert.equal(await loader.read(), source.trim());
+    assert.equal(calls, 1);
+  }
+
+  for (const source of [oversized, "x".repeat(32769), rejectedWithFormatting]) {
+    const bytes = new TextEncoder().encode(source); let calls = 0, cancellations = 0;
+    const loader = createSystemPromptLoader({ fetcher: async () => {
+      calls += 1;
+      return new Response(new ReadableStream({ start(controller) {
+        controller.enqueue(bytes.subarray(0, 32768));
+        controller.enqueue(bytes.subarray(32768));
+      }, cancel() { cancellations += 1; } }), { headers: { "content-type": "text/markdown" } });
+    } });
+    await assert.rejects(loader.read(), unavailable);
+    await assert.rejects(loader.read(), unavailable);
+    assert.equal(calls, 2, "an oversized source never gets cached");
+    assert.equal(cancellations, 2, "each oversized stream is cancelled before reading further");
   }
 });
 

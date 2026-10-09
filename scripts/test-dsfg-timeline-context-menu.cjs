@@ -29,7 +29,7 @@ Module._load = function(request, parent, main) {
 };
 Module._extensions['.ts'] = (mod, file) => mod._compile(transpile(fs.readFileSync(file, 'utf8')), file);
 const tick = async () => { await Promise.resolve(); await vue.nextTick(); await Promise.resolve(); };
-let factories, clipboard, timing, registry, useDialogueHistory, codec, outlets;
+let factories, clipboard, timing, dialogues, registry, useDialogueHistory, codec, outlets;
 function fixture() {
   hooks = { mount: [], unmount: [] };
   const callbacks = new Map();
@@ -46,7 +46,7 @@ function fixture() {
   const history = scope.run(() => useDialogueHistory({ project, element: vue.ref({ contains: () => false }),
     blocked: () => false, afterRestore() {}, onError(error) { throw error; } }));
   const props = { get node() { return project.value.dialogue.nodes[active.value]; } };
-  const context = vm.createContext({ ...vue, ...factories, ...clipboard, ...timing, ...registry,
+  const context = vm.createContext({ ...vue, ...factories, ...clipboard, ...timing, ...dialogues, ...registry,
     defineProps: () => props, defineEmits: () => () => {}, onMounted() {}, onBeforeUnmount() {},
     usePublicEventPresets: () => ({ availablePresets: vue.ref([]) }), window,
   });
@@ -71,6 +71,7 @@ async function main() {
   factories = require(path.join(editor, 'utils/dialogueProject.ts'));
   clipboard = require(path.join(editor, 'utils/timelineClipClipboard.ts'));
   timing = require(path.join(editor, 'utils/groupTimeline.ts'));
+  dialogues = require(path.join(editor, 'utils/dialogueClips.ts'));
   registry = require(path.join(editor, 'config/lineRegistry.ts'));
   codec = require(path.join(editor, 'utils/dialogueProjectCodec.ts'));
   outlets = require(path.join(editor, 'utils/groupOutlets.ts'));

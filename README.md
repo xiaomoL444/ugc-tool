@@ -33,6 +33,12 @@ pnpm run serve
 pnpm run build
 ```
 
+### Cloudflare Pages 构建
+
+构建根目录应指向包含本项目 `package.json` 和 `pnpm-lock.yaml` 的目录；构建命令使用 `pnpm run build`，输出目录为 `dist`。源码发布时同时提交更新后的依赖清单和锁文件，构建环境先安装依赖再执行构建。若禁用了自动安装，在构建步骤中先执行 `pnpm install --frozen-lockfile`。
+
+AI 搜索共用的 `tools/ai-search-service/model-json.mjs` 依赖根目录声明的 `jsonrepair@3.15.0`。出现 `Can't resolve 'jsonrepair'` 时，先确认构建分支的 `package.json` 包含该依赖，锁文件与之匹配，依赖安装步骤已执行；报错中的源码目录不意味着应在该目录重复安装。更新这些文件后重新构建，缓存仍旧时再清理构建依赖缓存。[Cloudflare 构建目录说明](https://developers.cloudflare.com/pages/configuration/build-configuration/)
+
 ### Customize configuration
 See [Configuration Reference](https://cli.vuejs.org/config/).
 
