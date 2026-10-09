@@ -4,7 +4,6 @@ import { normalizeResultLimit } from "./resultLimits";
 import { httpRequestDiagnostic, responseRequestDiagnostic, transportRequestDiagnostic } from "./requestDiagnostics";
 import type { PromptValidationCode, RequestContext } from "./requestDiagnostics";
 
-const MAX_PROMPT_BYTES = 32768;
 const PROMPT_TIMEOUT_MS = 5000;
 const PROMPT_CACHE_MS = 60000;
 type CachedSource = { source?: string; expires: number; revision: number };
@@ -24,7 +23,7 @@ function normalizeSource(source: string): string {
 
 function invalidSource(response: Response, context: RequestContext, validationCode: PromptValidationCode, responseBytes?: number): AISearchError {
   return new AISearchError("PROMPT_UNAVAILABLE", undefined, undefined, {
-    ...responseRequestDiagnostic(response, context), validationCode, responseBytes, responseByteLimit: MAX_PROMPT_BYTES,
+    ...responseRequestDiagnostic(response, context), validationCode, responseBytes,
     contentType: (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() || undefined,
   });
 }
@@ -32,7 +31,7 @@ function invalidSource(response: Response, context: RequestContext, validationCo
 async function readSource(response: Response, signal: AbortSignal, context: RequestContext): Promise<string> {
   const type = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
   // Object storage may omit Markdown metadata or serve it as a generic download.
-  // Unknown/generic MIME still goes through the bounded UTF-8 and text checks below.
+  // Unknown/generic MIME still goes through the UTF-8 and text checks below.
   if (response.redirected || response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
     void response.body?.cancel().catch(() => undefined);
     throw invalidSource(response, context, "REDIRECTED_RESPONSE");
@@ -42,11 +41,6 @@ async function readSource(response: Response, signal: AbortSignal, context: Requ
   if (!["", "text/plain", "text/markdown", "text/x-markdown", "application/octet-stream"].includes(type)) {
     void response.body.cancel().catch(() => undefined);
     throw invalidSource(response, context, "UNSUPPORTED_CONTENT_TYPE");
-  }
-  const length = response.headers.get("content-length");
-  if (length && /^\d+$/u.test(length) && Number(length) > MAX_PROMPT_BYTES) {
-    void response.body.cancel().catch(() => undefined);
-    throw invalidSource(response, context, "PROMPT_TOO_LARGE", Number(length));
   }
   const reader = response.body.getReader();
   const stop = () => { void reader.cancel().catch(() => { /* The transport may already be closed. */ }); };
@@ -60,7 +54,6 @@ async function readSource(response: Response, signal: AbortSignal, context: Requ
       if (signal.aborted) throw aborted();
       if (chunk.done) break;
       size += chunk.value.byteLength;
-      if (size > MAX_PROMPT_BYTES) { stop(); throw invalidSource(response, context, "PROMPT_TOO_LARGE", size); }
       chunks.push(chunk.value);
     }
     const bytes = new Uint8Array(size);

@@ -37,7 +37,7 @@ test("Cloudflare native fetch reads external Markdown, caches for 60s and reject
     if (scenario === "html") return new Response("<html>gateway failure</html>", { headers: { "content-type": "text/html" } });
     if (scenario === "published") return new Response(new TextEncoder().encode("x".repeat(16783)));
     if (scenario === "unicode-boundary") return new Response("字".repeat(10922) + "ab", { headers: { "content-type": "text/markdown" } });
-    if (scenario === "unicode-overflow") return new Response("字".repeat(10923), { headers: { "content-type": "text/markdown" } });
+    if (scenario === "unicode-large") return new Response("字".repeat(32768), { headers: { "content-type": "text/markdown" } });
     if (scenario === "invalid-utf8") return new Response(new Uint8Array([0xc3, 0x28]), { headers: { "content-type": "application/octet-stream" } });
     return new Response(`${scenario === "updated" ? "UPDATED" : "RUNTIME"}_SOURCE search\\_assets RESULT\\_LIMIT matches:\\[\\]`, {
       headers: { "content-type": "text/markdown; charset=utf-8" },
@@ -86,16 +86,20 @@ test("Cloudflare native fetch reads external Markdown, caches for 60s and reject
     const accepted = await dispatch(180002); assert.equal(accepted.status, 200);
     assert.ok((await accepted.json()).content.startsWith(boundary));
     assert.equal(requests.length, 6);
-    scenario = "unicode-overflow";
+    scenario = "unicode-large";
+    const large = "字".repeat(32768);
+    assert.equal(Buffer.byteLength(large), 96 * 1024);
     for (const clock of [240002, 240003]) {
-      const response = await dispatch(clock); assert.equal(response.status, 503);
-      assert.equal((await response.json()).error.code, "PROMPT_UNAVAILABLE");
+      const response = await dispatch(clock); assert.equal(response.status, 200);
+      assert.ok((await response.json()).content.startsWith(large));
     }
-    assert.equal(requests.length, 8, "a 32,769-byte source is rejected on every read without caching");
+    assert.equal(requests.length, 7, "a valid 96KiB source loads and caches without the former file size cap");
     scenario = "invalid-utf8";
-    const malformed = await dispatch(240004); assert.equal(malformed.status, 503);
-    assert.equal((await malformed.json()).error.code, "PROMPT_UNAVAILABLE");
-    assert.equal(requests.length, 9, "a higher byte limit still rejects malformed UTF-8 in generic OSS downloads");
+    for (const clock of [300002, 300003]) {
+      const malformed = await dispatch(clock); assert.equal(malformed.status, 503);
+      assert.equal((await malformed.json()).error.code, "PROMPT_UNAVAILABLE");
+    }
+    assert.equal(requests.length, 9, "removing the file size cap still rejects malformed UTF-8 without caching or reusing expired success");
     assert.ok(requests.every(request => !/deepseek|chat\/completions/.test(request.url)), "loading a prompt never calls a paid model");
   } finally { await mf.dispose(); }
 });

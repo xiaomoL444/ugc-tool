@@ -262,24 +262,27 @@ async function checkResponsesConfig(browser) {
 }
 
 
+
 async function checkPromptDiagnostics(browser) {
   const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1366, height: 1000 } });
   const apiKey = 'fixture-prompt-key-only';
   await context.addInitScript(key => localStorage.setItem('ugc-tools.ai-search.model.v1', JSON.stringify({ baseUrl: 'https://api.openai.com/v1', model: 'gpt-6-luna', apiKey: key, rememberKey: true })), apiKey);
-  let promptCalls = 0, modelCalls = 0, oversized = true;
+  let promptCalls = 0, modelCalls = 0, invalidUTF8 = true, promptBytes = 32769;
   const errors = [];
+  const invalidPromptBytes = Buffer.from([0x23, 0x20, 0xc3, 0x28]);
   const promptWithBytes = size => {
     const prefix = '# Public prompt\n';
     let source = prefix + '雷'.repeat(Math.floor((size - Buffer.byteLength(prefix)) / 3));
     source += 'x'.repeat(size - Buffer.byteLength(source));
     assert.equal(Buffer.byteLength(source), size); return source;
   };
+  const answerFor = size => 'The ' + size + '-byte prompt loaded. What kind of sound do you need?';
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.pathname.includes('/api/ai-search/')) {
       const endpoint = url.pathname.split('/').at(-1);
       if (endpoint === 'config') return route.fulfill({ json: { configured: false, available: false, agent: { available: true }, retrieval: { available: true } } });
-      if (endpoint === 'catalog') return route.fulfill({ json: { catalogVersion: 'prompt-size-fixture', counts: { total: 1 }, coverage: { description: 1 }, mode: 'keyword' } });
+      if (endpoint === 'catalog') return route.fulfill({ json: { catalogVersion: 'prompt-content-fixture', counts: { total: 1 }, coverage: { description: 1 }, mode: 'keyword' } });
       throw new Error('The prompt test must not call site chat or asset tools: ' + endpoint);
     }
     if (url.hostname === 'api.openai.com') {
@@ -288,14 +291,15 @@ async function checkPromptDiagnostics(browser) {
       assert.equal(url.pathname, '/v1/chat/completions');
       assert.equal(route.request().headers().authorization, 'Bearer ' + apiKey);
       const payload = route.request().postDataJSON();
-      assert.ok(payload.messages.some(message => message.role === 'system' && message.content.includes(promptWithBytes(16783))), 'The accepted complete public prompt reaches the model');
-      return route.fulfill({ json: { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: 'The prompt loaded. What kind of sound do you need?', matches: [], clarification: true }) } }] } });
+      assert.ok(payload.messages.some(message => message.role === 'system' && message.content.includes(promptWithBytes(promptBytes))), 'The accepted complete public prompt reaches the model without clipping');
+      assert.ok(Buffer.byteLength(route.request().postData()) <= 60000, 'The separate complete request budget is retained');
+      return route.fulfill({ json: { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: answerFor(promptBytes), matches: [], clarification: true }) } }] } });
     }
     if (url.pathname.startsWith('/ugc-tool-data')) {
       if (url.pathname.endsWith('/AISearch/SystemPrompt.md')) {
         promptCalls++;
         assert.equal(route.request().headers().authorization, undefined, 'No model key is sent to the public prompt URL');
-        return route.fulfill({ headers: { 'content-type': oversized ? 'text/markdown' : '' }, body: promptWithBytes(oversized ? 32769 : 16783) });
+        return route.fulfill({ headers: { 'content-type': invalidUTF8 ? 'text/markdown' : '' }, body: invalidUTF8 ? invalidPromptBytes : promptWithBytes(promptBytes) });
       }
       return route.fulfill({ status: 404, body: '{}' });
     }
@@ -316,26 +320,32 @@ async function checkPromptDiagnostics(browser) {
     const errorReply = page.locator('.message-error').last();
     await errorReply.waitFor({ timeout: 8000 });
     const main = await errorReply.locator('.message-text>span').first().innerText();
-    assert.ok(main.includes('The prompt file exceeds the read limit.') && main.includes('HTTP 200') && main.includes('32769') && main.includes('32768'), main);
-    assert.equal(modelCalls, 0, 'An oversized prompt is rejected before any model call');
+    assert.ok(main.includes('The prompt file is not valid UTF-8 text.') && main.includes('HTTP 200') && main.includes('Read 4 bytes.'), main);
+    assert.ok(!main.includes('read limit'), 'Current file reads do not advertise a fixed byte limit');
+    assert.equal(modelCalls, 0, 'An invalid UTF-8 prompt is rejected before any model call');
     await errorReply.locator('[aria-label="View request diagnostics"]').hover();
     const popup = page.locator('.response-details-popup');
     await popup.waitFor({ state: 'visible' });
     const detail = await popup.locator('pre').innerText();
-    assert.ok(detail.includes('PROMPT_TOO_LARGE') && detail.includes('Response size (bytes): 32769') && detail.includes('Read limit (bytes): 32768') && detail.includes('Response content type: text/markdown'), detail);
+    assert.ok(detail.includes('INVALID_UTF8') && detail.includes('Response size (bytes): 4') && detail.includes('Response content type: text/markdown'), detail);
+    assert.ok(!detail.includes('Read limit (bytes)'), 'Current validation diagnostics omit the old file-size limit');
     assert.ok(detail.includes('before calling the model') && !detail.includes('Check API compatibility'));
     assert.ok(!detail.includes(apiKey));
-    await page.screenshot({ path: path.join(outputDirectory, 'ai-search-prompt-limit-en.png'), fullPage: true });
+    await page.screenshot({ path: path.join(outputDirectory, 'ai-search-prompt-invalid-utf8-en.png'), fullPage: true });
     await page.locator('#ai-chat-title').click(); await popup.waitFor({ state: 'hidden' });
-    oversized = false;
-    await page.locator('#asset-query').fill('Try the corrected public prompt.');
-    await page.locator('.send-button').click();
-    await page.waitForFunction(() => [...document.querySelectorAll('.message-assistant .message-text>span')].at(-1)?.textContent === 'The prompt loaded. What kind of sound do you need?');
-    assert.equal(modelCalls, 1, 'A valid 16783-byte UTF-8 prompt below the 32768-byte limit makes one explicit model call');
-    assert.equal(promptCalls, 2, 'A failed prompt is not cached as a valid source');
+    invalidUTF8 = false;
+    for (const size of [32769, 49152]) {
+      promptBytes = size;
+      if (size === 49152) await page.reload(); // A new page has a new public prompt cache.
+      await page.locator('#asset-query').fill('Try the valid ' + size + '-byte public prompt.');
+      await page.locator('.send-button').click();
+      await page.waitForFunction(expected => [...document.querySelectorAll('.message-assistant .message-text>span')].at(-1)?.textContent === expected, answerFor(size));
+    }
+    assert.equal(modelCalls, 2, 'Valid 32769-byte and 48KiB UTF-8 prompts each make one explicit model call');
+    assert.equal(promptCalls, 3, 'Invalid UTF-8 is not cached; reloading fetches the second valid prompt');
     assert.equal(await page.locator('.message-error').count(), 1);
     assert.deepEqual(errors, []);
-    console.log('Public prompt diagnostics: HTTP200 oversized 32769/32768 exact reason, no model call on failure, valid 16783-byte UTF-8 with no content type, prompt-specific hints, and one explicit mock model call passed.');
+    console.log('Public prompt diagnostics: HTTP200 invalid UTF-8 with 4 known bytes and no byte limit, no model call on validation failure, complete valid 32769-byte and 48KiB prompts reach mock models, and complete request budgets remain separate.');
   } finally { await context.close(); }
 }
 

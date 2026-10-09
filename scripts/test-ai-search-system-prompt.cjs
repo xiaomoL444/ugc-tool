@@ -68,25 +68,25 @@ const unavailable = error => error.code === 'PROMPT_UNAVAILABLE';
   const onlineSizedFetch = async () => new Response(new TextEncoder().encode(onlineSizedSource), { headers: { 'Content-Length': '16783' } });
   assert.equal(await loadSystemPrompt(signal, onlineSizedFetch, 'https://fixture.invalid/online-size'), onlineSizedSource,
     'The 16,783-byte source that failed at the former 16 KiB limit is accepted with missing OSS MIME');
-  for (const boundary of ['a'.repeat(32768), '中'.repeat(10922) + 'aa']) {
-    assert.equal(new TextEncoder().encode(boundary).byteLength, 32768);
-    assert.equal(await loadSystemPrompt(signal, async () => promptResponse(boundary), 'https://fixture.invalid/boundary'), boundary,
-      'The limit counts UTF-8 bytes and permits exactly 32 KiB');
+  for (const largeSource of ['a'.repeat(32769), '中'.repeat(33000), '\uFEFF# Prompt\r\n' + 'a'.repeat(98304)]) {
     for (const declaredLength of [false, true]) {
-      const fetcher = async () => new Response(boundary + 'a', { headers: {
-        'Content-Type': 'text/markdown', ...(declaredLength ? { 'Content-Length': '32769' } : {}),
-      } });
-      await assert.rejects(() => loadSystemPrompt(signal, fetcher, 'https://fixture.invalid/oversized-boundary'), error => {
-        assert.equal(error.code, 'PROMPT_UNAVAILABLE');
-        assert.equal(error.requestDiagnostic.stage, 'prompt');
-        assert.equal(error.requestDiagnostic.kind, 'response');
-        assert.equal(error.requestDiagnostic.status, 200);
-        assert.equal(error.requestDiagnostic.validationCode, 'PROMPT_TOO_LARGE');
-        assert.equal(error.requestDiagnostic.responseBytes, 32769);
-        assert.equal(error.requestDiagnostic.responseByteLimit, 32768);
-        assert.equal(error.rawResponse, undefined, 'Diagnostics do not store the prompt body');
-        return true;
-      }, 'Both declared lengths and actual streamed bytes retain a precise size diagnostic');
+      const bytes = new TextEncoder().encode(largeSource);
+      let largeReads = 0, cancellations = 0;
+      const fetcher = async () => {
+        largeReads++;
+        return new Response(new ReadableStream({ start(controller) {
+          controller.enqueue(bytes.subarray(0, 32768));
+          controller.enqueue(bytes.subarray(32768));
+          controller.close();
+        }, cancel() { cancellations++; } }), { headers: {
+          'Content-Type': 'text/markdown', ...(declaredLength ? { 'Content-Length': String(bytes.length) } : {}),
+        } });
+      };
+      const loaded = await loadSystemPrompt(signal, fetcher, 'https://fixture.invalid/large-source');
+      assert.equal(loaded, largeSource.trim(), 'Valid Markdown above the former size limit is read completely');
+      assert.equal(await loadSystemPrompt(signal, fetcher, 'https://fixture.invalid/large-source'), loaded);
+      assert.equal(largeReads, 1, 'Large successful files use the same cache');
+      assert.equal(cancellations, 0, 'Crossing the former file limit does not cancel the stream');
     }
   }
   for (const [code, makeResponse] of [
@@ -102,6 +102,7 @@ const unavailable = error => error.code === 'PROMPT_UNAVAILABLE';
       assert.equal(error.code, 'PROMPT_UNAVAILABLE');
       assert.equal(error.requestDiagnostic.validationCode, code);
       assert.equal(error.requestDiagnostic.kind, 'response', 'A content validation failure is not a network failure');
+      assert.equal(error.requestDiagnostic.responseByteLimit, undefined, 'No fixed file read limit is advertised');
       return true;
     });
   }
@@ -121,7 +122,6 @@ const unavailable = error => error.code === 'PROMPT_UNAVAILABLE';
       ['empty', new TextEncoder().encode(' \n ')],
       ['HTML', new TextEncoder().encode('<!doctype html><html>Gateway error</html>')],
       ['control bytes', new Uint8Array([65, 0, 66])],
-      ['oversized', new TextEncoder().encode('中'.repeat(11000))],
       ['invalid UTF-8', new Uint8Array([0xc3, 0x28])],
     ]) {
       const invalidFetch = async () => new Response(bytes, { headers });
@@ -176,7 +176,7 @@ const unavailable = error => error.code === 'PROMPT_UNAVAILABLE';
     ['HTML type', () => new Response('Apparently a prompt', { headers: { 'Content-Type': 'text/html' } })],
     ['nontext type', () => new Response('{}', { headers: { 'Content-Type': 'application/json' } })],
     ['redirected', () => { const response = promptResponse(); Object.defineProperty(response, 'redirected', { value: true }); return response; }],
-    ['oversized', () => promptResponse('中'.repeat(11000))],
+    ['large HTML body', () => promptResponse('<html>' + '中'.repeat(33000) + '</html>')],
     ['invalid UTF-8', () => promptResponse(new Uint8Array([0xc3, 0x28]))],
   ];
   for (const [label, response] of failures) for (const workflow of ['agent', 'candidates']) {

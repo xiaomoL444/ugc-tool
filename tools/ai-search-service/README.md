@@ -30,7 +30,7 @@ SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPro
 
 源码不保留旧的检索提示词作为回退。程序只追加当前运行协议：工具调用次数、候选模式、结果上限及 `answer/matches` JSON 格式。文件中的 `RESULT_LIMIT` 会替换为本轮所选的 1 至 50；兼容 Markdown 编辑器对下划线和方括号的转义，如 `search\_assets`、`RESULT\_LIMIT`。
 
-成功读取缓存 60 秒，每轮工具调用使用同一份正文。缓存到期后请求采用 `no-store` 和 `_t` 时间参数刷新，失败与取消不写缓存。文件要求 HTTPS、有效 UTF-8、非空且原始正文不超过 32 KiB（32,768 字节），响应类型为 `text/markdown`、`text/x-markdown` 或 `text/plain`；OSS 缺失类型或返回 `application/octet-stream` 时仍按正文校验。读取正文在内的超时为 5 秒，重定向不跟随。`PROMPT_UNAVAILABLE` 表示无法读取合法文件，返回 HTTP 503；不再继续调用模型，也不消耗该次免费额度或预留月预算。网页读取失败的诊断会区分文件过大、编码、空正文、HTML、类型及重定向，并显示已知的正文大小和上限；HTTP 200 仅表示请求成功，不表示内容通过校验。文件读取上限与包含上下文、工具的整体模型消息预算独立，后者保持现有配置。
+成功读取缓存 60 秒，每轮工具调用使用同一份正文。缓存到期后请求采用 `no-store` 和 `_t` 时间参数刷新，失败与取消不写缓存。网页与 Worker 均不设提示词文件的固定大小上限；文件要求 HTTPS、有效 UTF-8、非空，响应类型为 `text/markdown`、`text/x-markdown` 或 `text/plain`；OSS 缺失类型或返回 `application/octet-stream` 时仍按正文校验。读取正文在内的超时为 5 秒，重定向不跟随。`PROMPT_UNAVAILABLE` 表示无法读取合法文件，返回 HTTP 503；不再继续调用模型，也不消耗该次免费额度或预留月预算。网页读取失败的诊断会区分编码、空正文、HTML、类型及重定向，并显示已知的正文大小；HTTP 200 仅表示请求成功，不表示内容通过校验。包含系统提示词、上下文、工具的整体模型消息预算保持现有配置；超过该预算时在发送模型请求前返回 `PROMPT_TOO_LARGE`，并提示精简系统提示词或对话上下文。
 
 首次接入需要部署本目录 Worker，并更新前端。接入完成后，只需将修改后的 Markdown 上传到相同 OSS 路径，后续请求在缓存到期后读取新内容，无需为提示词修改重新构建或部署。该文件是公开内容，不放密钥或私有资料。
 
@@ -42,7 +42,7 @@ SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPro
 
 区分对象、行为、阶段、听感和感受；多阶段效果可分别寻找动作接触、状态完成和界面反馈。环境地点与情绪氛围也分别考虑。单次触发、随操作重复、阶段持续和长期背景是使用方式，不证明素材能无缝循环。实验中的升级、尖刺与结算查询只作为历史示例回归；通用玩法理解需按跨行为、词库外需求的模型评估规格检查，不能据这几个例子宣称通用能力已经验证。
 
-依据已有音轨描述补充游戏用途的独立模板位于 [`ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt`](../../../ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt)。它只生成带听感证据、适配理由和条件的新增用途，不重做原音频分析，不改原描述、声学关键词、冻结模板或已有用途；新增用途也不能反过来证明实际声音属性。第一阶段的隔离样本与离线验证不等于已经批量补标、上传 OSS 或部署。`node --test tools/ai-search-service/system-prompt.test.mjs` 会验证真实本地正文可加载并符合 32 KiB 文件限制和 30 KB agent 消息预算；这类协议检查不能证明模型实际选音质量。
+依据已有音轨描述补充游戏用途的独立模板位于 [`ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt`](../../../ugc-ai-search-file/experiments/game-audio-search-20261010/game-uses-prompt.txt)。它只生成带听感证据、适配理由和条件的新增用途，不重做原音频分析，不改原描述、声学关键词、冻结模板或已有用途；新增用途也不能反过来证明实际声音属性。第一阶段的隔离样本与离线验证不等于已经批量补标、上传 OSS 或部署。`node --test tools/ai-search-service/system-prompt.test.mjs` 会验证真实本地正文可加载、较大的合法文件不被固定文件门槛拦截，且原消息预算检查仍有效；这类协议检查不能证明模型实际选音质量。
 
 ## DeepSeek 免费模型
 

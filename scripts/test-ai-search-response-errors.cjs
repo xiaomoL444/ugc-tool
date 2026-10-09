@@ -109,6 +109,7 @@ async function waitUntil(condition) {
     await assert.rejects(() => invoke(async () => Response.json({ error: { code: 'UPSTREAM_RESPONSE_INVALID', message: 'not the model body' } }, { status: 502 })), expectRaw('UPSTREAM_RESPONSE_INVALID', undefined));
     await assert.rejects(() => invoke(async () => Response.json({ error: { code: 'PROVIDER_BALANCE_LOW', rawResponse: failingBody, reason: 'NETWORK' } }, { status: 503 })), expectRaw('PROVIDER_BALANCE_LOW', undefined));
   }
+  // Historical file-size diagnostics remain readable in old archives; current reads have no fixed byte cap.
   const promptDiagnostic = { stage: 'prompt', kind: 'response', status: 200, endpoint: 'https://oss.fixture.invalid/AISearch/SystemPrompt.md', validationCode: 'PROMPT_TOO_LARGE', responseBytes: 32769, responseByteLimit: 32768, contentType: 'text/markdown' };
   const messages = [
     { id: 'bad-model', role: 'assistant', content: 'localized format error', cards: [], status: 'error', mode: 'custom', rawResponse: failingBody },
@@ -157,6 +158,10 @@ async function waitUntil(condition) {
   app.mount({ children: [] });
   try {
     await waitUntil(() => !state.loadingCatalog.value && !state.loadingArchive.value);
+    for (const code of ['PROMPT_TOO_LARGE', 'PAYLOAD_TOO_LARGE']) {
+      const budgetError = state.explainError(new AISearchError(code));
+      assert.ok(budgetError.includes('complete model request exceeds the current budget') && !budgetError.includes('network'), budgetError);
+    }
     const localizedPromptError = state.explainError(new AISearchError('PROMPT_UNAVAILABLE', undefined, undefined, promptDiagnostic));
     assert.ok(localizedPromptError.includes('The prompt file exceeds the read limit.') && localizedPromptError.includes('32769') && localizedPromptError.includes('32768'), localizedPromptError);
     const promptDetail = state.requestDiagnosticText(promptDiagnostic);

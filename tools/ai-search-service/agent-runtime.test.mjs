@@ -37,6 +37,7 @@ test("more-results reasoning is passed to model and its rewritten query reaches 
       assert.equal(sent.tool_choice, "auto"); assert.ok(sent.messages.at(-1).content.includes('"previousIds":["effect:100"]'));
       assert.equal(Object.hasOwn(sent, "response_format"), false);
       assert.equal(Object.hasOwn(sent, "thinking"), false, "Generic providers receive no unsolicited thinking option");
+      assert.equal(Object.hasOwn(sent, "parallel_tool_calls"), false, "Generic providers receive no unsolicited parallel-tool option");
       return response([call("search-1", "search_assets", { query: "爆炸", scope: "effect", excludeIds: ["effect:100"] })]);
     }
     assert.equal(sent.messages.at(-1).role, "tool"); assert.match(sent.messages.at(-1).content, /effect:101/);
@@ -46,6 +47,61 @@ test("more-results reasoning is passed to model and its rewritten query reaches 
   assert.equal(searched.query, "爆炸"); assert.equal(searched.scope, "effect"); assert.deepEqual(searched.excludeIds, ["effect:100"]);
   assert.equal(searched.limit, 10); assert.equal(result.rounds, 2); assert.equal(result.usage.prompt_tokens, 200);
   assert.equal(result.retrievalMode, "keyword");
+});
+
+test("DashScope enables native parallel searches and disables them for the forced final without bypassing evidence or tool limits", async t => {
+  for (const host of ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com", "cn-beijing.maas.aliyuncs.com"]) {
+    await t.test(host, async () => {
+      const req = { ...request("sound"), query: "装置到位需要一次短确认声", matchOn: "audio", messages: [], previousIds: [], resultLimit: 5 };
+      const cfg = { ...config(), upstream: `https://${host}/compatible-mode/v1/chat/completions` };
+      const sound = { resourceId: "sound:123", kind: "sound", title: "电子短声", description: "短促清脆电子音。",
+        keywords: ["短促", "清脆", "电子音"], suggestedUses: [] };
+      const effect = { resourceId: "effect:124", kind: "effect", title: "装置光点", description: "短促金属撞击。",
+        audioDescription: "短促金属撞击，快速衰减。", audioKeywords: ["短促", "金属感"], hasAudio: true, audioMatch: true };
+      let rounds = 0, searches = 0, details = 0;
+      const flags = [];
+      const completed = await runAssetAgent(req, buildAgentPrompt(req, cfg), cfg, { UPSTREAM_API_KEY: "mock-key" }, {
+        search: async args => {
+          searches++;
+          assert.equal(args.scope, "sound"); assert.equal(args.matchOn, "audio");
+          return { items: args.searchType === "both" ? [sound] : [effect], mode: "keyword", total: 1 };
+        },
+        assets: async args => {
+          details++;
+          assert.deepEqual(args.ids, [sound.resourceId, effect.resourceId]);
+          assert(args.ids.length <= 5);
+          return { items: [sound, { ...effect, description: "VISUAL_ONLY_白色光点扩散", visualDescription: "VISUAL_ONLY_白色光点扩散",
+            audioDescription: "短促金属撞击，快速衰减。", audioKeywords: ["短促", "金属感"] }], missingIds: [] };
+        },
+      }, validateModelResult, async (_url, input) => {
+        const sent = JSON.parse(input.body); rounds++;
+        flags.push(sent.parallel_tool_calls);
+        if (rounds === 1) return response([
+          call("dashscope-use-search", "search_assets", { query: "装置 到位", searchType: "both" }),
+          call("dashscope-audio-search", "search_assets", { query: "短促 清脆", searchType: "feature" }),
+        ]);
+        const values = sent.messages.filter(message => message.role === "tool").map(message => JSON.parse(message.content));
+        assert.deepEqual(values.slice(0, 2).flatMap(value => value.items.map(item => item.resourceId)), [sound.resourceId, effect.resourceId]);
+        assert.equal(values[1].items[0].audioMatch, true);
+        if (rounds === 2) return response([call("dashscope-details", "get_assets", { ids: [sound.resourceId, effect.resourceId] })]);
+        assert.equal(sent.tool_choice, "none");
+        const evidence = values[2].items.find(item => item.resourceId === effect.resourceId);
+        assert.equal(evidence.audioMatch, true);
+        assert.match(evidence.audioDescription, /金属撞击/);
+        assert.doesNotMatch(evidence.audioDescription, /VISUAL_ONLY/);
+        assert.match(evidence.visualDescription, /VISUAL_ONLY/);
+        return response(null, { answer: "两条真实声音可以用于场景试听。", matches: [
+          { resourceId: sound.resourceId, reason: "用途建议：短电子音可考虑用于轻量确认。", matchType: "suggestion" },
+          { resourceId: effect.resourceId, reason: "用途建议：短金属撞击可考虑用于装置到位。", matchType: "suggestion" },
+        ] });
+      });
+      assert.deepEqual(flags, [true, true, false]);
+      assert.equal(rounds, 3); assert.equal(searches, 2); assert.equal(details, 1);
+      assert.equal(completed.steps.length, 3, "Native parallel calls remain inside the four-call turn budget");
+      assert.deepEqual([...completed.records.keys()], [sound.resourceId, effect.resourceId]);
+      assert.deepEqual(completed.result.matches.map(match => match.resourceId), [sound.resourceId, effect.resourceId]);
+    });
+  }
 });
 
 test("explicit user type and locale cannot be widened by model tool arguments", async () => {

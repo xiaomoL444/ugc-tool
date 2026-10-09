@@ -320,6 +320,7 @@ export function useAISearch() {
       const reason = error instanceof AISearchError ? error.reason : undefined;
       return reason ? t(`aiSearch.errors.providerBalanceReason.${reason}`, { threshold: freeMinBalanceCny.value }) : t("aiSearch.errors.providerBalanceUnavailable");
     }
+    if (code === "PROMPT_TOO_LARGE" || code === "PAYLOAD_TOO_LARGE") return t("aiSearch.errors.promptBudgetExceeded");
     if (code === "PROMPT_UNAVAILABLE" || code === "SYSTEM_PROMPT_UNAVAILABLE") return t("aiSearch.errors.promptUnavailable");
     if (code === "CONFIG") return t("aiSearch.errors.config");
     if (code === "AUTH") return t("aiSearch.errors.auth");

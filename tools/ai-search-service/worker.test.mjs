@@ -113,7 +113,6 @@ test("prompt read failure returns a safe specific error before model, quota or b
         () => new Response("not found private-source-detail", { status: 404, headers: { "content-type": "text/plain" } }),
         () => new Response("<html>private-source-detail</html>", { headers: { "content-type": "text/html" } }),
         () => new Response("  ", { headers: { "content-type": "text/markdown" } }),
-        () => new Response("x".repeat(32769), { headers: { "content-type": "text/markdown" } }),
       ]) {
         const { service, storage } = ledger(); let reads = 0, models = 0;
         globalThis.fetch = async (_url, options) => {
@@ -127,6 +126,32 @@ test("prompt read failure returns a safe specific error before model, quota or b
         assert.equal((await service.fetch(req(makeBody()))).status, 503);
         assert.equal(reads, 2, "failed reads do not get cached"); assert.equal(models, 0);
       }
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("large prompt files load and cache but the overall request budget rejects both workflows before model or billing", async () => {
+  const originalFetch = globalThis.fetch;
+  const source = "字".repeat(32768);
+  assert.equal(Buffer.byteLength(source), 96 * 1024);
+  try {
+    for (const makeBody of [body, agentBody]) {
+      const { service, storage } = ledger(); let reads = 0, models = 0;
+      globalThis.fetch = async (_url, options) => {
+        if (options.method === "GET") {
+          reads += 1;
+          return new Response(source, { headers: { "content-type": "text/markdown" } });
+        }
+        models += 1; return upstreamResponse();
+      };
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const response = await service.fetch(req(makeBody())); const data = await response.json();
+        assert.equal(response.status, 413);
+        assert.equal(data.error.code, "PROMPT_TOO_LARGE");
+        assert.equal(models, 0, "the model is not called when the full request exceeds its configured budget");
+        assert.equal(storage.values.size, 0, "no quota, concurrency or billing reservation is allocated");
+      }
+      assert.equal(reads, 1, "the large file is readable and cached even when the later model budget check rejects it");
     }
   } finally { globalThis.fetch = originalFetch; }
 });

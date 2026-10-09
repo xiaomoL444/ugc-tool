@@ -253,8 +253,9 @@
   "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "提示词文件含有不允许的控制字符。",
   "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "提示词地址返回了重定向，无法直接读取文件。",
   "aiSearch.errors.promptValidation.MISSING_BODY": "提示词响应没有可读取的正文。",
-  "aiSearch.requestDiagnostics.hints.promptValidation": "此错误发生在读取公共提示词文件时，模型尚未调用。请检查文件内容、编码、内容类型和显示的读取上限。",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "此错误发生在读取公共提示词文件时，模型尚未调用。请检查文件内容、编码和响应内容类型。",
   "aiSearch.requestDiagnostics.hints.promptResponse": "请检查公共提示词文件的地址、访问权限、正文内容和服务器响应。本次失败发生在模型调用前。",
   "aiSearch.errors.promptSize": "响应 {bytes} 字节，读取上限 {limit} 字节。",
-  "aiSearch.errors.promptBytes": "已读取 {bytes} 字节。"
+  "aiSearch.errors.promptBytes": "已读取 {bytes} 字节。",
+  "aiSearch.errors.promptBudgetExceeded": "完整模型请求超过当前预算，请精简系统提示词或对话上下文。"
 }

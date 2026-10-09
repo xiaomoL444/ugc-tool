@@ -253,20 +253,37 @@ async function runModelFailure(mode, route, signal = new AbortController().signa
     source += 'x'.repeat(size - Buffer.byteLength(source));
     assert.equal(Buffer.byteLength(source), size); return source;
   };
-  let acceptedPromptCalls = 0;
-  const acceptedPrompt = await requestSearch(legacyPayload, [resource], { mode: 'custom', config, freeBase, signal: controller.signal,
-    fetcher: async url => { if (isPrompt(url)) return new Response(new TextEncoder().encode(promptWithBytes(16783)));
-      acceptedPromptCalls++; return modelResponse(finalResult); } });
-  assert.equal(acceptedPrompt.answer, finalResult.answer); assert.equal(acceptedPromptCalls, 1, 'A 16783-byte UTF-8 prompt below 32768 bytes reaches the model once');
-  let oversizedModelCalls = 0;
-  const oversizedPrompt = await captured(() => requestAgentSearch(agentPayload, { mode: 'custom', config, freeBase, signal: controller.signal,
-    fetcher: async url => { if (isPrompt(url)) return new Response(promptWithBytes(32769), { headers: { 'content-type': 'text/markdown' } });
-      oversizedModelCalls++; throw new Error('An oversized prompt must not call the model'); } }));
-  const oversizedDiagnostic = assertDiagnostic(oversizedPrompt, 'prompt', 'response', 200);
-  assert.equal(oversizedDiagnostic.validationCode, 'PROMPT_TOO_LARGE'); assert.equal(oversizedDiagnostic.responseBytes, 32769);
-  assert.equal(oversizedDiagnostic.responseByteLimit, 32768); assert.equal(oversizedDiagnostic.contentType, 'text/markdown');
-  assert.equal(oversizedModelCalls, 0);
-
+  for (const size of [16783, 32769, 49152]) {
+    let modelCalls = 0;
+    const source = promptWithBytes(size);
+    const fetcher = async (url, input) => {
+      if (isPrompt(url)) return new Response(new TextEncoder().encode(source));
+      modelCalls++;
+      const request = JSON.parse(input.body);
+      assert.ok(request.messages.some(message => message.role === 'system' && message.content.includes(source)), 'The complete prompt reaches the model without file-size clipping');
+      assert.ok(Buffer.byteLength(input.body) <= 60000, 'The complete agent request stays within its separate budget');
+      return modelResponse({ answer: 'Prompt loaded', matches: [], clarification: true });
+    };
+    const result = await requestAgentSearch(agentPayload, { mode: 'custom', config, freeBase, signal: controller.signal, fetcher });
+    assert.equal(result.answer, 'Prompt loaded');
+    assert.equal(modelCalls, 1, 'A valid ' + size + '-byte UTF-8 prompt makes one model call');
+  }
+  let invalidUTF8ModelCalls = 0;
+  const invalidPromptBytes = new Uint8Array([0x23, 0x20, 0xc3, 0x28]);
+  const invalidPrompt = await captured(() => requestAgentSearch(agentPayload, { mode: 'custom', config, freeBase, signal: controller.signal,
+    fetcher: async url => { if (isPrompt(url)) return new Response(invalidPromptBytes, { headers: { 'content-type': 'text/markdown' } });
+      invalidUTF8ModelCalls++; throw new Error('An invalid UTF-8 prompt must not call the model'); } }));
+  const invalidDiagnostic = assertDiagnostic(invalidPrompt, 'prompt', 'response', 200);
+  assert.equal(invalidDiagnostic.validationCode, 'INVALID_UTF8'); assert.equal(invalidDiagnostic.responseBytes, 4);
+  assert.equal(invalidDiagnostic.responseByteLimit, undefined); assert.equal(invalidDiagnostic.contentType, 'text/markdown');
+  assert.equal(invalidUTF8ModelCalls, 0);
+  let overBudgetModelCalls = 0;
+  const overBudget = await captured(() => requestAgentSearch(agentPayload, { mode: 'custom', config, freeBase, signal: controller.signal,
+    fetcher: async url => { if (isPrompt(url)) return new Response(promptWithBytes(60001), { headers: { 'content-type': 'text/markdown' } });
+      overBudgetModelCalls++; throw new Error('A complete request exceeding its budget must not call the model'); } }));
+  assert.equal(overBudget.code, 'PAYLOAD_TOO_LARGE', 'The separate complete request budget still applies');
+  assert.equal(overBudget.requestDiagnostic?.validationCode, undefined, 'Complete request budgets are distinct from file validation');
+  assert.equal(overBudgetModelCalls, 0);
   const freeFailure = await captured(() => requestAgentSearch(agentPayload, { mode: 'free', config, freeBase, signal: controller.signal,
     fetcher: async url => { assert.equal(url, `${freeBase}/chat`); return jsonResponse({ error: { code: 'FREE_SERVICE_BUSY', message: 'Busy' } }, { status: 429 }); } }));
   assertDiagnostic(freeFailure, 'site', 'http', 429); assert.equal(freeFailure.code, 'FREE_SERVICE_BUSY');

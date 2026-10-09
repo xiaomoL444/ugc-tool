@@ -253,8 +253,9 @@
   "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "Файл промпта содержит недопустимые управляющие символы.",
   "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "Адрес промпта вернул перенаправление, поэтому файл нельзя прочитать напрямую.",
   "aiSearch.errors.promptValidation.MISSING_BODY": "В ответе с промптом нет доступного для чтения тела.",
-  "aiSearch.requestDiagnostics.hints.promptValidation": "Ошибка возникла при чтении публичного файла промпта до вызова модели. Проверьте содержимое, кодировку, тип содержимого и указанный лимит чтения.",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "Ошибка возникла при чтении публичного файла промпта до вызова модели. Проверьте содержимое, кодировку и тип содержимого ответа.",
   "aiSearch.requestDiagnostics.hints.promptResponse": "Проверьте адрес публичного файла промпта, права доступа, тело и ответ сервера. Ошибка возникла до вызова модели.",
   "aiSearch.errors.promptSize": "Ответ: {bytes} байт; лимит чтения: {limit} байт.",
-  "aiSearch.errors.promptBytes": "Прочитано {bytes} байт."
+  "aiSearch.errors.promptBytes": "Прочитано {bytes} байт.",
+  "aiSearch.errors.promptBudgetExceeded": "Полный запрос к модели превышает текущий лимит. Сократите системный промпт или контекст разговора."
 }

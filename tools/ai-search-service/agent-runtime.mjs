@@ -141,9 +141,13 @@ async function modelRound(messages, tools, config, env, fetcher, forcedFinal, re
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.min(config.timeoutMs, remainingMs));
   try {
-    const deepSeekApi = new URL(config.upstream).hostname === "api.deepseek.com";
+    const upstreamHost = new URL(config.upstream).hostname;
+    const deepSeekApi = upstreamHost === "api.deepseek.com";
+    const dashScopeApi = ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"].includes(upstreamHost)
+      || upstreamHost.endsWith(".maas.aliyuncs.com");
     const payload = { model: config.model, messages, max_tokens: config.maxOutputTokens, stream: false, tools,
       tool_choice: forcedFinal ? "none" : "auto",
+      ...(dashScopeApi ? { parallel_tool_calls: !forcedFinal } : {}),
       ...(forcedFinal ? { response_format: { type: "json_object" } } : {}),
       // DeepSeek thinking needs reasoning transcripts. Search uses its supported non-thinking tool path.
       ...(config.thinking === undefined && !deepSeekApi ? {} : { thinking: { type: "disabled" } }) };

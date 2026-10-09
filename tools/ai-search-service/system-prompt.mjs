@@ -1,6 +1,5 @@
 /* The site's editable Markdown is the only source of search instructions. */
 export const SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPrompt.md";
-const MAX_BYTES = 32768;
 const CACHE_MS = 60000;
 export class SystemPromptError extends Error {
   constructor() {
@@ -17,7 +16,7 @@ function sourceUrl(value) {
   } catch { throw new SystemPromptError(); }
 }
 function validText(value) {
-  if (typeof value !== "string" || !value.trim() || new TextEncoder().encode(value).byteLength > MAX_BYTES
+  if (typeof value !== "string" || !value.trim()
     || /^\s*<(?:!doctype\s+html\b|html\b|head\b|body\b)/i.test(value)
     || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value)) throw new SystemPromptError();
   return value.trim();
@@ -41,7 +40,6 @@ async function readBody(response, signal) {
     while (true) {
       const part = await reader.read(); if (part.done) break;
       size += part.value.byteLength;
-      if (size > MAX_BYTES) { await reader.cancel(); throw new SystemPromptError(); }
       chunks.push(part.value);
     }
   } finally { signal.removeEventListener("abort", cancel); reader.releaseLock(); }
@@ -65,7 +63,7 @@ async function query(url, fetcher, timeoutMs, signal, timestamp) {
       headers: { accept: "text/markdown, text/plain" }, signal: controller.signal });
     const type = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
     // OSS may omit Markdown's MIME metadata or serve it as a generic download.
-    // Those responses still pass the bounded UTF-8 and HTML/body checks below.
+    // Those responses still pass the UTF-8 and HTML/body checks below.
     if (!response.ok || response.redirected || !["", "text/plain", "text/markdown", "text/x-markdown", "application/octet-stream"].includes(type)) throw new SystemPromptError();
     const source = await readBody(response, controller.signal);
     if (controller.signal.aborted) throw new SystemPromptError();

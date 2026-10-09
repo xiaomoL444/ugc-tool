@@ -253,8 +253,9 @@
   "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "プロンプトファイルに許可されていない制御文字が含まれています。",
   "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "プロンプトの URL からリダイレクトが返され、ファイルを直接読み取れませんでした。",
   "aiSearch.errors.promptValidation.MISSING_BODY": "プロンプトの応答に読み取り可能な本文がありません。",
-  "aiSearch.requestDiagnostics.hints.promptValidation": "公開プロンプトファイルの読み取り中に失敗し、モデルはまだ呼び出していません。内容、文字コード、コンテンツタイプ、表示された読み取り上限を確認してください。",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "公開プロンプトファイルの読み取り中に失敗し、モデルはまだ呼び出していません。内容、文字コード、応答のコンテンツタイプを確認してください。",
   "aiSearch.requestDiagnostics.hints.promptResponse": "公開プロンプトファイルの URL、アクセス権限、本文、サーバーの応答を確認してください。モデルを呼び出す前に失敗しています。",
   "aiSearch.errors.promptSize": "応答: {bytes} バイト、読み取り上限: {limit} バイト。",
-  "aiSearch.errors.promptBytes": "{bytes} バイトを読み取りました。"
+  "aiSearch.errors.promptBytes": "{bytes} バイトを読み取りました。",
+  "aiSearch.errors.promptBudgetExceeded": "モデルへのリクエスト全体が現在の上限を超えています。システムプロンプトや会話の文脈を短くしてください。"
 }

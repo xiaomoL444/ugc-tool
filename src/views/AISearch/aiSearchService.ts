@@ -144,9 +144,12 @@ export function chatCompletionsUrl(base: string): string {
 export function completionTokenOptions(url: string, limit: number): Record<string, number> {
   return new URL(url).hostname === "api.openai.com" ? { max_completion_tokens: searchOutputTokens(limit) } : { max_tokens: searchOutputTokens(limit) };
 }
-/** GPT-6 Luna's official Chat Completions API requires this mode for function calls. */
-export function chatToolCompatibilityOptions(url: string, model: string): { reasoning_effort?: "none" } {
-  return new URL(url).hostname === "api.openai.com" && model.trim() === "gpt-6-luna" ? { reasoning_effort: "none" } : {};
+/** Apply documented tool-call options only to known provider hosts. */
+export function chatToolCompatibilityOptions(url: string, model: string, toolsAllowed = true): { reasoning_effort?: "none"; parallel_tool_calls?: boolean } {
+  const hostname = new URL(url).hostname;
+  // DashScope disables multiple tool calls per response unless explicitly enabled.
+  if (["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"].includes(hostname) || hostname.endsWith(".maas.aliyuncs.com")) return { parallel_tool_calls: toolsAllowed };
+  return hostname === "api.openai.com" && model.trim() === "gpt-6-luna" ? { reasoning_effort: "none" } : {};
 }
 export function modelConnection(config: ModelConfig): { protocol: "openai" | "anthropic"; url: string } {
   try {

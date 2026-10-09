@@ -6,7 +6,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
 const { buildAgentSearchPayload, requestAgentSearch: requestAgentSearchActual } = require('../src/views/AISearch/agentSearchService.ts');
-const { buildSearchPayload } = require('../src/views/AISearch/aiSearchService.ts');
+const { buildSearchPayload, chatToolCompatibilityOptions } = require('../src/views/AISearch/aiSearchService.ts');
 const promptFixture = '# External prompt fixture\nCURRENT query must define the requested asset. Return at most RESULT\\_LIMIT resources.\n';
 async function requestAgentSearch(payload, options) {
   const fetcher = options.fetcher;
@@ -320,5 +320,38 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   const legacyPayload = buildSearchPayload('适合升级的尖锐音效', 'zh-CN', 'sound', [], [gameFound.resources[0]], 'legacy-game-upgrade');
   assert.equal(legacyPayload.candidates[0].suggestedUses[0], gameUse, 'Candidate-only AI also receives the relevant game use');
   assert.ok(legacyPayload.candidates[0].description.includes(gameSound.description));
+  for (const host of ['dashscope.aliyuncs.com', 'dashscope-intl.aliyuncs.com', 'workspace.cn-beijing.maas.aliyuncs.com']) {
+    assert.deepEqual(chatToolCompatibilityOptions(`https://${host}/compatible-mode/v1/chat/completions`, 'qwen-flash'), { parallel_tool_calls: true });
+    assert.deepEqual(chatToolCompatibilityOptions(`https://${host}/compatible-mode/v1/chat/completions`, 'qwen-flash', false), { parallel_tool_calls: false });
+  }
+  for (const host of ['api.deepseek.com', 'proxy.example', 'dashscope.aliyuncs.com.example', 'maas.aliyuncs.com.example']) {
+    assert.deepEqual(chatToolCompatibilityOptions(`https://${host}/v1/chat/completions`, 'qwen-flash'), {}, 'Unknown providers do not inherit DashScope options');
+  }
+  assert.deepEqual(chatToolCompatibilityOptions('https://api.openai.com/v1/chat/completions', 'gpt-6-luna', false), { reasoning_effort: 'none' });
+  let dashScopeRounds = 0;
+  const dashScopeFound = await requestAgentSearch(buildAgentSearchPayload('机关锁定的声音', 'zh-CN', 'sound', [], true, 'dashscope-dual-search', 10, 'audio'), {
+    ...options, config: { ...config, baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-flash' },
+    fetcher: async (url, input) => {
+      const body = JSON.parse(input.body);
+      if (url.endsWith('/chat/completions')) {
+        dashScopeRounds++;
+        assert.equal(body.parallel_tool_calls, dashScopeRounds < 3);
+        if (dashScopeRounds === 1) return new Response(JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [
+          { id: 'usage-route', type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query: '机关锁定', searchType: 'both' }) } },
+          { id: 'acoustic-route', type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query: '短促 咔哒', searchType: 'feature' }) } },
+        ] } }] }));
+        if (dashScopeRounds === 2) {
+          assert.equal(body.messages.filter(message => message.role === 'tool').length, 2, 'Both independent results reach the next model round');
+          return toolCall('get_assets', { ids: [gameSound.resourceId] }, 'dashscope-detail');
+        }
+        assert.equal(body.tool_choice, 'none');
+        assert.equal(body.messages.filter(message => message.role === 'tool').length, 3);
+        return finalValue({ answer: '候选待场景试听。', matches: [{ resourceId: gameSound.resourceId, reason: '用途建议：短音可考虑用于瞬间确认。', matchType: 'suggestion' }] });
+      }
+      return url.endsWith('/search') ? result([gameSound]) : details([gameSound]);
+    },
+  });
+  assert.equal(dashScopeRounds, 3);
+  assert.equal(dashScopeFound.matches[0].resourceId, gameSound.resourceId);
   console.log('PASS agent search: direct and post-tool clarification, retained clarification history, acoustic use recommendations, model-first tools, empty-search rewrite, bounded rounds/tools, previous alternatives, trusted IDs/routes, no BYOK leakage, unsupported-tools no retry, and free agent protocol');
 })().catch(error => { console.error(error); process.exitCode = 1; });

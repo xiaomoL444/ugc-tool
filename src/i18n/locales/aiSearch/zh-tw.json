@@ -253,8 +253,9 @@
   "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "提示詞檔案含有不允許的控制字元。",
   "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "提示詞網址回傳了重新導向，無法直接讀取檔案。",
   "aiSearch.errors.promptValidation.MISSING_BODY": "提示詞回應沒有可讀取的本文。",
-  "aiSearch.requestDiagnostics.hints.promptValidation": "此錯誤發生於讀取公開提示詞檔案時，尚未呼叫模型。請檢查檔案內容、編碼、內容類型和顯示的讀取上限。",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "此錯誤發生於讀取公開提示詞檔案時，尚未呼叫模型。請檢查檔案內容、編碼和回應內容類型。",
   "aiSearch.requestDiagnostics.hints.promptResponse": "請檢查公開提示詞檔案的網址、存取權限、本文內容和伺服器回應。本次失敗發生於呼叫模型之前。",
   "aiSearch.errors.promptSize": "回應 {bytes} 位元組，讀取上限 {limit} 位元組。",
-  "aiSearch.errors.promptBytes": "已讀取 {bytes} 位元組。"
+  "aiSearch.errors.promptBytes": "已讀取 {bytes} 位元組。",
+  "aiSearch.errors.promptBudgetExceeded": "完整模型請求超過目前預算，請精簡系統提示詞或對話上下文。"
 }

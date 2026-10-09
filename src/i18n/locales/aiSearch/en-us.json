@@ -253,8 +253,9 @@
   "aiSearch.errors.promptValidation.INVALID_CONTROL_CHARACTERS": "The prompt file contains disallowed control characters.",
   "aiSearch.errors.promptValidation.REDIRECTED_RESPONSE": "The prompt URL returned a redirect, so the file could not be read directly.",
   "aiSearch.errors.promptValidation.MISSING_BODY": "The prompt response has no readable body.",
-  "aiSearch.requestDiagnostics.hints.promptValidation": "This failed while reading the public prompt file, before calling the model. Check the file content, encoding, content type, and displayed read limit.",
+  "aiSearch.requestDiagnostics.hints.promptValidation": "This failed while reading the public prompt file, before calling the model. Check the file content, encoding, and response content type.",
   "aiSearch.requestDiagnostics.hints.promptResponse": "Check the public prompt file’s URL, access permissions, body, and server response. This failure occurred before calling the model.",
   "aiSearch.errors.promptSize": "Response: {bytes} bytes; read limit: {limit} bytes.",
-  "aiSearch.errors.promptBytes": "Read {bytes} bytes."
+  "aiSearch.errors.promptBytes": "Read {bytes} bytes.",
+  "aiSearch.errors.promptBudgetExceeded": "The complete model request exceeds the current budget. Shorten the system prompt or conversation context."
 }

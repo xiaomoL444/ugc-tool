@@ -229,7 +229,7 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
   for (let round = 0; round < 3; round++) {
     if (options.signal.aborted) throw new DOMException("Aborted", "AbortError");
     const finalRound = round === 2 || toolCount >= 4;
-    const request = { model: options.config.model.trim(), stream: false, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit)), ...chatToolCompatibilityOptions(url, options.config.model), messages,
+    const request = { model: options.config.model.trim(), stream: false, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit)), ...chatToolCompatibilityOptions(url, options.config.model, !finalRound), messages,
       ...(deepSeek ? { thinking: { type: "disabled" } } : {}),
       ...(finalRound ? { tools: AGENT_SEARCH_TOOLS, tool_choice: "none", ...(jsonSupported ? { response_format: { type: "json_object" } } : {}) }
         : { tools: AGENT_SEARCH_TOOLS, tool_choice: "auto" }) };
