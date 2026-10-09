@@ -59,6 +59,9 @@ importers:
       jsonpath-plus:
         specifier: ^10.3.0
         version: 10.3.0
+      jsonrepair:
+        specifier: 3.15.0
+        version: 3.15.0
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -2660,6 +2663,10 @@ packages:
   jsonpath-plus@10.3.0:
     resolution: {integrity: sha512-8TNmfeTCk2Le33A3vRRwtuworG/L5RrgMvdjhKZxvyShO+mBu2fP50OWUjRLNtvw344DdDarFh9buFAZs5ujeA==}
     engines: {node: '>=18.0.0'}
+    hasBin: true
+
+  jsonrepair@3.15.0:
+    resolution: {integrity: sha512-wy8OTjwsJwQRnQJkKnMJJ9vcytRdBPAgIF/Hy6+s1dAj42BHMKiyL8JzEieIl3JY7idt8eyHwBWTO8mh/+mtwA==}
     hasBin: true
 
   jszip@3.10.1:
@@ -7090,6 +7097,8 @@ snapshots:
       '@jsep-plugin/assignment': 1.3.0(jsep@1.4.0)
       '@jsep-plugin/regex': 1.0.4(jsep@1.4.0)
       jsep: 1.4.0
+
+  jsonrepair@3.15.0: {}
 
   jszip@3.10.1:
     dependencies:
