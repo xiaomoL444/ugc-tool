@@ -36,6 +36,10 @@
 .ai-search-workspace .sidebar-brand h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; font: inherit; }
 .ai-search-workspace .new-conversation { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin: 16px 0 20px; padding: 9px; border: 1px solid #1683ff; border-radius: 8px; background: var(--ai-accent); color: #fff; font-size: 12px !important; font-weight: 600; box-shadow: 0 3px 9px #1976d220; transition: background .15s; }
 .ai-search-workspace .new-conversation:hover { background: var(--ai-accent-hover); }
+.ai-search-workspace .history-primary-actions { display: flex; align-items: stretch; gap: 8px; margin: 16px 0 20px; }
+.ai-search-workspace .history-primary-actions .new-conversation { flex: 1; min-width: 0; width: auto; min-height: 38px; margin: 0; padding: 9px 6px; }
+.ai-search-workspace .history-search-button { display: grid; place-items: center; flex: 0 0 38px; min-height: 38px; padding: 0; border: 1px solid #a6cdf0; border-radius: 8px; background: var(--ai-accent-soft); color: var(--ai-accent); }
+.ai-search-workspace .history-search-button:hover:not(:disabled) { border-color: var(--ai-accent); background: #d5ebff; }
 .ai-search-workspace .history-count { background: #e2ecf9; color: #42648d; border-radius: 5px; padding: 2px 7px; font-size: 11px; margin-left: auto; }
 .ai-search-workspace .conversation-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #a8bfdc transparent; }
 .ai-search-workspace .history-empty { padding: 9px 10px; font-size: 12px; color: #62718a; line-height: 1.8; }
@@ -98,6 +102,7 @@
 /* Conversation and composer share gutters, without a desktop width cap. */
 .ai-search-workspace .message-thread { width: 100%; margin: 0; padding: 18px var(--ai-gutter) 8px; }
 .ai-search-workspace .chat-message { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px; }
+.ai-search-workspace .chat-message:focus-visible { outline: 2px solid #54a8ff; outline-offset: 5px; border-radius: 5px; }
 .ai-search-workspace .message-body { flex: 1; min-width: 0; }
 .ai-search-workspace .message-byline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 7px; font-size: 12px; color: #344c70; }
 .ai-search-workspace .message-byline strong { font-weight: 700; }

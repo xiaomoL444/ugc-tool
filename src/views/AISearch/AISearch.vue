@@ -3,7 +3,10 @@
     <button v-if="historyOpen" class="history-backdrop" :aria-label="t('aiSearch.closeHistory')" @click="historyOpen = false"></button>
     <aside id="ai-search-history-panel" class="search-sidebar" :class="{ 'is-open': historyOpen, 'is-collapsed': historyCollapsed }" aria-labelledby="ai-history-title">
       <div class="sidebar-brand"><h2 id="ai-history-title">{{ t('aiSearch.history') }}</h2><span class="history-count">{{ conversations.length }}</span><button class="icon-button mobile-close" :aria-label="t('aiSearch.closeHistory')" @click="historyOpen = false"><SearchIcon name="close" /></button></div>
-      <button class="new-conversation" :disabled="busy || loadingArchive" @click="startConversation"><SearchIcon name="plus" />{{ t('aiSearch.newConversation') }}</button>
+      <div class="history-primary-actions">
+        <button type="button" class="history-search-button" :disabled="busy || loadingArchive" :aria-label="t('aiSearch.historySearch.open')" :title="t('aiSearch.historySearch.open')" aria-haspopup="dialog" aria-controls="ai-history-search-dialog" :aria-expanded="historySearchOpen" @click="showConversationSearch"><SearchIcon name="search" /></button>
+        <button class="new-conversation" :disabled="busy || loadingArchive" @click="startConversation"><SearchIcon name="plus" />{{ t('aiSearch.newConversation') }}</button>
+      </div>
       <div class="conversation-list">
         <p v-if="!conversations.length" class="history-empty">{{ t('aiSearch.historyEmpty') }}</p>
         <div v-for="conversation in conversations" :key="conversation.id" class="conversation-row" :class="{ active: conversation.id === activeConversationId }">
@@ -28,7 +31,7 @@
           <p class="welcome-method"><SearchIcon name="shield" />{{ t('aiSearch.privacyHint') }}</p>
         </div>
         <div v-else class="message-thread">
-          <article v-for="message in messages" :key="message.id" class="chat-message" :class="[`message-${message.role}`, { 'message-error': message.status === 'error' }]" :aria-label="message.role === 'assistant' ? t('aiSearch.assistant') : undefined">
+          <article v-for="message in messages" :key="message.id" class="chat-message" :data-message-id="message.id" tabindex="-1" :class="[`message-${message.role}`, { 'message-error': message.status === 'error' }]" :aria-label="message.role === 'assistant' ? t('aiSearch.assistant') : undefined">
             <div class="message-body">
               <div v-if="message.role === 'user'" class="message-byline"><strong>{{ t('aiSearch.you') }}</strong></div>
               <div v-if="message.status === 'pending'" class="thinking-state" role="status"><span class="thinking-dots"><i></i><i></i><i></i></span>{{ t('aiSearch.thinking') }}</div>
@@ -74,6 +77,7 @@
       </footer>
       </div>
     </section>
+    <ConversationSearchDialog ref="conversationSearchDialog" :conversations="conversations" :active-conversation-id="activeConversationId" :disabled="busy || loadingArchive" @update:open="historySearchOpen = $event" @select="openSearchResult" />
     <Teleport to="body">
       <dialog id="ai-model-dialog" ref="settingsDialog" class="ai-search-dialog model-dialog" aria-labelledby="ai-settings-title" @cancel="closeSettings" @pointerdown.capture="trackDialogPointerDown" @pointercancel="resetDialogPointerDown" @click="handleDialogBackdrop($event, closeSettings)">
         <form @submit.prevent="persistSettings"><div class="dialog-heading"><div><h2 id="ai-settings-title">{{ t('aiSearch.configTitle') }}</h2><p>{{ t('aiSearch.configSubtitle') }}</p></div><button type="button" class="icon-button" :aria-label="t('aiSearch.dismiss')" @click="closeSettings"><SearchIcon name="close" /></button></div>
@@ -106,6 +110,7 @@ import { toast } from 'vue-sonner'
 import SearchIcon from './components/SearchIcon.vue'
 import ResourceResults from './components/ResourceResults.vue'
 import ResponseDetails from './components/ResponseDetails.vue'
+import ConversationSearchDialog from './components/ConversationSearchDialog.vue'
 import { useAISearch } from './useAISearch'
 import ResultLimitSelect from './components/ResultLimitSelect.vue'
 import { useHistoryResize } from './useHistoryResize'
@@ -127,6 +132,8 @@ const examples = [{ kind: 'sound', icon: 'sound', key: 'exampleSound', titleKey:
 const draft = ref('')
 const historyOpen = ref(false)
 const historyCollapsed = ref(false)
+const historySearchOpen = ref(false)
+const conversationSearchDialog = ref<InstanceType<typeof ConversationSearchDialog>>()
 const workspace = ref<HTMLElement>()
 const { historyWidth, historyMaxWidth, resizingHistory, startHistoryResize, moveHistoryResize, finishHistoryResize, handleHistoryResizeKey, resetHistoryWidth } = useHistoryResize(workspace, historyCollapsed)
 const composer = ref<HTMLTextAreaElement>()
@@ -233,6 +240,17 @@ function handleComposerKey(event: KeyboardEvent) { if (event.key === 'Enter' && 
 async function useExample(key: string, kind: 'sound' | 'effect' | 'bgm') { scope.value = kind; draft.value = t(`aiSearch.${key}`); await nextTick(); composer.value?.focus() }
 async function startConversation() { createConversation(); draft.value = ''; historyOpen.value = false; await nextTick(); composer.value?.focus() }
 function openConversation(id: string) { selectConversation(id); draft.value = ''; historyOpen.value = false }
+function showConversationSearch() { if (!busy.value && !loadingArchive.value) void conversationSearchDialog.value?.show() }
+async function openSearchResult(id: string, messageId?: string) {
+  if (busy.value || loadingArchive.value || !conversations.value.some(item => item.id === id)) return
+  openConversation(id)
+  await nextTick()
+  // Let the existing conversation watchers finish their scroll-to-bottom first.
+  await nextTick()
+  const target = messageId && Array.from(messageViewport.value?.querySelectorAll<HTMLElement>('.chat-message') || []).find(element => element.dataset.messageId === messageId)
+  if (target) { target.scrollIntoView({ block: 'start', behavior: 'auto' }); target.focus({ preventScroll: true }) }
+  else composer.value?.focus()
+}
 async function showDialog(dialog: HTMLDialogElement | undefined) { if (dialog) dialogBackdropStarts.delete(dialog); previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null; await nextTick(); dialog?.showModal() }
 function restoreFocus() { const target = previousFocus; previousFocus = null; void nextTick(() => { if (target?.isConnected) target.focus(); else composer.value?.focus() }) }
 async function openSettingsForMode(value: SearchMode) { Object.assign(configDraft, modelConfig.value); configMode.value = value; settingsError.value = ''; keyVisible.value = false; await showDialog(settingsDialog.value); settingsOpen.value = true }
