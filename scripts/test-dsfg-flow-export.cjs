@@ -66,8 +66,8 @@ async function main() {
       assert.deepEqual(parsed.issues, []);
       const groups = table(parsed.value.ActionGroup);
       for (const item of groups) for (const action of table(item.value.ActionClip)) {
-        assert.deepEqual(Object.keys(action.value), ['actionType', 'duration', 'stringParams', 'intParams', 'guidParams', 'configParams', 'prefabParams', 'floatParams']);
-        for (const [key, type] of [['guidParams', 'GuidList'], ['configParams', 'ConfigReferenceList'], ['prefabParams', 'EntityReferenceList']]) {
+        assert.deepEqual(Object.keys(action.value), ['actionType', 'duration', 'stringParams', 'intParams', 'guidParams', 'configParams', 'prefabParams', 'floatParams', 'boolParams']);
+        for (const [key, type] of [['guidParams', 'GuidList'], ['configParams', 'ConfigReferenceList'], ['prefabParams', 'EntityReferenceList'], ['boolParams', 'BoolList']]) {
           assert.equal(action.value[key].toParamNode().param_type, type);
           if (action.value.actionType.value !== "NOLOC_TRIGGERPUBLIC") assert.deepEqual(action.value[key].value, []);
         }
@@ -191,7 +191,7 @@ async function main() {
       delete node.dialogue.nodeGraphEvent;
       assert.deepEqual(normalizeDialogueProject(source).dialogue.nodes.params.dialogue.nodeGraphEvent, []);
     });
-    test("ActionClip imports eight typed fields and preserves reference lists with custom struct IDs", () => {
+    test("ActionClip imports nine typed fields and preserves reference and boolean lists with custom struct IDs", () => {
       const ids = { ...createDefaultQxqyStructIds(), actionClip: '99887766' };
       const workspace = createQxqyStructWorkspace(ids);
       const action = workspace.createDefault(ids.actionClip);
@@ -199,15 +199,18 @@ async function main() {
       action.value.configParams.setValue(['1098907649']);
       action.value.prefabParams.setValue(['123456']);
       action.value.floatParams.setValue(['0.5', '1', '-0.25']);
+      action.value.boolParams.setValue(['True', 'False']);
       const raw = JSON.parse(action.serialize(2));
       assert.equal(raw.structId, ids.actionClip);
-      assert.deepEqual(raw.value.slice(4).map(item => item.param_type), ['GuidList', 'ConfigReferenceList', 'EntityReferenceList', 'FloatList']);
+      assert.deepEqual(raw.value.slice(4).map(item => item.param_type), ['GuidList', 'ConfigReferenceList', 'EntityReferenceList', 'FloatList', 'BoolList']);
+      assert.deepEqual(raw.value[8].value, ['True', 'False']);
       const parsed = workspace.parse(raw);
       assert.deepEqual(parsed.issues, []);
       assert.deepEqual(parsed.value.guidParams.value, ['18446744073709551615', '9007199254740993']);
       assert.deepEqual(parsed.value.configParams.value, ['1098907649']);
       assert.deepEqual(parsed.value.prefabParams.value, ['123456']);
       assert.deepEqual(parsed.value.floatParams.value.map(Number), [0.5, 1, -0.25]);
+      assert.deepEqual(parsed.value.boolParams.value, ['True', 'False']);
       assert.deepEqual(JSON.parse(parsed.serialize(2)), raw);
       const embedded = table(workspace.createDefault(ids.actionGroup).value.ActionClip)[0];
       assert.deepEqual(Object.keys(embedded.value), Object.keys(action.value));
@@ -423,6 +426,9 @@ async function main() {
         { id: "d", name: "目标", type: "Guid", reference: "custom:characters:guid", defaultValue: "18446744073709551615" },
         { id: "e", name: "元件", type: "EntityReference", defaultValue: "456" },
         { id: "f", name: "文本2", type: "String", defaultValue: "tail" },
+        { id: "g", name: "启用", type: "Bool", defaultValue: "True" },
+        { id: "h", name: "关闭", type: "Bool", defaultValue: "False" },
+        { id: "i", name: "隐藏开关", type: "Bool", defaultValue: "True", visibleWhen: [{ parameterId: "h", equals: "True" }] },
       ] };
       applyPublicEventPreset(clip, preset);
       assert.equal(getPublicEventClipLabel(clip, [preset]), "打开大门");
@@ -449,6 +455,15 @@ async function main() {
       assert.deepEqual(action.configParams.value, ["123"]);
       assert.deepEqual(action.guidParams.value, ["18446744073709551615"]);
       assert.deepEqual(action.prefabParams.value, ["456"]);
+      assert.deepEqual(action.boolParams.value, ['True', 'False', 'False']);
+      assert.deepEqual(action.boolParams.toParamNode(), { param_type: "BoolList", value: ["True", "False", "False"] });
+      assert.equal(restored.dialogue.nodes.event.lines.find(line => line.type === "PublicEvent").clips[0].components[0].properties.parameters[8].value, "True", "Hidden Bool values must remain in the editor snapshot");
+      for (const value of ["", "true", "false", "0", "1", "yes", "Falsex"]) {
+        assert.throws(() => compilePublicEventArguments("event", [{ type: "Bool", value }]), /不符合/);
+      }
+      const bools = Array.from({ length: 100 }, () => ({ type: "Bool", value: "False" }));
+      assert.equal(compilePublicEventArguments("event", bools).boolParams.length, 100);
+      assert.throws(() => compilePublicEventArguments("event", [...bools, bools[0]]), /boolParams.*100/);
       for (const [type, value] of [["Float", ""], ["Float", "NaN"], ["Float", "Infinity"], ["Float", "1e40"], ["Float", "0xFF"], ["Float", "0.5s"], ["Int32", "2147483648"], ["Guid", "1.5"], ["ConfigReference", "-1"], ["EntityReference", "bad"], ["Bogus", "0"]]) {
         assert.throws(() => compilePublicEventArguments("event", [{ name: "invalid", type, value }]), /不符合/);
       }
@@ -480,27 +495,30 @@ async function main() {
       const node = group(source, "forward"); entry(source, node.id);
       const clip = createPerformanceClip("PublicEvent", 0);
       applyPublicEventPreset(clip, systemPresetConfig.publicEvents.presets.find(item => item.name === "NOLOC_SetObjectEntityFoward"));
-      const values = ['1', '0', '18446744073709551615', 'actor', '1', '0', 'target'];
+      const values = ['True', '0', '18446744073709551615', 'actor', '1', '0', 'target'];
       clip.components[0].properties.parameters.forEach((param, index) => { param.value = values[index]; });
       node.lines.push({ id: "forward-line", name: "朝向", type: "PublicEvent", clips: [clip] });
       const action = exported(normalizeDialogueProject(JSON.parse(JSON.stringify(source)))).actions(node.id).find(item => item.value.actionType.value === "NOLOC_TRIGGERPUBLIC").value;
-      assert.deepEqual(action.intParams.value, ['1', '0', '1']);
+      assert.deepEqual(action.intParams.value, ['0', '1']);
+      assert.deepEqual(action.boolParams.value, ['True']);
       assert.deepEqual(action.guidParams.value, ['18446744073709551615', '0']);
       assert.deepEqual(action.stringParams.value, ['NOLOC_SetObjectEntityFoward', '', 'target']);
       const args = clip.components[0].properties.parameters;
       const visible = () => args.filter(param => isPublicEventArgumentVisible(param, args)).map(param => param.id);
       assert.deepEqual(visible(), ['object-forward-boolean', 'object-forward-method-1', 'object-forward-guid-1', 'object-forward-method-2', 'object-forward-string-2']);
-      args[0].value = '0';
+      args[0].value = 'False';
       assert.deepEqual(visible(), ['object-forward-boolean', 'object-forward-method-1', 'object-forward-guid-1']);
       const reset = compilePublicEventArguments('NOLOC_SetObjectEntityFoward', args);
-      assert.deepEqual(reset.intParams, ['0', '0', '0']);
+      assert.deepEqual(reset.intParams, ['0', '0']);
+      assert.deepEqual(reset.boolParams, ['False']);
       assert.deepEqual(reset.guidParams, ['18446744073709551615', '0']);
       assert.deepEqual(reset.stringParams, ['NOLOC_SetObjectEntityFoward', '', '']);
       assert.equal(args[6].value, 'target');
       args[1].value = '1';
       assert.deepEqual(visible(), ['object-forward-boolean', 'object-forward-method-1', 'object-forward-string-1']);
       const resetByString = compilePublicEventArguments('NOLOC_SetObjectEntityFoward', args);
-      assert.deepEqual(resetByString.intParams, ['0', '1', '0']);
+      assert.deepEqual(resetByString.intParams, ['1', '0']);
+      assert.deepEqual(resetByString.boolParams, ['False']);
       assert.deepEqual(resetByString.guidParams, ['0', '0']);
       assert.deepEqual(resetByString.stringParams, ['NOLOC_SetObjectEntityFoward', 'actor', '']);
       // Hidden fields must survive the actual editor save/reopen path, even
@@ -510,15 +528,40 @@ async function main() {
       const reopenedArgs = reopened.components[0].properties.parameters;
       assert.equal(reopenedArgs[2].value, '18446744073709551615');
       assert.equal(reopenedArgs[5].value, '1073741825');
-      reopenedArgs[0].value = '1'; reopenedArgs[1].value = '0'; reopenedArgs[4].value = '0';
+      reopenedArgs[0].value = 'True'; reopenedArgs[1].value = '0'; reopenedArgs[4].value = '0';
       assert.equal(isPublicEventArgumentVisible(reopenedArgs[2], reopenedArgs), true);
       assert.equal(isPublicEventArgumentVisible(reopenedArgs[5], reopenedArgs), true);
       applyPublicEventPreset(reopened, systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_SetObjectEntityFoward'));
       assert.equal(reopened.components[0].properties.parameters[2].value, '18446744073709551615');
       assert.equal(reopened.components[0].properties.parameters[5].value, '1073741825');
-      args[0].value = '1'; args[1].value = '1'; args[4].value = '0';
+      args[0].value = 'True'; args[1].value = '1'; args[4].value = '0';
       assert.deepEqual(visible(), ['object-forward-boolean', 'object-forward-method-1', 'object-forward-string-1', 'object-forward-method-2', 'object-forward-guid-2']);
       assert.deepEqual(compilePublicEventArguments('NOLOC_SetObjectEntityFoward', args).stringParams, ['NOLOC_SetObjectEntityFoward', 'actor', '']);
+    });
+
+    test("Legacy integer boolean clips retain their values, conditions and intParams export after Bool preset updates", () => {
+      const { applyPublicEventPreset, getPublicEventArguments, syncPublicEventVisibility } = require(path.join(editorDirectory, "utils/publicEventParameters.ts"));
+      const { systemPresetConfig } = require(path.join(editorDirectory, "../EntityPresetEditor/systemPresetConfig.ts"));
+      const current = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_SetObjectEntityFoward');
+      const legacy = JSON.parse(JSON.stringify(current));
+      legacy.parameters[0] = { ...legacy.parameters[0], type: 'Int32', reference: 'booleans.value', defaultValue: '0' };
+      for (const parameter of legacy.parameters) for (const rule of parameter.visibleWhen ?? []) {
+        if (rule.parameterId === 'object-forward-boolean') rule.equals = '1';
+      }
+      const source = createEmptyDialogueProject();
+      const node = group(source, 'legacy-forward'); entry(source, node.id);
+      const clip = createPerformanceClip('PublicEvent', 0);
+      applyPublicEventPreset(clip, legacy);
+      ['1', '0', '1086324738', '', '1', '0', 'target'].forEach((value, index) => { getPublicEventArguments(clip)[index].value = value; });
+      const before = JSON.stringify(clip);
+      assert.equal(syncPublicEventVisibility(clip, [current]), false);
+      assert.equal(JSON.stringify(clip), before);
+      node.lines.push({ id: 'legacy-forward-line', name: '朝向', type: 'PublicEvent', clips: [clip] });
+      const action = exported(normalizeDialogueProject(JSON.parse(JSON.stringify(source)))).actions(node.id).find(item => item.value.actionType.value === 'NOLOC_TRIGGERPUBLIC').value;
+      assert.deepEqual(action.intParams.value, ['1', '0', '1']);
+      assert.deepEqual(action.boolParams.value, []);
+      assert.deepEqual(action.guidParams.value, ['1086324738', '0']);
+      assert.deepEqual(action.stringParams.value, [current.name, '', 'target']);
     });
 
     test("Public Event keeps multiple timed clips, parameters and identities through save/reload", () => {

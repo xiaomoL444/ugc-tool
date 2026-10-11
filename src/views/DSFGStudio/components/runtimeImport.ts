@@ -1,7 +1,8 @@
 import type { VariableWorkspace, QxqyParamNode } from "miliastra-variable";
 
 /** Validate the original nodes before library normalization; infer IDs from typed positions, not filenames. */
-export function readRuntime<T extends object>(text: string, defaults: T, rootId: string, workspace: VariableWorkspace) {
+export function readRuntime<T extends object>(text: string, defaults: T, rootId: string, workspace: VariableWorkspace,
+  optionalTrailingFields: Readonly<Record<string, readonly string[]>> = {}) {
   const raw = JSON.parse(text.replace(/^\uFEFF/, ""));
   const replacements = new Map<string, string>();
   const fail = (path: string, message: string): never => { throw new Error(`${path}：${message}`); };
@@ -28,8 +29,12 @@ export function readRuntime<T extends object>(text: string, defaults: T, rootId:
   function struct(value: any, expectedId: string, path: string): any {
     object(value, path); id(expectedId, value.structId, path);
     const definition = workspace.getDefinition(expectedId);
-    if (!definition || value.type !== "Struct" || !Array.isArray(value.value) || value.value.length !== definition.value.length) fail(path, "结构体字段数量或类型不匹配，请使用当前版本的运行时配置");
-    return Object.fromEntries(definition!.value.map((field, index) => [field.key, node(value.value[index], field.value, `${path}.${field.key}`)]));
+    if (!definition || value.type !== "Struct" || !Array.isArray(value.value) || value.value.length > definition.value.length
+        || definition.value.slice(value.value.length).some(field => !optionalTrailingFields[expectedId]?.includes(field.key))) {
+      fail(path, "结构体字段数量或类型不匹配，请使用当前版本的运行时配置");
+    }
+    return Object.fromEntries(definition!.value.map((field, index) => [field.key,
+      node(index < value.value.length ? value.value[index] : field.value, field.value, `${path}.${field.key}`)]));
   }
   function node(value: any, expected: QxqyParamNode, path: string): any {
     object(value, path);

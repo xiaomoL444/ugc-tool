@@ -64,4 +64,4 @@ Custom Clip 使用单行输入框填写字符串，时间轴 Clip 标题直接�
 
 Timeline 的 Clip 移动、边缘拉伸及内部延迟拖动共用手势快照：按下时固定显示时长与每秒像素比例，坐标变化包含横向滚动增量，手势期间画布只扩展不缩短。松手后恢复自动适配，避免 Clip 末端改变自动时长后反过来改变拖动坐标。取消指针、窗口失焦、切换 Group 或卸载面板均结束手势并清理监听。
 
-Public Event Line 支持多个可设置持续时间的 Clip，默认 1 秒，允许 0 秒，旧文件的 0 秒保持不变。面板持续时间和 Timeline 片段长度共用 clip.duration，参与时间轴结束时间计算，导出 `NOLOC_TRIGGERPUBLIC` 的 `duration` 使用该值。预设定义事件名和带名称、类型、默认值的参数，Clip 内填写每个参数。事件名占 `stringParams[0]`，字符串参数从第 1 项开始；Int32、Guid、ConfigReference、EntityReference 分别写入 `intParams`、`guidParams`、`configParams`、`prefabParams`，各自从第 0 项开始。每个列表上限 100 项，因此最多 99 个字符串参数。
+Public Event Line 支持多个可设置持续时间的 Clip，默认 1 秒，允许 0 秒，旧文件的 0 秒保持不变。面板持续时间和 Timeline 片段长度共用 clip.duration，参与时间轴结束时间计算，导出 `NOLOC_TRIGGERPUBLIC` 的 `duration` 使用该值。预设定义事件名和带名称、类型、默认值的参数，Clip 内填写每个参数。事件名占 `stringParams[0]`，字符串参数从第 1 项开始；Int32、Guid、ConfigReference、EntityReference、Float、Bool 分别写入 `intParams`、`guidParams`、`configParams`、`prefabParams`、`floatParams`、`boolParams`，各自从第 0 项开始。Bool 通过“否 / 是”选择，默认否（`False`），没有“未设置”；导出使用 `False` / `True`，隐藏时用 `False` 占位而不清除保存值。每个列表上限 100 项，因此最多 99 个字符串参数。运行时导入可读取新版 BoolList；旧 ActionClip 缺少末尾 boolParams 时补空列表。

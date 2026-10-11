@@ -18,7 +18,7 @@ export function referenceSources(tables: CustomPresetTable[]): PresetReference[]
     { value: "entities.guid", label: "实体 / guid", type: "Guid" },
     { value: "entities.entityQuery", label: "实体 / 实体查询", type: "String" },
     { value: "publicEvents.name", label: "公共事件 / 事件名", type: "String" },
-    ...stylePresetCategories.map(category => ({ value: `${category.key}.value`, label: `${category.title} / 值`, type: category.key === "booleans" || category.key === "entityGetMethods" ? "Int32" as const : "String" as const })),
+    ...stylePresetCategories.map(category => ({ value: `${category.key}.value`, label: `${category.title} / 值`, type: category.key === "entityGetMethods" ? "Int32" as const : "String" as const })),
     ...tables.flatMap(table => table.fields.map(field => ({ value: `custom:${encodeURIComponent(table.id)}:${encodeURIComponent(field.id)}`, label: `${table.name || "未命名配置"} / ${field.name || "未命名字段"}`, type: field.type }))),
   ];
 }
@@ -61,8 +61,7 @@ export function usePresetReferences() {
     }
     else values = styles.find(item => reference === `${item.key}.value`)?.state.availablePresets.value.map(row => ({ label: row.label || row.value, value: row.value })) ?? [];
     // Multiple records may intentionally expose the same value; Select values must be unique.
-    return values.filter((item, index) => (reference !== "booleans.value" || item.value === "0" || item.value === "1")
-      && (reference !== "entityGetMethods.value" || (/^[+-]?\d+$/.test(item.value) && Number(item.value) >= -2147483648 && Number(item.value) <= 2147483647))
+    return values.filter((item, index) => (reference !== "entityGetMethods.value" || (/^[+-]?\d+$/.test(item.value) && Number(item.value) >= -2147483648 && Number(item.value) <= 2147483647))
       && values.findIndex(other => other.value === item.value) === index);
   }
   return { sources, options, readyFor: (reference: string) => stateFor(reference)?.ready.value ?? true, errorFor: (reference: string) => stateFor(reference)?.error.value ?? "", retryFor: (reference: string) => stateFor(reference)?.retry() ?? Promise.resolve(), ready: computed(() => states.every(state => state.ready.value)), error: computed(() => states.map(state => state.error.value).filter(Boolean).join("；")), retry: () => Promise.all(states.map(state => state.retry())) };

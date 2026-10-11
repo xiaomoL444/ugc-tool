@@ -7,7 +7,19 @@ const vue = require('vue');
 const { parse, compileScript } = require('@vue/compiler-sfc');
 
 const base = path.resolve(__dirname, '../src/views/DSFGStudio/components');
-const originals = Object.fromEntries(['.ts', '.vue'].map(ext => [ext, Module._extensions[ext]]));
+const originalLoad = Module._load;
+const originals = Object.fromEntries(['.ts', '.vue', '.css'].map(ext => [ext, Module._extensions[ext]]));
+Module._load = function(request, parent, main) {
+  if (request === 'naive-ui') return { NSelect: vue.defineComponent({
+    props: ['value', 'options', 'disabled', 'themeOverrides', 'menuProps'],
+    setup(props, { attrs }) { return () => vue.h('select-stub', {
+      value: props.value, options: props.options, disabled: props.disabled,
+      choose: value => attrs['onUpdate:value'](value),
+    }); },
+  }) };
+  return originalLoad.call(this, request, parent, main);
+};
+Module._extensions['.css'] = () => {};
 const compile = source => ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
 }).outputText;
@@ -80,6 +92,14 @@ async function main() {
     assert.equal(getTypedValueError('String', value), '');
   }
   console.log('PASS Integer/float drafts and complete values, signed Int32 bounds, unsigned IDs, exact large GUIDs and free text');
+  for (const value of ['True', 'False']) {
+    assert.equal(isTypedValueDraft('Bool', value), true);
+    assert.equal(getTypedValueError('Bool', value), '');
+  }
+  for (const value of ['', 'true', '0', '1', 'yes', 'Falsex']) {
+    assert.equal(isTypedValueDraft('Bool', value), false);
+    assert.ok(getTypedValueError('Bool', value));
+  }
 
   const Field = require(path.join(base, 'TypedValueInput.vue')).default;
   const model = vue.ref('12'), valueType = vue.ref('Int32'), disabled = vue.ref(false);
@@ -183,11 +203,33 @@ async function main() {
   await enter(guid); assert.equal(model.value, guid); assert.equal(typeof model.value, 'string');
   await enter('-1'); assert.equal(model.value, guid); assert.equal(input.value, guid);
   disabled.value = true; await vue.nextTick(); assert.equal(input.props.disabled, true);
-  app.unmount();
   console.log('PASS Float editing, blur validation, reactive type changes, historical values, range errors, exact GUIDs and disabled attributes');
+  disabled.value = false; valueType.value = 'Bool'; model.value = ''; await vue.nextTick();
+  function findSelect(node) { return node.tag === 'select-stub' ? node : node.children?.map(findSelect).find(Boolean); }
+  let select = findSelect(root);
+  assert.ok(select, 'Bool must offer a dropdown instead of numeric input');
+  assert.equal(model.value, 'False', 'Bool must initialize missing values to 否');
+  assert.deepEqual(select.props.options.map(option => option.label), ['否', '是']);
+  for (const [label, value] of [['是', 'True'], ['否', 'False']]) {
+    select.props.choose(select.props.options.find(option => option.label === label).value);
+    await vue.nextTick(); assert.equal(model.value, value);
+  }
+  const updateCount = updates.length;
+  model.value = '旧非法值'; await vue.nextTick(); select = findSelect(root);
+  assert.equal(model.value, '旧非法值'); assert.equal(updates.length, updateCount);
+  assert.equal(select.props.options[0].disabled, true, 'Historical invalid values remain visible until explicitly replaced');
+  select.props.choose(select.props.options.find(option => option.label === '否').value);
+  await vue.nextTick(); assert.equal(model.value, 'False');
+  disabled.value = true; await vue.nextTick(); select = findSelect(root);
+  assert.equal(select.props.disabled, true);
+  select.props.choose(select.props.options.find(option => option.label === '是').value);
+  await vue.nextTick(); assert.equal(model.value, 'False');
+  app.unmount();
+  console.log('PASS Real Bool dropdown defaults to False, offers only 否/是, preserves historical values and respects disabled state');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {
+  Module._load = originalLoad;
   for (const [ext, loader] of Object.entries(originals)) {
     if (loader) Module._extensions[ext] = loader; else delete Module._extensions[ext];
   }

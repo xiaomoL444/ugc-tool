@@ -76,7 +76,7 @@
                     },
                     {
                       "param_type": "String",
-                      "value": "Mainline"
+                      "value": "NOLOC_Mainline"
                     }
                   ]
                 }

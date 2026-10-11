@@ -44,13 +44,13 @@ function removeField(table: CustomPresetTable, id: string) {
 }
 </script>
 <template>
-  <section class="custom-section">
+  <section class="custom-section" data-preset-category="custom">
     <header><div><h3>自定义配置</h3><p>先定义字段，再添加记录。公共事件可引用任意一个字段作为参数来源。</p></div></header>
     <p class="muted" role="status">{{ status }}</p>
     <p v-if="error" role="alert">{{ error }} <button @click="emit('retry')">重试</button></p>
     <h4>系统配置类别</h4>
     <p v-if="!systemPresets.length" class="muted">暂无系统配置。</p>
-    <article v-for="table in mergedSystem" :key="table.id">
+    <article v-for="table in mergedSystem" :key="table.id" :data-preset-id="table.id" tabindex="-1">
       <h4>{{ table.name }}</h4>
       <h4>系统字段 · 只读</h4>
       <div class="fields"><div v-for="field in table.fields.filter(item => isSystemField(table, item.id))" :key="field.id" class="field-row"><span>{{ field.name || '未命名字段' }}</span><span class="muted">{{ PUBLIC_EVENT_PARAM_TYPES.find(type => type.value === field.type)?.label }}</span></div></div>
@@ -62,7 +62,7 @@ function removeField(table: CustomPresetTable, id: string) {
     </article>
     <h4>自定义配置类别</h4>
     <div v-if="ready && !customTables.length" class="empty">例如创建「角色配置」，添加 GUID、技能 ID、称号等字段，再录入每个角色的数据。</div>
-    <article v-for="table in customTables" :key="table.id">
+    <article v-for="table in customTables" :key="table.id" :data-preset-id="table.id" tabindex="-1">
       <p v-if="table.extends" class="muted">原系统类别已移除，已保留此类别的自定义字段和记录。</p>
       <header><label class="table-name">配置类别名称<input v-model="table.name" placeholder="例如：角色配置" aria-label="配置类别名称" /></label><span class="muted">{{ table.fields.length }} 个字段 · {{ table.records.length }} 条记录</span><button class="delete" @click="deleteTable(table)">删除类别</button></header>
       <div class="subhead"><h4>字段定义</h4><button @click="table.fields.push(createCustomField())">＋ 添加字段</button></div>

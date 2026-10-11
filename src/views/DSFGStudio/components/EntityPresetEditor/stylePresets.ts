@@ -2,19 +2,18 @@ import { computed } from "vue";
 import { systemPresetConfig } from "./systemPresetConfig";
 import { useWorkspacePresets } from "./useWorkspacePresets";
 
-export type StylePresetCategory = "dialogueStyles" | "questStyles" | "walkTalkStyles" | "cameras" | "booleans" | "entityGetMethods";
+export type StylePresetCategory = "dialogueStyles" | "questStyles" | "walkTalkStyles" | "cameras" | "entityGetMethods";
 export interface StylePreset { id: string; label: string; value: string; showTitle?: boolean }
 export const stylePresetCategories: { key: StylePresetCategory; title: string }[] = [
   { key: "dialogueStyles", title: "对话类型" },
   { key: "questStyles", title: "任务样式" },
   { key: "walkTalkStyles", title: "边走边说类型" },
   { key: "cameras", title: "相机" },
-  { key: "booleans", title: "布尔值" },
   { key: "entityGetMethods", title: "实体获取方式" },
 ];
 
 export function supportsCustomStylePresets(category: StylePresetCategory) {
-  return category !== "booleans" && category !== "entityGetMethods";
+  return category !== "entityGetMethods";
 }
 
 export function createStylePreset(category: StylePresetCategory): StylePreset {
@@ -54,6 +53,8 @@ export function getStylePresetOptions(presets: StylePreset[]) {
 export function useStylePresets(category: StylePresetCategory) {
   const state = useWorkspacePresets<StylePreset>({
     fileName: `${category}.json`, defaults: () => systemPresetConfig[category].presets,
+    editableDefaults: supportsCustomStylePresets(category),
+    fixedFields: ["label"],
     encode: (presets: StylePreset[]) => encodeStylePresets(category, presets),
     decode: (raw: string) => decodeStylePresets(category, raw),
   });

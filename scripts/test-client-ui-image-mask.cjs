@@ -25,7 +25,7 @@ for(const origin of ['bottom','left','top','right']) {
   assert.match(imageFillMask({fillType:'radial360',fillRadialType:origin,fillAmount:0.5}),/180deg/);
 }
 const combined=imageFeatherPreview({enableMask:true,enableSoftEdge:true,reverseMaskArea:true,fillType:'radial360',fillAmount:0.25},100,100);
-assert.equal(combined.maskComposite,'subtract, intersect, intersect');
+assert.equal(combined.maskComposite,'intersect, intersect');
 assert.match(combined.maskImage,/conic-gradient/);
 assert.deepEqual(imageFeatherPreview({enableMask:false,fillType:'horizontal',fillAmount:0.5},100,100),{});
 assert.match(imageFeatherPreview({enableMask:true,enableSoftEdge:false,fillType:'horizontal',fillAmount:0.5},100,100).maskImage,/#000 50%/);
@@ -47,7 +47,8 @@ assert.deepEqual(imageFeatherPreview({...feather,enableSoftEdge:false},200,100),
 assert.match(imageFeatherPreview(feather,200,100).maskImage,/#000 10%/);
 assert.match(imageFeatherPreview({...feather,horizontalSoftRange:-213},200,100).maskImage,/#000 50%/);
 assert.match(imageFeatherPreview({...feather,softEdgeMode:'pixel',softEdgeWidthX:8,softEdgeWidthY:8},200,100).maskImage,/#000 4%/);
-assert.equal(imageFeatherPreview({...feather,reverseMaskArea:true},200,100).maskComposite,'subtract, intersect');
+assert.deepEqual(imageFeatherPreview({...feather,reverseMaskArea:true},200,100),imageFeatherPreview(feather,200,100),'reverse is applied after texture alpha, not to the feather gradients');
+assert.deepEqual(imageFeatherPreview({enableMask:true,reverseMaskArea:true},200,100),{},'texture-only masks must not be inverted to an empty rectangular gradient');
 assert.equal(feather.horizontalSoftRange,80);
 const values = {...controlRegistry.image.createProperties(), enableSoftEdge:true,softEdgeMode:'pixel',enableFill:true,fillType:'radial90',softEdgeWidthX:8,fillAmount:0.85};
 const keys = () => imageMaskFields(controlRegistry.image.fields,values).map(f=>f.key);
@@ -68,8 +69,10 @@ assert.equal(values.fillType,'radial360','disabling fill retains the selected sh
 values.enableMask=false;
 const saved=JSON.stringify(values); keys(); assert.equal(JSON.stringify(values),saved);
 assert.equal(values.softEdgeWidthX,8); assert.equal(values.fillAmount,0.85);
-const filename=path.join(dir,'ControlPropertiesInspector.vue');
-const {descriptor,errors}=parse(fs.readFileSync(filename,'utf8'),{filename}); assert.deepEqual(errors,[]);
-const script=compileScript(descriptor,{id:'mask-test'});
-assert.deepEqual(compileTemplate({source:descriptor.template.content,filename,id:'mask-test',compilerOptions:{bindingMetadata:script.bindings}}).errors,[]);
+for (const component of ['ControlPropertiesInspector.vue','SpriteImage.vue','CanvasMaskLayers.vue','ImageMaskCoverageFilter.vue']) {
+  const filename=path.join(dir,component);
+  const {descriptor,errors}=parse(fs.readFileSync(filename,'utf8'),{filename}); assert.deepEqual(errors,[]);
+  const script=compileScript(descriptor,{id:'mask-test'});
+  assert.deepEqual(compileTemplate({source:descriptor.template.content,filename,id:'mask-test',compilerOptions:{bindingMetadata:script.bindings}}).errors,[]);
+}
 console.log('PASS mask dependencies, both feather modes, five fill shapes, hidden value preservation and component compilation');

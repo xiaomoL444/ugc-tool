@@ -7,7 +7,7 @@
 - 场景记录世界、一级／二级区域、父级、ID 和连接点；ID 修改引起的引用更新一起恢复。场景示意图的临时位置不计入历史。
 - 镜头记录时长及全部嵌套参数、槽位、启用状态和输入草稿。
 - 边走边说记录新增、删除、顺序和全部台词字段，恢复保留原条目 ID。
-- 预设记录人物、技能动画、公共事件、各样式／相机以及多字段自定义配置。字段删除时，被清除的全部记录值一起恢复；系统类别上的自定义扩展也纳入历史。切换分类不会丢失历史，撤销／重做时自动显示被恢复的分类。系统预设保持只读。
+- 预设记录人物、技能动画、公共事件、各样式／相机以及多字段自定义配置，系统预设的值修改和自定义条目的增删改共同进入历史。系统代号／显示名称固定，系统条目不能新增或删除。字段删除时，被清除的全部记录值一起恢复；系统类别上的自定义扩展也纳入历史。切换分类不会丢失历史，撤销／重做时自动显示被恢复的分类。实体获取方式等固定协议选项保持只读；公共事件参数区的折叠状态不进入历史。
 - 工作区结构体 ID 弹窗记录手动填写、候选选择、读取 GIL 和恢复默认，撤回只修改弹窗草稿，保存后生效。
 
 恢复直接回放 JSON 快照，不重新运行加载迁移或导出校验，以保留未输完的数字、坐标和隐藏字段。编辑文档／预设的恢复结果进入原有自动保存队列；撤回也会替换尚未写出的旧快照，保存失败后仍可撤回或重做。
@@ -20,6 +20,6 @@
 
 `studioSessionHistory.ts` 协调内容命令和模块切换；`StudioEditorSession.vue` 保留已访问的模块并提供活动状态。`useStudioHistory.ts` 统一处理手势，将本地快照命令接入会话历史；独立使用编辑器时仍有本地历史。普通 JSON 文档使用 `useStudioDocumentHistory`，加载／导入／删除替换数据时必须先置 `blocked`，成功替换自动重置基线。对话通过 `useDialogueHistory` 使用去除 Vue Flow 瞬时状态的序列化器。结构体 ID 弹窗的草稿历史使用 `session: false`，与背景会话隔离。
 
-预设持久化仍统一使用 `useWorkspacePresets`。子组件创建的预设自动向 `useWorkspacePresetHistory` 注册；在提供历史上下文的组件本身创建的预设需调用 `register(fileName, presets, ready)`，因为 Vue 的 `inject` 只读取祖先。新增分类需将其工作区文件名映射到导航分类，离开前完成手势并刷新所有保存队列。
+预设持久化仍统一使用 `useWorkspacePresets`。`presets` 保留系统值与自定义项组成的完整历史状态，界面分别通过 `systemPresets` 和可写的 `customPresets` 展示；存盘时将系统值覆盖与自定义项分开记录，不把筛选视图单独注册为历史。子组件创建的预设自动向 `useWorkspacePresetHistory` 注册；在提供历史上下文的组件本身创建的预设需调用 `register(fileName, presets, ready)`，因为 Vue 的 `inject` 只读取祖先。新增分类需将其工作区文件名映射到导航分类，离开前完成手势并刷新所有保存队列。
 
 回归入口：`node scripts/test-dsfg-history.cjs`、`node scripts/test-dsfg-studio-history.cjs`、`node scripts/test-dsfg-session-history.cjs`、`node scripts/test-dsfg-preset-cache.cjs`。浏览器回归为 `scripts/test-dsfg-module-history-browser.cjs`，使用隔离的浏览器存储。

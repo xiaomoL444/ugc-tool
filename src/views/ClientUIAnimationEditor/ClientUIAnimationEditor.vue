@@ -88,9 +88,14 @@
             <div class="safe-area"></div>
             <svg class="canvas-image-mask-defs" :width="canvasWidth" :height="canvasHeight" aria-hidden="true">
               <defs>
-                <mask v-for="mask in renderImageMasks" :key="mask.id" :id="mask.id" x="0" y="0" :width="canvasWidth" :height="canvasHeight" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" style="mask-type: alpha">
+                <mask v-for="mask in renderImageMasks" :key="mask.id" :id="mask.id" x="0" y="0" :width="canvasWidth" :height="canvasHeight" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" :style="{ maskType: mask.node.properties.reverseMaskArea ? 'luminance' : 'alpha' }">
+                  <ImageMaskCoverageFilter v-if="mask.node.properties.reverseMaskArea" :id="`${mask.id}-coverage`" :width="mask.node.width" :height="mask.node.height" />
                   <g :transform="mask.transform">
-                    <SpriteImage :asset="getImageAsset(mask.node.properties.imageId)" :width="mask.node.width" :height="mask.node.height" :image-type="mask.node.properties.imageType" :mask-properties="mask.node.properties" :color="{ r: 255, g: 255, b: 255, a: 1 }" :style="{ width: `${mask.node.width}px`, height: `${mask.node.height}px` }" />
+                    <!-- Cut out every covered pixel, only inside the control's transformed rectangle. -->
+                    <rect v-if="mask.node.properties.reverseMaskArea" x="0" y="0" :width="mask.node.width" :height="mask.node.height" fill="white" />
+                    <g :filter="mask.node.properties.reverseMaskArea ? `url(#${mask.id}-coverage)` : undefined">
+                      <SpriteImage :asset="getImageAsset(mask.node.properties.imageId)" :width="mask.node.width" :height="mask.node.height" :image-type="mask.node.properties.imageType" :mask-properties="mask.node.properties" :apply-mask-reverse="false" :color="mask.node.properties.reverseMaskArea ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 }" :style="{ width: `${mask.node.width}px`, height: `${mask.node.height}px` }" />
+                    </g>
                   </g>
                 </mask>
               </defs>
@@ -377,6 +382,7 @@ import ImageControlSettings from "./ImageControlSettings.vue";
 import ImageAssetLibrary from "./ImageAssetLibrary.vue";
 import SpriteImage from "./SpriteImage.vue";
 import CanvasMaskLayers from "./CanvasMaskLayers.vue";
+import ImageMaskCoverageFilter from "./ImageMaskCoverageFilter.vue";
 import { buildCanvasMaskLayers, canvasImageMaskId, canvasImageMaskTransform } from "./canvasMasks";
 import { buildTweenTimelineDataLua, buildTweenTimelineLibLua, TWEEN_TIMELINE_LIB_VERSION } from "./luaTweenExporter";
 import { applyTweenEase, getTweenableField, getTweenableFields, getGroupAlphaColorFields, getTweenGroupNodes, getTweenTrackConflict, getTweenRelativeLabel, GROUP_ALPHA_FIELD_KEY, GROUP_ALPHA_MAX, isRelativeTweenField, isTweenEaseType, tweenEaseOptions } from "./tweenRegistry";

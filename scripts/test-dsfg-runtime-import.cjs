@@ -51,6 +51,52 @@ async function main() {
       assert.equal(imported.unassignedChapterId, -42); assert.equal(imported.subQuests[0].id, 199);
       assert.deepEqual(qe.exportQuestVariables(imported).value, output.value);
     });
+    function questRows(value, structId) {
+      const rows = [];
+      function visit(current) {
+        if (!current || typeof current !== 'object') return;
+        if (current.type === 'Struct' && current.structId === structId) rows.push(current.value);
+        else Object.values(current).forEach(visit);
+      }
+      visit(value); return rows;
+    }
+    await test('Quest map guide booleans survive runtime import, editor reopen and export with custom IDs', () => {
+      const p = qm.createQuestProject(); customIds(p);
+      const main = qm.createQuestMain(p);
+      const guided = qm.createQuestSub(p, main.id); guided.id = 199; guided.showGuide = true;
+      const hidden = qm.createQuestSub(p, main.id); hidden.id = 100; hidden.showGuide = false;
+      const output = qe.exportQuestVariables(p), imported = qi(output.json);
+      assert.deepEqual(imported.subQuests.map(sub => [sub.id, sub.showGuide]), [[100, false], [199, true]]);
+      assert.deepEqual(questRows(output.value, p.structIds.subQuest).map(row => row[13]), [
+        { param_type: 'Bool', value: 'False' }, { param_type: 'Bool', value: 'True' },
+      ]);
+      const reopened = qm.decodeQuestProject(qm.encodeQuestProject(imported));
+      assert.deepEqual(reopened, imported);
+      assert.deepEqual(qe.exportQuestVariables(reopened).value, output.value);
+      for (const invalid of ['true', 'false', '1', '', 0, 1, true, false, null, {}]) {
+        const malformed = JSON.parse(output.json);
+        questRows(malformed, p.structIds.subQuest)[0][13].value = invalid;
+        assert.throws(() => qi(JSON.stringify(malformed)), /布尔值|Bool/);
+      }
+      const wrongType = JSON.parse(output.json);
+      questRows(wrongType, p.structIds.subQuest)[0][13].param_type = 'Int32';
+      assert.throws(() => qi(JSON.stringify(wrongType)), /Bool/);
+    });
+    await test('Legacy Quest runtime rows omit only trailing showGuide and backfill true', () => {
+      const p = qm.createQuestProject(); customIds(p);
+      const main = qm.createQuestMain(p); qm.createQuestSub(p, main.id); qm.createQuestSub(p, main.id);
+      const output = qe.exportQuestVariables(p), old = JSON.parse(output.json);
+      const rows = questRows(old, p.structIds.subQuest); assert.equal(rows.length, 2);
+      rows.forEach(fields => { assert.equal(fields.length, 14); fields.pop(); });
+      const imported = qi(JSON.stringify(old));
+      assert.deepEqual(imported.subQuests.map(sub => sub.showGuide), [true, true]);
+      assert.deepEqual(qe.exportQuestVariables(qm.decodeQuestProject(qm.encodeQuestProject(imported))).value, output.value);
+      rows[0].pop();
+      assert.throws(() => qi(JSON.stringify(old)), /字段数量/);
+      const missingMiddle = JSON.parse(output.json);
+      questRows(missingMiddle, p.structIds.subQuest)[0].splice(6, 1);
+      assert.throws(() => qi(JSON.stringify(missingMiddle)), /需要 Float/);
+    });
     await test('Empty runtime configurations import without manufacturing rows', () => {
       assert.equal(wi(we.exportWalkTalk(wm.createWalkTalkProject()).json).entries.length, 0);
       assert.equal(qi(qe.exportQuestVariables(qm.createQuestProject()).json).subQuests.length, 0);
@@ -107,6 +153,49 @@ async function main() {
       const codec = load('DialogueEditor/utils/dialogueProjectCodec.ts');
       const reopened = codec.decodeDialogueProject(codec.encodeDialogueProject(imported));
       assert.deepEqual(canonical(de.exportQxqyPerformance(reopened).value), canonical(output.value));
+    });
+    await test('Public Bool parameters survive runtime import, editor reopen and export with custom ActionClip IDs', () => {
+      const p = dm.createEmptyDialogueProject(), group = node(p, 'bool-events');
+      p.exportSettings.qxqyStructIds.actionClip = '88776655';
+      edge(p, p.dialogue.entryNodeId, group.id, 'output');
+      const line = dm.createPerformanceLine('PublicEvent'), clip = dm.createPerformanceClip('PublicEvent', 0.5);
+      clip.components[0].properties.value = 'NOLOC_BoolEvent';
+      clip.components[0].properties.parameters = ['True', 'False', 'True'].map((value, i) => ({ id: 'bool-' + i, name: '开关 ' + i, type: 'Bool', value }));
+      line.clips.push(clip); group.lines.push(line);
+      const output = de.exportQxqyPerformance(p), imported = di(output.json).project;
+      assert.equal(imported.exportSettings.qxqyStructIds.actionClip, '88776655');
+      const args = Object.values(imported.dialogue.nodes).flatMap(n => n.lines).find(line => line.type === 'PublicEvent').clips[0].components[0].properties.parameters;
+      assert.deepEqual(args.map(arg => [arg.type, arg.value]), [['Bool', 'True'], ['Bool', 'False'], ['Bool', 'True']]);
+      const codec = load('DialogueEditor/utils/dialogueProjectCodec.ts');
+      const reopened = codec.decodeDialogueProject(codec.encodeDialogueProject(imported));
+      assert.deepEqual(canonical(de.exportQxqyPerformance(reopened).value), canonical(output.value));
+      const malformed = JSON.parse(output.json);
+      function editActions(value, edit) {
+        if (!value || typeof value !== 'object') return;
+        if (value.type === 'Struct' && value.structId === '88776655') edit(value.value);
+        else for (const child of Object.values(value)) editActions(child, edit);
+      }
+      editActions(malformed, fields => { if (fields[8].value.length) fields[8].value[0] = '1'; });
+      assert.throws(() => di(JSON.stringify(malformed)), /布尔值/);
+      editActions(malformed, fields => { fields[8].param_type = 'Int32List'; });
+      assert.throws(() => di(JSON.stringify(malformed)), /需要 BoolList/);
+    });
+    await test('Legacy ActionClips omit only trailing boolParams; other incomplete schemas still fail', () => {
+      const p = dm.createEmptyDialogueProject(), group = node(p, 'old-events');
+      edge(p, p.dialogue.entryNodeId, group.id, 'output');
+      const line = dm.createPerformanceLine('PublicEvent'), clip = dm.createPerformanceClip('PublicEvent', 0);
+      clip.components[0].properties.value = 'NOLOC_OldEvent'; line.clips.push(clip); group.lines.push(line);
+      const output = de.exportQxqyPerformance(p), old = JSON.parse(output.json);
+      const actions = [];
+      function removeBools(value) {
+        if (!value || typeof value !== 'object') return;
+        if (value.type === 'Struct' && value.structId === p.exportSettings.qxqyStructIds.actionClip) { value.value.pop(); actions.push(value); }
+        else for (const child of Object.values(value)) removeBools(child);
+      }
+      removeBools(old); assert.ok(actions.length >= 2);
+      assert.deepEqual(canonical(de.exportQxqyPerformance(di(JSON.stringify(old)).project).value), canonical(output.value));
+      actions[0].value.pop();
+      assert.throws(() => di(JSON.stringify(old)), /字段数量/);
     });
     await test('Condition branches and FocusPush rebuild per-outlet indices', () => {
       const p = dm.createEmptyDialogueProject(), n = node(p, 'n'); n.focusPush = dm.createFocusPushClip(0.5);
@@ -193,7 +282,11 @@ async function main() {
           entity: '测试实体', attachmentPoint: 'Head', offset: '-1.5,2,3', requiresClientPos: true });
         cameraNode.lines[0].clips.push(cameraClip);
         const dialogueOutput = de.exportQxqyPerformance(dialogueSource);
-        const text = kind === 'Dialogue' ? dialogueOutput.json : kind === 'Quest' ? qe.exportQuestVariables(qm.createQuestProject()).json : we.exportWalkTalk(wm.createWalkTalkProject()).json;
+        const questSource = qm.createQuestProject(), questMain = qm.createQuestMain(questSource);
+        qm.createQuestSub(questSource, questMain.id).showGuide = true;
+        qm.createQuestSub(questSource, questMain.id).showGuide = false;
+        const questOutput = qe.exportQuestVariables(questSource);
+        const text = kind === 'Dialogue' ? dialogueOutput.json : kind === 'Quest' ? questOutput.json : we.exportWalkTalk(wm.createWalkTalkProject()).json;
         await context.runImport({ name: 'runtime.json', size: text.length, text: async () => text });
         assert.ok(project.value); assert.equal(busy.value, false); assert.equal(files.size, 1);
         const outputPath = [...files.keys()][0]; assert.ok(outputPath.startsWith('/captured/'));
@@ -205,6 +298,11 @@ async function main() {
           assert.equal(restoredShot.cameraViewpointEnabled, true);
           assert.equal(restoredShot.properties.positionData.orbitRadius, 7.75);
           assert.equal(restoredShot.properties.rotationData.slot[0].guid, '18446744073709551615');
+        }
+        if (kind === 'Quest') {
+          const persisted = qm.decodeQuestProject(files.get(outputPath));
+          assert.deepEqual(persisted.subQuests.map(sub => sub.showGuide), [true, false]);
+          assert.deepEqual(qe.exportQuestVariables(persisted).value, questOutput.value);
         }
         assert.equal(messages.length, 1);
         const previous = project.value;

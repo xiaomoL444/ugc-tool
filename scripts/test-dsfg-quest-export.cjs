@@ -276,7 +276,7 @@ async function main() {
       assert.deepEqual(keys(result.chapters), [7]); assert.deepEqual(keys(result.mains), [21]);
       assert.equal(values(result.mains)[0].value.chapter.value, "7");
       const value = values(values(result.subs)[0])[0];
-      assert.deepEqual(Object.keys(value.value), ["id", "mainQuestId", "title", "desc", "任务单位状态", "pos", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress", "belondPrimaryId"]);
+      assert.deepEqual(Object.keys(value.value), ["id", "mainQuestId", "title", "desc", "任务单位状态", "pos", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress", "belondPrimaryId", "showGuide"]);
       assert.equal(value.value["mainQuestId"].type, "Int32"); assert.equal(value.value["mainQuestId"].value, "21");
       assert.equal(value.value["title"].value, sub.title); assert.equal(value.value["desc"].value, sub.description);
       assert.equal(value.value["任务单位状态"].value, sub.unitState);
@@ -287,21 +287,23 @@ async function main() {
       assert.equal(slot.type, "Vector3");
       assert.equal(slot.value, sub.investigationPoint);
     });
-    test("new sub fields use exact source types/defaults and preserve the thirteen-field order", () => {
+    test("new sub fields use exact source types/defaults and preserve the fourteen-field order", () => {
       const project = source();
       const definition = require(path.join(assetDirectory, "1077936145[任务]子任务.json"));
       assert.deepEqual(definition.value.map((field) => [field.key, field.param_type]), [
         ["id", "Int32"], ["mainQuestId", "Int32"], ["title", "String"], ["desc", "String"], ["任务单位状态", "ConfigReference"],
         ["pos", "Vector3"], ["调查点范围", "Float"], ["隐藏任务", "Bool"], ["后续任务", "Int32List"],
-        ["失败回溯任务", "Int32"], ["finishMainQuest", "Bool"], ["questProgress", "Int32"], ["belondPrimaryId", "Int32"],
+        ["失败回溯任务", "Int32"], ["finishMainQuest", "Bool"], ["questProgress", "Int32"], ["belondPrimaryId", "Int32"], ["showGuide", "Bool"],
       ]);
-      assert.deepEqual(definition.value.slice(9).map((field) => field.value.value), ["-1", "False", "0", "0"]);
+      assert.deepEqual(definition.value.slice(9).map((field) => field.value.value), ["-1", "False", "0", "0", "True"]);
       const sub = project.subQuests[0];
       assert.equal(sub.failureQuestId, -1); assert.equal(sub.finishMainQuest, false); assert.equal(sub.questProgress, 0);
+      assert.equal(sub.showGuide, true);
       const { subs, result } = exported(project);
       const value = values(values(subs)[0])[0];
       assert.deepEqual(Object.keys(value.value), definition.value.map((field) => field.key));
       assert.equal(value.value["失败回溯任务"].value, "-1"); assert.equal(value.value.finishMainQuest.value, "False"); assert.equal(value.value.questProgress.value, "0");
+      assert.equal(value.value.showGuide.type, "Bool"); assert.equal(value.value.showGuide.value, "True");
       assert.deepEqual(result.warnings.filter((warning) => /失败回溯/.test(warning)), []);
     });
     test("old sub documents backfill only missing new fields without changing IDs, references or existing values", () => {
@@ -316,6 +318,21 @@ async function main() {
       assert.deepEqual(decoded, expected); assert.equal(JSON.stringify(project), raw);
       assert.deepEqual(decodeQuestProject(encodeQuestProject(decoded)), decoded);
       assert.deepEqual(decoded.subQuests.map((sub) => sub.id), [199, 1, 2]);
+    });
+    test("missing map guide defaults to true while saved true and false values survive reopen and export", () => {
+      const project = source(3);
+      project.subQuests[0].id = 199; project.subQuests[0].nextQuestIds = [null, 1, 2];
+      delete project.subQuests[0].showGuide;
+      project.subQuests[1].showGuide = true; project.subQuests[2].showGuide = false;
+      const raw = JSON.stringify(project), expected = JSON.parse(raw);
+      expected.subQuests[0].showGuide = true;
+      const decoded = decodeQuestProject(raw);
+      assert.deepEqual(decoded, expected); assert.equal(JSON.stringify(project), raw);
+      const reopened = decodeQuestProject(encodeQuestProject(decoded));
+      assert.deepEqual(reopened, decoded);
+      const { subs } = exported(reopened);
+      const guides = values(subs).flatMap(value => values(value)).map(sub => [sub.value.id.value, sub.value.showGuide.value]);
+      assert.deepEqual(guides, [["1", "True"], ["2", "False"], ["199", "True"]]);
     });
     test("custom IDs and cross-bucket rollback references export global IDs with literal title/desc", () => {
       const project = source(2);
@@ -362,6 +379,7 @@ async function main() {
       const cases = {
         failureQuestId: ["1", true, {}, 1.5, 2147483648, -2147483649, NaN, Infinity],
         finishMainQuest: ["False", "True", 0, 1, null, {}],
+        showGuide: ["False", "True", 0, 1, null, {}, [], undefined],
         questProgress: ["1", true, null, {}, 1.5, 2147483648, -2147483649, NaN, Infinity],
       };
       for (const [field, invalid] of Object.entries(cases)) for (const value of invalid) {
@@ -369,7 +387,7 @@ async function main() {
         assert.ok(validateQuestProject(project).length, `${field}: ${String(value)}`);
         assert.ok(validateQuestProject(project, { allowDraftValues: true }).length);
         assert.throws(() => exportQuestVariables(project));
-        if (typeof value !== "number" || Number.isFinite(value)) assert.throws(() => decodeQuestProject(JSON.stringify(project)));
+        if (value !== undefined && (typeof value !== "number" || Number.isFinite(value))) assert.throws(() => decodeQuestProject(JSON.stringify(project)));
       }
       const project = source(2); project.subQuests[0].failureQuestId = 0; project.subQuests[1].failureQuestId = -2147483648;
       const { subs } = exported(project);
@@ -555,15 +573,15 @@ async function main() {
       assert.equal(chapters.itemCount, 1); assert.equal(values(mains)[0].value.chapter.value, "-42");
       assert.equal(project.mainQuests[0].chapterId, null);
     });
-    test("main quest factories and source definitions use id/chapter/title/style with Mainline default", () => {
+    test("main quest factories and source definitions use id/chapter/title/style with NOLOC_Mainline default", () => {
       const project = source();
-      assert.equal(project.mainQuests[0].style, "Mainline");
-      assert.equal(createQuestMain(project).style, "Mainline");
+      assert.equal(project.mainQuests[0].style, "NOLOC_Mainline");
+      assert.equal(createQuestMain(project).style, "NOLOC_Mainline");
       const definition = require(path.join(assetDirectory, "1077936166[任务]主任务.json"));
       assert.deepEqual(definition.value.map((field) => [field.key, field.param_type]), [
         ["id", "Int32"], ["chapter", "Int32"], ["title", "String"], ["style", "String"],
       ]);
-      assert.equal(definition.value[3].value.value, "Mainline");
+      assert.equal(definition.value[3].value.value, "NOLOC_Mainline");
       const { chapters, mains } = exported(project);
       const main = values(mains)[0];
       assert.deepEqual(Object.keys(main.value), ["id", "chapter", "title", "style"]);
@@ -571,7 +589,7 @@ async function main() {
       assert.equal(main.value.title.type, "String");
       assert.equal(main.value.title.value, project.mainQuests[0].title);
       assert.equal(main.value.style.type, "String");
-      assert.equal(main.value.style.value, "Mainline");
+      assert.equal(main.value.style.value, "NOLOC_Mainline");
       assert.deepEqual(Object.keys(values(chapters)[0].value), ["id", "标题"], "Chapter title must not be renamed with main quest fields");
       assert.equal(values(chapters)[0].value["标题"].value, project.chapters[0].title);
     });
@@ -586,12 +604,12 @@ async function main() {
       project.subQuests[2].nextQuestIds = [0];
       const before = JSON.stringify(project);
       const expected = JSON.parse(before);
-      expected.mainQuests[0].style = "Mainline";
+      expected.mainQuests[0].style = "NOLOC_Mainline";
       expected.subQuests[0].nextQuestIds = [];
       const restored = decodeQuestProject(before);
       assert.deepEqual(restored, expected);
       assert.equal(restored.schemaVersion, 1);
-      assert.deepEqual(restored.mainQuests.map((main) => main.style), ["Mainline", "自定义任务样式", ""]);
+      assert.deepEqual(restored.mainQuests.map((main) => main.style), ["NOLOC_Mainline", "自定义任务样式", ""]);
       assert.equal(JSON.stringify(project), before);
       assert.deepEqual(validateQuestProject(restored), []);
       assert.deepEqual(decodeQuestProject(encodeQuestProject(restored)), restored);
@@ -600,7 +618,7 @@ async function main() {
     test("main styles preserve default, empty and custom Unicode strings through codec and real export", () => {
       const project = source();
       createQuestMain(project); createQuestMain(project); createQuestMain(project);
-      const styles = ["Mainline", "", "支线任务·夜色🌙", "  Custom_UI  "];
+      const styles = ["NOLOC_Mainline", "", "支线任务·夜色🌙", "  Custom_UI  "];
       project.mainQuests.forEach((main, index) => { main.style = styles[index]; main.title = `主任务标题 ${index}`; });
       const before = JSON.stringify(project);
       const restored = decodeQuestProject(encodeQuestProject(project));
@@ -623,7 +641,7 @@ async function main() {
       }
       const missing = source(); delete missing.mainQuests[0].style;
       assert.ok(validateQuestProject(missing).some((error) => /样式|style/.test(error)));
-      assert.equal(decodeQuestProject(encodeQuestProject(missing)).mainQuests[0].style, "Mainline");
+      assert.equal(decodeQuestProject(encodeQuestProject(missing)).mainQuests[0].style, "NOLOC_Mainline");
     });
     test("custom main struct IDs retain the chapter sentinel and exact custom style without mutation", () => {
       const project = createQuestProject();

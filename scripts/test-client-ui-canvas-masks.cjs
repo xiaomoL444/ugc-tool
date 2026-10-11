@@ -1,4 +1,4 @@
-/* Run against the dev server: node scripts/test-client-ui-canvas-masks.cjs [playwright module] [browser executable] [native.gia] */
+/* Run against the dev server: node scripts/test-client-ui-canvas-masks.cjs [playwright module] [browser executable] [native.gia]. Override CLIENT_UI_TEST_URL when needed. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -42,11 +42,26 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 2200, height: 1300 } });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto('http://localhost:8080/ClientUIAnimationEditor');
+    await page.route('**/Public/CustomUIImage/data.json?*', route => route.fulfill({ json: {
+      imageData: Object.fromEntries([100001,100002,100003,100004,100005].map(id => [id, { id, img: `fixture-${id}.png`, border: '' }])),
+      category: { '1': { id: 1, images: [100001,100002,100003,100004,100005] } },
+    } }));
+    await page.route('**/ClientUIAnimationEditor/i18n/*.json?*', route => route.fulfill({ json: {} }));
+    await page.route('**/Public/CustomUIImage/fixture-*.png', route => {
+      const id = Number(route.request().url().match(/fixture-(\d+)\.png/)[1]);
+      const circleOpacity = id === 100004 ? .5 : id === 100005 ? 1 / 255 : 1;
+      const shape = [100002,100004,100005].includes(id) ? `<circle cx="50" cy="50" r="50" opacity="${circleOpacity}" />` : id === 100003 ? '<path d="M50 0L100 100H0Z" />' : '<rect width="100" height="100" />';
+      return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" fill="white">${shape}</svg>` });
+    });
+    await page.goto(process.env.CLIENT_UI_TEST_URL || 'http://localhost:8080/ClientUIAnimationEditor');
     await page.waitForSelector('.animation-editor');
     await page.waitForFunction(() => document.querySelector('.animation-editor').__vueParentComponent.setupState.archive.ready.value);
+    await page.waitForFunction(() => document.querySelector('.animation-editor').__vueParentComponent.setupState.getImageAsset(100005));
     await page.evaluate(async () => {
       const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      // Fixed catalog fixtures keep pixel checks independent of remote images.
+      for (const id of [100001,100002,100003,100004,100005]) s.getImageAsset(id).metadata = { width: 100, height: 100, left: 0, bottom: 0, right: 0, top: 0, pixelsPerUnit: 1 };
+      await Promise.all([100004,100005].map(async id => { const texture = new Image(); texture.src = s.getImageAsset(id).src; await texture.decode(); }));
       await s.archive.createWorkspace('遮罩回归');
       const root = s.makeRootContainer(1600, 900, 'root');
       const circle = s.makeNode('image', 'circle', { id: 'circle', parentId: 'root', x: 800, y: 450, width: 100, height: 100, properties: { imageId: 100002, imageColor: { r: 255, g: 255, b: 255, a: 0 }, enableMask: true } });
@@ -58,21 +73,121 @@ async function main() {
     });
     await page.waitForTimeout(1200);
     const stage = page.locator('.canvas-stage');
-    async function redAt(points) {
+    if (process.env.CLIENT_UI_MASK_SCREENSHOT) await stage.screenshot({ path: process.env.CLIENT_UI_MASK_SCREENSHOT });
+    async function pixelsAt(points) {
       const png = await stage.screenshot();
       return page.evaluate(async ({ png, points }) => {
         const image = new Image(); image.src = 'data:image/png;base64,' + png; await image.decode();
         const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
         const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0);
         return points.map(([x, y]) => {
-          const rgba = ctx.getImageData(Math.round((800 + x) / 1600 * image.width), Math.round((450 - y) / 900 * image.height), 1, 1).data;
-          return rgba[0] > 240 && rgba[1] < 15 && rgba[2] < 15;
+          return Array.from(ctx.getImageData(Math.round((800 + x) / 1600 * image.width), Math.round((450 - y) / 900 * image.height), 1, 1).data);
         });
       }, { png: png.toString('base64'), points });
+    }
+    async function redAt(points) {
+      return (await pixelsAt(points)).map(rgba => rgba[0] > 240 && rgba[1] < 15 && rgba[2] < 15);
     }
     assert.deepEqual(await redAt([[0, 0], [45, 45], [35, 25]]), [true, false, true], 'transparent circular parent clips overflowing child pixels');
     await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'triangle').properties.enableMask = true; });
     assert.deepEqual(await redAt([[0, -10], [35, 25], [45, 45]]), [true, false, false], 'nested triangle and circle masks intersect');
+    const maskBaseline = await page.evaluate(() => {
+      const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      return JSON.stringify(s.nodes.filter(n => n.id === 'circle' || n.id === 'triangle' || n.id === 'fill'));
+    });
+    await page.evaluate(() => {
+      const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      s.nodes.find(n => n.id === 'triangle').properties.enableMask = false;
+      const properties = s.nodes.find(n => n.id === 'circle').properties;
+      Object.assign(properties, { reverseMaskArea: true, enableSoftEdge: false, enableFill: false });
+    });
+    assert.deepEqual(await redAt([[0, 0], [45, 45], [75, 0]]), [false, true, false], 'inverting the final texture mask reveals transparent corners within the control rectangle and clips overflowing descendants');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').rotation = 45; });
+    // [65, 0] is inside the rotated square and outside the circle; [65, 40] is only inside its axis-aligned bounds.
+    assert.deepEqual(await redAt([[65, 0], [65, 40]]), [true, false], 'the inverted mask is bounded by its rotated rectangle, not an unrotated rectangle or axis-aligned bounding box');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').scaleX = -1; });
+    assert.deepEqual(await redAt([[65, 0], [65, 40]]), [true, false], 'reflection preserves the rotated rectangle and inverted texture bounds');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; const n = s.nodes.find(n => n.id === 'circle'); n.rotation = 0; n.scaleX = 1; });
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'triangle').properties.enableMask = true; });
+    assert.deepEqual(await redAt([[0, -10], [40, -40], [45, 45], [75, 0]]), [false, true, false, false], 'an ordinary nested triangle intersects the inverted circle, including its transparent texture contour');
+    await page.evaluate(() => {
+      const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      s.nodes.find(n => n.id === 'triangle').properties.enableMask = false;
+      Object.assign(s.nodes.find(n => n.id === 'circle').properties, {
+        enableFill: true, fillType: 'horizontal', fillHorizontalType: 'left', fillAmount: .5,
+        enableSoftEdge: true, softEdgeMode: 'pixel', softEdgeWidthX: 20, softEdgeWidthY: 20,
+      });
+    });
+    assert.deepEqual(await redAt([[-20, 0], [20, 0], [-45, 45], [75, 0]]), [false, true, true, false], 'texture alpha, horizontal fill and feathering are combined before inversion within the control rectangle');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'fill').visible = false; });
+    const [featherBackground] = await pixelsAt([[-40, 0]]);
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'fill').visible = true; });
+    const [hidden, feathered, visible] = await pixelsAt([[-20, 0], [-40, 0], [20, 0]]);
+    assert.deepEqual(feathered, featherBackground, `inverse feathering completely cuts out every nonzero feather alpha: ${JSON.stringify({featherBackground, feathered})}`);
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').properties.reverseMaskArea = false; });
+    const [normalVisible, normalFeathered, normalHidden] = await pixelsAt([[-20, 0], [-40, 0], [20, 0]]);
+    assert.ok(normalFeathered[1] > normalVisible[1] + 40 && normalFeathered[1] < normalHidden[1] - 40, `ordinary masking preserves the feather alpha transition: ${JSON.stringify({normalVisible, normalFeathered, normalHidden})}`);
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').properties.reverseMaskArea = true; });
+    await page.evaluate(() => {
+      const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      const n = s.nodes.find(n => n.id === 'circle');
+      n.properties.enableSoftEdge = false; n.anchorOffsetX += 130; n.rotation = 90; s.applyNodeLayout(n);
+    });
+    assert.deepEqual(await redAt([[0, 0], [130, -20], [130, 20], [175, 45], [205, 0]]), [false, false, true, true, false], 'the asymmetric inverted mask moves and rotates with its descendants while clipping beyond its rectangle');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').properties.reverseMaskArea = false; });
+    assert.deepEqual(await redAt([[130, -20], [130, 20], [175, 45]]), [true, false, false], 'turning inversion off restores the ordinary rotated texture and fill mask');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').properties.enableMask = false; });
+    assert.deepEqual(await redAt([[130, -20], [130, 20], [175, 45], [205, 0]]), [true, true, true, true], 'turning masking off restores the entire descendant including pixels beyond the control rectangle');
+    await page.evaluate(baseline => {
+      const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      JSON.parse(baseline).forEach(node => Object.assign(s.nodes.find(n => n.id === node.id), node));
+      const circle = s.nodes.find(n => n.id === 'circle');
+      circle.sizeDeltaX = 240; circle.sizeDeltaY = 80; s.applyNodeLayout(circle);
+      Object.assign(circle.properties, { reverseMaskArea: true, enableSoftEdge: false, enableFill: false });
+      const triangle = s.nodes.find(n => n.id === 'triangle');
+      triangle.properties.enableMask = false; s.applyNodeLayout(triangle);
+      const fill = s.nodes.find(n => n.id === 'fill');
+      fill.anchorOffsetX = 80; fill.anchorOffsetY = -30; s.applyNodeLayout(fill);
+    }, maskBaseline);
+    assert.deepEqual(await redAt([[110, -30], [130, -30], [80, -60], [80, -20]]), [true, false, false, false], 'a child shifted right and down is clipped to its long rectangular parent while the inverted ellipse reveals only corners within that rectangle');
+    await page.evaluate(baseline => {
+      const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      JSON.parse(baseline).forEach(node => Object.assign(s.nodes.find(n => n.id === node.id), node));
+      const circle = s.nodes.find(n => n.id === 'circle');
+      Object.assign(circle.properties, { reverseMaskArea: true, enableSoftEdge: false, enableFill: false });
+      s.nodes.find(n => n.id === 'triangle').properties.enableMask = false;
+    }, maskBaseline);
+    const [maskBackground] = await pixelsAt([[0, 0]]);
+    function assertRedMix(pixel, opacity, message) {
+      const expected = maskBackground.slice(0, 3).map((channel, i) => channel * (1 - opacity) + (i === 0 ? 255 : 0) * opacity);
+      assert.ok(expected.every((channel, i) => Math.abs(pixel[i] - channel) <= 3), `${message}: ${JSON.stringify({ pixel, expected })}`);
+    }
+    await page.evaluate(() => {
+      const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      Object.assign(s.nodes.find(n => n.id === 'circle').properties, { imageId: 100004, reverseMaskArea: false });
+    });
+    assertRedMix((await pixelsAt([[0, 0]]))[0], .5, 'ordinary masking preserves a half-transparent texture alpha');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').properties.reverseMaskArea = true; });
+    assert.deepEqual((await pixelsAt([[0, 0]]))[0], maskBackground, 'a half-transparent texture completely cuts out inverted descendant pixels');
+    assert.deepEqual(await redAt([[45, 45], [75, 0]]), [true, false], 'transparent texture corners remain fully visible only within the inverted control rectangle');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').properties.imageId = 100005; });
+    assert.deepEqual((await pixelsAt([[0, 0]]))[0], maskBackground, 'even texture alpha 1/255 cuts out descendants completely without residual color');
+    await page.evaluate(() => {
+      const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      s.nodes.find(n => n.id === 'fill').visible = false;
+      Object.assign(s.nodes.find(n => n.id === 'circle').properties, { imageId: 100004, imageColor: { r: 255, g: 0, b: 0, a: 1 } });
+    });
+    assert.deepEqual((await pixelsAt([[0, 0]]))[0], maskBackground, 'the half-transparent image itself is completely hidden inside its inverted contour');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').properties.imageId = 100002; });
+    assertRedMix((await pixelsAt([[0, 0]]))[0], 0, 'an opaque circle also hides its own image inside the inverted contour');
+    await page.evaluate(() => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.nodes.find(n => n.id === 'circle').properties.enableMask = false; });
+    assertRedMix((await pixelsAt([[0, 0]]))[0], 1, 'disabling the mask restores the original image itself');
+    await page.evaluate(baseline => {
+      const s = document.querySelector('.animation-editor').__vueParentComponent.setupState;
+      JSON.parse(baseline).forEach(node => Object.assign(s.nodes.find(n => n.id === node.id), node));
+    }, maskBaseline);
+    assert.deepEqual(await redAt([[0, -10], [35, 25], [45, 45]]), [true, false, false], 'inversion cases restore the original nested masks for selection regressions');
+    console.log('PASS actual inverted-mask pixels: binary texture/feather cutout, control rectangle bounds, nested intersection, fill composition, movement, rotated bounds, shifted child in a long parent, alpha 1/255, own image, ordinary alpha/feather preservation and disabling');
     async function checkSelection(id) {
       await page.evaluate(id => { const s = document.querySelector('.animation-editor').__vueParentComponent.setupState; s.selectedId = id; s.canvasTool = 'combined'; }, id);
       assert.equal(await page.locator('.canvas-selection .selection-corner').count(), 4);

@@ -72,6 +72,15 @@
             "value" : [ 
             ]
          }
+      },
+      {
+         "key" : "boolParams",
+         "param_type" : "BoolList",
+         "value" : {
+            "param_type" : "BoolList",
+            "value" : [
+            ]
+         }
       }
    ]
 }

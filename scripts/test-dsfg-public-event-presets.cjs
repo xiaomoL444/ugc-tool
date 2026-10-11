@@ -19,8 +19,10 @@ Module._extensions['.ts'] = (module, file) => module._compile(ts.transpileModule
 
 async function main() {
   const base = path.resolve(__dirname, '../src/views/DSFGStudio/components/EntityPresetEditor');
-  const { createPublicEventPreset, encodePublicEventPresets: encode, decodePublicEventPresets: decode } = require(path.join(base, 'publicEventPresets.ts'));
+  const { createPublicEventPreset, createPublicEventParameter, changePublicEventParameterType, encodePublicEventPresets: encode, decodePublicEventPresets: decode } = require(path.join(base, 'publicEventPresets.ts'));
   const { usePublicEventPresets } = require(path.join(base, 'usePublicEventPresets.ts'));
+  const { systemPresetConfig } = require(path.join(base, 'systemPresetConfig.ts'));
+  const defaultPresets = decode(encode(systemPresetConfig.publicEvents.presets));
   const a = { ...createPublicEventPreset(), alias: '挥手动作', name: '挥手', parameters: [{ id: 'text', name: '内容', type: 'String', defaultValue: '123' }] };
   const b = { ...createPublicEventPreset(), name: '挥手', parameters: [] };
   assert.notEqual(a.id, b.id);
@@ -42,19 +44,42 @@ async function main() {
   }
   const first = await mount('A');
   assert.equal(files.size, 0);
+  assert.deepEqual(first.instance.presets.value, defaultPresets, 'History state includes system public events');
+  assert.deepEqual(first.instance.systemPresets.value, defaultPresets);
+  assert.deepEqual(first.instance.defaultPresets.value, defaultPresets);
+  assert.deepEqual(first.instance.customPresets.value, []);
+  assert.notEqual(first.instance.systemPresets.value[0], systemPresetConfig.publicEvents.presets[0], 'System value edits must not mutate central defaults');
   first.hooks.selectedWorkspaceId.value = 'B';
-  first.instance.presets.value.push(a);
+  first.instance.customPresets.value = [a];
   await first.instance.flush();
+  assert.equal(JSON.parse(files.get('/A/PublicEventPresets.json')).presetStorage, 'system-overrides');
+  assert.deepEqual(JSON.parse(files.get('/A/PublicEventPresets.json')).systemOverrides, []);
   assert.deepEqual(decode(files.get('/A/PublicEventPresets.json')), [a]);
   assert.equal(files.has('/B/PublicEventPresets.json'), false);
+  const systemEvent = first.instance.systemPresets.value[0];
+  systemEvent.name = 'NOLOC_WorkspaceSkill';
+  systemEvent.parameters[0].defaultValue = '42';
+  await first.instance.flush();
+  const savedSystem = JSON.parse(files.get('/A/PublicEventPresets.json')).systemOverrides;
+  assert.equal(savedSystem.length, 1);
+  assert.equal(savedSystem[0].id, defaultPresets[0].id);
+  assert.equal(savedSystem[0].alias, defaultPresets[0].alias);
+  assert.equal(savedSystem[0].name, 'NOLOC_WorkspaceSkill');
+  assert.equal(savedSystem[0].parameters[0].defaultValue, '42');
+  assert.deepEqual(systemPresetConfig.publicEvents.presets, defaultPresets, 'Saving system overrides must preserve central default entries');
   fail = true;
-  first.instance.presets.value[0].name = '招手';
+  first.instance.presets.value.find(preset => preset.id === a.id).name = '招手';
   await assert.rejects(first.instance.flush());
   fail = false;
   await first.instance.retry();
   first.hooks.unmount[0]();
   const reopened = await mount('A');
-  assert.equal(reopened.instance.presets.value[0].name, '招手');
+  assert.equal(reopened.instance.presets.value.find(preset => preset.id === a.id).name, '招手');
+  assert.equal(reopened.instance.presets.value.length, defaultPresets.length + 1);
+  assert.equal(reopened.instance.systemPresets.value[0].name, 'NOLOC_WorkspaceSkill');
+  assert.equal(reopened.instance.systemPresets.value[0].parameters[0].defaultValue, '42');
+  assert.equal(reopened.instance.systemPresets.value[0].alias, defaultPresets[0].alias);
+  assert.equal(reopened.instance.customPresets.value.length, 1);
   reopened.hooks.unmount[0]();
   files.set('/Broken/PublicEventPresets.json', 'broken');
   const broken = await mount('Broken');
@@ -77,6 +102,14 @@ async function main() {
   const { alias: omittedAlias, ...oldTypedPreset } = a;
   assert.equal(decode(encode([oldTypedPreset]))[0].alias, a.name);
   assert.equal(migrated.parameters[0].defaultValue, 'legacy');
+  const boolPreset = { ...a, parameters: [{ id: 'enabled', name: '启用', type: 'Bool', defaultValue: 'False' }] };
+  assert.deepEqual(decode(encode([boolPreset])), [boolPreset]);
+  for (const defaultValue of [undefined, '']) {
+    assert.equal(decode(encode([{ ...boolPreset, parameters: [{ ...boolPreset.parameters[0], defaultValue }] }]))[0].parameters[0].defaultValue, 'False');
+  }
+  const newBool = { ...createPublicEventParameter(), type: 'Bool', reference: 'entities.guid' };
+  changePublicEventParameterType(newBool);
+  assert.equal(newBool.defaultValue, 'False'); assert.equal(newBool.reference, undefined);
   for (const invalid of [{ ...a.parameters[0], type: 'Bogus' }, { ...a.parameters[0], defaultValue: 42 }]) {
     assert.throws(() => decode(encode([{ ...a, parameters: [invalid] }])));
   }
@@ -114,7 +147,9 @@ async function main() {
   assert.deepEqual(refs.options(reference.value, 'Int32'), []);
   assert.deepEqual(refs.options('custom:missing:guid', 'Guid'), []);
   assert.ok(refs.options('skillAnimations.configId', 'ConfigReference').length);
-  assert.deepEqual(refs.options('booleans.value', 'Int32'), [{ label: '否', value: '0' }, { label: '是', value: '1' }]);
+  assert.equal(refs.sources.value.some(source => source.value === 'booleans.value'), false);
+  assert.deepEqual(refs.options('booleans.value', 'Int32'), []);
+  assert.deepEqual(refs.options('booleans.value', 'Bool'), []);
   assert.deepEqual(refs.options('booleans.value', 'String'), []);
   assert.deepEqual(refs.options('entityGetMethods.value', 'Int32'), [{ label: 'GUID', value: '0' }, { label: 'String', value: '1' }]);
   assert.deepEqual(refs.options('entityGetMethods.value', 'String'), []);
@@ -143,16 +178,17 @@ async function main() {
   assert.equal(customApi.mergeCustomPresets([], [overlay])[0].id, systemTable.id);
   assert.throws(() => customApi.decodeCustomPresets(customApi.encodeCustomPresets([overlay, { ...overlay, id: 'other-extension' }])));
   assert.throws(() => customApi.decodeCustomPresets(customApi.encodeCustomPresets([{ ...overlay, extends: '' }])));
-  const { systemPresetConfig } = require(path.join(base, 'systemPresetConfig.ts'));
   const objectForward = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_SetObjectEntityFoward');
   assert.equal(objectForward.alias, '触发实体朝向（仅物件）');
-  assert.deepEqual(objectForward.parameters.map(item => item.type), ['Int32', 'Int32', 'Guid', 'String', 'Int32', 'Guid', 'String']);
-  assert.deepEqual(objectForward.parameters.map(item => item.reference), ['booleans.value', 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery', 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery']);
-  const { getPublicEventArgumentReference, applyPublicEventPreset, getPublicEventArguments, compilePublicEventArguments } = require(path.join(base, '../DialogueEditor/utils/publicEventParameters.ts'));
+  assert.deepEqual(objectForward.parameters.map(item => item.type), ['Bool', 'Int32', 'Guid', 'String', 'Int32', 'Guid', 'String']);
+  assert.deepEqual(objectForward.parameters.map(item => item.reference), [undefined, 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery', 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery']);
+  assert.equal(objectForward.parameters[0].defaultValue, 'False');
+  const { getPublicEventArgumentReference, applyPublicEventPreset, getPublicEventArguments, isPublicEventArgumentVisible, syncPublicEventVisibility, compilePublicEventArguments } = require(path.join(base, '../DialogueEditor/utils/publicEventParameters.ts'));
   const clip = { components: [{ templateId: 'public.event', properties: {} }] };
   applyPublicEventPreset(clip, objectForward);
   const args = getPublicEventArguments(clip);
-  ['1', '0', '1086324738', '', '1', '', '门/入口'].forEach((value, i) => { args[i].value = value; });
+  ['True', '0', '1086324738', '', '1', '', '门/入口'].forEach((value, i) => { args[i].value = value; });
+  assert.deepEqual(compilePublicEventArguments(objectForward.name, args).boolParams, ['True']);
   assert.deepEqual(compilePublicEventArguments(objectForward.name, args).guidParams, ['1086324738', '0']);
   assert.deepEqual(compilePublicEventArguments(objectForward.name, args).stringParams, [objectForward.name, '', '门/入口']);
   for (const index of [2, 3, 5, 6]) {
@@ -167,12 +203,72 @@ async function main() {
   assert.equal(getPublicEventArguments(clip)[2].value, '1086324738');
   assert.deepEqual(decode(encode([objectForward])), [objectForward]);
   const resetCamera = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_ResetCamera');
-  assert.deepEqual(resetCamera.parameters.map(item => [item.name, item.type, item.reference, item.defaultValue]), [['是否立即到达', 'Int32', 'booleans.value', '0']]);
+  assert.deepEqual(resetCamera.parameters.map(item => [item.name, item.type, item.reference, item.defaultValue]), [['是否立即到达', 'Bool', undefined, 'False']]);
   assert.deepEqual(decode(encode([resetCamera])), [resetCamera]);
   const blackScreen = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_SimpleBlackScreen');
   assert.equal(blackScreen.alias, '播放简单黑幕');
   assert.deepEqual(blackScreen.parameters.map(item => [item.type, item.defaultValue]), [['String', '#000000FF'], ['Float', '0.5'], ['Float', '1'], ['Float', '0.5']]);
   assert.deepEqual(decode(encode([blackScreen])), [blackScreen]);
+  const playerTeleport = systemPresetConfig.publicEvents.presets.find(item => item.id === 'public-player-teleport');
+  assert.equal(playerTeleport.name, 'NOLOC_PlayerTeleport');
+  assert.deepEqual(playerTeleport.parameters.map(item => [item.id, item.name, item.type, item.defaultValue]), [
+    ['public-player-teleport-set-position', '设置位置', 'Bool', 'False'],
+    ['public-player-teleport-position-x', '位置 X', 'Float', '0'],
+    ['public-player-teleport-position-y', '位置 Y', 'Float', '0'],
+    ['public-player-teleport-position-z', '位置 Z', 'Float', '0'],
+    ['public-player-teleport-set-rotation', '设置旋转', 'Bool', 'False'],
+    ['public-player-teleport-rotation-y', '旋转 Y', 'Float', '0'],
+  ]);
+  assert.deepEqual(playerTeleport.parameters.map(item => item.visibleWhen), [
+    undefined,
+    [{ parameterId: 'public-player-teleport-set-position', equals: 'True' }],
+    [{ parameterId: 'public-player-teleport-set-position', equals: 'True' }],
+    [{ parameterId: 'public-player-teleport-set-position', equals: 'True' }],
+    undefined,
+    [{ parameterId: 'public-player-teleport-set-rotation', equals: 'True' }],
+  ]);
+  assert.deepEqual(decode(encode([playerTeleport])), [playerTeleport]);
+  const teleportClip = { components: [{ templateId: 'public.event', properties: {} }] };
+  applyPublicEventPreset(teleportClip, playerTeleport);
+  const teleportArgs = getPublicEventArguments(teleportClip);
+  assert.deepEqual(teleportArgs.filter(item => isPublicEventArgumentVisible(item, teleportArgs)).map(item => item.name), ['设置位置', '设置旋转']);
+  const floatValues = ['12.5', '-3', '40.25', '90'];
+  const teleportFloats = teleportArgs.filter(item => item.type === 'Float');
+  teleportFloats.forEach((item, index) => { item.value = floatValues[index]; });
+  for (const [setPosition, setRotation] of [['False', 'False'], ['True', 'False'], ['True', 'True'], ['False', 'True'], ['False', 'False']]) {
+    teleportArgs[0].value = setPosition;
+    teleportArgs[4].value = setRotation;
+    assert.deepEqual(teleportArgs.map(item => isPublicEventArgumentVisible(item, teleportArgs)), [
+      true, setPosition === 'True', setPosition === 'True', setPosition === 'True', true, setRotation === 'True',
+    ]);
+    const compiled = compilePublicEventArguments(playerTeleport.name, teleportArgs);
+    assert.deepEqual(compiled.boolParams, [setPosition, setRotation], 'Teleport switch order is stable in the Bool list');
+    assert.deepEqual(compiled.floatParams, [
+      ...(setPosition === 'True' ? floatValues.slice(0, 3) : ['0', '0', '0']),
+      setRotation === 'True' ? floatValues[3] : '0',
+    ], 'Hidden teleport values keep their Float slots with zero placeholders');
+    assert.deepEqual(compiled.stringParams, [playerTeleport.name]);
+    assert.deepEqual(teleportFloats.map(item => item.value), floatValues, 'Switching and compiling preserve hidden input values');
+  }
+  const legacyTeleport = { ...playerTeleport, parameters: playerTeleport.parameters.filter(item => item.type === 'Float').map(({ visibleWhen, ...item }) => item) };
+  const legacyTeleportClip = { components: [{ templateId: 'public.event', properties: {} }] };
+  applyPublicEventPreset(legacyTeleportClip, legacyTeleport);
+  getPublicEventArguments(legacyTeleportClip).forEach((item, index) => { item.value = floatValues[index]; });
+  assert.equal(syncPublicEventVisibility(legacyTeleportClip, [playerTeleport]), true);
+  const legacyTeleportArgs = getPublicEventArguments(legacyTeleportClip);
+  assert.deepEqual(legacyTeleportArgs.map(item => item.type), ['Float', 'Float', 'Float', 'Float'], 'Existing actions retain their parameter structure');
+  assert.ok(legacyTeleportArgs.every(item => isPublicEventArgumentVisible(item, legacyTeleportArgs)), 'Missing switches keep legacy Float inputs visible');
+  assert.deepEqual(compilePublicEventArguments(playerTeleport.name, legacyTeleportArgs).floatParams, floatValues);
+  assert.deepEqual(compilePublicEventArguments(playerTeleport.name, legacyTeleportArgs).boolParams, []);
+  applyPublicEventPreset(legacyTeleportClip, playerTeleport);
+  const reappliedTeleportArgs = getPublicEventArguments(legacyTeleportClip);
+  assert.deepEqual(reappliedTeleportArgs.filter(item => item.type === 'Bool').map(item => item.value), ['False', 'False']);
+  assert.deepEqual(reappliedTeleportArgs.filter(item => item.type === 'Float').map(item => item.value), floatValues, 'Reapplying the preset adds switches while preserving all Float values');
+  reappliedTeleportArgs.filter(item => item.type === 'Bool').forEach(item => { item.value = 'True'; });
+  assert.ok(reappliedTeleportArgs.every(item => isPublicEventArgumentVisible(item, reappliedTeleportArgs)));
+  assert.deepEqual(compilePublicEventArguments(playerTeleport.name, reappliedTeleportArgs).floatParams, floatValues);
+  assert.deepEqual(compilePublicEventArguments(playerTeleport.name, reappliedTeleportArgs).boolParams, ['True', 'True']);
+  console.log('PASS player teleport defaults, four switch combinations, stable Bool/Float slots, hidden values and legacy preset reapplication');
   systemPresetConfig.customTables.presets.push(systemTable);
   try {
     context = { storage, selectedWorkspaceId: vue.ref('Extended'), mount: [], unmount: [] };

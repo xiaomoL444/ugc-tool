@@ -104,7 +104,7 @@ async function main() {
     assert.deepEqual(custom.decodeCustomPresets(f.files.get('/A/CustomPresets.json')), []);
     assert.deepEqual(f.errors, []); f.close();
   });
-  await test('All editable preset categories register independent CRUD histories and exclude immutable system defaults', async () => {
+  await test('All preset categories undo system value overrides and custom CRUD while retaining fixed system identity', async () => {
     const f = presetSession();
     const entities = f.run(() => require(path.join(base, 'EntityPresetEditor/useEntityPresets.ts')).useEntityPresets());
     const skills = f.run(() => require(path.join(base, 'EntityPresetEditor/useSkillAnimationPresets.ts')).useSkillAnimationPresets());
@@ -116,15 +116,28 @@ async function main() {
       ['PublicEventPresets.json', events, publicEvents.createPublicEventPreset()],
       ...styleStates.map(([key, state]) => [`${key}.json`, state, styles.createStylePreset(key)])];
     for (const [fileName, state, entry] of list) {
-      const system = plain(state.systemPresets.value); f.activeFile.value = fileName;
+      const system = plain(state.defaultPresets.value), initial = plain(state.presets.value); f.activeFile.value = fileName;
       state.presets.value.push(entry); await tick(); const history = f.history.current.value;
       assert.ok(history.canUndo.value, fileName);
-      await history.undo(); assert.deepEqual(state.presets.value, []);
-      assert.deepEqual(plain(state.systemPresets.value), system);
-      await history.redo(); assert.deepEqual(plain(state.presets.value), [entry]);
+      await history.undo(); assert.deepEqual(plain(state.presets.value), initial);
+      assert.deepEqual(plain(state.defaultPresets.value), system);
+      await history.redo(); const withCustom = [...initial, entry]; assert.deepEqual(plain(state.presets.value), withCustom);
+      const field = 'parameters' in initial[0] ? 'name' : 'configId' in initial[0] ? 'configId' : 'talker' in initial[0] ? 'talker' : 'value';
+      state.systemPresets.value[0][field] = '工作区默认修改'; await tick(); const editedDefault = plain(state.presets.value);
+      await history.undo(); assert.deepEqual(plain(state.presets.value), withCustom);
+      await history.redo(); assert.deepEqual(plain(state.presets.value), editedDefault);
+      assert.deepEqual(plain(state.defaultPresets.value), system, 'Undoable workspace edits never alter default seeds');
+      state.customPresets.value = []; await tick();
+      assert.equal(state.systemPresets.value.length, system.length, 'Deleting custom rows never removes system rows');
+      await history.undo(); assert.deepEqual(plain(state.presets.value), editedDefault, 'Custom deletion restores its complete history snapshot');
+      const sysIds = state.systemPresets.value.map(item => item.id);
+      state.presets.value.splice(0, 1); await tick();
+      assert.deepEqual(state.systemPresets.value.map(item => item.id), sysIds, 'Mandatory system rows cannot be removed');
+      assert.deepEqual(plain(state.presets.value), editedDefault);
     }
     f.activeFile.value = 'EntityPresets.json'; await f.history.current.value.undo();
-    assert.equal(skills.presets.value.length, 1); assert.equal(events.presets.value.length, 1);
+    assert.ok(skills.presets.value.some(item => item.id === 'skill'));
+    assert.ok(events.presets.value.some(item => item.id === list[2][2].id));
     f.close(); assert.equal(f.callbacks.size, 0);
   });
   await test('Public-event parameter reorder, reference changes and visibility rules undo as complete edits', async () => {
@@ -134,12 +147,13 @@ async function main() {
     const preset = publicEvents.createPublicEventPreset(), a = publicEvents.createPublicEventParameter(), b = publicEvents.createPublicEventParameter();
     a.visibleWhen = [{ parameterId: b.id, equals: '1' }]; a.reference = 'entities.guid';
     preset.parameters = [a, b]; state.presets.value.push(preset); await tick(); const initial = plain(state.presets.value);
-    state.presets.value[0].parameters.reverse(); await tick(); await f.history.current.value.undo();
+    const editedPreset = () => state.presets.value.find(item => item.id === preset.id);
+    editedPreset().parameters.reverse(); await tick(); await f.history.current.value.undo();
     assert.deepEqual(plain(state.presets.value), initial);
     f.fire('pointerdown', { target: target('menu', false) });
-    state.presets.value[0].parameters[0].type = 'String'; state.presets.value[0].parameters[0].reference = undefined;
+    editedPreset().parameters[0].type = 'String'; editedPreset().parameters[0].reference = undefined;
     f.fire('pointerup'); await tick(); await f.history.current.value.undo(); assert.deepEqual(plain(state.presets.value), initial);
-    state.presets.value[0].parameters.splice(1, 1); await tick(); await f.history.current.value.undo();
+    editedPreset().parameters.splice(1, 1); await tick(); await f.history.current.value.undo();
     assert.deepEqual(plain(state.presets.value), initial); f.close();
   });
   await test('Typing groups per input, checkbox changes remain separate, and category switches finish old input sessions', async () => {
@@ -147,15 +161,15 @@ async function main() {
     f.activeFile.value = 'dialogueStyles.json'; state.presets.value.push(styles.createStylePreset('dialogueStyles')); await tick();
     const history = f.history.current.value, before = plain(state.presets.value), input = target('input');
     f.fire('focusin', { target: input });
-    for (const label of ['对', '对话', '对话样式']) { state.presets.value[0].label = label; f.fire('input', { target: input }); await tick(); }
+    for (const label of ['对', '对话', '对话样式']) { state.presets.value.at(-1).label = label; f.fire('input', { target: input }); await tick(); }
     assert.equal(f.fire('keydown', { ctrlKey: true, target: input }).defaultPrevented, false);
     f.activeFile.value = 'CustomPresets.json'; await tick(); f.activeFile.value = 'dialogueStyles.json';
     await history.undo(); assert.deepEqual(plain(state.presets.value), before); await history.redo();
     const checkbox = target('checkbox'); f.fire('focusin', { target: checkbox });
-    state.presets.value[0].showTitle = true; f.fire('input', { target: checkbox }); await tick();
-    state.presets.value[0].showTitle = false; f.fire('input', { target: checkbox }); await tick();
+    state.presets.value.at(-1).showTitle = true; f.fire('input', { target: checkbox }); await tick();
+    state.presets.value.at(-1).showTitle = false; f.fire('input', { target: checkbox }); await tick();
     assert.equal(f.fire('keydown', { ctrlKey: true, target: checkbox }).defaultPrevented, true); await tick();
-    assert.equal(state.presets.value[0].showTitle, true); await history.undo(); assert.equal(state.presets.value[0].showTitle, false);
+    assert.equal(state.presets.value.at(-1).showTitle, true); await history.undo(); assert.equal(state.presets.value.at(-1).showTitle, false);
     f.close();
   });
   await test('Late preset loads do not reset other categories; failed saves persist the latest restored snapshot', async () => {

@@ -115,7 +115,7 @@
 #app .dsfg-studio .scene-editor .page-header h2 { font-size: 16px; color: #394e7e; }
 #app .dsfg-studio .scene-editor .scene-overview { background: #ffffff80; border-color: var(--studio-line); }
 #app .dsfg-studio .scene-editor .card { padding: 22px; }
-#app .dsfg-studio .entity-editor .settings-layout > main { padding: 8px 10px 22px; }
+#app .dsfg-studio .entity-editor .preset-workbench > main { padding: 8px 10px 22px; }
 #app .dsfg-studio .entity-editor .settings-header h2 { font-size: 16px; }
 #app .dsfg-studio .entity-editor .preset-section { padding: 22px; }
 #app .dsfg-studio .entity-editor .system-items article { background: #f5f7ff; border-color: #dce1f5; }

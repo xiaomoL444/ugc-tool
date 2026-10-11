@@ -96,6 +96,7 @@ export function exportQuestVariables(project: QuestProject): QuestVariableExport
     value.value["失败回溯任务"].setValue(String(sub.failureQuestId ?? -1));
     value.value["finishMainQuest"].setValue(sub.finishMainQuest ? "True" : "False");
     value.value["questProgress"].setValue(String(sub.questProgress));
+    value.value["showGuide"].setValue(sub.showGuide ? "True" : "False");
     if (sub.failureQuestId === null) {
       warnings.push(`子任务 ${sub.id}「${sub.title}」的失败回溯任务为空，将按 -1 导出，请确认。`);
     } else if (sub.failureQuestId !== -1 && !subIds.has(sub.failureQuestId)) {

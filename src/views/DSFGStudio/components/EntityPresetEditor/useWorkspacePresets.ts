@@ -1,4 +1,4 @@
-import { computed, inject, onBeforeUnmount, onMounted, readonly, ref, watch, type Ref } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, readonly, ref, toRaw, watch, type Ref } from "vue";
 import type { StorageClass } from "@/services/storage/storage";
 import { ProjectID } from "../../constant/constant";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
@@ -8,6 +8,9 @@ import { workspacePresetHistoryKey } from "./useWorkspacePresetHistory";
 export interface WorkspacePresetDefinition<T extends { id: string }> {
   fileName: string;
   defaults: () => T[];
+  /** Allow system values to be overridden while preserving their identity. */
+  editableDefaults?: boolean;
+  fixedFields?: (keyof T)[];
   encode: (presets: T[]) => string;
   decode: (raw: string) => T[];
 }
@@ -28,10 +31,75 @@ export function useWorkspacePresets<T extends { id: string }>(definition: Worksp
   let loading = false;
   let revision = 0;
   let loadVersion = 0;
+  let normalizing = false;
+  const editableDefaults = definition.editableDefaults === true;
+  const loadedStatus = editableDefaults ? "系统参数与自定义预设自动保存" : "系统预设只读 · 自定义项自动保存";
   // Round-trip clones and validates defaults so editing never mutates system config.
   const createDefaults = () => definition.decode(definition.encode(definition.defaults()));
-  const systemPresets = computed(() => readonly(createDefaults()) as Readonly<T[]>);
-  const availablePresets = computed(() => [...systemPresets.value, ...presets.value]);
+  const defaultPresets = computed(() => readonly(createDefaults()) as Readonly<T[]>);
+  const defaultIds = computed(() => new Set(defaultPresets.value.map(item => item.id)));
+  const systemRows = new WeakMap<object, string>();
+  const previousSystemRows = new Map<string, T>();
+  const systemPresets = computed(() => editableDefaults
+    ? presets.value.filter(item => defaultIds.value.has(item.id)) : defaultPresets.value as T[]);
+  const customPresets = computed({
+    get: () => editableDefaults ? presets.value.filter(item => !defaultIds.value.has(item.id)) : presets.value,
+    set: (items: T[]) => { presets.value = editableDefaults ? [...systemPresets.value, ...items] : items; },
+  });
+  const availablePresets = computed(() => editableDefaults ? presets.value : [...systemPresets.value, ...presets.value]);
+  function restoreIdentity(item: T, seed: T): T {
+    const result = { ...item, id: seed.id };
+    for (const field of definition.fixedFields ?? []) result[field] = seed[field];
+    return result;
+  }
+  function mergeSystemRows(saved: T[]): T[] {
+    const defaults = createDefaults(), byId = new Map(saved.map(item => [item.id, item]));
+    return [...defaults.map(seed => restoreIdentity(byId.get(seed.id) ?? seed, seed)),
+      ...saved.filter(item => !defaultIds.value.has(item.id))];
+  }
+  function normalizeSystemRows() {
+    if (!editableDefaults || normalizing) return;
+    normalizing = true;
+    try {
+      const byId = new Map<string, T>();
+      const customs: T[] = [];
+      for (const item of presets.value) {
+        const id = systemRows.get(toRaw(item)) ?? (defaultIds.value.has(item.id) ? item.id : undefined);
+        if (id) { if (!byId.has(id)) byId.set(id, item); }
+        else customs.push(item);
+      }
+      const systems = createDefaults().map(seed => {
+        const item = byId.get(seed.id) ?? previousSystemRows.get(seed.id) ?? seed;
+        item.id = seed.id;
+        for (const field of definition.fixedFields ?? []) item[field] = seed[field];
+        systemRows.set(toRaw(item), seed.id);
+        previousSystemRows.set(seed.id, item);
+        return item;
+      });
+      const result = [...systems, ...customs];
+      if (result.length !== presets.value.length || result.some((item, index) => item !== presets.value[index])) presets.value = result;
+    } finally { normalizing = false; }
+  }
+  function decodeWorkspace(raw: string): T[] {
+    if (!editableDefaults) return decodeCustom(raw);
+    const saved = definition.decode(raw);
+    const data = JSON.parse(raw);
+    if (data.presetStorage !== "system-overrides") return mergeSystemRows(saved);
+    if (!Array.isArray(data.systemOverrides) || saved.some(item => defaultIds.value.has(item.id))) {
+      throw new Error("系统参数覆盖预设文件不完整，原文件已保留。");
+    }
+    const defaults = new Map(createDefaults().map(item => [item.id, item]));
+    const ids = new Set<string>();
+    const overrides = data.systemOverrides.map((item: T) => {
+      const seed = item && defaults.get(item.id);
+      if (!seed || ids.has(item.id)) throw new Error("系统参数覆盖预设存在未知或重复条目，原文件已保留。");
+      ids.add(item.id);
+      return restoreIdentity({ ...seed, ...item }, seed);
+    });
+    // Use the category codec to validate overrides just as strictly as custom rows.
+    const validated = definition.decode(definition.encode(overrides));
+    return mergeSystemRows([...validated, ...saved]);
+  }
   function decodeCustom(raw: string): T[] {
     const saved = definition.decode(raw);
     if (JSON.parse(raw).presetStorage === "custom-only") return saved;
@@ -59,12 +127,12 @@ export function useWorkspacePresets<T extends { id: string }>(definition: Worksp
   function receiveSavedPresets(raw: string) {
     if (disposed || saveQueue.hasPendingChanges()) return;
     try {
-      const result = decodeCustom(raw);
+      const result = decodeWorkspace(raw);
       loadVersion++;
       loading = true;
       presets.value = result;
       ready.value = true;
-      status.value = "系统预设只读 · 自定义项自动保存";
+      status.value = loadedStatus;
       error.value = "";
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : "读取预设失败";
@@ -78,22 +146,28 @@ export function useWorkspacePresets<T extends { id: string }>(definition: Worksp
     error.value = "";
     try {
       const exists = await storage.setProject(ProjectID).exists(path);
-      // An explicitly saved empty list is a user choice, not a missing configuration.
-      const result = exists ? decodeCustom(await storage.setProject(ProjectID).readFile(path)) : [];
+      // Empty custom lists stay empty; editable system rows are always restored from defaults.
+      const result = exists ? decodeWorkspace(await storage.setProject(ProjectID).readFile(path)) : editableDefaults ? createDefaults() : [];
       if (disposed || version !== loadVersion) return;
       presets.value = result;
       ready.value = true;
-      status.value = "系统预设只读 · 自定义项自动保存";
+      status.value = loadedStatus;
     } catch (cause) {
       if (!disposed && version === loadVersion) { error.value = cause instanceof Error ? cause.message : "读取预设失败"; status.value = "读取失败"; }
     } finally { loading = false; }
   }
   watch(presets, () => {
+    if (normalizing) return;
+    normalizeSystemRows();
     if (disposed || !ready.value || loading) return;
     revision++;
     status.value = "待保存…";
-    const data = JSON.parse(definition.encode(presets.value));
-    data.presetStorage = "custom-only";
+    const data = JSON.parse(definition.encode(editableDefaults ? customPresets.value : presets.value));
+    data.presetStorage = editableDefaults ? "system-overrides" : "custom-only";
+    if (editableDefaults) {
+      const defaults = new Map(createDefaults().map(item => [item.id, item]));
+      data.systemOverrides = systemPresets.value.filter(item => JSON.stringify(item) !== JSON.stringify(defaults.get(item.id)));
+    }
     saveQueue.schedule(path, JSON.stringify(data, null, 2));
   }, { deep: true, flush: "sync" });
   onMounted(() => {
@@ -112,6 +186,6 @@ export function useWorkspacePresets<T extends { id: string }>(definition: Worksp
     void saveQueue.flush().catch(() => undefined);
   });
   inject(workspacePresetHistoryKey, undefined)?.register(definition.fileName, presets, ready);
-  return { presets, systemPresets, availablePresets, ready, error, status,
+  return { presets, systemPresets, customPresets, defaultPresets, availablePresets, ready, error, status,
     retry: () => ready.value ? saveQueue.flush() : load(), flush: () => saveQueue.flush() };
 }

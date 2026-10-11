@@ -107,6 +107,14 @@
             "param_type" : "Int32", 
             "value" : "0"
          }
+      },
+      {
+         "key" : "showGuide",
+         "param_type" : "Bool",
+         "value" : {
+            "param_type" : "Bool",
+            "value" : "True"
+         }
       }
    ]
 }

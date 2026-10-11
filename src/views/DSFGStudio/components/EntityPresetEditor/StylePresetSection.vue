@@ -1,46 +1,60 @@
 <script setup lang="ts">
-import StudioSelectField from "../StudioSelectField.vue";
 import { computed, nextTick, ref } from "vue";
 import { createStylePreset, supportsCustomStylePresets, useStylePresets, type StylePresetCategory } from "./stylePresets";
 const props = defineProps<{ category: StylePresetCategory; title: string }>();
 const supportsCustom = computed(() => supportsCustomStylePresets(props.category));
-const valueLabel = computed(() => props.category === "cameras" ? "相机名称" : props.category === "booleans" ? "布尔值" : "类型值");
-const { presets, systemPresets, availablePresets, ready, error, status, retry, flush } = useStylePresets(props.category);
+const valueLabel = computed(() => props.category === "cameras" ? "相机名称" : "类型值");
+const { customPresets, systemPresets, availablePresets, ready, error, status, retry, flush } = useStylePresets(props.category);
+const systemIDs = computed(() => new Set(systemPresets.value.map(preset => preset.id)));
+const entries = computed(() => availablePresets.value.map(preset => ({
+  id: preset.id,
+  label: preset.label || preset.value || "未命名预设",
+  detail: preset.value,
+  system: systemIDs.value.has(preset.id),
+})));
 const list = ref<HTMLElement>();
 async function add() {
   if (!supportsCustom.value) return;
-  presets.value.push(createStylePreset(props.category));
+  customPresets.value = [...customPresets.value, createStylePreset(props.category)];
   await nextTick();
   list.value?.querySelector<HTMLElement>("article:last-child input")?.focus();
 }
-defineExpose({ flush });
+defineExpose({ flush, category: props.category, entries });
 </script>
 
 <template>
-  <section class="style-preset-section" :aria-label="`${title}预设`">
+  <section class="style-preset-section" :data-preset-category="category" :aria-label="`${title}预设`">
     <header><div><h3>{{ title }}</h3><p>显示名称用于选择，{{ valueLabel }}按原文保存和导出。</p></div></header>
     <p role="status">{{ supportsCustom ? status : '系统预设 · 只读' }}</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="retry().catch(() => undefined)">重试</button></p>
-    <p v-if="supportsCustom">当前工作区共用。修改或删除预设不会改写已配置的内容。</p>
+    <p v-if="supportsCustom">系统预设提供默认值，显示名称固定，实际值可修改。自定义预设可新增、编辑和删除，当前工作区共用。</p>
+    <p v-if="supportsCustom">修改预设不会改写已配置的内容。</p>
     <p v-if="category === 'dialogueStyles'">显示标题控制文本编辑中的标题（说话人）和副标题；关闭时导出为空，已填写的文字保留在工程中。</p>
-    <h4>系统预设 · 只读</h4>
+    <h4>{{ supportsCustom ? '系统预设 · 默认值' : '系统预设 · 只读' }}</h4>
     <div class="items system-items">
-      <article v-for="preset in systemPresets" :key="preset.id" :class="{ 'dialogue-style': category === 'dialogueStyles' }"><div>显示名称<p>{{ preset.label || preset.value }}</p></div><div>{{ valueLabel }}<p>{{ preset.value }}</p></div><div v-if="category === 'dialogueStyles'">显示标题<p>{{ preset.showTitle ? '是' : '否' }}</p></div><span>系统</span></article>
+      <article v-for="(preset, index) in systemPresets" :key="preset.id" :data-preset-id="preset.id" tabindex="-1" :class="{ 'dialogue-style': category === 'dialogueStyles' }" :aria-label="`系统${title}预设 ${index + 1}`">
+        <div>显示名称<p>{{ preset.label || preset.value }}</p></div>
+        <label v-if="supportsCustom">{{ valueLabel }}<input v-model="preset.value" :disabled="!ready" :aria-label="`系统${title} ${index + 1} ${valueLabel}`" :placeholder="`填写实际使用的${valueLabel}`" /></label>
+        <div v-else>{{ valueLabel }}<p>{{ preset.value }}</p></div>
+        <label v-if="category === 'dialogueStyles'" class="show-title-toggle"><input v-model="preset.showTitle" :disabled="!ready" type="checkbox" :aria-label="`系统${title} ${index + 1} 显示标题`" />显示标题</label>
+        <span>系统</span>
+        <small v-if="supportsCustom && !preset.value.trim()">填写{{ valueLabel }}后即可在编辑器中选择。</small>
+      </article>
     </div>
     <p v-if="!systemPresets.length">暂无系统预设。</p>
     <template v-if="supportsCustom">
     <header><h4>自定义预设</h4></header>
     <div ref="list" class="items">
-      <article v-for="(preset, index) in presets" :key="preset.id" :class="{ 'dialogue-style': category === 'dialogueStyles' }">
+      <article v-for="(preset, index) in customPresets" :key="preset.id" :data-preset-id="preset.id" tabindex="-1" :class="{ 'dialogue-style': category === 'dialogueStyles' }" :aria-label="`${title}预设 ${index + 1}`">
         <label>显示名称<input v-model="preset.label" :aria-label="`${title} ${index + 1} 显示名称`" placeholder="例如：默认样式" /></label>
-        <label>{{ valueLabel }}<StudioSelectField v-if="category === 'booleans'" v-model="preset.value" :aria-label="`${title} ${index + 1} ${valueLabel}`"><option value="0">否（0）</option><option value="1">是（1）</option></StudioSelectField><input v-else v-model="preset.value" :aria-label="`${title} ${index + 1} ${valueLabel}`" :placeholder="`填写实际使用的${valueLabel}`" /></label>
+        <label>{{ valueLabel }}<input v-model="preset.value" :aria-label="`${title} ${index + 1} ${valueLabel}`" :placeholder="`填写实际使用的${valueLabel}`" /></label>
         <label v-if="category === 'dialogueStyles'" class="show-title-toggle"><input v-model="preset.showTitle" type="checkbox" :aria-label="`${title} ${index + 1} 显示标题`" />显示标题</label>
-        <button type="button" :aria-label="`删除${title}预设 ${index + 1}`" @click="presets = presets.filter(item => item.id !== preset.id)">删除</button>
+        <button type="button" :aria-label="`删除${title}预设 ${index + 1}`" @click="customPresets = customPresets.filter(item => item.id !== preset.id)">删除</button>
         <small v-if="!preset.value.trim()">填写{{ valueLabel }}后即可在编辑器中选择。</small>
         <small v-else-if="availablePresets.some(item => item !== preset && item.value === preset.value)">{{ valueLabel }}重复，选择列表优先显示系统预设，再显示第一项自定义预设。</small>
       </article>
     </div>
-    <p v-if="ready && !presets.length">暂无自定义预设，可以点击新建添加。</p>
+    <p v-if="ready && !customPresets.length">暂无自定义预设，可以点击新建添加。</p>
     <div class="preset-footer"><button type="button" :disabled="!ready" @click="add">＋ 新建{{ title }}预设</button></div>
     </template>
   </section>
@@ -54,8 +68,9 @@ p { color: #7c899c; font-size: 12px; line-height: 1.7; margin: 4px 0; }
 .items { display: grid; gap: 12px; margin-top: 20px; max-width: none; }
 .system-items article { background: #f4f7fb; color: #617189; overflow-wrap: anywhere; }
 article { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) auto; align-items: center; gap: 16px; padding: 18px; border: 1px solid #dbe4ef; border-radius: 10px; }
+.system-items article { grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) auto; }
 label { display: grid; gap: 6px; color: #75839a; font-size: 12px; }
-article.dialogue-style { grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) auto auto; }
+article.dialogue-style, .system-items article.dialogue-style { grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) auto auto; }
 .show-title-toggle { display: flex; align-items: center; gap: 8px; }
 .show-title-toggle input { width: 16px; height: 16px; accent-color: #6a5acd; }
 input,select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; border: 1px solid #d4deeb; border-radius: 5px; font: inherit; color: #334158; background: #fafcff; }
@@ -63,5 +78,5 @@ button { cursor: pointer; border: 1px solid #bed0e5; border-radius: 6px; padding
 button:disabled { opacity: .4; cursor: default; }
 .preset-footer { display: flex; justify-content: flex-end; margin-top: 20px; }
 small { grid-column: 1 / -1; color: #9b8359; }
-@media (max-width: 760px) { .style-preset-section { padding: 14px; } article, article.dialogue-style { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .style-preset-section { padding: 14px; } article, article.dialogue-style, .system-items article, .system-items article.dialogue-style { grid-template-columns: minmax(0, 1fr); } }
 </style>

@@ -3,6 +3,7 @@ import type { PublicEventParamType } from "./EntityPresetEditor/publicEventPrese
 /** 允许正常输入数值的中间状态；整段非法输入不拆删，避免把 1.5 改成 15。 */
 export function isTypedValueDraft(type: PublicEventParamType, value: string): boolean {
   if (type === "String") return true;
+  if (type === "Bool") return value === "True" || value === "False";
   if (type === "Int32") return /^[+-]?\d*$/.test(value);
   if (type === "Float") {
     return /^[+-]?\d*(?:\.\d*)?$/.test(value)
@@ -13,6 +14,7 @@ export function isTypedValueDraft(type: PublicEventParamType, value: string): bo
 
 /** 校验而不转换原文本，保留 GUID 精度、草稿和已有数据。空值仍可用于可选字段。 */
 export function getTypedValueError(type: PublicEventParamType, value: string): string {
+  if (type === "Bool") return value === "True" || value === "False" ? "" : "请选择否（False）或是（True）。";
   if (type === "String" || value === "") return "";
   if (type === "Float") {
     if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value)

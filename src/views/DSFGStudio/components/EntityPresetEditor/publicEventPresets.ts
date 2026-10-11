@@ -1,7 +1,7 @@
 import { systemPresetConfig } from "./systemPresetConfig";
 export const PUBLIC_EVENT_PARAM_TYPES = [
   { value: "String", label: "字符串" }, { value: "Int32", label: "整数" },
-  { value: "Float", label: "浮点数" },
+  { value: "Float", label: "浮点数" }, { value: "Bool", label: "布尔值" },
   { value: "ConfigReference", label: "配置 ID" }, { value: "EntityReference", label: "元件 ID" },
   { value: "Guid", label: "GUID" },
 ] as const;
@@ -18,6 +18,13 @@ export function createPublicEventPreset(): PublicEventPreset {
 }
 export function createPublicEventParameter(): PublicEventParameter {
   return { ...systemPresetConfig.publicEvents.newParameter, id: crypto.randomUUID() };
+}
+export function getPublicEventParameterDefault(type: PublicEventParamType): string {
+  return type === "Bool" ? systemPresetConfig.publicEvents.parameterDefaultValues.Bool : systemPresetConfig.publicEvents.newParameter.defaultValue;
+}
+export function changePublicEventParameterType(parameter: PublicEventParameter) {
+  parameter.reference = undefined;
+  if (parameter.type === "Bool") parameter.defaultValue = getPublicEventParameterDefault(parameter.type);
 }
 export function encodePublicEventPresets(presets: PublicEventPreset[]): string {
   return JSON.stringify({ kind: "DSFGPublicEventPresets", schemaVersion: 2, presets }, null, 2);
@@ -46,7 +53,9 @@ export function decodePublicEventPresets(raw: string): PublicEventPreset[] {
       if (param.reference !== undefined && typeof param.reference !== "string") throw invalid();
       if (param.visibleWhen !== undefined && (!Array.isArray(param.visibleWhen) || param.visibleWhen.some((rule: any) => !rule || typeof rule.parameterId !== "string" || typeof rule.equals !== "string"))) throw invalid();
       paramIds.add(param.id);
-      return { ...(param.visibleWhen ? { visibleWhen: param.visibleWhen.map((rule: PublicEventVisibilityRule) => ({ parameterId: rule.parameterId, equals: rule.equals })) } : {}), ...(param.reference ? { reference: param.reference } : {}), id: param.id, name: param.name, type: param.type, defaultValue: param.defaultValue ?? systemPresetConfig.publicEvents.newParameter.defaultValue };
+      return { ...(param.visibleWhen ? { visibleWhen: param.visibleWhen.map((rule: PublicEventVisibilityRule) => ({ parameterId: rule.parameterId, equals: rule.equals })) } : {}), ...(param.reference ? { reference: param.reference } : {}), id: param.id, name: param.name, type: param.type,
+        defaultValue: param.type === "Bool" && !param.defaultValue ? getPublicEventParameterDefault(param.type) : param.defaultValue ?? getPublicEventParameterDefault(param.type),
+      };
     }) };
   });
 }

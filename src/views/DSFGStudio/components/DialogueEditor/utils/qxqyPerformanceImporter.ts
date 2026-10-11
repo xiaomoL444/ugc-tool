@@ -19,7 +19,9 @@ function table(entries: any[]) {
 }
 
 export function importQxqyPerformance(text: string) {
-  const { data, ids } = readRuntime(text, DEFAULT_QXQY_STRUCT_IDS, DEFAULT_QXQY_STRUCT_IDS.performance, createQxqyStructWorkspace(DEFAULT_QXQY_STRUCT_IDS));
+  const { data, ids } = readRuntime(text, DEFAULT_QXQY_STRUCT_IDS, DEFAULT_QXQY_STRUCT_IDS.performance, createQxqyStructWorkspace(DEFAULT_QXQY_STRUCT_IDS), {
+    [DEFAULT_QXQY_STRUCT_IDS.actionClip]: ["boolParams"],
+  });
   const project = createEmptyDialogueProject(); project.exportSettings.qxqyStructIds = ids;
   const groups = table(data.ActionGroup);
   const tables = { NOLOC_DIALOG: table(data.DialogueData), NOLOC_DIALOG_SELECT: table(data.DialogueSelectData), NOLOC_CAMERA: table(data.CameraMovementData) };
@@ -103,9 +105,11 @@ export function importQxqyPerformance(text: string) {
           const line = createPerformanceLine(publicEvent ? "PublicEvent" : "Custom"), clip = createPerformanceClip(line.type, action.time);
           clip.duration = duration; clip.components[0].properties.value = action.stringParams[0];
           if (publicEvent) {
-            const types: Record<string, string> = { stringParams: "String", intParams: "Int32", guidParams: "Guid", configParams: "ConfigReference", prefabParams: "EntityReference", floatParams: "Float" };
+            const types: Record<string, string> = { stringParams: "String", intParams: "Int32", guidParams: "Guid", configParams: "ConfigReference", prefabParams: "EntityReference", floatParams: "Float", boolParams: "Bool" };
             params(action, Object.keys(types));
-            clip.components[0].properties.parameters = Object.entries(types).flatMap(([field, type]) => (field === "stringParams" ? action[field].slice(1) : action[field] ?? []).map((value: string, i: number) => ({ id: crypto.randomUUID(), name: `${type} ${i + 1}`, type, value })));
+            clip.components[0].properties.parameters = Object.entries(types).flatMap(([field, type]) => (field === "stringParams" ? action[field].slice(1) : action[field] ?? []).map((value: string | boolean, i: number) => ({
+              id: crypto.randomUUID(), name: `${type} ${i + 1}`, type, value: type === "Bool" ? value ? "True" : "False" : value,
+            })));
           }
           line.clips.push(clip); node.lines.push(line);
         } else throw new Error(`Group ${index} 包含尚不支持的动作 ${action.actionType}，未导入`);

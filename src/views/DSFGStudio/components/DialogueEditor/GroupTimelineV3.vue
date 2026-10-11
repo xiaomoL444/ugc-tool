@@ -776,8 +776,8 @@ onBeforeUnmount(() => {
               <i v-if="isFreeDialogueClip(clip)" class="clip-resize-handle resize-end"
                 title="拖动设置持续时间" @pointerdown.stop="startResize($event, clip, 'end')" />
               <i
+                v-if="clip.advanceMode === 'PlayerInput'"
                 class="continue-delay-handle"
-                :class="{ disabled: clip.advanceMode === 'None' }"
                 :style="{
                   left: `${clip.continueDelayTime * pixelsPerSecond}px`,
                 }"
@@ -1522,10 +1522,6 @@ onBeforeUnmount(() => {
   font-style: normal;
   line-height: 1.2;
   white-space: nowrap;
-}
-
-.continue-delay-handle.disabled {
-  opacity: 0.45;
 }
 
 .select-clip {

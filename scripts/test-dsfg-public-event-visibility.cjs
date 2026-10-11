@@ -185,6 +185,15 @@ function testMatchingBoundaries() {
     assert.equal(api.syncPublicEventVisibility(clip, [changedPreset]), false);
     assert.deepEqual(clip, before, 'Changed parameter IDs/types must preserve the old argument and condition');
   }
+  const boolPreset = clone(preset);
+  boolPreset.parameters[0] = { ...boolPreset.parameters[0], type: 'Bool', defaultValue: 'False' };
+  delete boolPreset.parameters[0].reference;
+  setRule(boolPreset, 'True');
+  const legacyBefore = clone(clip);
+  assert.equal(api.syncPublicEventVisibility(clip, [boolPreset]), false);
+  assert.deepEqual(clip, legacyBefore, 'Changing the condition source to Bool must retain legacy Int32 values and 0/1 conditions');
+  assert.equal(api.getPublicEventArgumentReference(clip, api.getPublicEventArguments(clip)[0]), undefined, 'Removed boolean sources should use direct typed input');
+  assert.equal(api.getPublicEventArguments(clip)[0].reference, 'booleans.value', 'Legacy reference metadata is preserved in the saved clip');
   const unmatched = clone(clip);
   api.getPublicEventArguments(unmatched).push({ id: 'old-only', name: '技能模版', type: 'ConfigReference', value: '99', visibleWhen: [{ parameterId: 'player', equals: '0' }] });
   const oldOnly = clone(api.getPublicEventArguments(unmatched).at(-1));
@@ -235,6 +244,10 @@ function findSelect(root, label) {
   if (root.tag === 'select-stub' && root.props.label === label) return root;
   return root.children?.map(child => findSelect(child, label)).find(Boolean);
 }
+function findInput(root, label) {
+  if (root.tag === 'input' && root.props?.['aria-label'] === label) return root;
+  return root.children?.map(child => findInput(child, label)).find(Boolean);
+}
 async function settle() {
   await new Promise(resolve => setImmediate(resolve));
   await vue.nextTick();
@@ -247,7 +260,7 @@ async function testRealEditorWithPresetSaves() {
   const preset = createPreset(), clip = vue.reactive(createClip(preset));
   const initialClip = withoutVisibility(clip);
   const file = '/visibility-ui/PublicEventPresets.json';
-  const files = new Map([[file, JSON.stringify({ ...JSON.parse(presetApi.encodePublicEventPresets([preset])), presetStorage: 'custom-only' })]]);
+  const files = new Map([[file, JSON.stringify({ ...JSON.parse(presetApi.encodePublicEventPresets([preset])), presetStorage: 'system-overrides', systemOverrides: [] })]]);
   const writes = [];
   const storage = {
     setProject() { return this; },
@@ -271,11 +284,12 @@ async function testRealEditorWithPresetSaves() {
     assert.equal(writer.ready.value, true);
     assert.ok(findSelect(root, '技能模版预设值'), 'The original unconditioned clip should expose its saved skill ID');
     const choosePlayer = async value => {
-      const field = findSelect(root, '是否是玩家预设值');
-      assert.ok(field); assert.equal(field.props.disabled, false);
-      assert.deepEqual(field.props.options.map(option => option.value), ['0', '1']);
-      field.props.choose(value); await vue.nextTick();
+      assert.equal(findSelect(root, '是否是玩家预设值'), undefined, 'The removed boolean source must not show an unusable select');
+      const field = findInput(root, '是否是玩家');
+      assert.ok(field, 'Legacy boolean references must remain editable as integers');
+      field.props.onInput({ target: { value }, isComposing: false }); await vue.nextTick();
       assert.equal(api.getPublicEventArguments(clip)[0].value, value);
+      assert.equal(api.getPublicEventArguments(clip)[0].type, 'Int32');
     };
     const editedPreset = writer.presets.value.find(item => item.id === preset.id);
     setRule(editedPreset);
@@ -309,10 +323,10 @@ async function testRealEditorWithPresetSaves() {
     const { root: restoredRoot } = mount({ setup: () => () => vue.h(Editor, { clip: restored }) });
     await settle();
     assert.equal(Boolean(findSelect(restoredRoot, '技能模版预设值')), false, 'A reopened action must honor the stored visibility condition');
-    findSelect(restoredRoot, '是否是玩家预设值').props.choose('1'); await vue.nextTick();
+    findInput(restoredRoot, '是否是玩家').props.onInput({ target: { value: '1' }, isComposing: false }); await vue.nextTick();
     assert.equal(findSelect(restoredRoot, '技能模版预设值').props.value, '1098707708');
     assert.deepEqual(writes, [file, file, file, file], 'Preset consumers must not write additional copies when receiving successful saves');
-    console.log('PASS real Vue editor receives writer.flush preset saves, toggles 否/是 reactively, and retains hidden values after save/reopen');
+    console.log('PASS real Vue editor keeps legacy boolean references editable as Int32, receives preset saves and retains hidden values after save/reopen');
   } finally { for (const app of apps.reverse()) app.unmount(); }
 }
 

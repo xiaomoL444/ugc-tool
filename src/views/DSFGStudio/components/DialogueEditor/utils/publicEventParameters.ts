@@ -1,4 +1,5 @@
 import type { PublicEventParamType, PublicEventPreset, PublicEventVisibilityRule } from "../../EntityPresetEditor/publicEventPresets";
+import { getPublicEventParameterDefault } from "../../EntityPresetEditor/publicEventPresets";
 import type { PerformanceClip } from "../types/DialogueNode";
 import type { DialogueProject } from "../types/FileStruct";
 import { createClipComponent } from "../config/clipComponentRegistry";
@@ -6,6 +7,8 @@ import { systemPresetConfig } from "../../EntityPresetEditor/systemPresetConfig"
 export interface PublicEventArgument { id: string; name: string; type: PublicEventParamType; value: string; reference?: string; visibleWhen?: PublicEventVisibilityRule[] }
 /** 为已保存的实体朝向动作提供新实体候选，不改写其参数值或显式来源。 */
 export function getPublicEventArgumentReference(clip: PerformanceClip, parameter: PublicEventArgument): string | undefined {
+  // 旧布尔来源已移除；保留参数的类型和值，改为对应类型的直接输入。
+  if (parameter.reference === "booleans.value") return undefined;
   if (parameter.reference) return parameter.reference;
   const properties = clip.components.find(item => item.templateId === "public.event")?.properties;
   const preset = systemPresetConfig.publicEvents.presets.find(item => item.id === "public-set-object-entity-forward");
@@ -38,6 +41,13 @@ export function syncPublicEventVisibility(clip: PerformanceClip, presets: Public
   for (const parameter of getPublicEventArguments(clip)) {
     const definition = preset.parameters.find(item => item.id === parameter.id && item.type === parameter.type);
     if (!definition || JSON.stringify(parameter.visibleWhen ?? []) === JSON.stringify(definition.visibleWhen ?? [])) continue;
+    // 旧 Int32 开关保持 0/1 条件，不能随新版 Bool 开关改成 True/False。
+    const rules = [...(parameter.visibleWhen ?? []), ...(definition.visibleWhen ?? [])];
+    if (rules.some(rule => {
+      const savedSource = getPublicEventArguments(clip).find(item => item.id === rule.parameterId);
+      const currentSource = preset.parameters.find(item => item.id === rule.parameterId);
+      return savedSource && currentSource && savedSource.type !== currentSource.type;
+    })) continue;
     if (definition.visibleWhen?.length) parameter.visibleWhen = definition.visibleWhen.map(rule => ({ ...rule }));
     else delete parameter.visibleWhen;
     changed = true;
@@ -70,14 +80,17 @@ export function applyPublicEventPreset(clip: PerformanceClip, preset: PublicEven
   const previous = config.properties.presetId === preset.id ? getPublicEventArguments(clip) : [];
   config.enabled = true;
   config.properties = { ...config.properties, value: preset.name, presetId: preset.id, presetAlias: preset.alias,
-    parameters: preset.parameters.map(param => ({ ...(param.visibleWhen ? { visibleWhen: param.visibleWhen.map(rule => ({ ...rule })) } : {}), ...(param.reference ? { reference: param.reference } : {}), id: param.id, name: param.name, type: param.type,
-      value: previous.find(item => item.id === param.id && item.type === param.type)?.value ?? param.defaultValue,
-    })),
+    parameters: preset.parameters.map(param => {
+      const value = previous.find(item => item.id === param.id && item.type === param.type)?.value ?? param.defaultValue;
+      return { ...(param.visibleWhen ? { visibleWhen: param.visibleWhen.map(rule => ({ ...rule })) } : {}), ...(param.reference ? { reference: param.reference } : {}), id: param.id, name: param.name, type: param.type,
+        value: param.type === "Bool" && !value ? getPublicEventParameterDefault(param.type) : value,
+      };
+    }),
   };
 }
 export function compilePublicEventArguments(eventName: string, parameters: unknown) {
-  const lists = { stringParams: [eventName], intParams: [] as string[], guidParams: [] as string[], configParams: [] as string[], prefabParams: [] as string[], floatParams: [] as string[] };
-  const fields = { String: "stringParams", Int32: "intParams", Guid: "guidParams", ConfigReference: "configParams", EntityReference: "prefabParams", Float: "floatParams" } as const;
+  const lists = { stringParams: [eventName], intParams: [] as string[], guidParams: [] as string[], configParams: [] as string[], prefabParams: [] as string[], floatParams: [] as string[], boolParams: [] as string[] };
+  const fields = { String: "stringParams", Int32: "intParams", Guid: "guidParams", ConfigReference: "configParams", EntityReference: "prefabParams", Float: "floatParams", Bool: "boolParams" } as const;
   if (parameters === undefined) return lists;
   if (!Array.isArray(parameters)) throw new Error("公共事件参数必须是列表。");
   parameters.forEach((parameter, index) => {
@@ -85,10 +98,12 @@ export function compilePublicEventArguments(eventName: string, parameters: unkno
     if (!parameter || typeof parameter.value !== "string") throw fail();
     const type = parameter.type as PublicEventParamType;
     if (!Object.prototype.hasOwnProperty.call(fields, type)) throw fail();
-    let value = isPublicEventArgumentVisible(parameter, parameters) ? parameter.value : type === "String" ? "" : "0";
+    let value = isPublicEventArgumentVisible(parameter, parameters) ? parameter.value : type === "String" ? "" : type === "Bool" ? "False" : "0";
     if (type !== "String") {
       value = value.trim();
-      if (type === "Float") {
+      if (type === "Bool") {
+        if (value !== "True" && value !== "False") throw fail();
+      } else if (type === "Float") {
         if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) || !Number.isFinite(Number(value)) || !Number.isFinite(Math.fround(Number(value)))) throw fail();
         value = String(Number(value));
       } else if (type === "Int32") {

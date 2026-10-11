@@ -5,7 +5,8 @@ import type { SkillAnimationPreset } from "./skillAnimationPresets";
 
 /**
  * 所有预设的系统默认配置统一在这里修改。
- * newItem：新建自定义条目的字段默认值；presets：所有工作区始终提供的只读系统条目。
+ * newItem：新建条目的字段默认值；presets：代号固定、不可删除的系统默认条目，值可由工作区覆盖。
+ * 实体获取方式等固定协议选项保持只读。
  * 内置条目必须使用稳定、唯一的 id。未提供真实条目时保持空列表，不虚构技能 ID。
  */
 export const systemPresetConfig = {
@@ -14,13 +15,6 @@ export const systemPresetConfig = {
     presets: [
       { id: "entity-get-guid", label: "GUID", value: "0" },
       { id: "entity-get-string", label: "String", value: "1" },
-    ],
-  },
-  booleans: {
-    newItem: { label: "", value: "0" },
-    presets: [
-      { id: "boolean-false", label: "否", value: "0" },
-      { id: "boolean-true", label: "是", value: "1" },
     ],
   },
   customTables: {
@@ -58,6 +52,7 @@ export const systemPresetConfig = {
   publicEvents: {
     newItem: { alias: "", name: "", parameters: [] as PublicEventParameter[] },
     newParameter: { name: "", type: "String" as const, defaultValue: "" },
+    parameterDefaultValues: { Bool: "False" },
     presets: [{
       id: "public-player-skill",
       alias: "玩家播放技能动画",
@@ -74,10 +69,12 @@ export const systemPresetConfig = {
       alias: "玩家传送",
       name: "NOLOC_PlayerTeleport",
       parameters: [
-        { id: "public-player-teleport-position-x", name: "位置 X", type: "Float", defaultValue: "0" },
-        { id: "public-player-teleport-position-y", name: "位置 Y", type: "Float", defaultValue: "0" },
-        { id: "public-player-teleport-position-z", name: "位置 Z", type: "Float", defaultValue: "0" },
-        { id: "public-player-teleport-rotation-y", name: "旋转 Y", type: "Float", defaultValue: "0" },
+        { id: "public-player-teleport-set-position", name: "设置位置", type: "Bool", defaultValue: "False" },
+        { id: "public-player-teleport-position-x", name: "位置 X", type: "Float", defaultValue: "0", visibleWhen: [{ parameterId: "public-player-teleport-set-position", equals: "True" }] },
+        { id: "public-player-teleport-position-y", name: "位置 Y", type: "Float", defaultValue: "0", visibleWhen: [{ parameterId: "public-player-teleport-set-position", equals: "True" }] },
+        { id: "public-player-teleport-position-z", name: "位置 Z", type: "Float", defaultValue: "0", visibleWhen: [{ parameterId: "public-player-teleport-set-position", equals: "True" }] },
+        { id: "public-player-teleport-set-rotation", name: "设置旋转", type: "Bool", defaultValue: "False" },
+        { id: "public-player-teleport-rotation-y", name: "旋转 Y", type: "Float", defaultValue: "0", visibleWhen: [{ parameterId: "public-player-teleport-set-rotation", equals: "True" }] },
       ],
     }, {
       id: "public-simple-black-screen",
@@ -95,9 +92,9 @@ export const systemPresetConfig = {
       name: "NOLOC_LockAndPlayBGM",
       parameters: [
         { id: "public-lock-and-play-bgm-index", name: "背景音乐索引", type: "Int32", defaultValue: "" },
-        { id: "public-lock-and-play-bgm-start-time-1", name: "开始时间", type: "Float", defaultValue: "" },
-        { id: "public-lock-and-play-bgm-start-time-2", name: "开始时间", type: "Float", defaultValue: "" },
-        { id: "public-lock-and-play-bgm-speed", name: "播放速度", type: "Float", defaultValue: "" },
+        { id: "public-lock-and-play-bgm-start-time-1", name: "开始时间", type: "Float", defaultValue: "0" },
+        { id: "public-lock-and-play-bgm-start-time-2", name: "结束时间", type: "Float", defaultValue: "999" },
+        { id: "public-lock-and-play-bgm-speed", name: "播放速度", type: "Float", defaultValue: "1" },
       ],
     }, {
       id: "public-unlock-bgm",
@@ -116,22 +113,21 @@ export const systemPresetConfig = {
       parameters: [{
         id: "public-reset-camera-immediate",
         name: "是否立即到达",
-        type: "Int32",
-        reference: "booleans.value",
-        defaultValue: "0",
+        type: "Bool",
+        defaultValue: "False",
       }],
     }, {
       id: "public-set-object-entity-forward",
       alias: "触发实体朝向（仅物件）",
       name: "NOLOC_SetObjectEntityFoward",
       parameters: [
-        { id: "object-forward-boolean", name: "设置朝向（否＝重置）", type: "Int32", reference: "booleans.value", defaultValue: "" },
+        { id: "object-forward-boolean", name: "设置朝向（否＝重置）", type: "Bool", defaultValue: "False" },
         { id: "object-forward-method-1", name: "实体1获取方式", type: "Int32", reference: "entityGetMethods.value", defaultValue: "" },
         { id: "object-forward-guid-1", name: "实体1 GUID", type: "Guid", reference: "entities.guid", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-method-1", equals: "0" }] },
         { id: "object-forward-string-1", name: "实体1 String", type: "String", reference: "entities.entityQuery", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-method-1", equals: "1" }] },
-        { id: "object-forward-method-2", name: "实体2获取方式", type: "Int32", reference: "entityGetMethods.value", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "1" }] },
-        { id: "object-forward-guid-2", name: "实体2 GUID", type: "Guid", reference: "entities.guid", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "1" }, { parameterId: "object-forward-method-2", equals: "0" }] },
-        { id: "object-forward-string-2", name: "实体2 String", type: "String", reference: "entities.entityQuery", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "1" }, { parameterId: "object-forward-method-2", equals: "1" }] },
+        { id: "object-forward-method-2", name: "实体2获取方式", type: "Int32", reference: "entityGetMethods.value", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "True" }] },
+        { id: "object-forward-guid-2", name: "实体2 GUID", type: "Guid", reference: "entities.guid", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "True" }, { parameterId: "object-forward-method-2", equals: "0" }] },
+        { id: "object-forward-string-2", name: "实体2 String", type: "String", reference: "entities.entityQuery", defaultValue: "", visibleWhen: [{ parameterId: "object-forward-boolean", equals: "True" }, { parameterId: "object-forward-method-2", equals: "1" }] },
       ],
     }] as PublicEventPreset[],
   },

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch, watchEffect } from "vue";
 import type { PublicEventParamType } from "./EntityPresetEditor/publicEventPresets";
+import { getPublicEventParameterDefault } from "./EntityPresetEditor/publicEventPresets";
 import { getTypedValueError, isTypedValueDraft } from "./typedValueInput";
+import StudioSelectField from "./StudioSelectField.vue";
 
 const props = withDefaults(defineProps<{ modelValue?: string; valueType: PublicEventParamType }>(), { modelValue: "" });
 const emit = defineEmits<{ "update:modelValue": [value: string] }>();
@@ -10,7 +12,7 @@ const composing = ref(false);
 const checked = ref(false);
 const acceptedValue = ref(props.modelValue);
 watch(() => props.modelValue, value => { acceptedValue.value = value; }, { flush: "sync" });
-const error = computed(() => checked.value ? getTypedValueError(props.valueType, acceptedValue.value) : "");
+const error = computed(() => checked.value || props.valueType === "Bool" ? getTypedValueError(props.valueType, acceptedValue.value) : "");
 watchEffect(() => { input.value?.setCustomValidity?.(error.value); }, { flush: "post" });
 
 function updateValue(event: Event) {
@@ -25,6 +27,15 @@ function updateValue(event: Event) {
     emit("update:modelValue", element.value);
   }
 }
+
+function selectBoolean(value: string) {
+  acceptedValue.value = value;
+  checked.value = true;
+  emit("update:modelValue", value);
+}
+watch(() => props.valueType === "Bool" && props.modelValue === "", (empty: boolean) => {
+  if (empty) selectBoolean(getPublicEventParameterDefault("Bool"));
+}, { immediate: true });
 
 function beforeInput(event: InputEvent) {
   if (props.valueType === "String" || composing.value || event.isComposing || !event.cancelable
@@ -42,7 +53,14 @@ function compositionEnd(event: CompositionEvent) {
 </script>
 
 <template>
-  <input ref="input" :value="modelValue" type="text"
+  <StudioSelectField v-if="valueType === 'Bool'" :model-value="modelValue || getPublicEventParameterDefault('Bool')"
+    :aria-invalid="error ? 'true' : undefined" :title="error || undefined"
+    @update:model-value="selectBoolean">
+    <option v-if="modelValue !== '' && modelValue !== 'False' && modelValue !== 'True'" :value="modelValue" disabled>{{ modelValue }}（当前值，请重新选择）</option>
+    <option value="False">否</option>
+    <option value="True">是</option>
+  </StudioSelectField>
+  <input v-else ref="input" :value="modelValue" type="text"
     :inputmode="valueType === 'String' ? 'text' : valueType === 'Float' ? 'decimal' : 'numeric'"
     :aria-invalid="error ? 'true' : undefined" :title="error || undefined"
     @beforeinput="beforeInput" @input="updateValue" @focus="checked = false" @blur="checked = true"

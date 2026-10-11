@@ -80,7 +80,7 @@ function moveParam(index: number, direction: number) {
       自动推进等待时间（秒）
       <input v-model.number="autoContinue" type="number" step="0.1" />
     </label>
-    <small class="advance-hint">默认 -1，表示不自动推进；正数表示开启自动播放后的等待秒数。</small>
+    <small class="advance-hint">默认 -1，即使用全局自动推进时间，为 10s。</small>
   </div>
 </template>
 

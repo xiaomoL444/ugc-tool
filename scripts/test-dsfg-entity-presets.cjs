@@ -19,6 +19,7 @@ async function main() {
   const base = path.resolve(__dirname, '../src/views/DSFGStudio/components/EntityPresetEditor');
   const { createEntityPreset, encodeEntityPresets: encode, decodeEntityPresets: decode } = require(path.join(base, 'entityPresets.ts'));
   const { useEntityPresets } = require(path.join(base, 'useEntityPresets.ts'));
+  const { systemPresetConfig } = require(path.join(base, 'systemPresetConfig.ts'));
   let count = 0;
   async function test(name, check) { await check(); count++; console.log(`PASS ${name}`); }
   await test('Preset settings contains the entity section and retains the existing editor route and save guard', () => {
@@ -93,17 +94,26 @@ async function main() {
   await test('Loading a new workspace does not create files; edits are saved to the captured workspace', async () => {
     const { instance, hooks } = await mount('workspace-A');
     assert.equal(instance.ready.value, true); assert.equal(files.size, 0);
+    assert.deepEqual(JSON.parse(JSON.stringify(instance.presets.value)), systemPresetConfig.entities.presets);
+    assert.equal(instance.availablePresets.value.length, instance.presets.value.length);
+    instance.presets.value[0].guid = 'workspace-player-guid';
+    assert.equal(systemPresetConfig.entities.presets[0].guid, '1086324738');
     hooks.selectedWorkspaceId.value = 'workspace-B';
     instance.presets.value.push({ id: 'a', talker: 'A', subtitle: '' });
     await instance.flush();
     assert.equal(files.has('/workspace-B/EntityPresets.json'), false);
-    assert.equal(decode(files.get('/workspace-A/EntityPresets.json'))[0].talker, 'A');
+    const saved = decode(files.get('/workspace-A/EntityPresets.json'));
+    assert.equal(saved.find(item => item.id === 'a').talker, 'A');
+    const data = JSON.parse(files.get('/workspace-A/EntityPresets.json'));
+    assert.equal(data.systemOverrides.find(item => item.id === 'system-player-self').guid, 'workspace-player-guid');
+    assert.equal(data.presetStorage, 'system-overrides');
     hooks.unmount[0]();
   });
-  await test('Switching away and reopening restores presets while other workspaces remain empty', async () => {
+  await test('Reopening restores editable defaults and custom entries while other workspaces use fresh defaults', async () => {
     const a = await mount('workspace-A'), b = await mount('workspace-B');
-    assert.equal(a.instance.presets.value[0].talker, 'A');
-    assert.deepEqual(b.instance.presets.value, []);
+    assert.equal(a.instance.presets.value.find(item => item.id === 'a').talker, 'A');
+    assert.equal(a.instance.presets.value[0].guid, 'workspace-player-guid');
+    assert.deepEqual(JSON.parse(JSON.stringify(b.instance.presets.value)), systemPresetConfig.entities.presets);
     a.hooks.unmount[0](); b.hooks.unmount[0]();
   });
   await test('A failed save blocks flush and retry saves the latest data', async () => {
@@ -115,7 +125,7 @@ async function main() {
     instance.presets.value[0].subtitle = 'new';
     fail = false;
     await instance.retry();
-    assert.equal(decode(files.get('/workspace-A/EntityPresets.json'))[0].subtitle, 'new');
+    assert.equal(JSON.parse(files.get('/workspace-A/EntityPresets.json')).systemOverrides[0].subtitle, 'new');
     assert.equal(instance.error.value, '');
     hooks.unmount[0]();
   });

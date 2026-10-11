@@ -34,7 +34,7 @@ export function imageFillMask(values: Partial<ClientUIImageControlProperties>): 
     : `conic-gradient(from ${start}deg at ${origin}, #000 0deg ${sweep}deg, transparent ${sweep}deg 360deg)`;
 }
 
-/** Combines fill and rectangular feathering before applying reverse-mask. */
+/** Combines fill and feathering; callers reverse only after including texture alpha. */
 export function imageFeatherPreview(values: Partial<ClientUIImageControlProperties> | undefined, width: number, height: number): CSSProperties {
   if (!values?.enableMask) return {};
   const finite = (value: number | null | undefined, fallback: number) => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -54,10 +54,8 @@ export function imageFeatherPreview(values: Partial<ClientUIImageControlProperti
   const masks: string[] = values.enableSoftEdge ? [gradient('to right', x), gradient('to bottom', y)] : [];
   const fill = imageFillMask(values);
   if (fill) masks.push(fill);
-  if (!masks.length && !values.reverseMaskArea) return {};
-  if (!masks.length) masks.push('linear-gradient(#000, #000)');
+  if (!masks.length) return {};
   const composites = masks.map(() => 'intersect');
-  if (values.reverseMaskArea) { masks.unshift('linear-gradient(#000, #000)'); composites.unshift('subtract'); }
   // Omit the final unused operator for a stable, explicit layer pairing.
   return { maskImage: masks.join(', '), maskComposite: composites.slice(0, Math.max(1, masks.length - 1)).join(', '), maskSize: '100% 100%', maskRepeat: 'no-repeat' };
 }

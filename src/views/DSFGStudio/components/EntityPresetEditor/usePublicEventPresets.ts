@@ -5,6 +5,8 @@ import { useWorkspacePresets } from "./useWorkspacePresets";
 export function usePublicEventPresets() {
   return useWorkspacePresets({
     fileName: "PublicEventPresets.json",
+    editableDefaults: true,
+    fixedFields: ["alias"],
     defaults: () => systemPresetConfig.publicEvents.presets,
     encode: encodePublicEventPresets,
     decode: decodePublicEventPresets,
