@@ -49,7 +49,7 @@ export function toResponsesRequest(source, endpoint = "") {
   if (pending.size || !input.length) throw new TypeError("Missing tool results.");
   const maxTokens = [source.max_output_tokens, source.max_completion_tokens, source.max_tokens].find(value => value !== undefined);
   if (maxTokens !== undefined && (!Number.isSafeInteger(maxTokens) || maxTokens < 1)) throw new TypeError("Invalid output token limit.");
-  const request = { model: source.model, input, ...(maxTokens === undefined ? {} : { max_output_tokens: maxTokens }), stream: false, store: false };
+  const request = { model: source.model, input, ...(maxTokens === undefined ? {} : { max_output_tokens: maxTokens }), stream: source.stream === true, store: false };
   if (source.tools !== undefined) {
     if (!Array.isArray(source.tools)) throw new TypeError("Invalid tools.");
     request.tools = source.tools.map(tool => {

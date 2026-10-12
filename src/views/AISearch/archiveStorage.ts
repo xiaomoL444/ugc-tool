@@ -3,6 +3,7 @@ import { MAX_SEARCH_RESULTS, normalizeResultLimit } from "./resultLimits";
 import { boundedRawResponse } from "./responseDiagnostics";
 import { sanitizeRequestDiagnostic } from "./requestDiagnostics";
 import type { ChatMessage, Conversation, ResourceCard, SearchMode } from "./types";
+import { normalizeAnswerSections } from "../../../tools/ai-search-service/model-output-policy.mjs";
 
 export const AI_SEARCH_ARCHIVE_PROJECT_ID = "AISearch";
 export const AI_SEARCH_ARCHIVE_PATH = "/archive.json";
@@ -69,10 +70,16 @@ function serializeMessage(value: unknown): ChatMessage | undefined {
   const resultWarning = message.role === "assistant" ? text(message.resultWarning, 800) : "";
   const requestDiagnostic = message.role === "assistant" && (status === "error" || status === "complete" && resultWarning)
     ? sanitizeRequestDiagnostic(message.requestDiagnostic) : undefined;
+  const cards = (Array.isArray(message.cards) ? message.cards : []).slice(0, MAX_SEARCH_RESULTS)
+    .flatMap(value => { const card = serializeCard(value); return card ? [card] : []; });
+  let sections: ChatMessage["sections"];
+  if (message.role === "assistant" && status === "complete") {
+    try { sections = normalizeAnswerSections(message.sections, cards.map(card => card.resourceId)); }
+    catch { /* A damaged grouping never discards the saved answer or cards. */ }
+  }
   return {
     id: text(message.id, 100), role: message.role, content: text(message.content, 4000),
-    cards: (Array.isArray(message.cards) ? message.cards : []).slice(0, MAX_SEARCH_RESULTS)
-      .flatMap(value => { const card = serializeCard(value); return card ? [card] : []; }),
+    cards, ...(sections?.length ? { sections } : {}),
     status, mode, source: mode, model: text(message.model, 100), error: status === "error",
     ...(["json_schema", "json_object", "prompt"].includes(String(message.outputConstraint)) ? { outputConstraint: message.outputConstraint as ChatMessage["outputConstraint"] } : {}),
     ...(resultWarning ? { resultWarning } : {}),

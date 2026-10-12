@@ -61,7 +61,7 @@ const signal = () => new AbortController().signal;
     const schema = searchAnswerSchema(['sound:30001', 'sound:30001', 'bgm:10128', 'bad'], 5, true);
     assert.deepEqual(schema.properties.matches.items.properties.resourceId.enum, ['sound:30001', 'bgm:10128']);
     assert.equal(schema.properties.matches.maxItems, 5);
-    assert.deepEqual(schema.required, ['answer', 'matches', 'clarification']);
+    assert.deepEqual(schema.required, ['answer', 'matches', 'sections', 'clarification']);
     assert.equal(schema.additionalProperties, false);
     assert.equal(schema.properties.matches.items.additionalProperties, false);
     assert.equal(searchAnswerSchema([], 5, true).properties.matches.maxItems, 0);

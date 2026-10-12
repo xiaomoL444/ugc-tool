@@ -113,6 +113,10 @@
 .ai-search-workspace .message-user .message-text { padding: 6px 12px; background: #e5f1ff; border: 1px solid #bedaf4; color: #275681; font-size: 14px; line-height: 1.5; border-radius: 9px 3px 9px 9px; box-shadow: none; }
 .ai-search-workspace .message-error .message-text { color: #b22a48; }
 .ai-search-workspace .thinking-state { display: flex; align-items: center; gap: 9px; padding: 8px 0; color: #42648d; font-size: 13px; }
+.ai-search-workspace .search-progress { display: grid; gap: 5px; padding: 8px 0 12px; color: #42648d; font-size: 13px; }
+.ai-search-workspace .search-progress-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.ai-search-workspace .search-progress-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--ai-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.ai-search-workspace .streaming-answer { opacity: .9; }
 .ai-search-workspace .thinking-dots { display: flex; gap: 4px; }
 .ai-search-workspace .thinking-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--ai-accent); animation: ai-pulse 1s infinite; }
 .ai-search-workspace .thinking-dots i:nth-child(2) { animation-delay: .15s; }

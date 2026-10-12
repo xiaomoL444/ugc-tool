@@ -6,6 +6,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
 const { resolveModelProtocol, anthropicMessagesUrl, modelHeaders, toAnthropicRequest, normalizeAnthropicResponse } = require('../src/views/AISearch/modelProtocol.ts');
+const { toResponsesRequest } = require('../tools/ai-search-service/model-responses.mjs');
 const { AISearchError, buildSearchPayload, requestSearch } = require('../src/views/AISearch/aiSearchService.ts');
 const { buildAgentSearchPayload, requestAgentSearch } = require('../src/views/AISearch/agentSearchService.ts');
 const key = 'mock-native-protocol-key-not-real';
@@ -73,7 +74,14 @@ function freeze(value) {
       { role: 'user', content: 'Return the final JSON.' },
     ]), apiKey: key, response_format: { type: 'json_object' }, reasoning_effort: 'none', thinking: { type: 'enabled', budget_tokens: 1024 }, stream: true });
     const native = toAnthropicRequest(source);
-    assert.equal(native.model, 'claude-mock-local'); assert.equal(native.max_tokens, 768); assert.equal(native.stream, false);
+    assert.equal(native.model, 'claude-mock-local'); assert.equal(native.max_tokens, 768); assert.equal(native.stream, true, 'Explicit streaming remains enabled');
+    const { stream: _stream, ...defaultStreamSource } = source;
+    for (const [label, streamSource, expected] of [
+      ['default', defaultStreamSource, false], ['explicit false', { ...source, stream: false }, false], ['explicit true', source, true],
+    ]) {
+      assert.equal(toAnthropicRequest(streamSource).stream, expected, `Anthropic preserves ${label} streaming behavior`);
+      assert.equal(toResponsesRequest(streamSource).stream, expected, `Responses preserves ${label} streaming behavior`);
+    }
     assert.equal(native.system, 'Primary instructions.\n\nFurther instructions.');
     assert.deepEqual(native.tools, [{ name: 'search_assets', description: tools[0].function.description, input_schema: schema }]);
     assert.deepEqual(native.tool_choice, { type: 'auto' });

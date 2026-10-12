@@ -364,7 +364,8 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
         assert.equal(observed.description, gameSound.description);
         if (gameRounds === 2) return toolCall('get_assets', { ids: [gameSound.resourceId] }, 'game-detail');
         assert.equal(body.tool_choice, 'none');
-        assert.ok(responsesMessages(body).at(-1).content.includes('Show useful candidates even when few'));
+        assert.match(responsesMessages(body).at(-1).content, /all grounded matches up to resultLimit/, 'Concise final output retains the grounded candidates');
+        assert.match(responsesMessages(body).at(-1).content, /Keep useful partial results; never pad unrelated matches/, 'Few useful candidates are retained without padding unrelated assets');
         return finalValue({ answer: '先试这个短音；你想要轻量还是更有力度的升级反馈？', matches: [
           { resourceId: gameSound.resourceId, reason: '用途建议：短促尖锐起音可用于强化确认。', matchType: 'suggestion' },
         ] });

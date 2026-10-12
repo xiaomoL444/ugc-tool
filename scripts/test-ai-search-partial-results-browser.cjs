@@ -55,9 +55,9 @@ function transpile(source, filename) {
     compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
 }
-function compileFixture() {
+function compileFixture(sectionMode = false) {
   const sourceFiles = [
-    'src/views/AISearch/components/ResourceResults.vue', 'src/views/AISearch/components/ResourceDetails.vue',
+    'src/views/AISearch/components/ResourceResults.vue', 'src/views/AISearch/components/AnswerSections.vue', 'src/views/AISearch/components/ResourceDetails.vue',
     'src/views/AISearch/components/SearchIcon.vue', 'src/views/AISearch/components/ResourceMiniPreview.vue',
     'src/views/AISearch/components/SoundMiniPreview.vue', 'src/views/SoundEffectPlayer/AudioWaveform.vue',
     'src/views/AISearch/previewMedia.ts', 'src/views/AISearch/previewPlayback.ts',
@@ -111,13 +111,21 @@ function compileFixture() {
   }
   window.fixtureErrors=[];
   const i18n=VueI18n.createI18n({legacy:false,flatJson:true,locale:'zh-CN',messages:{'zh-CN':${JSON.stringify(locales)}}});
-  const component=requireModule('src/views/AISearch/components/ResourceResults.vue').default;
-  const cards=${JSON.stringify(display.cards)};
-  Vue.createApp({setup:()=>()=>Vue.h(component,{cards,resultId:${JSON.stringify(fixtureId)}})}).use(i18n).mount('#results');
+  const component=requireModule(${JSON.stringify('src/views/AISearch/components/' + (sectionMode ? 'AnswerSections' : 'ResourceResults') + '.vue')}).default;
+  const cards=${JSON.stringify(sectionMode ? groupedCards : display.cards)};
+  const state=Vue.reactive({sections:${JSON.stringify(groupedSections)}});
+  window.setSections=sections=>{state.sections=sections};
+  Vue.createApp({setup:()=>()=>Vue.h(component,{cards,resultId:${JSON.stringify(fixtureId)},${sectionMode ? 'sections:state.sections' : ''}})}).use(i18n).mount('#results');
   window.fixtureReady=true;
   `;
   return { bundle, stylesheet: styles.join('\n') };
 }
+const groupedCards = [trusted[0], { ...trusted[0], resourceId: 'sound:50545', id: '50545', title: '第二个释放音', href: '/SoundEffectPlayer?id=50545' },
+  trusted[1], { ...trusted[1], resourceId: 'sound:50931', id: '50931', title: '第二个不足音', href: '/SoundEffectPlayer?id=50931' }];
+const groupedSections = [
+  { answer: '释放道具：选用明亮上扬的短促金属声，适合生效瞬间。', resourceIds: groupedCards.slice(0, 2).map(card => card.resourceId) },
+  { answer: '道具不足：选用下行或突停的短音，适合否定反馈。', resourceIds: groupedCards.slice(2).map(card => card.resourceId) },
+];
 function offlineWave() {
   const sampleRate = 8000, samples = sampleRate;
   const data = Buffer.alloc(44 + samples * 2);
@@ -235,6 +243,50 @@ async function testViewport(browser, fixture, mobile) {
   } finally { await context.close(); }
 }
 
+async function testAnswerSections(browser, fixture, mobile) {
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: mobile ? { width: 390, height: 844 } : { width: 1650, height: 900 } });
+  const errors = [], unexpected = [];
+  await context.route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== fixtureOrigin) { unexpected.push(url.href); return route.abort(); }
+    const entry = { '/': ['text/html', fixture.html], '/runtime.js': ['application/javascript', fixture.runtime],
+      '/fixture.js': ['application/javascript', fixture.bundle], '/fixture.css': ['text/css', fixture.stylesheet] }[url.pathname];
+    if (entry) return route.fulfill({ contentType: entry[0], body: entry[1] });
+    if (/^\/ugc-tool-data\/SoundEffectPlayer\/audio\/(50514|50545|50934|50931)\.mp3$/.test(url.pathname)) return route.fulfill({ contentType: 'audio/wav', body: offlineWave() });
+    unexpected.push(url.href); return route.fulfill({ status: 404, body: '' });
+  });
+  try {
+    const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
+    await page.goto(fixtureOrigin); await page.waitForFunction(() => window.fixtureReady);
+    const groups = page.locator('.answer-section');
+    assert.equal(await groups.count(), 2);
+    for (let i = 0; i < 2; i++) {
+      const group = groups.nth(i);
+      assert.equal(await group.locator('.message-text').textContent(), groupedSections[i].answer);
+      assert.deepEqual(await group.evaluate(element => [...element.children].map(child => child.tagName)), ['P', 'SECTION'], 'Each answer precedes its own card group');
+      await page.waitForFunction(({ index, count }) => document.querySelectorAll('.answer-section')[index].querySelectorAll('.resource-card').length === count, { index: i, count: mobile ? 1 : 2 });
+      const cards = group.locator('.resource-card');
+      assert.deepEqual(await cards.locator('h3').allTextContents(), groupedCards.slice(i * 2, i * 2 + (mobile ? 1 : 2)).map(card => card.title));
+    }
+    if (mobile) {
+      const first = groups.nth(0), second = groups.nth(1);
+      assert.notEqual(await first.locator('.results-next').getAttribute('aria-controls'), await second.locator('.results-next').getAttribute('aria-controls'));
+      await first.locator('.results-next').click();
+      assert.equal(await first.locator('h3').textContent(), groupedCards[1].title);
+      assert.equal(await second.locator('h3').textContent(), groupedCards[2].title, 'Paging the first answer never pages the second');
+      await first.locator('.results-previous').click();
+    }
+    const top = await groups.nth(0).boundingBox(), bottom = await groups.nth(1).boundingBox();
+    assert.ok(bottom.y >= top.y + top.height, 'Answers and their cards stack vertically');
+    await page.screenshot({ path: path.join(screenshotDirectory, mobile ? 'ai-search-answer-sections-mobile.png' : 'ai-search-answer-sections.png'), fullPage: true });
+    await page.evaluate(sections => window.setSections([...sections, { answer: '另一种反馈暂时没有合适候选。', resourceIds: [] }]), groupedSections);
+    assert.equal(await groups.count(), 3); assert.equal(await groups.nth(2).locator('.resource-card').count(), 0);
+    assert.equal(await groups.nth(2).locator('.message-text').textContent(), '另一种反馈暂时没有合适候选。');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.deepEqual(errors, []); assert.deepEqual(unexpected, []);
+  } finally { await context.close(); }
+}
+
 (async () => {
   const fixture = compileFixture();
   fixture.runtime = fs.readFileSync(path.join(path.dirname(require.resolve('vue/package.json')), 'dist/vue.runtime.global.prod.js'), 'utf8') + '\n' +
@@ -260,6 +312,16 @@ async function testViewport(browser, fixture, mobile) {
   try {
     await testViewport(browser, fixture, false);
     await testViewport(browser, fixture, true);
+    const sectionsFixture = compileFixture(true);
+    sectionsFixture.runtime = fixture.runtime;
+    sectionsFixture.html = fixture.html.replace(/<p class="message-text">[\s\S]*?<div id="results">/, '<div id="results">');
+    const sectionExperiment = path.join(artifactRoot, 'experiments/answer-sections');
+    await fsp.mkdir(sectionExperiment, { recursive: true });
+    await Promise.all([fsp.writeFile(path.join(sectionExperiment, 'fixture.js'), sectionsFixture.bundle),
+      fsp.writeFile(path.join(sectionExperiment, 'fixture.css'), sectionsFixture.stylesheet), fsp.writeFile(path.join(sectionExperiment, 'fixture.html'), sectionsFixture.html)]);
+    await testAnswerSections(browser, sectionsFixture, false);
+    await testAnswerSections(browser, sectionsFixture, true);
+    console.log('PASS answer sections browser: actual Vue answer/card ordering, distinct group membership, independent mobile paging, empty-group explanations, desktop/mobile layouts, and zero API calls.');
     console.log('PASS partial results browser: actual Vue components, trusted preview/links, exact copyable unresolved IDs, blank unknown metadata/media, distinct duplicate details, complete desktop/mobile paging, and zero model calls.');
     console.log('Screenshot: ' + screenshot);
   } finally { await browser.close(); }

@@ -23,7 +23,7 @@ const terms = computed(() => [...new Set(query.value.trim().toLocaleLowerCase().
 const hasQuery = computed(() => terms.value.length > 0)
 
 function visibleFields(message: ChatMessage): string[] {
-  return [message.content, ...message.cards.flatMap(card => [
+  return [message.content, ...(message.sections ?? []).map(section => section.answer), ...message.cards.flatMap(card => [
     card.title, card.description, card.id, t(`aiSearch.scopes.${card.kind}`),
     ...(card.keywords || []), ...(card.suggestedUses || []), card.matchReason || '',
   ])].filter(text => text.trim())

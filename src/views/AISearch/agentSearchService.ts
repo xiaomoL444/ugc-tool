@@ -6,7 +6,7 @@ import { selectSuggestedUses } from "../../../tools/ai-search-service/asset-use-
 import { AISearchError, modelConnection, modelResponseEnvelope, completionTokenOptions, responsesToolCompatibilityOptions, fetchConstrainedModel, fetchAISearch, readAISearchJSON, readAISearchHTTPDiagnostic, providerRequestError, parseFeatureSync, parseServerResources, requestServerAssets, requestServerCatalog, requestServerSearchBatch, validateSearchAnswer } from "./aiSearchService";
 import { record } from "./resourceCatalog";
 import { MAX_SEARCH_RESULTS, normalizeResultLimit, boundedHistoryContent } from "./resultLimits";
-import type { AgentSearchPayload, ChatMessage, ModelConfig, SearchAnswer, SearchResource, SearchScope, SearchMatchOn, ServerSearchInput, FeatureSync } from "./types";
+import type { AgentSearchPayload, ChatMessage, ModelConfig, SearchAnswer, SearchResource, SearchScope, SearchMatchOn, ServerSearchInput, FeatureSync, SearchProgress } from "./types";
 import { recoverResultDisplay } from "./resultDisplay";
 import { detectModelOutput, outputThinkingOptions, outputPrompt, OUTPUT_CONSTRAINTS } from "../../../tools/ai-search-service/model-output-policy.mjs";
 import type { OutputConstraint } from "../../../tools/ai-search-service/model-output-policy.mjs";
@@ -36,23 +36,28 @@ export function buildAgentSearchPayload(query: string, locale: string, scope: Se
     }
   }
   const messages = turns.slice(-4).flat().map(message => ({ role: message.role,
-    content: boundedHistoryContent(message.content, message.cards, 'Displayed resources in order') }));
+    content: boundedHistoryContent(message.content, message.cards, 'Displayed resources in order', message.sections) }));
   const previousIds = turns[turns.length - 1]?.[1].cards.slice(0, MAX_SEARCH_RESULTS).map(card => card.resourceId) ?? [];
   const payload: AgentSearchPayload = { workflow: "agent", requestId, query, locale, scope, ...(matchOn !== "any" ? { matchOn } : {}), includeEffectAudio, messages, previousIds, resultLimit: normalizeResultLimit(resultLimit) };
   while (new TextEncoder().encode(JSON.stringify(payload)).length > 21000 && payload.messages.length > 2) payload.messages.splice(0, 2);
   if (new TextEncoder().encode(JSON.stringify(payload)).length > 21000) throw new AISearchError("PAYLOAD_TOO_LARGE");
   return payload;
 }
-interface AgentOptions { mode: "free" | "custom"; config: ModelConfig; freeBase: string; signal: AbortSignal; fetcher?: typeof fetch; maxSearchLimit?: number; maxAssetIds?: number; maxPreviousIds?: number; maxExcludeIds?: number; hydrateFinalAssets?: boolean }
+interface AgentOptions { mode: "free" | "custom"; config: ModelConfig; freeBase: string; signal: AbortSignal; fetcher?: typeof fetch; maxSearchLimit?: number; maxAssetIds?: number; maxPreviousIds?: number; maxExcludeIds?: number; hydrateFinalAssets?: boolean; onProgress?: (progress: SearchProgress) => void }
 interface ToolCall { id: string; type: "function"; function: { name: string; arguments: string } }
-type ModelMessage = { role: "system" | "user" | "assistant" | "tool"; content: string | null; tool_calls?: ToolCall[]; tool_call_id?: string; _anthropicContent?: unknown[] };
+type ModelMessage = { role: "system" | "user" | "assistant" | "tool"; content: string | null; tool_calls?: ToolCall[]; tool_call_id?: string; _anthropicContent?: unknown[]; _responsesOutput?: unknown[] };
 function summary(item: SearchResource, detail = false, query = "") {
-  return { resourceId: item.resourceId, kind: item.kind, title: item.title.slice(0, 80), description: item.description.slice(0, detail ? 1200 : 240),
+  const value: Record<string, unknown> = { resourceId: item.resourceId, kind: item.kind, title: item.title.slice(0, 80), description: item.description.slice(0, detail ? 1200 : 240),
     keywords: item.keywords.slice(0, 6).map(value => value.slice(0, 60)), suggestedUses: selectSuggestedUses(item.suggestedUses, query, 2, 100), duration: item.duration, hasAudio: item.hasAudio,
     audioMatch: item.audioMatch === true, descriptionLocale: item.locale, matchType: item.matchType,
     ...(item.kind === "effect" ? { visualDescription: (item.visualDescription || (!item.audioMatch ? item.description : "")).slice(0, detail ? 1200 : 240),
       audioDescription: (item.audioDescription || "").slice(0, detail ? 1200 : 240), audioKeywords: (item.audioKeywords ?? []).slice(0, 6).map(value => value.slice(0, 60)) } : {}) };
+  // Audio/visual fields already contain this exact projection. Repeating it in
+  // description wastes later-round input and can force needless truncation.
+  if (item.kind === "effect" && value.description === (item.audioMatch ? value.audioDescription : value.visualDescription)) delete value.description;
+  return value;
 }
+const FINAL_OUTPUT_INSTRUCTION = "Tools closed. Return compact JSON with all grounded matches up to resultLimit. Keep useful partial results; never pad unrelated matches. Each reason: one short evidence-to-fit sentence; aim for 20 words or 40 CJK characters, exceeding this only for essential evidence, required labels or important limits. answer: brief overview with a short clarification only if needed. Omit repeated names, IDs and descriptions in prose. Explain each need in sections; do not repeat it in answer. Preserve all section IDs and explanations. Single need: sections:[].";
 const ownKeys = (args: Record<string, unknown>, allowed: string[]) => { if (Object.keys(args).some(key => !allowed.includes(key))) throw new AISearchError("TOOL_ARGUMENTS"); };
 function searchArgs(args: Record<string, unknown>, payload: AgentSearchPayload): ServerSearchInput & { excludePrevious: boolean } {
   ownKeys(args, ["query", "scope", "matchOn", "limit", "cursor", "excludePrevious", "searchType", "filters"]);
@@ -132,17 +137,24 @@ function parseFinal(content: unknown, allowed: SearchResource[], resultLimit: nu
   const result = record(parsed);
   const clarification = result.clarification === true;
   if (Object.hasOwn(result, "clarification")) {
-    if (typeof result.clarification !== "boolean" || clarification && (!Array.isArray(result.matches) || result.matches.length)) throw new AISearchError("RESPONSE_FORMAT");
+    if (typeof result.clarification !== "boolean" || clarification && (!Array.isArray(result.matches) || result.matches.length
+      || result.sections !== undefined && (!Array.isArray(result.sections) || result.sections.length))) throw new AISearchError("RESPONSE_FORMAT");
     delete result.clarification;
   }
-  if (Object.keys(result).some(key => key !== "answer" && key !== "matches")) throw new AISearchError("RESPONSE_FORMAT");
+  if (Object.keys(result).some(key => !["answer", "matches", "sections"].includes(key))) throw new AISearchError("RESPONSE_FORMAT");
   return { answer: validateSearchAnswer(result, allowed, resultLimit), clarification };
 }
 export async function requestAgentSearch(payload: AgentSearchPayload, options: AgentOptions): Promise<SearchAnswer> {
   const fetcher = options.fetcher ?? fetch;
+  const startedAt = Date.now();
+  const reportProgress = (progress: SearchProgress) => {
+    if (options.signal.aborted) return;
+    try { options.onProgress?.({ ...progress, elapsedMs: Date.now() - startedAt }); } catch { /* Progress rendering cannot invalidate a search. */ }
+  };
   if (options.mode === "free") {
     const url = `${options.freeBase.replace(/\/$/, "")}/chat`;
     const context: RequestContext = { stage: "site", endpoint: url, startedAt: Date.now() };
+    reportProgress({ phase: "waiting" });
     const response = await fetchAISearch(url, { method: "POST", signal: options.signal,
       headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }, context, fetcher);
     if (!response.ok) {
@@ -193,12 +205,13 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
   let maxSearchLimit = options.maxSearchLimit ?? 30, maxAssetIds = options.maxAssetIds ?? 10;
   let maxPreviousIds = options.maxPreviousIds ?? 5, maxExcludeIds = options.maxExcludeIds ?? 30;
   const assertVersion = (next: string) => { if (version && version !== next) throw new AISearchError("CATALOG_CHANGED"); version = next; };
-  const execute = async (call: ToolCall) => {
+  const execute = async (call: ToolCall, round: number) => {
     let args: Record<string, unknown>;
     try { const parsed = JSON.parse(call.function.arguments); if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(); args = parsed; }
     catch { throw new AISearchError("TOOL_ARGUMENTS"); }
     if (call.function.name === "search_assets") {
       const input = searchArgs(args, payload), { excludePrevious, ...request } = input;
+      reportProgress({ phase: "searching", round });
       const result = await requestServerSearchBatch(options.freeBase, request, options.signal, fetcher, maxSearchLimit, { maxPreviousIds, maxExcludeIds });
       assertVersion(result.catalogVersion);
       maxSearchLimit = result.maxSearchLimit ?? maxSearchLimit;
@@ -224,12 +237,14 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
       if (!Array.isArray(args.ids) || !args.ids.length || args.ids.length > 5 || new Set(args.ids).size !== args.ids.length || args.ids.some(id => typeof id !== "string" || !known.has(id))) throw new AISearchError("TOOL_ARGUMENTS");
       const ids = args.ids as string[];
       const audioIds = new Set(ids.filter(id => known.get(id)?.audioMatch));
+      reportProgress({ phase: "loading_details", round });
       const details = await requestServerAssets(options.freeBase, ids, payload.locale, version, options.signal, audioIds, fetcher, state => { featureSync = state; }, maxAssetIds);
       details.forEach(item => { known.set(item.resourceId, item); fullDetails.set(item.resourceId, item); });
       return { catalogVersion: version, items: details.map(item => summary(item, true, knownQueries.get(item.resourceId) || payload.query)) };
     }
     if (call.function.name === "get_asset_catalog") {
       ownKeys(args, []);
+      reportProgress({ phase: "searching", round });
       const result = await requestServerCatalog(options.freeBase, options.signal, fetcher);
       assertVersion(result.catalogVersion);
       maxSearchLimit = result.maxSearchLimit ?? maxSearchLimit;
@@ -244,21 +259,23 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
   for (let round = 0; round < 3; round++) {
     if (options.signal.aborted) throw new DOMException("Aborted", "AbortError");
     const finalRound = round === 2 || toolCount >= 4;
-    const request = { model: options.config.model.trim(), stream: false, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit), protocol), ...responsesToolCompatibilityOptions(url, options.config.model, !finalRound), messages,
+    const request = { model: options.config.model.trim(), stream: true, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit), protocol), ...responsesToolCompatibilityOptions(url, options.config.model, !finalRound), messages,
       ...outputThinkingOptions(options.config),
       ...(deepSeek ? { thinking: { type: "disabled" } } : {}),
       ...(finalRound ? { tools: AGENT_SEARCH_TOOLS, tool_choice: "none" }
         : { tools: AGENT_SEARCH_TOOLS, tool_choice: "auto" }) };
     const context: RequestContext = { stage: "model", endpoint: url, model: options.config.model.trim(), round: round + 1, startedAt: Date.now() };
     const secrets = [options.config.apiKey.trim()];
+    const roundProgress = (progress: SearchProgress) => reportProgress({ ...progress, round: round + 1 });
+    roundProgress({ phase: "waiting" });
     const constrained = await fetchConstrainedModel(url, request, outputPolicy, [...known.keys()], normalizeResultLimit(payload.resultLimit),
-      context, options.signal, options.config.apiKey.trim(), fetcher, true);
+      context, options.signal, options.config.apiKey.trim(), fetcher, true, roundProgress);
     outputPolicy = constrained.policy;
     const response = constrained.response;
     if (!response.ok) {
       throw await providerRequestError(response, context, secrets, true, options.signal);
     }
-    const envelope = await readAISearchJSON(response, context, options.signal, secrets);
+    const envelope = await readAISearchJSON(response, context, options.signal, secrets, roundProgress);
     const raw = modelResponseEnvelope(envelope, protocol, response, context, secrets), choice = record(Array.isArray(raw.choices) ? raw.choices[0] : undefined), message = record(choice.message);
     const rawResponse = modelResponseText(message, [options.config.apiKey.trim()]);
     if (choice.finish_reason === "length") throw new AISearchError("OUTPUT_TRUNCATED", undefined, rawResponse);
@@ -279,6 +296,7 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
       const selected = answer.matches.map(match => fullDetails.get(match.resourceId) ?? known.get(match.resourceId)!);
       const pendingAssetIds = selected.filter(item => !fullDetails.has(item.resourceId)).map(item => item.resourceId);
       if (options.hydrateFinalAssets !== false && pendingAssetIds.length) {
+        roundProgress({ phase: "loading_details" });
         const details = await requestServerAssets(options.freeBase, pendingAssetIds, payload.locale, version, options.signal,
           new Set(selected.filter(item => item.audioMatch).map(item => item.resourceId)), fetcher, state => { featureSync = state; }, maxAssetIds);
         details.forEach(item => fullDetails.set(item.resourceId, item));
@@ -301,13 +319,13 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
       ...(protocol === "anthropic" && Array.isArray(message._anthropicContent) ? { _anthropicContent: message._anthropicContent } : {}) });
     for (const call of verified) {
       toolCount++;
-      try { const result = await execute(call); messages.push({ role: "tool", tool_call_id: call.id, content: toolJSON(result) }); }
+      try { const result = await execute(call, round + 1); messages.push({ role: "tool", tool_call_id: call.id, content: toolJSON(result) }); }
       catch (error) {
         if (options.signal.aborted || error instanceof AISearchError && error.code !== "TOOL_ARGUMENTS") throw error;
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: { code: "TOOL_ARGUMENTS", message: "Invalid tool arguments or an ID not returned by search. Correct the arguments within the remaining tool budget." } }) });
       }
     }
-    if (round === 1 || toolCount >= 4) messages.push({ role: "user", content: "Tool budget is closed. Return the final JSON using retrieved evidence. Show useful candidates even when few; for use requests, give grounded alternatives with their fit and differences, and optionally ask about the desired feeling. Do not equate no matches with missing data or invent IDs or sound features. Return empty matches only when no grounded candidate is available." });
+    if (round === 1 || toolCount >= 4) messages.push({ role: "user", content: FINAL_OUTPUT_INSTRUCTION });
   }
   throw new AISearchError("AGENT_LIMIT");
 }

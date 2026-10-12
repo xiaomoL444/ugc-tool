@@ -7,7 +7,7 @@ import { createProviderBalanceGuard, minimumBalanceCny, PROVIDER_BALANCE_REASONS
 import { createSystemPromptLoader, renderSystemPrompt, SYSTEM_PROMPT_URL, SystemPromptError } from "./system-prompt.mjs";
 import { createAssetCatalogLoader, AssetCatalogError } from "./asset-catalog-loader.mjs";
 import { boundedModelText, withModelResponse } from "./model-response.mjs";
-import { detectModelOutput, modelOutputOptions, outputThinkingOptions, outputPrompt } from "./model-output-policy.mjs";
+import { detectModelOutput, modelOutputOptions, outputThinkingOptions, outputPrompt, normalizeAnswerSections } from "./model-output-policy.mjs";
 import { responsesUrl, toResponsesRequest, normalizeResponsesResponse, responsesInputBytes } from "./model-responses.mjs";
 const assetCatalogLoader = createAssetCatalogLoader();
 const withCatalog = async (env, loader = assetCatalogLoader) => {
@@ -371,7 +371,7 @@ function emptySearchAnswer(locale) {
 }
 
 export function validateModelResult(value, candidates, resultLimit = SEARCH_LIMITS.defaultResults) {
-  if (!isObject(value) || Object.keys(value).some(key => key !== "answer" && key !== "matches")
+  if (!isObject(value) || Object.keys(value).some(key => !["answer", "matches", "sections"].includes(key))
     || typeof value.answer !== "string" || value.answer.length > 1800
     || !Number.isInteger(resultLimit) || resultLimit < 1 || resultLimit > SEARCH_LIMITS.maxResults || !Array.isArray(value.matches)) {
     throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回格式不正确，请稍后再试。");
@@ -402,7 +402,11 @@ export function validateModelResult(value, candidates, resultLimit = SEARCH_LIMI
     used.add(match.resourceId);
     return { resourceId: match.resourceId, reason, matchType: match.matchType };
   });
-  return { answer: value.answer.trim(), matches };
+  let sections;
+  try { sections = normalizeAnswerSections(value.sections, matches.map(match => match.resourceId)); }
+  catch { throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型返回的回答分组格式或资源 ID 不正确。"); }
+  if (sections.some(section => unsafeText.test(section.answer))) throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "模型分组回答包含不受支持的链接或代码。");
+  return { answer: value.answer.trim(), matches, ...(sections.length ? { sections } : {}) };
 }
 
 function cardResource(item, maxBytes = 3400) {

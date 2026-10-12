@@ -187,6 +187,7 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
       const clarification = object(parsed) && parsed.clarification === true;
       if (object(parsed) && Object.hasOwn(parsed, "clarification")) {
         if (typeof parsed.clarification !== "boolean" || clarification && (!Array.isArray(parsed.matches) || parsed.matches.length
+          || parsed.sections !== undefined && (!Array.isArray(parsed.sections) || parsed.sections.length)
           || typeof parsed.answer !== "string" || !parsed.answer.trim())) {
           throw withModelResponse(new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "模型澄清回答格式不正确。"), message, env);
         }

@@ -1,5 +1,6 @@
 import type { RequestDiagnostic } from "./requestDiagnostics";
-import type { OutputMode, OutputConstraint } from "../../../tools/ai-search-service/model-output-policy.mjs";
+import type { OutputMode, OutputConstraint, AnswerSection } from "../../../tools/ai-search-service/model-output-policy.mjs";
+export type { AnswerSection } from "../../../tools/ai-search-service/model-output-policy.mjs";
 
 export type SearchScope = "all" | "sound" | "effect" | "bgm";
 export type SearchMatchOn = "any" | "visual" | "audio";
@@ -33,16 +34,26 @@ export interface SearchResource extends ResourceCard {
   audioSuggestedUses?: string[];
   audioSuggestionText?: string;
 }
+/** Ephemeral UI state. Only validated final answers enter history or archives. */
+export interface SearchProgress {
+  phase: "waiting" | "thinking" | "generating" | "searching" | "loading_details";
+  round?: number;
+  receivedCharacters?: number;
+  answerPreview?: string;
+  elapsedMs?: number;
+}
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   cards: ResourceCard[];
+  sections?: AnswerSection[];
   status: "pending" | "complete" | "error" | "canceled";
   mode: SearchMode;
   source: SearchMode;
   model?: string;
   outputConstraint?: OutputConstraint;
+  progress?: SearchProgress;
   error?: boolean;
   /** Non-blocking result validation notice shown alongside the model answer. */
   resultWarning?: string;
@@ -116,4 +127,4 @@ export interface ServerChatPayload {
   resultLimit?: number;
   matchOn?: SearchMatchOn;
 }
-export interface SearchAnswer { answer: string; matches: SearchMatch[]; model?: string; outputConstraint?: OutputConstraint; quota?: FreeQuota; resources?: SearchResource[]; catalogVersion?: string; featureSync?: FeatureSync; retrievalMode?: "keyword" | "hybrid"; pendingAssetIds?: string[] }
+export interface SearchAnswer { answer: string; matches: SearchMatch[]; sections?: AnswerSection[]; model?: string; outputConstraint?: OutputConstraint; quota?: FreeQuota; resources?: SearchResource[]; catalogVersion?: string; featureSync?: FeatureSync; retrievalMode?: "keyword" | "hybrid"; pendingAssetIds?: string[] }

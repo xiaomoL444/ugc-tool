@@ -34,11 +34,14 @@
           <article v-for="message in messages" :key="message.id" class="chat-message" :data-message-id="message.id" tabindex="-1" :class="[`message-${message.role}`, { 'message-error': message.status === 'error' && !message.resultWarning }]" :aria-label="message.role === 'assistant' ? t('aiSearch.assistant') : undefined">
             <div class="message-body">
               <div v-if="message.role === 'user'" class="message-byline"><strong>{{ t('aiSearch.you') }}</strong></div>
-              <div v-if="message.status === 'pending'" class="thinking-state" role="status"><span class="thinking-dots"><i></i><i></i><i></i></span>{{ t('aiSearch.thinking') }}</div>
-              <p v-if="message.content" class="message-text"><span>{{ message.content }}</span><ResponseDetails v-if="(message.status === 'error' || message.resultWarning) && message.requestDiagnostic" :content="requestDiagnosticText(message.requestDiagnostic)" :detail-id="`${message.id}-request`" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /><ResponseDetails v-if="message.status === 'error' && message.rawResponse" :content="message.rawResponse" :detail-id="message.id" /></p>
-              <p v-if="message.resultWarning" class="inline-notice warning-notice result-warning" role="status"><SearchIcon name="info" /><span>{{ message.resultWarning }}</span></p>
+              <SearchProgress v-if="message.progress" :progress="message.progress" />
+              <div v-else-if="message.status === 'pending'" class="thinking-state" role="status"><span class="thinking-dots"><i></i><i></i><i></i></span>{{ t('aiSearch.thinking') }}</div>
+              <p v-if="message.status === 'pending' && message.progress?.answerPreview && !message.content" class="message-text streaming-answer">{{ message.progress.answerPreview }}</p>
+              <p v-if="message.content && !message.sections?.length" class="message-text"><span>{{ message.content }}</span><ResponseDetails v-if="(message.status === 'error' || message.resultWarning) && message.requestDiagnostic" :content="requestDiagnosticText(message.requestDiagnostic)" :detail-id="`${message.id}-request`" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /><ResponseDetails v-if="message.status === 'error' && message.rawResponse" :content="message.rawResponse" :detail-id="message.id" /></p>
+              <p v-if="message.resultWarning" class="inline-notice warning-notice result-warning" role="status"><SearchIcon name="info" /><span>{{ message.resultWarning }}</span><ResponseDetails v-if="message.sections?.length && message.requestDiagnostic" :content="requestDiagnosticText(message.requestDiagnostic)" :detail-id="`${message.id}-request`" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /></p>
               <small v-if="message.outputConstraint" class="message-output-constraint">{{ t('aiSearch.output.actual', { mode: t(`aiSearch.output.modes.${message.outputConstraint}`) }) }}</small>
-              <ResourceResults v-if="message.cards?.length" :cards="message.cards" :result-id="message.id" />
+              <AnswerSections v-if="message.sections?.length" :sections="message.sections" :cards="message.cards" :result-id="message.id" />
+              <ResourceResults v-else-if="message.cards?.length" :cards="message.cards" :result-id="message.id" />
             </div>
           </article>
         </div>
@@ -115,6 +118,8 @@ import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import SearchIcon from './components/SearchIcon.vue'
 import ResourceResults from './components/ResourceResults.vue'
+import AnswerSections from './components/AnswerSections.vue'
+import SearchProgress from './components/SearchProgress.vue'
 import ResponseDetails from './components/ResponseDetails.vue'
 import ConversationSearchDialog from './components/ConversationSearchDialog.vue'
 import { useAISearch } from './useAISearch'
@@ -301,6 +306,12 @@ function handleDialogBackdrop(event: MouseEvent, close: () => void) {
   if (startedOnBackdrop && event.button === 0 && isDialogBackdrop(event)) close()
 }
 watch(() => [messages.value.length, busy.value, messages.value[messages.value.length - 1]?.status], async () => { await nextTick(); const viewport = messageViewport.value; if (viewport) viewport.scrollTop = viewport.scrollHeight })
+watch(() => messages.value[messages.value.length - 1]?.progress?.answerPreview, async () => {
+  const viewport = messageViewport.value
+  const followsAnswer = viewport && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop < 100
+  await nextTick()
+  if (viewport && followsAnswer) viewport.scrollTop = viewport.scrollHeight
+})
 watch(activeConversationId, async () => { await nextTick(); if (messageViewport.value) messageViewport.value.scrollTop = messageViewport.value.scrollHeight })
 onBeforeUnmount(() => { clearModelProbe(); if (dataUpdateToastId !== undefined) toast.dismiss(dataUpdateToastId); composerObserver?.disconnect(); settingsDialog.value?.close(); actionDialog.value?.close() })
 </script>

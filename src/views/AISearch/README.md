@@ -38,6 +38,10 @@
 
 候选搜索的严格 Schema 只枚举实际传给模型的候选 ID；工具检索每轮更新为本轮工具已返回的完整 ID 集合，历史卡片不进入白名单。JSON 约束从第一轮起启用，模型自然提前结束仍受约束。严格 Schema 的 agent 输出包含必填布尔值 `clarification`；`true` 只允许空结果，`false` 为正常回答，旧格式省略该字段仍兼容。Claude 不支持的数组数量限制不下发；所有协议继续进行资源身份、重复项、数量、理由与匹配类型校验。DeepSeek 官方 Responses 每轮通过 `reasoning.effort: "none"` 显式关闭思考；百炼千问使用 `enable_thinking: false` 以保持非思考 JSON 输出。
 
+一条回复可以依次显示“回答1＋卡片组1、回答2＋卡片组2”。输出协议新增 `sections:[{answer,resourceIds}]`：多种声音、阶段或效果分别筛选，并按需求顺序给出独立说明；`matches` 仍保存本轮全部推荐及理由，每个最终 ID 恰好归入一组，所有组共用结果数量上限。单一需求和纯澄清用 `sections:[]`。某组没有合适候选可以保留说明和空 ID 列表。`AnswerSections.vue` 渲染每段回答及对应卡片，每组独立分页，存档与后续对话保留分组关系；旧回复仍以原有单列表展示。分组无效时不把外部 ID 当成有效资产；失败结果仍可显示平铺的原始推荐 ID。自有模型与站点 Worker 共用 Schema 和成员校验，不额外增加默认模型轮次；站点 AI 需要部署更新后的 Worker。
+
+分段回复回归：`node scripts/test-ai-search-answer-sections.cjs`；离线浏览器验证复用 `scripts/test-ai-search-partial-results-browser.cjs`，检查桌面／手机上的回答与卡片顺序、独立分页和空结果说明。全部使用模拟响应，生成的浏览器资料保存于指定 AI 搜索产物目录。
+
 自有模型的自动模式仅在 HTTP 400/422 明确拒绝 JSON 格式参数时回退：严格 Schema → JSON 模式 → 提示词；Claude 原生 Schema → 提示词。手动模式不会悄悄回退。鉴权、限流、网络错误、非法 Schema、截断、空响应或生成结果不合格均不触发重复调用；回退不会重新执行检索工具，较弱模式沿用至本轮结束。成功回复显示实际采用的约束并保存到存档，避免把回退结果标成严格 Schema。站点 AI Worker 共用检测和 Schema 规则，但保留最多三次模型调用的费用预留，不追加格式回退请求；支持站点 AI 的新规则需另行部署 Worker。模型连接测试仍只验证基础连接，不验证 JSON 能力。
 
 ## 模型返回格式修复
@@ -50,7 +54,7 @@
 
 检索行为统一来自 [`ugc-tool-data/AISearch/SystemPrompt.md`](https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPrompt.md)。自有模型的 Agent 和候选筛选通过 `OSS_BASE_URL/AISearch/SystemPrompt.md` 读取正文，再以 system 消息发给模型；站点 AI 由 Worker 自己读取，网页不代传提示词。基础搜索无需此文件。开发环境沿用现有 OSS 代理，生产环境使用 `OSS_BASE_URL` 对应的公开源。
 
-成功读取缓存一分钟，每次对话的多轮工具请求使用同一份正文；到期后用 `no-store` 和 `_t` 时间参数请求新版本。支持文件中 `RESULT_LIMIT` 占位和 Markdown 对下划线、方括号的转义。代码只补充工具／候选模式、每轮数量及 `answer/matches` 返回格式，不保留内置检索提示词作为回退。文件读取失败、超时、空白、格式不合法或超过 16 KiB 时显示提示，并停止模型调用。
+成功读取缓存一分钟，每次对话的多轮工具请求使用同一份正文；到期后用 `no-store` 和 `_t` 时间参数请求新版本。支持文件中 `RESULT_LIMIT` 占位和 Markdown 对下划线、方括号的转义。代码只补充工具／候选模式、每轮数量及 `answer/matches/sections` 返回格式，不保留内置检索提示词作为回退。文件读取失败、超时、空白、格式不合法或超过 16 KiB 时显示提示，并停止模型调用。
 
 首次启用需发布前端并重新部署 Worker；以后修改并上传同一路径的 Markdown，约一分钟后新请求读取更新，无需重新部署。站点 AI 服务源地址由服务端 `SYSTEM_PROMPT_URL` 配置，详见 `tools/ai-search-service/README.md`。
 
@@ -138,6 +142,10 @@ Worker 在有请求时每分钟检查来源 SHA-256；文件 hash 不变则复�
 
 官方 OpenAI 地址支持填 `https://api.openai.com`、`https://api.openai.com/v1` 或完整 `/v1/responses`。旧 `/chat/completions` 地址会自动规范为 `/responses`；DeepSeek 官方规范为 `https://api.deepseek.com/responses`，百炼和方舟保留各自基础路径。全部 OpenAI 兼容调用（包括候选搜索、工具检索及连接测试）使用 `input`、扁平 function 工具和 `text.format`，不发送 Chat Completions 参数，不回退到 Chat Completions。自有模型的候选搜索与工具检索不传 `max_output_tokens`、`max_completion_tokens` 或 `max_tokens`，输出长度由供应商默认值和模型限制决定；原生 Claude Messages 必填 `max_tokens`，保留对应参数，连接测试也保留独立的 128 token 短请求。官方 OpenAI 保留模型默认推理强度，不强制 `none`。Responses 输出的 message／function_call／reasoning Items 在下一工具轮次完整回传，函数结果通过 `call_id` 配对；使用 `store: false`，不依赖 `previous_response_id`，官方 OpenAI 请求加密 reasoning 以支持无状态回传。推理 Items 只存在于当前调用内存，不进入用户可见回答、诊断或存档。共享适配位于 `tools/ai-search-service/model-responses.mjs`。
 
+自有模型搜索请求开启流式响应，并通过 `onProgress` 更新调用状态。等待响应、模型处理和接收回答时统一显示“思考中…”，另显示检索资产、读取详情的状态及累计用时；页面不显示模型轮次、接收字符数或完成百分比。只有顶层 `answer` 正文用于忙态预览，推理内容和工具参数不显示；临时进度与预览不进入存档，也不会随每个分片触发存档写入。最终 JSON 完成后仍统一验证真实资源 ID、数量、理由及分组。兼容网关返回普通 JSON 时仍可读取；仅 HTTP 400/422 明确拒绝流式参数时改发非流式请求，生成失败或网络中断不重试。站点 AI 保留原有非流式服务协议。
+
+最后一轮要求短概述、必要的简短澄清，以及每条候选一句特征到用途的理由，软目标为 20 个词或 40 个 CJK 字符；必要证据、依据标签和重要限制可以超出。多需求的解释放在各自 `sections`，保留分组 ID 与说明，顶层 `answer` 不重复分组说明；仅省略正文中重复的名称、ID 和描述。特效工具结果中，与独立视觉／音轨描述完全相同的通用 `description` 不重复发送，保留两类证据、全部候选 ID 和已返回的推理 Items。默认仍为 10 条结果，没有增加模型调用轮次、改变默认推理强度或设置自有 Responses 输出 token 上限。独立搜索暂按原工具顺序执行，确保目录版本、检索上限和音轨证据更新一致。
+
 模型设置中的“测试模型”由用户手动触发一次短请求，最多生成 128 个 token，弹窗最多等待 20 秒。测试不读取资产、系统提示词或聊天记录，也不请求 Worker；打开／保存设置不会触发测试。成功显示请求模型及服务返回的模型标识，若服务没有返回标识则明确说明。此结果仅证明基础模型调用已返回有效响应，不证明服务商实际权重、工具调用或完整搜索 JSON 支持；截断响应另作提示。修改地址、模型、密钥或协议，切换模式、关闭弹窗或离开页面都会取消未完成的测试，旧响应不能写入新配置的状态。
 
 失败回复会说明出错环节（模型接口、站点服务、资产目录、检索、详情或系统提示词）、HTTP 状态及可读取的服务商原因。右侧诊断入口提供接口地址、模型、轮次、阶段耗时、整轮耗时、中断原因、错误码、参数和请求 ID；保留回答但详情补全失败时也显示该入口，并随存档恢复。模型阶段到期、详情阶段到期和用户停止分别记录原因。自有 API 的 429 与站点每日次数用完分开，403 与密钥无效的 401 分开，5xx 标明服务端错误。服务返回非 JSON 错误页时仍保留 HTTP 状态，不把它误报为模型 JSON 格式错误。请求与响应体读取都响应取消，即使底层请求未及时响应 AbortSignal，也会按期结束等待。
@@ -151,6 +159,10 @@ npm run type-check
 node scripts/test-ai-search.cjs
 node scripts/test-ai-search-catalog-cache.cjs
 node scripts/test-ai-search-agent.cjs
+node scripts/test-ai-search-progress.cjs
+node scripts/test-ai-search-agent-stream.cjs
+node scripts/test-ai-search-stream.cjs
+node scripts/test-ai-search-stream-integration.cjs
 node scripts/test-ai-search-system-prompt.cjs
 node scripts/test-ai-search-request-diagnostics.cjs
 node scripts/test-ai-search-timeouts.cjs

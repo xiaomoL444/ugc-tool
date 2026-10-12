@@ -2,6 +2,27 @@
 export const OUTPUT_MODES = Object.freeze(["auto", "json_schema", "json_object", "prompt"]);
 export const OUTPUT_CONSTRAINTS = Object.freeze(["json_schema", "json_object", "prompt"]);
 
+/** Sections reference the already validated, unique final matches; they cannot add assets. */
+export function normalizeAnswerSections(value, resourceIds) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 8) throw new TypeError("RESPONSE_FORMAT");
+  const allowed = new Set(resourceIds), used = new Set();
+  if (value.length && allowed.size !== resourceIds.length) throw new TypeError("RESPONSE_ASSET_ID");
+  const sections = value.map(section => {
+    if (!section || typeof section !== "object" || Array.isArray(section)
+      || Object.keys(section).some(key => !["answer", "resourceIds"].includes(key))
+      || typeof section.answer !== "string" || !section.answer.trim() || section.answer.length > 1800
+      || !Array.isArray(section.resourceIds) || section.resourceIds.length > 50) throw new TypeError("RESPONSE_FORMAT");
+    for (const id of section.resourceIds) {
+      if (typeof id !== "string" || !allowed.has(id) || used.has(id)) throw new TypeError("RESPONSE_ASSET_ID");
+      used.add(id);
+    }
+    return { answer: section.answer.trim(), resourceIds: [...section.resourceIds] };
+  });
+  if (sections.length && used.size !== allowed.size) throw new TypeError("RESPONSE_ASSET_ID");
+  return sections;
+}
+
 export function detectModelOutput(config) {
   let host = "", path = "";
   try { const url = new URL(config.baseUrl ?? config.upstream); host = url.hostname; path = url.pathname; } catch { /* Editing an incomplete URL. */ }
@@ -47,10 +68,14 @@ export function searchAnswerSchema(ids, resultLimit = 10, agent = false, native 
     required: ["resourceId", "reason", "matchType"] } };
   // Claude does not support array-length constraints. The host always checks them.
   if (!native) matches.maxItems = allowed.length ? Math.min(50, Math.max(1, resultLimit)) : 0;
+  const sections = { type: "array", description: "For multiple requested sounds or effects, give separate answer-and-card sections in request order. Use [] for a single request. Each final match ID belongs to exactly one section.",
+    items: { type: "object", additionalProperties: false, properties: { answer: { type: "string" },
+      resourceIds: { type: "array", items: { type: "string", enum: allowed.length ? allowed : [""] } } }, required: ["answer", "resourceIds"] } };
+  if (!native) { sections.maxItems = 8; sections.items.properties.resourceIds.maxItems = matches.maxItems; }
   return { type: "object", additionalProperties: false,
-    properties: { answer: { type: "string" }, matches,
+    properties: { answer: { type: "string" }, matches, sections,
       ...(agent ? { clarification: { type: "boolean", description: "True only for a clarification with empty matches; otherwise false." } } : {}) },
-    required: ["answer", "matches", ...(agent ? ["clarification"] : [])] };
+    required: ["answer", "matches", "sections", ...(agent ? ["clarification"] : [])] };
 }
 
 export function modelOutputOptions(policy, ids, resultLimit, agent = false) {
@@ -69,8 +94,10 @@ export function outputThinkingOptions(config) {
 
 export function outputPrompt(agent = false) {
   return 'Return only one complete JSON object, with no prose or Markdown outside it. JSON example: '
-    + JSON.stringify({ answer: "A brief answer", matches: [], ...(agent ? { clarification: true } : {}) })
-    + '. For matches use only IDs returned in this turn and include resourceId, reason, and matchType (feature or suggestion).';
+    + JSON.stringify({ answer: "A brief answer", matches: [], sections: [], ...(agent ? { clarification: true } : {}) })
+    + '. For matches use only IDs returned in this turn and include resourceId, reason, and matchType (feature or suggestion).'
+    + ' Current host output contract adds sections to answer and matches, overriding any older field-only rules. For multiple requested sounds, stages or effects, search and select for each need separately within the tool budget; return sections in request order, each with answer (its own explanation) and resourceIds (its selected final match IDs).'
+    + ' Every final match belongs to exactly one section. Keep the combined matches within resultLimit. If one need has no grounded result, keep its section with an explanation and empty resourceIds; do not fill it with unrelated assets. Use sections:[] for a single need or a clarification. Max 8 sections; keep explanations concise.';
 }
 
 /** Only explicit parameter rejection may downgrade; never retry auth, truncation, or bad results. */

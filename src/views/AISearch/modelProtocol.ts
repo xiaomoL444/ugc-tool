@@ -135,7 +135,7 @@ export function toAnthropicRequest(chatRequest: Value): Value {
     append("assistant", blocks);
   }
   if (!messages.length || messages[0].role !== "user" || pending.size) throw new TypeError("Invalid Anthropic message sequence.");
-  const request: Value = { model, max_tokens: maxTokens, stream: false, messages, ...(system.length ? { system: system.join("\n\n") } : {}) };
+  const request: Value = { model, max_tokens: maxTokens, stream: source.stream === true, messages, ...(system.length ? { system: system.join("\n\n") } : {}) };
   if (source.tools !== undefined) {
     if (!Array.isArray(source.tools)) throw new TypeError("Invalid chat tool schemas.");
     const names = new Set<string>();

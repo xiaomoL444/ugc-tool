@@ -1,5 +1,7 @@
 export type OutputMode = "auto" | "json_schema" | "json_object" | "prompt";
 export type OutputConstraint = Exclude<OutputMode, "auto">;
+export interface AnswerSection { answer: string; resourceIds: string[] }
+export function normalizeAnswerSections(value: unknown, resourceIds: string[]): AnswerSection[];
 export interface OutputPolicy { provider: "openai" | "claude" | "deepseek" | "qwen" | "doubao" | "unknown"; protocol: "openai" | "anthropic"; mode: OutputConstraint; inferred: boolean; requested: OutputMode }
 export const OUTPUT_MODES: readonly OutputMode[];
 export const OUTPUT_CONSTRAINTS: readonly OutputConstraint[];

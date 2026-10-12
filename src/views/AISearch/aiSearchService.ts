@@ -10,8 +10,10 @@ import { record, resourceHref } from "./resourceCatalog";
 import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS, normalizeResultLimit, searchOutputTokens, boundedHistoryContent } from "./resultLimits";
 import { recoverResultDisplay } from "./resultDisplay";
 import { awaitRequest } from "./requestTimeout";
+import { readModelStream, ModelStreamError } from "./modelStream";
+import type { SearchProgress } from "./types";
 import type { ResultDisplay } from "./resultDisplay";
-import { detectModelOutput, modelOutputOptions, outputThinkingOptions, outputPrompt, isOutputConstraintRejection, weakerOutputPolicy, OUTPUT_CONSTRAINTS } from "../../../tools/ai-search-service/model-output-policy.mjs";
+import { detectModelOutput, modelOutputOptions, outputThinkingOptions, outputPrompt, isOutputConstraintRejection, weakerOutputPolicy, OUTPUT_CONSTRAINTS, normalizeAnswerSections } from "../../../tools/ai-search-service/model-output-policy.mjs";
 import type { OutputPolicy, OutputConstraint } from "../../../tools/ai-search-service/model-output-policy.mjs";
 import { responsesUrl, toResponsesRequest, normalizeResponsesResponse } from "../../../tools/ai-search-service/model-responses.mjs";
 
@@ -95,7 +97,7 @@ export function buildSearchPayload(query: string, locale: string, scope: SearchS
   const useQuery = isSearchRefinement(query) ? `${previousSearchQuery(history)} ${query}` : query;
   const payload: SearchPayload = { requestId, query, locale, scope, matchOn, resultLimit: normalizeResultLimit(resultLimit),
     messages: buildSearchContext(history, query).map(message => ({ role: message.role,
-      content: boundedHistoryContent(message.content, message.cards, 'Previous results, in display order') })),
+      content: boundedHistoryContent(message.content, message.cards, 'Previous results, in display order', message.sections) })),
     candidates: candidates.slice(0, MAX_SEARCH_RESULTS).map(item => ({ resourceId: item.resourceId, kind: item.kind, title: item.title.slice(0, 200),
       description: (item.matchType === "suggestion" ? `Suggested use (not observed feature): ${item.description}` : item.audioMatch ? item.audioDescription || "" : [item.description && `${item.kind === "sound" ? "Audio" : item.kind === "bgm" ? "Music" : "Visual/general"}: ${item.description}`, item.kind === "effect" && item.audioDescription && `Audio: ${item.audioDescription}`].filter(Boolean).join("\n")).slice(0, 900),
       keywords: item.keywords.slice(0, 10).map(word => word.slice(0, 80)), suggestedUses: selectSuggestedUses(item.suggestedUses, useQuery, 3, 200),
@@ -157,18 +159,21 @@ export function modelConnection(config: ModelConfig): { protocol: "openai" | "an
   } catch { throw new AISearchError("CONFIG"); }
 }
 
-/** Downgrade only after an explicit unsupported-format HTTP rejection. No result retries. */
+/** Only explicit unsupported stream/format HTTP rejections may downgrade. No result retries. */
 export async function fetchConstrainedModel(url: string, request: Record<string, unknown>, policy: OutputPolicy, ids: string[], limit: number,
-  context: RequestContext, signal: AbortSignal, apiKey: string, fetcher: typeof fetch, agent = false): Promise<{ response: Response; policy: OutputPolicy }> {
+  context: RequestContext, signal: AbortSignal, apiKey: string, fetcher: typeof fetch, agent = false,
+  onProgress?: (progress: SearchProgress) => void): Promise<{ response: Response; policy: OutputPolicy }> {
   let selected = policy;
+  let streaming = request.stream === true;
   while (true) {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    const body = { ...request, ...modelOutputOptions(selected, ids, limit, agent) };
+    const body = { ...request, ...modelOutputOptions(selected, ids, limit, agent), ...(request.stream === true ? { stream: streaming } : {}) };
     const wireBody = JSON.stringify(selected.protocol === "anthropic" ? toAnthropicRequest(body) : toResponsesRequest(body, url));
     if (agent && new TextEncoder().encode(wireBody).length > 60000) throw new AISearchError("PAYLOAD_TOO_LARGE");
+    onProgress?.({ phase: "waiting", round: context.round, receivedCharacters: 0 });
     const response = await fetchAISearch(url, { method: "POST", signal, headers: modelHeaders(selected.protocol, apiKey), body: wireBody }, context, fetcher, [apiKey]);
     const weaker = selected.requested === "auto" ? weakerOutputPolicy(selected) : undefined;
-    if (response.ok || !weaker || ![400, 422].includes(response.status)) return { response, policy: selected };
+    if (response.ok || ![400, 422].includes(response.status) || !weaker && !streaming) return { response, policy: selected };
     let rejection = "";
     const reader = response.clone().body?.getReader();
     const cancelRead = () => { void reader?.cancel().catch(() => undefined); };
@@ -186,7 +191,20 @@ export async function fetchConstrainedModel(url: string, request: Record<string,
       throw new AISearchError("REQUEST_ABORTED", undefined, undefined,
         { ...responseRequestDiagnostic(response, context, "response", [apiKey]), ...transportRequestDiagnostic(signal.reason, context, signal, [apiKey]) });
     }
-    if (!isOutputConstraintRejection(response.status, rejection)) return { response, policy: selected };
+    // Compatible gateways may return JSON despite stream:true, or reject that
+    // parameter explicitly. Only the explicit rejection permits a non-streaming request.
+    let streamRejection = rejection;
+    try {
+      const error = record(record(JSON.parse(rejection)).error);
+      streamRejection = [error.message, error.param, error.code].filter(value => typeof value === "string").join(" ");
+    } catch { /* Plain-text gateway rejections are also supported. */ }
+    if (streaming && /\bstream(?:ing)?\b/iu.test(streamRejection)
+      && /(?:not support|unsupported|not available|not enabled|unknown parameter|unrecognized)/iu.test(streamRejection)) {
+      void response.body?.cancel().catch(() => undefined);
+      streaming = false;
+      continue;
+    }
+    if (!weaker || !isOutputConstraintRejection(response.status, rejection)) return { response, policy: selected };
     void response.body?.cancel().catch(() => undefined);
     selected = weaker;
   }
@@ -202,9 +220,18 @@ export async function fetchAISearch(url: string, init: RequestInit, context: Req
     throw new AISearchError(diagnostic.kind === "timeout" || diagnostic.kind === "canceled" ? "REQUEST_ABORTED" : failureCode, undefined, undefined, diagnostic);
   }
 }
-export async function readAISearchJSON(response: Response, context: RequestContext, signal?: AbortSignal, secrets: readonly string[] = []): Promise<Record<string, unknown>> {
-  try { return record(await awaitRequest(() => getJSON(response), signal)); }
+export async function readAISearchJSON(response: Response, context: RequestContext, signal?: AbortSignal, secrets: readonly string[] = [],
+  onProgress?: (progress: SearchProgress) => void): Promise<Record<string, unknown>> {
+  try {
+    const streamed = context.stage === "model" && response.headers.get("content-type")?.toLowerCase().includes("text/event-stream");
+    return record(await awaitRequest(() => streamed
+      ? readModelStream(response, /\/messages\/?$/u.test(new URL(context.endpoint).pathname) ? "anthropic" : "openai", signal,
+        progress => onProgress?.({ ...progress, round: context.round }), secrets)
+      : getJSON(response), signal));
+  }
   catch (error) {
+    if (error instanceof ModelStreamError) throw new AISearchError(error.code === "MODEL_STREAM_ERROR" ? "MODEL_SERVICE_ERROR" : error.code,
+      undefined, undefined, responseRequestDiagnostic(response, context, "response", secrets));
     if (error instanceof AISearchError) throw new AISearchError(error.code, error.reason, error.rawResponse, responseRequestDiagnostic(response, context, "response", secrets));
     const diagnostic = sanitizeRequestDiagnostic({ ...responseRequestDiagnostic(response, context, "response", secrets), ...transportRequestDiagnostic(error, context, signal, secrets) }, secrets)!;
     throw new AISearchError(diagnostic.kind === "timeout" || diagnostic.kind === "canceled" ? "REQUEST_ABORTED" : "NETWORK", undefined, undefined, diagnostic);
@@ -241,7 +268,10 @@ export function validateSearchAnswer(raw: unknown, candidates: SearchResource[],
     seen.add(match.resourceId);
     return { resourceId: match.resourceId, reason, matchType: match.matchType as "feature" | "suggestion" };
   });
-  return { answer: result.answer, matches };
+  let sections;
+  try { sections = normalizeAnswerSections(result.sections, matches.map(match => match.resourceId)); }
+  catch (error) { throw new AISearchError(error instanceof Error && error.message === "RESPONSE_ASSET_ID" ? "RESPONSE_ASSET_ID" : "RESPONSE_FORMAT"); }
+  return { answer: result.answer, matches, ...(sections.length ? { sections } : {}) };
 }
 async function getJSON(response: Response): Promise<unknown> {
   const text = await response.text();
@@ -462,7 +492,7 @@ export async function requestServerDisplayAssets(base: string, ids: string[], lo
   }
   return requested.flatMap(id => { const item = found.get(id); return item ? [item] : []; });
 }
-export async function requestSearch(payload: SearchPayload, candidates: SearchResource[], options: { mode: "free" | "custom"; config: ModelConfig; freeBase: string; signal: AbortSignal; fetcher?: typeof fetch; server?: { catalogVersion: string; includeEffectAudio: boolean } }): Promise<SearchAnswer> {
+export async function requestSearch(payload: SearchPayload, candidates: SearchResource[], options: { mode: "free" | "custom"; config: ModelConfig; freeBase: string; signal: AbortSignal; fetcher?: typeof fetch; onProgress?: (progress: SearchProgress) => void; server?: { catalogVersion: string; includeEffectAudio: boolean } }): Promise<SearchAnswer> {
   const fetcher = options.fetcher ?? fetch;
   const custom = options.mode === "custom";
   if (custom && (!options.config.apiKey.trim() || !options.config.model.trim())) throw new AISearchError("CONFIG");
@@ -475,13 +505,13 @@ export async function requestSearch(payload: SearchPayload, candidates: SearchRe
   if (options.signal.aborted) throw new DOMException("Aborted", "AbortError");
   const context: RequestContext = { stage: custom ? "model" : "site", endpoint: url, ...(custom ? { model: options.config.model.trim(), round: 1 } : {}), startedAt: Date.now() };
   const secrets = custom ? [options.config.apiKey.trim()] : [];
-  const request = custom ? { model: options.config.model.trim(), stream: false, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit), protocol),
+  const request = custom ? { model: options.config.model.trim(), stream: true, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit), protocol),
       ...outputThinkingOptions(options.config),
       ...(deepSeek ? { thinking: { type: "disabled" } } : {}),
       messages: [{ role: "system", content: `${systemPrompt}\n\n${outputPrompt()}` }, ...payload.messages, { role: "user", content: JSON.stringify({ query: payload.query, locale: payload.locale, scope: payload.scope, matchOn: payload.matchOn ?? "any", resultLimit: normalizeResultLimit(payload.resultLimit), candidates: payload.candidates }) }] } : options.server
       ? buildServerChatPayload(payload, candidates, options.server.catalogVersion, options.server.includeEffectAudio) : payload;
   const constrained = custom ? await fetchConstrainedModel(url, request as unknown as Record<string, unknown>, policy,
-    payload.candidates.map(item => item.resourceId), normalizeResultLimit(payload.resultLimit), context, options.signal, options.config.apiKey.trim(), fetcher) : undefined;
+    payload.candidates.map(item => item.resourceId), normalizeResultLimit(payload.resultLimit), context, options.signal, options.config.apiKey.trim(), fetcher, false, options.onProgress) : undefined;
   const response = constrained?.response ?? await fetchAISearch(url, { method: "POST", signal: options.signal,
     headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }, context, fetcher, secrets);
   if (!response.ok) {
@@ -495,7 +525,7 @@ export async function requestSearch(payload: SearchPayload, candidates: SearchRe
         code === "RESPONSE_ASSET_ID" || code === "UPSTREAM_RESPONSE_INVALID" ? recoverResultDisplay(error.rawResponse, candidates) : undefined);
     }
   }
-  const envelope = await readAISearchJSON(response, context, options.signal, secrets);
+  const envelope = await readAISearchJSON(response, context, options.signal, secrets, options.onProgress);
   const raw = custom ? modelResponseEnvelope(envelope, protocol, response, context, secrets) : envelope;
   let answer: SearchAnswer;
   if (custom) {

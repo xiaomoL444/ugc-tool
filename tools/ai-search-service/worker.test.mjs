@@ -1679,7 +1679,7 @@ test("free agent clarification API consumes the marker and settles one cached mo
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("final result validation accepts only answer and matches at the top level", () => {
+test("final result validation accepts answer, matches and validated optional sections at the top level", () => {
   const candidates = body().candidates;
   assert.deepEqual(validateModelResult(result, candidates), result);
   assert.deepEqual(validateModelResult({ answer: "你偏好哪种声音？", matches: [] }, []),

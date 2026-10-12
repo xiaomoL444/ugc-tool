@@ -8,6 +8,8 @@
 
 输出策略由 `model-output-policy.mjs` 按地址和模型选择。支持的 OpenAI、DeepSeek 官方当前模型与已知豆包 Seed 2.0／2.1 使用 Schema，其他已知兼容模型按能力使用 JSON 模式或提示词。千问 Responses 文档未列出 `text.format`，自动模式保留提示词与程序校验，不声称 Chat Schema 能力可直接迁移。Schema 的 ID 只取当前候选或本轮检索结果。资源身份、重复项、数量、理由校验和失败卡片展示保留。费用预留精确统计实际 `input`、扁平工具及 `text.format` 的输入字节，后续轮次增量预留；用量从 `input_tokens`／`output_tokens` 转换后结算，失败不释放预留。Worker 保留三次模型调用上限，不追加格式回退请求。发布此行为需重新部署 Worker。
 
+分段回答使用 `sections:[{answer,resourceIds}]`，按用户的多种声音、阶段或效果需求依次提供独立解释和卡片。`matches` 仍是总推荐列表；组内 ID 必须全部属于最终 `matches`，不得跨组重复或遗漏，所有组共用本轮 resultLimit。空结果组保留说明，单一需求／纯澄清用空 sections。旧格式省略 sections 仍兼容。共享成员校验最多接受八组，并保留现有链接／代码和资源身份检查；分段字段完整参与输入预留。客户端各组独立分页并保存分组历史。此修改保留现有三轮／四工具预算，不追加模型请求。更新 Worker 后才会对站点 AI 生效。
+
 网页的自有模型和 Worker 的站点 AI 共用 `tools/ai-search-service/model-json.mjs`。仅处理模型最终回答正文：去除 BOM 和代码围栏后先尝试严格 `JSON.parse`，语法失败时才用 `jsonrepair` 修复，再解析并交给原有字段、资源 ID、重复项和数量校验。可处理部分漏引号、单引号、多余逗号和英文引号转义问题；格式可修复不代表资源有效。
 
 `finish_reason=length` 等未完整生成状态仍在解析前拒绝，明显未闭合的最外层对象或数组不补齐。修复失败保留原始模型正文供错误提示查看，不使用修复后的文本替代诊断。HTTP 响应封装、接口请求、资产文件、存档及工具参数继续严格解析。本地修复不新增模型调用或 MCP 检索。上线自有模型需要发布前端；上线站点 AI 还需要重新部署 Worker。
@@ -32,7 +34,7 @@ cd tools/ai-search-service
 SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPrompt.md"
 ```
 
-源码不保留旧的检索提示词作为回退。程序只追加当前运行协议：工具调用次数、候选模式、结果上限及 `answer/matches` JSON 格式。文件中的 `RESULT_LIMIT` 会替换为本轮所选的 1 至 50；兼容 Markdown 编辑器对下划线和方括号的转义，如 `search\_assets`、`RESULT\_LIMIT`。
+源码不保留旧的检索提示词作为回退。程序只追加当前运行协议：工具调用次数、候选模式、结果上限及 `answer/matches/sections` JSON 格式；宿主协议明确覆盖旧提示词里的字段限制。文件中的 `RESULT_LIMIT` 会替换为本轮所选的 1 至 50；兼容 Markdown 编辑器对下划线和方括号的转义，如 `search\_assets`、`RESULT\_LIMIT`。
 
 成功读取缓存 60 秒，每轮工具调用使用同一份正文。缓存到期后请求采用 `no-store` 和 `_t` 时间参数刷新，失败与取消不写缓存。网页与 Worker 均不设提示词文件的固定大小上限；文件要求 HTTPS、有效 UTF-8、非空，响应类型为 `text/markdown`、`text/x-markdown` 或 `text/plain`；OSS 缺失类型或返回 `application/octet-stream` 时仍按正文校验。读取正文在内的超时为 5 秒，重定向不跟随。`PROMPT_UNAVAILABLE` 表示无法读取合法文件，返回 HTTP 503；不再继续调用模型，也不消耗该次免费额度或预留月预算。网页读取失败的诊断会区分编码、空正文、HTML、类型及重定向，并显示已知的正文大小；HTTP 200 仅表示请求成功，不表示内容通过校验。Worker 也不再限制整体模型消息的固定字节数，不会因超过 30 KB 返回 `PROMPT_TOO_LARGE`，而是按每轮实际输入及允许输出预留费用。旧 Cloudflare 变量 `MAX_PROMPT_BYTES` 已忽略；这项行为需要重新部署 Worker 才会在线上生效，无须修改 OSS 提示词或前端。模型供应商自身的上下文限制仍然适用。
 
@@ -42,7 +44,7 @@ SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPro
 
 本地 `SystemPrompt.md` 将任意具体游戏效果拆成对象与变化、触发阶段、期望玩家感受和可检索的声学方向，包括用途词库未收录的自定义玩法。例子和事件词表不是支持范围或固定声音模板。工具检索同时考虑用途/名称（`searchType=both`）与音轨听感（`searchType=feature`）；没有同名用途标签也可以依据声音描述推荐。声学路线是寻找候选的假设，游戏用途不会自动成为 `includeTerms` 硬过滤。只有真实音轨描述和明确音轨字段可以证明声音特征。
 
-候选偏少或贴合度不足时，在既有工具预算内换词、翻页或读取必要详情。有真实近似候选时，说明吻合的听感与差异，并可在同一条 `answer` 追问期望感受；歧义不默认阻止返回卡片。带候选的回复仍只使用 `answer/matches`，用途推荐标为 `suggestion`。确实无法合理映射且无需查库时才使用空 `matches` 的纯澄清协议，不能编造 ID、补写声音属性或放宽用户硬要求。
+候选偏少或贴合度不足时，在既有工具预算内换词、翻页或读取必要详情。有真实近似候选时，说明吻合的听感与差异，并可在 `answer` 或对应分段回答中追问期望感受；歧义不默认阻止返回卡片。带候选的回复使用 `answer/matches/sections`，用途推荐标为 `suggestion`。确实无法合理映射且无需查库时才使用空 `matches`、空 `sections` 的纯澄清协议，不能编造 ID、补写声音属性或放宽用户硬要求。
 
 区分对象、行为、阶段、听感和感受；多阶段效果可分别寻找动作接触、状态完成和界面反馈。环境地点与情绪氛围也分别考虑。单次触发、随操作重复、阶段持续和长期背景是使用方式，不证明素材能无缝循环。实验中的升级、尖刺与结算查询只作为历史示例回归；通用玩法理解需按跨行为、词库外需求的模型评估规格检查，不能据这几个例子宣称通用能力已经验证。
 

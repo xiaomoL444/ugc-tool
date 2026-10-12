@@ -13,9 +13,9 @@ import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS, normalizeResultLimit } from
 import { createDataUpdateMonitor } from "./dataUpdateMonitor";
 import { resolveModelProtocol, anthropicMessagesUrl } from "./modelProtocol";
 import { recoverResultDisplay } from "./resultDisplay";
-import { OUTPUT_MODES, OUTPUT_CONSTRAINTS } from "../../../tools/ai-search-service/model-output-policy.mjs";
+import { OUTPUT_MODES, OUTPUT_CONSTRAINTS, normalizeAnswerSections } from "../../../tools/ai-search-service/model-output-policy.mjs";
 import type { OutputMode, OutputConstraint } from "../../../tools/ai-search-service/model-output-policy.mjs";
-import type { ChatMessage, Conversation, FreeQuota, ModelConfig, ResourceCard, SearchMode, SearchScope, SearchResource, ServerCatalogInfo, RetrievalMode, FeatureSync } from "./types";
+import type { ChatMessage, Conversation, FreeQuota, ModelConfig, ResourceCard, SearchMode, SearchScope, SearchResource, ServerCatalogInfo, RetrievalMode, FeatureSync, SearchProgress } from "./types";
 
 const HISTORY_KEY = "ugc-tools.ai-search.history.v1";
 const CONFIG_KEY = "ugc-tools.ai-search.model.v1";
@@ -82,7 +82,13 @@ export function restoreConversations(raw: unknown, partialResultWarning?: string
       const recovered = item.role === "assistant" && status === "error" && !cards.length && rawResponse
         ? recoverResultDisplay(rawResponse, []) : undefined;
       const resultWarning = item.role === "assistant" ? text(item.resultWarning, 800) || (recovered ? partialResultWarning || text(item.content, 800) : "") : "";
+      let sections: ChatMessage["sections"];
+      if (item.role === "assistant" && status === "complete") {
+        try { sections = normalizeAnswerSections(item.sections, cards.map(card => card.resourceId)); }
+        catch { /* Keep legacy cards if a saved section is damaged. */ }
+      }
       return [{ id: text(item.id, 100) || uid(), role: item.role as ChatMessage["role"], content: recovered?.answer || text(item.content), cards: recovered?.cards ?? cards, status,
+        ...(sections?.length ? { sections } : {}),
         mode, source: mode, model: text(item.model, 100), error: status === "error",
         ...(OUTPUT_CONSTRAINTS.includes(item.outputConstraint as OutputConstraint) ? { outputConstraint: item.outputConstraint as OutputConstraint } : {}),
         ...(resultWarning ? { resultWarning } : {}), ...(rawResponse ? { rawResponse } : {}), ...(requestDiagnostic ? { requestDiagnostic } : {}) }];
@@ -158,7 +164,7 @@ export function useAISearch() {
   const freeError = ref("");
   const freeDiagnostic = shallowRef<RequestDiagnostic>();
   const freeMinBalanceCny = ref(DEFAULT_MIN_BALANCE_CNY);
-  let currentRun: { controller: AbortController; message: ChatMessage; startedAt: number; answerReady: boolean } | undefined;
+  let currentRun: { controller: AbortController; message: ChatMessage; startedAt: number; answerReady: boolean; progressTimer?: ReturnType<typeof setTimeout> } | undefined;
   let catalogGeneration = 0;
   let freeGeneration = 0;
   let destroyed = false;
@@ -195,6 +201,8 @@ export function useAISearch() {
     if (!currentRun) return;
     const run = currentRun;
     currentRun = undefined;
+    clearTimeout(run.progressTimer);
+    run.message.progress = undefined;
     run.controller.abort(requestAbortError("user_cancelled", run.startedAt));
     run.message.status = "canceled";
     if (run.answerReady) run.message.resultWarning = t("aiSearch.errors.detailsUnavailable");
@@ -457,11 +465,26 @@ export function useAISearch() {
     if (conversation.messages.length === 2) conversation.title = query.slice(0, 36);
     conversation.updatedAt = Date.now();
     errorMessage.value = "";
-    const run = { controller: new AbortController(), message: reply, startedAt: Date.now(), answerReady: false };
+    const run: NonNullable<typeof currentRun> = { controller: new AbortController(), message: reply, startedAt: Date.now(), answerReady: false };
     currentRun = run;
     busy.value = true;
     const modelPhase = createRequestDeadline(run.controller.signal, selectedMode === "custom" ? CUSTOM_SEARCH_TIMEOUT_MS : agentWorkflow ? 60000 : 45000,
       "search_timeout", run.startedAt);
+    const onProgress = (progress: SearchProgress) => {
+      if (selectedMode !== "custom" || currentRun !== run || run.controller.signal.aborted || modelPhase.signal.aborted || destroyed
+        || reply.status !== "pending" && !(run.answerReady && progress.phase === "loading_details")) return;
+      reply.progress = { ...progress, elapsedMs: Date.now() - run.startedAt };
+    };
+    if (selectedMode === "custom") {
+      onProgress({ phase: "waiting", elapsedMs: 0 });
+      const tickProgress = () => {
+        if (currentRun === run && !run.controller.signal.aborted && !destroyed && reply.progress) {
+          reply.progress.elapsedMs = Date.now() - run.startedAt;
+          run.progressTimer = setTimeout(tickProgress, 1000);
+        }
+      };
+      run.progressTimer = setTimeout(tickProgress, 1000);
+    }
     try {
       if (agentWorkflow) {
         const history = conversation.messages.slice(conversation.contextStart, -2);
@@ -470,6 +493,7 @@ export function useAISearch() {
         const payload = buildAgentSearchPayload(query, requestLocale, scope.value, history, includeAudio, uid(), selectedResultLimit);
         if (selectedMode === "free") payload.previousIds = payload.previousIds.slice(0, freePreviousIdLimit.value);
         const result = await requestAgentSearch(payload, { mode: selectedMode as "free" | "custom", config: { ...modelConfig.value }, freeBase: FREE_BASE, signal: modelPhase.signal,
+          onProgress,
           hydrateFinalAssets: selectedMode !== "custom",
           maxSearchLimit: serverCatalog.value?.maxSearchLimit, maxAssetIds: serverCatalog.value?.maxAssetIds,
           maxPreviousIds: serverCatalog.value?.maxPreviousIds, maxExcludeIds: serverCatalog.value?.maxExcludeIds });
@@ -481,6 +505,7 @@ export function useAISearch() {
         observeFeatureSync(result.featureSync);
         if (result.retrievalMode) retrievalMode.value = result.retrievalMode;
         reply.content = result.answer;
+        reply.sections = result.sections;
         reply.model = result.model;
         reply.outputConstraint = result.outputConstraint;
         reply.cards = result.matches.flatMap(match => {
@@ -490,6 +515,7 @@ export function useAISearch() {
         reply.status = "complete";
         run.answerReady = true;
         if (selectedMode === "custom" && result.pendingAssetIds?.length && result.catalogVersion) {
+          onProgress({ phase: "loading_details" });
           const detailsStartedAt = Date.now();
           const detailsPhase = createRequestDeadline(run.controller.signal, ASSET_DETAILS_TIMEOUT_MS, "details_timeout", run.startedAt);
           try {
@@ -559,6 +585,7 @@ export function useAISearch() {
         const payload = buildSearchPayload(query, requestLocale, selectedScope, context, serverFree ? [] : modelCandidates, uid(), selectedResultLimit, selectedIntent.matchOn);
         const boundedCandidates = serverFree ? modelCandidates : modelCandidates.filter(item => payload.candidates.some(candidate => candidate.resourceId === item.resourceId));
         const result = await requestSearch(payload, boundedCandidates, { mode: selectedMode, config: { ...modelConfig.value }, freeBase: FREE_BASE, signal: modelPhase.signal,
+          onProgress,
           ...(serverFree ? { server: { catalogVersion, includeEffectAudio: includeAudio } } : {}) });
         if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
         if (result.quota) freeQuota.value = result.quota;
@@ -568,6 +595,7 @@ export function useAISearch() {
         const detailed = serverFree && result.resources ? result.resources : await detailsFor(chosen);
         if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
         reply.content = result.answer;
+        reply.sections = result.sections;
         reply.model = result.model;
         reply.outputConstraint = result.outputConstraint;
         reply.cards = result.matches.flatMap(match => {
@@ -580,6 +608,8 @@ export function useAISearch() {
       if (currentRun !== run || destroyed) return;
       run.answerReady = false;
       reply.status = "error";
+      reply.progress = undefined;
+      reply.sections = undefined;
       reply.error = true;
       const timedOut = modelPhase.signal.aborted && modelPhase.signal.reason?.name === "TimeoutError";
       reply.content = explainError(error, timedOut);
@@ -625,6 +655,8 @@ export function useAISearch() {
       }
     } finally {
       modelPhase.dispose();
+      clearTimeout(run.progressTimer);
+      reply.progress = undefined;
       if (currentRun === run) { currentRun = undefined; busy.value = false; }
     }
   }
@@ -632,7 +664,16 @@ export function useAISearch() {
     if (!canRetrySearch.value || busy.value || loadingCatalog.value || loadingArchive.value) return;
     await send(retryQuery.value);
   }
-  watch(conversations, saveArchive, { deep: true });
+  // Stream previews and elapsed time are transient and must not cause archive writes.
+  watch(() => conversations.value.map(conversation => ({
+    id: conversation.id, title: conversation.title, updatedAt: conversation.updatedAt, contextStart: conversation.contextStart,
+    messages: conversation.messages.map(message => ({
+      id: message.id, role: message.role, content: message.content, cards: message.cards, sections: message.sections,
+      status: message.status, mode: message.mode, source: message.source, model: message.model,
+      outputConstraint: message.outputConstraint, error: message.error, resultWarning: message.resultWarning,
+      rawResponse: message.rawResponse, requestDiagnostic: message.requestDiagnostic,
+    })),
+  })), saveArchive, { deep: true });
   watch(activeConversationId, saveArchive);
   watch(mode, saveArchive);
   watch(resultLimit, saveArchive);

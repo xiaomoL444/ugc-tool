@@ -28,7 +28,7 @@ export function renderSystemPrompt(source, resultLimit = 10, mode = "agent") {
   const protocol = mode === "agent"
     ? "本轮运行协议：可使用提供的只读工具，最多 3 轮模型调用、4 次工具调用。完成后返回 JSON 对象 answer、matches；matches 每项含 resourceId、reason、matchType。"
     : "本轮运行协议：没有可调用工具；候选已在本轮 JSON 的 candidates 中提供，仅从 candidates 选择 ID。返回 JSON 对象 answer、matches；matches 每项含 resourceId、reason、matchType。";
-  return `${content}\n\n${protocol}本轮 resultLimit=${resultLimit}，matches 最多 ${resultLimit} 项。`;
+  return `${content}\n\n${protocol}本轮 resultLimit=${resultLimit}，matches 最多 ${resultLimit} 项。当前宿主输出协议还包含 sections，覆盖正文中旧的字段限制：单一需求或澄清用 sections:[]；多个声音、阶段或效果分别检索和筛选，按需求顺序返回 sections:[{answer,resourceIds}]。每段 answer 单独说明该组，resourceIds 只引用最终 matches；每个最终 ID 恰好属于一组，合计数量仍不超过 resultLimit。未找到候选的需求保留解释和空 resourceIds，不凑无关卡片。`;
 }
 async function readBody(response, signal) {
   if (!response.body) throw new SystemPromptError();
