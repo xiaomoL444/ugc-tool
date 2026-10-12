@@ -31,11 +31,13 @@
           <p class="welcome-method"><SearchIcon name="shield" />{{ t('aiSearch.privacyHint') }}</p>
         </div>
         <div v-else class="message-thread">
-          <article v-for="message in messages" :key="message.id" class="chat-message" :data-message-id="message.id" tabindex="-1" :class="[`message-${message.role}`, { 'message-error': message.status === 'error' }]" :aria-label="message.role === 'assistant' ? t('aiSearch.assistant') : undefined">
+          <article v-for="message in messages" :key="message.id" class="chat-message" :data-message-id="message.id" tabindex="-1" :class="[`message-${message.role}`, { 'message-error': message.status === 'error' && !message.resultWarning }]" :aria-label="message.role === 'assistant' ? t('aiSearch.assistant') : undefined">
             <div class="message-body">
               <div v-if="message.role === 'user'" class="message-byline"><strong>{{ t('aiSearch.you') }}</strong></div>
               <div v-if="message.status === 'pending'" class="thinking-state" role="status"><span class="thinking-dots"><i></i><i></i><i></i></span>{{ t('aiSearch.thinking') }}</div>
-              <p v-if="message.content" class="message-text"><span>{{ message.content }}</span><ResponseDetails v-if="message.status === 'error' && message.requestDiagnostic" :content="requestDiagnosticText(message.requestDiagnostic)" :detail-id="`${message.id}-request`" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /><ResponseDetails v-if="message.status === 'error' && message.rawResponse" :content="message.rawResponse" :detail-id="message.id" /></p>
+              <p v-if="message.content" class="message-text"><span>{{ message.content }}</span><ResponseDetails v-if="(message.status === 'error' || message.resultWarning) && message.requestDiagnostic" :content="requestDiagnosticText(message.requestDiagnostic)" :detail-id="`${message.id}-request`" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /><ResponseDetails v-if="message.status === 'error' && message.rawResponse" :content="message.rawResponse" :detail-id="message.id" /></p>
+              <p v-if="message.resultWarning" class="inline-notice warning-notice result-warning" role="status"><SearchIcon name="info" /><span>{{ message.resultWarning }}</span></p>
+              <small v-if="message.outputConstraint" class="message-output-constraint">{{ t('aiSearch.output.actual', { mode: t(`aiSearch.output.modes.${message.outputConstraint}`) }) }}</small>
               <ResourceResults v-if="message.cards?.length" :cards="message.cards" :result-id="message.id" />
             </div>
           </article>
@@ -79,21 +81,25 @@
     </section>
     <ConversationSearchDialog ref="conversationSearchDialog" :conversations="conversations" :active-conversation-id="activeConversationId" :disabled="busy || loadingArchive" @update:open="historySearchOpen = $event" @select="openSearchResult" />
     <Teleport to="body">
-      <dialog id="ai-model-dialog" ref="settingsDialog" class="ai-search-dialog model-dialog" aria-labelledby="ai-settings-title" @cancel="closeSettings" @pointerdown.capture="trackDialogPointerDown" @pointercancel="resetDialogPointerDown" @click="handleDialogBackdrop($event, closeSettings)">
+      <dialog id="ai-model-dialog" ref="settingsDialog" class="ai-search-dialog model-dialog" :class="{ 'custom-model-dialog': configMode === 'custom' }" aria-labelledby="ai-settings-title" @cancel="closeSettings" @pointerdown.capture="trackDialogPointerDown" @pointercancel="resetDialogPointerDown" @click="handleDialogBackdrop($event, closeSettings)">
         <form @submit.prevent="persistSettings"><div class="dialog-heading"><div><h2 id="ai-settings-title">{{ t('aiSearch.configTitle') }}</h2><p>{{ t('aiSearch.configSubtitle') }}</p></div><button type="button" class="icon-button" :aria-label="t('aiSearch.dismiss')" @click="closeSettings"><SearchIcon name="close" /></button></div>
           <div class="model-mode-options" role="group" :aria-label="t('aiSearch.selectModel')"><button v-for="option in modelModes" :key="option.mode" type="button" :data-search-mode-option="option.mode" :aria-pressed="configMode === option.mode" @click="selectConfigMode(option.mode)"><SearchIcon :name="option.icon" /><span>{{ t(`aiSearch.modes.${option.mode}`) }}</span></button></div>
           <div v-if="configMode === 'free'" class="free-model-panel"><div class="free-model-title"><SearchIcon name="sparkles" /><strong>{{ t('aiSearch.modes.free') }}</strong><span class="free-status-pill" :class="{ available: freeAvailable }">{{ freeAvailable ? t('aiSearch.available') : freeStatus === 'checking' ? t('aiSearch.checkingFree') : t('aiSearch.unavailableBadge') }}</span></div><p v-if="!freeAvailable">{{ freeError || t('aiSearch.freeUnavailable') }}</p><div class="free-panel-footer"><span v-if="freeQuota">{{ t('aiSearch.freeQuota', { remaining: freeQuota.remaining, limit: freeQuota.limit }) }}</span><button type="button" :disabled="freeStatus === 'checking'" @click="refreshFreeStatus">{{ t('aiSearch.refreshStatus') }}</button></div></div>
           <div v-else-if="configMode === 'basic'" class="basic-model-panel"><SearchIcon name="search" /><p>{{ t('aiSearch.basicHint') }}</p></div>
           <template v-else>
           <div class="custom-model-heading"><h3>{{ t('aiSearch.modes.custom') }}</h3><span v-if="customReady">{{ t('aiSearch.customConfigured') }}</span></div>
-          <label class="config-field"><span>{{ t('aiSearch.protocol.label') }}</span><select id="ai-model-protocol" v-model="configDraft.protocol"><option value="auto">{{ t('aiSearch.protocol.auto') }}</option><option value="openai">{{ t('aiSearch.protocol.openai') }}</option><option value="anthropic">{{ t('aiSearch.protocol.anthropic') }}</option></select><small>{{ t('aiSearch.protocol.hint') }}</small></label>
+          <div class="custom-model-columns"><div class="custom-model-credentials">
           <label class="config-field"><span>{{ t('aiSearch.apiBaseUrl') }}</span><input v-model="configDraft.baseUrl" type="url" placeholder="https://api.deepseek.com/v1" required autocomplete="off" /><small>{{ t('aiSearch.apiBaseUrlHint') }}</small></label>
           <label class="config-field"><span>{{ t('aiSearch.modelName') }}</span><input v-model="configDraft.model" type="text" placeholder="qwen-flash" required autocomplete="off" /></label>
           <label class="config-field"><span>{{ t('aiSearch.apiKey') }}</span><div class="secret-field"><input v-model="configDraft.apiKey" :type="keyVisible ? 'text' : 'password'" placeholder="sk-…" autocomplete="off" spellcheck="false" /><button type="button" class="icon-button" :aria-label="t(keyVisible ? 'aiSearch.hideKey' : 'aiSearch.showKey')" :aria-pressed="keyVisible" @click="keyVisible = !keyVisible"><SearchIcon name="eye" /></button></div><small>{{ t('aiSearch.apiKeyHint') }}</small></label>
           <label class="remember-key"><input v-model="configDraft.rememberKey" type="checkbox" /><span>{{ t('aiSearch.rememberKey') }}<small>{{ t('aiSearch.rememberKeyWarning') }}</small></span></label><p class="config-help">{{ t('aiSearch.configHelp') }}</p><p v-if="settingsError" class="settings-error" role="alert">{{ settingsError }}</p>
+          </div><div class="custom-model-behavior">
+          <label class="config-field"><span>{{ t('aiSearch.protocol.label') }}</span><select id="ai-model-protocol" v-model="configDraft.protocol"><option value="auto">{{ t('aiSearch.protocol.auto') }}</option><option value="openai">{{ t('aiSearch.protocol.openai') }}</option><option value="anthropic">{{ t('aiSearch.protocol.anthropic') }}</option></select><small>{{ t('aiSearch.protocol.hint') }}</small></label>
+          <ModelOutputSettings :config="configDraft" @update:output-mode="configDraft.outputMode = $event" />
           <div class="model-probe-controls"><button type="button" class="secondary-button model-probe-button" :disabled="!canProbe" @click="testModel">{{ t(probeStatus === 'running' ? 'aiSearch.modelProbe.testing' : 'aiSearch.modelProbe.test') }}</button><button v-if="probeStatus === 'running'" type="button" class="secondary-button model-probe-cancel" @click="clearModelProbe">{{ t('aiSearch.modelProbe.cancel') }}</button><small>{{ t('aiSearch.modelProbe.requestHint') }}</small></div>
           <section v-if="probeStatus === 'success' && probeResult" class="model-probe-result model-probe-success" role="status"><strong>{{ t('aiSearch.modelProbe.success') }}</strong><dl><dt>{{ t('aiSearch.modelProbe.requested') }}</dt><dd>{{ probeResult.requestedModel }}</dd><dt>{{ t('aiSearch.modelProbe.returned') }}</dt><dd>{{ probeResult.returnedModel || t('aiSearch.modelProbe.notReturned') }}</dd><dt>{{ t('aiSearch.protocol.label') }}</dt><dd>{{ t(`aiSearch.protocol.${probeResult.protocol}`) }}</dd><dt>{{ t('aiSearch.requestDiagnostics.endpoint') }}</dt><dd>{{ probeResult.endpoint }}</dd></dl><p v-if="'replyTruncated' in probeResult && probeResult.replyTruncated" class="model-probe-truncated">{{ t('aiSearch.modelProbe.truncated') }}</p><small>{{ t('aiSearch.modelProbe.basicNote') }}</small></section>
           <p v-if="probeStatus === 'error'" class="settings-error model-probe-error" role="alert">{{ probeError }}<ResponseDetails v-if="probeDiagnostic" :content="requestDiagnosticText(probeDiagnostic)" :to="settingsDialog" detail-id="model-probe-request" :title="t('aiSearch.requestDiagnostics.title')" :open-label="t('aiSearch.requestDiagnostics.open')" /></p>
+          </div></div>
           </template>
           <div class="dialog-actions"><button type="button" class="secondary-button" @click="closeSettings">{{ t('aiSearch.cancel') }}</button><button type="submit" class="primary-button" :disabled="busy || loadingArchive || probeStatus === 'running'">{{ t(configMode === 'custom' ? 'aiSearch.saveAndUseModel' : 'aiSearch.useModel') }}</button></div>
         </form>
@@ -116,6 +122,7 @@ import ResultLimitSelect from './components/ResultLimitSelect.vue'
 import { useHistoryResize } from './useHistoryResize'
 import type { ModelConfig, SearchMode } from './types'
 import { probeCustomModel } from './modelProbe'
+import ModelOutputSettings from './components/ModelOutputSettings.vue'
 import { AISearchError } from './aiSearchService'
 import { sanitizeRequestDiagnostic } from './requestDiagnostics'
 import type { RequestDiagnostic } from './requestDiagnostics'
@@ -146,7 +153,7 @@ const settingsOpen = ref(false)
 const settingsError = ref('')
 const configMode = ref<SearchMode>(mode.value)
 const modelModes = [{ mode: 'free', icon: 'sparkles' }, { mode: 'custom', icon: 'settings' }, { mode: 'basic', icon: 'search' }] as const
-const configDraft = reactive<ModelConfig>({ baseUrl: '', model: '', apiKey: '', rememberKey: false, protocol: 'auto' })
+const configDraft = reactive<ModelConfig>({ baseUrl: '', model: '', apiKey: '', rememberKey: false, protocol: 'auto', outputMode: 'auto' })
 const probeStatus = ref<'idle' | 'running' | 'success' | 'error'>('idle')
 const probeResult = shallowRef<Awaited<ReturnType<typeof probeCustomModel>>>()
 const probeError = ref('')
@@ -188,7 +195,7 @@ async function testModel() {
     if (probeRun === run) probeRun = undefined
   }
 }
-watch(() => [configDraft.baseUrl, configDraft.model, configDraft.apiKey, configDraft.protocol], clearModelProbe, { flush: 'sync' })
+watch(() => [configDraft.baseUrl, configDraft.model, configDraft.apiKey, configDraft.protocol, configDraft.outputMode], clearModelProbe, { flush: 'sync' })
 watch(() => [settingsOpen.value, configMode.value], () => { if (!settingsOpen.value || configMode.value !== 'custom') clearModelProbe() }, { flush: 'sync' })
 const currentModelLabel = computed(() => mode.value === 'free' ? t('aiSearch.freeModelLabel') : mode.value === 'custom' ? modelConfig.value.model || t('aiSearch.modes.custom') : t('aiSearch.modes.basic'))
 const currentFreeRemaining = computed(() => mode.value === 'free' && freeQuota.value ? t('aiSearch.freeQuotaRemaining', { remaining: freeQuota.value.remaining }) : '')

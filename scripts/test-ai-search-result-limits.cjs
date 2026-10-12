@@ -1,3 +1,4 @@
+const { responsesFixture, responsesMessages } = require('../tools/ai-search-service/responses-fixture.mjs');
 /* Run: node scripts/test-ai-search-result-limits.cjs. All requests are fixtures; no network or model calls. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -20,8 +21,12 @@ function withPromptFixture(actualRequest) {
         assert.equal(input.headers?.Authorization, undefined);
         return new Response(promptFixture, { headers: { 'Content-Type': 'text/markdown' } });
       }
-      if (String(url).endsWith('/chat/completions')) {
-        const system = JSON.parse(input.body).messages[0].content;
+      if (String(url).endsWith('/responses')) {
+        const body = JSON.parse(input.body);
+        for (const field of ['max_output_tokens', 'max_completion_tokens', 'max_tokens']) {
+          assert.equal(Object.hasOwn(body, field), false, 'Custom searches leave output length to the provider for every result count and model round');
+        }
+        const system = responsesMessages(body)[0].content;
         assert.ok(system.includes('External prompt fixture'));
         assert.ok(system.includes(`at most ${payload.resultLimit} resources`));
       }
@@ -105,18 +110,18 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
   let modelCalls = 0;
   const twentyReply = await requestSearch(twentyPayload, resources.slice(0, 20), { ...customOptions, fetcher: async (url, options) => {
     modelCalls++;
-    assert.equal(url, "https://example.invalid/v1/chat/completions");
+    assert.equal(url, "https://example.invalid/v1/responses");
     const body = JSON.parse(options.body);
     assert.ok(!options.body.includes("fixture-key-only"), "Credentials never enter model context");
-    assert.ok(body.messages.some(message => message.content.includes('"resultLimit":20')), "The model receives the selected count");
-    return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(titleOnlyAnswer(20)) } }] });
+    assert.ok(responsesMessages(body).some(message => message.content.includes('"resultLimit":20')), "The model receives the selected count");
+    return response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(titleOnlyAnswer(20)) } }] }));
   } });
   assert.equal(twentyReply.matches.length, 20);
   assert.equal(modelCalls, 1);
   assert.ok(twentyReply.matches.every(item => item.reason === ""));
   assert.deepEqual(twentyReply.matches.map(match => resources.find(item => item.resourceId === match.resourceId).title), summaries.slice(0, 20).map(item => item.title), "Legacy cards obtain names from catalog resources, never model match titles");
   const tenPayload = buildSearchPayload("碰撞音效", "zh-CN", "sound", [], resources.slice(0, 20), "ten-results", 10);
-  await assert.rejects(() => requestSearch(tenPayload, resources.slice(0, 20), { ...customOptions, fetcher: async () => response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(11)) } }] }) }), errorCode("RESPONSE_RESULT_LIMIT"), "Actual custom-model requests enforce the selected limit");
+  await assert.rejects(() => requestSearch(tenPayload, resources.slice(0, 20), { ...customOptions, fetcher: async () => response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(11)) } }] })) }), errorCode("RESPONSE_RESULT_LIMIT"), "Actual custom-model requests enforce the selected limit");
 
   const twentyIds = resources.slice(0, 20).map(item => item.resourceId);
   const batches = [];
@@ -200,12 +205,12 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
     const chosenIds = chosen.map(item => item.resourceId);
     const result = await requestAgentSearch(payload, { ...customOptions, fetcher: async (url, options) => {
       const body = JSON.parse(options.body);
-      if (url === "https://example.invalid/v1/chat/completions") {
+      if (url === "https://example.invalid/v1/responses") {
         models++;
-        assert.ok(body.messages.some(message => message.role === "user" && message.content?.includes('"resultLimit":20')), "The planning model receives the selected count");
-        if (models === 1) return response({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "search-twenty", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "碰撞", scope: "sound", limit: 20 }) } }] } }] });
+        assert.ok(responsesMessages(body).some(message => message.role === "user" && message.content?.includes('"resultLimit":20')), "The planning model receives the selected count");
+        if (models === 1) return response(responsesFixture({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "search-twenty", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "碰撞", scope: "sound", limit: 20 }) } }] } }] }));
         assert.equal(models, 2, "One successful search requires only a planning and a final model reply");
-        return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "匹配的碰撞音效", matches: chosenIds.map(resourceId => ({ resourceId, title: "模型自拟名称", description: "不要补造理由", matchType: "feature" })) }) } }] });
+        return response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "匹配的碰撞音效", matches: chosenIds.map(resourceId => ({ resourceId, title: "模型自拟名称", description: "不要补造理由", matchType: "feature" })) }) } }] }));
       }
       if (url === "/api/ai-search/search") {
         searches++;
@@ -249,13 +254,12 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
   assert.ok(Buffer.byteLength(JSON.stringify(boundedFiftyContext)) <= 21000);
   const customFifty = await requestSearch(compactFifty, resources.slice(0, 50), { ...customOptions, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
-    assert.equal(body.max_tokens, 5400);
-    assert.equal(body.messages.length > 0, true);
-    return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(50)) } }] });
+    assert.equal(responsesMessages(body).length > 0, true);
+    return response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(50)) } }] }));
   } });
   assert.equal(customFifty.matches.length, 50);
   await assert.rejects(() => requestSearch(buildSearchPayload("碰撞音效", "zh-CN", "sound", [], resources.slice(0, 50), "custom-37", 37), resources.slice(0, 50),
-    { ...customOptions, fetcher: async () => response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(38)) } }] }) }), errorCode("RESPONSE_RESULT_LIMIT"));
+    { ...customOptions, fetcher: async () => response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(38)) } }] })) }), errorCode("RESPONSE_RESULT_LIMIT"));
 
   const legacyInfo = parseServerCatalog({ catalogVersion: version, mode: "keyword", total: 100 });
   assert.equal(legacyInfo.maxSearchLimit, 30);
@@ -332,14 +336,14 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
   let compatibleModels = 0;
   const compatibleAgent = await requestAgentSearch(fiftyAgent, { ...customOptions, maxSearchLimit: 30, maxPreviousIds: 20, maxExcludeIds: 30, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
-    if (url.endsWith("/chat/completions")) {
-      assert.equal(body.messages.filter(message => message.role === "user").at(-1).content.includes('"previousIds"'), true);
-      if (++compatibleModels === 1) return response({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "compatible-more", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "碰撞", scope: "sound", limit: 50 }) } }] } }] });
-      const evidence = JSON.parse(body.messages.find(message => message.role === "tool").content);
+    if (url.endsWith("/responses")) {
+      assert.equal(responsesMessages(body).filter(message => message.role === "user").at(-1).content.includes('"previousIds"'), true);
+      if (++compatibleModels === 1) return response(responsesFixture({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "compatible-more", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "碰撞", scope: "sound", limit: 50 }) } }] } }] }));
+      const evidence = JSON.parse(responsesMessages(body).find(message => message.role === "tool").content);
       assert.equal(evidence.items.length, 50);
       assert.equal(evidence.omittedPrevious, 20);
       assert.ok(evidence.items.every(item => !fiftyIds.includes(item.resourceId)));
-      return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "新的候选", matches: unseenMatches }) } }] });
+      return response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "新的候选", matches: unseenMatches }) } }] }));
     }
     if (url.endsWith("/search")) return agentExclusions.fetcher(url, input);
     assert.equal(url, "/api/ai-search/assets");
@@ -358,13 +362,12 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
   let fiftyModels = 0, fiftySearches = 0, fiftyDetails = 0;
   const fullFifty = await requestAgentSearch(buildAgentSearchPayload("碰撞音效", "zh-CN", "sound", [], true, "custom-fifty", 50), { ...customOptions, maxSearchLimit: 50, maxAssetIds: 10, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
-    if (url.endsWith("/chat/completions")) {
-      assert.equal(body.max_tokens, 5400);
-      if (++fiftyModels === 1) return response({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "search-fifty", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "碰撞", scope: "sound", limit: 50 }) } }] } }] });
-      const evidence = JSON.parse(body.messages.find(message => message.role === "tool").content);
+    if (url.endsWith("/responses")) {
+      if (++fiftyModels === 1) return response(responsesFixture({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "search-fifty", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "碰撞", scope: "sound", limit: 50 }) } }] } }] }));
+      const evidence = JSON.parse(responsesMessages(body).find(message => message.role === "tool").content);
       assert.deepEqual(evidence.items.map(item => item.resourceId), fiftyIds, "The final model receives all searched IDs after adaptive text compression");
       assert.ok(Buffer.byteLength(JSON.stringify(evidence)) <= 16000);
-      return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(50)) } }] });
+      return response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(50)) } }] }));
     }
     if (url.endsWith("/search")) {
       fiftySearches++;
@@ -396,15 +399,15 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
   const effectMatches = effectsFifty.map(item => ({ resourceId: item.resourceId, reason: "描述支持低沉爆裂声", matchType: item.matchType }));
   await requestAgentSearch(buildAgentSearchPayload("有爆裂音的特效", "zh-CN", "all", [], true, "fifty-effect-audio", 50, "audio"), { ...customOptions, maxSearchLimit: 50, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
-    if (url.endsWith("/chat/completions")) {
-      if (++effectRounds === 1) return response({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "audio-fifty", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "爆裂", scope: "effect", matchOn: "audio", limit: 50 }) } }] } }] });
-      const evidence = JSON.parse(body.messages.find(message => message.role === "tool").content);
+    if (url.endsWith("/responses")) {
+      if (++effectRounds === 1) return response(responsesFixture({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "audio-fifty", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "爆裂", scope: "effect", matchOn: "audio", limit: 50 }) } }] } }] }));
+      const evidence = JSON.parse(responsesMessages(body).find(message => message.role === "tool").content);
       assert.equal(evidence.items.length, 50);
       assert.ok(Buffer.byteLength(JSON.stringify(evidence)) <= 16000);
       assert.ok(evidence.items.every(item => item.audioMatch === true && item.audioDescription && item.visualDescription), "Compressed effect summaries keep both independent evidence channels");
       assert.equal(evidence.items[0].matchType, "suggestion");
       assert.ok(evidence.items[0].suggestedUses.length, "Use advice remains separately labelled when its prose is compacted");
-      return response({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "音轨候选", matches: effectMatches }) } }] });
+      return response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "音轨候选", matches: effectMatches }) } }] }));
     }
     if (url.endsWith("/search")) return response({ catalogVersion: version, mode: "keyword", total: 50, limits: { maxSearchLimit: 50, maxAssetIds: 10 }, hasMore: false, items: effectsFifty });
     assert.equal(url, "/api/ai-search/assets");

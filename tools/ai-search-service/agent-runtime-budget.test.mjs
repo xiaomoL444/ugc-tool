@@ -1,3 +1,4 @@
+import { responsesFixture, responsesMessages } from './responses-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import { validateModelResult } from './worker.mjs';
 // This verifies evidence retention beyond the former byte cap, not model understanding.
 const sourcePrompt = await readFile(new URL('./SystemPrompt.md', import.meta.url), 'utf8');
 const config = {
-  upstream: 'https://provider.invalid/chat/completions', model: 'mock-budget-model',
+  upstream: 'https://provider.invalid/responses', model: 'mock-budget-model',
   maxMessages: 12, maxCandidates: 50, maxQueryLength: 2000,
   maxOutputTokens: 5400, timeoutMs: 30000, agentTimeoutMs: 55000,
   inputRate: 0, outputRate: 0, costSafety: 1,
@@ -17,12 +18,12 @@ const request = { query: '装置反馈，先比较两种声音路线，再核对
   scope: 'sound', matchOn: 'audio', locale: 'zh-CN', includeEffectAudio: true,
   resultLimit: 10, previousIds: [], messages: [] };
 const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
-const toolResponse = calls => new Response(JSON.stringify({ choices: [{ finish_reason: 'tool_calls',
-  message: { content: null, tool_calls: calls } }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
-const finalResponse = ids => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: {
+const toolResponse = calls => new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'tool_calls',
+  message: { content: null, tool_calls: calls } }], usage: { prompt_tokens: 100, completion_tokens: 20 } })));
+const finalResponse = ids => new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: {
   content: JSON.stringify({ answer: '这些真实声音可供比较，具体用途请结合场景试听。',
     matches: ids.map(resourceId => ({ resourceId, reason: '用途建议：已有音轨观察可考虑作为装置反馈。', matchType: 'suggestion' })) }),
-} }], usage: { prompt_tokens: 100, completion_tokens: 30 } }));
+} }], usage: { prompt_tokens: 100, completion_tokens: 30 } })));
 
 function makeEffects(start, count) {
   return Array.from({ length: count }, (_, offset) => {
@@ -37,7 +38,7 @@ function makeEffects(start, count) {
   });
 }
 function toolValues(body) {
-  return body.messages.filter(message => message.role === 'tool').map(message => ({
+  return responsesMessages(body).filter(message => message.role === 'tool').map(message => ({
     callId: message.tool_call_id, value: JSON.parse(message.content),
   }));
 }

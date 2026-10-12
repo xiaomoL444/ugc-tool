@@ -1,3 +1,4 @@
+const { responsesFixture } = require('../tools/ai-search-service/responses-fixture.mjs');
 /* Synthetic fetches, archive storage, and Vue mount/unmount only. No real services or models. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -150,7 +151,7 @@ async function workerFailureScenario() {
       if (path.endsWith('/AISearch/index.json')) return Response.json({ data: 'release-worker-only' });
       if (path.endsWith('/config')) { configCalls++; if (configFails) throw new Error('synthetic config outage'); return Response.json({ configured: false, available: false }); }
       if (path.endsWith('/catalog')) { catalogCalls++; return Response.json({ error: { code: 'SEARCH_UNAVAILABLE' } }, { status: 503 }); }
-      if (path.endsWith('/chat') || path.endsWith('/chat/completions')) { chatCalls++; throw new Error('A failed service cannot authorize a model request'); }
+      if (path.endsWith('/chat') || path.endsWith('/responses')) { chatCalls++; throw new Error('A failed service cannot authorize a model request'); }
       throw new Error(`Unexpected failure request: ${url}`);
     };
     const page = mount(useAISearch, new MemoryStorage('free'));
@@ -177,11 +178,11 @@ async function configFailureWithHealthyCatalogScenario() {
     if (path.endsWith('/catalog')) { catalogCalls++; return Response.json(metadata('healthy-catalog-v1', 1)); }
     if (path.endsWith('/search')) { searches++; return Response.json({ ...metadata('healthy-catalog-v1', 1), hasMore: false, items: [asset] }); }
     if (path.endsWith('/assets')) return Response.json({ catalogVersion: 'healthy-catalog-v1', items: [asset], missingIds: [] });
-    if (path.endsWith('/chat/completions')) {
+    if (path.endsWith('/responses')) {
       modelCalls++;
       assert.equal(new URL(String(url)).hostname, 'fixture-chat.invalid', 'Custom model requests stay on the configured mock endpoint');
-      if (modelCalls === 1) return Response.json({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: 'fixture-tool', type: 'function', function: { name: 'search_assets', arguments: '{"query":"rumble","scope":"sound"}' } }] } }] });
-      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: 'found', matches: [{ resourceId: asset.resourceId, reason: 'observed rumble', matchType: 'feature' }] }) } }] });
+      if (modelCalls === 1) return Response.json(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: 'fixture-tool', type: 'function', function: { name: 'search_assets', arguments: '{"query":"rumble","scope":"sound"}' } }] } }] }));
+      return Response.json(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: 'found', matches: [{ resourceId: asset.resourceId, reason: 'observed rumble', matchType: 'feature' }] }) } }] }));
     }
     if (path.endsWith('/chat')) { freeChatCalls++; throw new Error('Config failure must keep the website model disabled'); }
     throw new Error(`Unexpected healthy-catalog request: ${url}`);

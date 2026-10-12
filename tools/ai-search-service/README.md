@@ -4,6 +4,10 @@
 
 ## 模型返回格式修复
 
+模型调用已统一迁移为 Responses API。配置中的旧 `/chat/completions` 地址自动转换为 `/responses`，不回退到 Chat Completions。`model-responses.mjs` 共用 URL、`input`、function 工具、`function_call_output.call_id`、完整 reasoning Items 回传、响应状态和 token 用量适配。使用 `store: false` 并手动传回完整历史。Schema 与 JSON 模式均通过 `text.format` 发送，`max_output_tokens` 包含推理与正文。站点 AI 继续显式设置该参数并据此预留费用；浏览器的自有 OpenAI 兼容模型搜索省略该参数，使用供应商默认输出限制。共享转换器接受省略额度，显式配置的额度仍须为正整数。
+
+输出策略由 `model-output-policy.mjs` 按地址和模型选择。支持的 OpenAI、DeepSeek 官方当前模型与已知豆包 Seed 2.0／2.1 使用 Schema，其他已知兼容模型按能力使用 JSON 模式或提示词。千问 Responses 文档未列出 `text.format`，自动模式保留提示词与程序校验，不声称 Chat Schema 能力可直接迁移。Schema 的 ID 只取当前候选或本轮检索结果。资源身份、重复项、数量、理由校验和失败卡片展示保留。费用预留精确统计实际 `input`、扁平工具及 `text.format` 的输入字节，后续轮次增量预留；用量从 `input_tokens`／`output_tokens` 转换后结算，失败不释放预留。Worker 保留三次模型调用上限，不追加格式回退请求。发布此行为需重新部署 Worker。
+
 网页的自有模型和 Worker 的站点 AI 共用 `tools/ai-search-service/model-json.mjs`。仅处理模型最终回答正文：去除 BOM 和代码围栏后先尝试严格 `JSON.parse`，语法失败时才用 `jsonrepair` 修复，再解析并交给原有字段、资源 ID、重复项和数量校验。可处理部分漏引号、单引号、多余逗号和英文引号转义问题；格式可修复不代表资源有效。
 
 `finish_reason=length` 等未完整生成状态仍在解析前拒绝，明显未闭合的最外层对象或数组不补齐。修复失败保留原始模型正文供错误提示查看，不使用修复后的文本替代诊断。HTTP 响应封装、接口请求、资产文件、存档及工具参数继续严格解析。本地修复不新增模型调用或 MCP 检索。上线自有模型需要发布前端；上线站点 AI 还需要重新部署 Worker。
@@ -46,7 +50,7 @@ SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPro
 
 ## DeepSeek 免费模型
 
-DeepSeek 专用配置为 `wrangler.deepseek.example.toml`，使用官方 API `https://api.deepseek.com/chat/completions` 与 `deepseek-flash`。`UPSTREAM_THINKING = "disabled"` 会发送 `thinking: {type: "disabled"}`，用于非思考的资源筛选。当前 DeepSeek API 默认开启思考，因此这项配置需要保留。[模型与价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)、[聊天参数](https://api-docs.deepseek.com/api/create-chat-completion/)
+DeepSeek 专用配置为 `wrangler.deepseek.example.toml`，使用官方 `https://api.deepseek.com/responses` 与 `deepseek-flash`。`UPSTREAM_THINKING = "disabled"` 在 Responses 中转换为 `reasoning: {effort: "none"}`；JSON 约束使用 `text.format`。参见[Responses 官方文档](https://api-docs.deepseek.com/zh-cn/guides/responses_api/)。
 
 专用配置按 2026-10-08 核对的高峰时段、缓存未命中价格预留预算：输入每百万 tokens 2 元，输出每百万 tokens 8 元。实际账单可能因时段与缓存更低；账本仍按保守单价扣预算。模型或价格变化后请更新配置。当前主配置 `wrangler.toml` 为匿名访客每日 10 次、全站月预算 50 元；两个示例配置仍为每日 5 次，首次复制时请核对 `GUEST_DAILY_LIMIT`。
 
@@ -123,7 +127,7 @@ npm run build
 ## 通用模型配置与部署
 
 1. 使用其他上游且尚无配置时，在这个目录将 `wrangler.example.toml` 复制成 `wrangler.toml`；已有配置直接编辑。`wrangler.toml` 已被本目录 `.gitignore` 忽略。
-2. 填入完整的 OpenAI 兼容 `UPSTREAM_URL`（包含 `/chat/completions`）、`MODEL` 和网站 `ALLOWED_ORIGINS`。新版模型须支持 `tools` / `tool_calls`、`tool_choice: "required"` 与 `"none"`、`role: "tool"`、`response_format: {type: "json_object"}`、`max_tokens` 及非流式响应。仅有文字聊天 API 不足以运行工具流程；不支持时会提示换模型或基础搜索，不自动重试计费请求。
+2. 填入支持 Responses 的 `UPSTREAM_URL`（包含 `/responses`）、`MODEL` 和网站 `ALLOWED_ORIGINS`。模型必须支持 function 工具、`tool_choice: "auto"`／`"none"`、`function_call`／`function_call_output`、`max_output_tokens` 及非流式 `response` 响应；JSON 约束由 `text.format` 发送。仅支持 Chat Completions 的接口不再适用。不支持时提示换模型或基础搜索，不自动回退到 Chat Completions 或重试计费请求。
 3. 将 `INPUT_CNY_PER_MILLION` 和 `OUTPUT_CNY_PER_MILLION` 改为**上游模型当前实际人民币单价**。模板故意填零，让未配置价格的服务不可用。使用外币计价或阶梯价格时，应换算为保守的最高适用单价；价格调整后及时更新。
 4. 通过 Wrangler 的 secret 功能配置 `UPSTREAM_API_KEY`，另设置一个随机且固定的 `VISITOR_HASH_SECRET`。不要将 Key 放入 Vue、`VUE_APP_*` 变量、示例 TOML、Git 或聊天中。
 5. 维护者确认 Cloudflare 账号及部署配置后，用自己的 Wrangler 部署此目录，将前端免费服务地址指向 Worker 地址；也可通过自己的站点网关将 `/api/ai-search/*` 转发到此 Worker。不要将 Durable Object 暴露为独立公共接口。
@@ -151,6 +155,8 @@ npx wrangler deploy
 
 ```text
 ugc-tool-data/
+  AISearch/
+    index.json                     data 为资产发布版本字符串
   SoundEffectPlayer/
     data.json
     i18n/zh-cn.json … 五语基础翻译与搜索描述
@@ -184,7 +190,13 @@ ASSET_FEATURES_BASE_URL = "https://oss.xiaomol444.xyz/ugc-tool-data"
 
 生产检索由已有 `SEARCH_LEDGER` Durable Object 执行，普通 Worker 负责入口校验和转发；目录查询和关键词检索不预留聊天模型预算，也不扣聊天次数；启用混合检索时，额外的 embedding 调用仍使用原有费用与额度保护。这样大文件解析与检索在 Durable Object 内进行。Cloudflare 普通 Workers Free 每次 HTTP 请求只有 10 ms CPU，Durable Objects 默认有 30 秒 CPU；等待下载不计入 CPU，两者仍受内存约束。[Workers 限额](https://developers.cloudflare.com/workers/platform/limits/)、[Durable Objects 限额](https://developers.cloudflare.com/durable-objects/platform/limits/)
 
-Worker 在有检索请求时检查三个播放器的 `features.json` 和各自五份 `i18n/<locale>.json`，共 18 条固定路径，最多每 60 秒检查一次。ETag 用于逐文件条件请求；每个播放器的来源 hash 由一份 features 和五份翻译文件原始字节的 SHA-256 组合生成。即使 features 本身没有变化，任一语言文件变化也会触发验证与目录更新。全部 304 或组合 hash 不变时继续使用当前目录对象与缓存。若只有部分文件返回 304，而同项目其他文件有变化，会重新读取需要的 304 文件以校验完整资料；不长期缓存另一套完整源 JSON。没有访问时不运行后台计时器。缓存保存在当前运行实例内；实例回收后会重新读取特征文件，不是数据库里的永久内存缓存。成功校验三类特征及各自五语字典后整体切换目录，每轮模型工具调用固定使用同一份目录快照。缓存到期而已有 AI／语义检索正在使用快照时，先继续使用该目录，待进行中的调用完成再刷新；新模型请求等待旧快照释放，避免长时间同时保存两份完整目录。
+三个 Wrangler 配置使用 `crons = ["*/5 * * * *"]`，每 5 分钟由独立 Cron 事件读取 `${ASSET_FEATURES_BASE_URL}/AISearch/index.json`，只比较非空字符串 `data`。`data` 不变时不读取三个播放器的特征或语言文件；变更时才在后台检查三个播放器的 `features.json` 和各自五份 `i18n/<locale>.json`，共 18 条固定路径。其他索引字段的变化不会触发资产刷新。请求服务继续使用上一次成功目录，不等待这一轮下载和校验。没有网站访问时 Cron 也会检查；实例从持久快照恢复后，访问会补发到期的后台检查，仍按 5 分钟间隔合并，不会每条请求重新读取文件。
+
+`AISearch/index.json` 的 `data` 是发布完成标记，要求 1 至 256 个字符。上传者先完成三类 `features.json` 与各自五语字典的发布及索引重编译，最后更新 `data`，例如 `{ "data": "2026-10-12-assets-v2" }`。只更新资源文件而保留旧 `data` 时，运行中的 Worker 会继续使用已发布版本。冷加载与刷新都会确认加载前后的 `data` 一致，避免将一轮更新过程中的混合资料设为成功版本。ETag 仍用于逐文件条件请求；每个播放器的来源 hash 由一份 features 和五份翻译文件原始字节的 SHA-256 组合生成。全部 304 或组合 hash 不变时继续使用当前目录对象与缓存；若部分文件返回 304 而同项目其他文件有变化，会补读所需文件以完整校验，不长期缓存另一套完整源 JSON。
+
+成功快照分块保存在已有 `SEARCH_LEDGER` 的 SQLite 存储中，完整写入后才发布版本指针。实例休眠或重启后优先恢复已成功发布的快照，避免重新下载 18 份来源文件；没有合法快照的首次加载仍需等待资料读取。后台候选全部通过校验后整体切换目录，每轮模型工具调用固定使用同一份目录快照，更新不会把半成品暴露给其他请求。检查失败保留旧目录并标为 `stale`，Cron 将该次失败记为错误，后续检查可重试。Cron 只经内部 DO binding 调用刷新路径，公网 Worker 不提供刷新接口，也不调用聊天模型、查询余额或分配访客额度。
+
+这里实现的是后台更新与请求等待解耦，仍使用现有 Durable Object；Cloudflare 管理实际线程和进程。网络等待期间可以交错处理请求，同步 JSON 解析和校验仍共享该实例的 CPU，不能承诺完全没有资源竞争。[DO 并发规则](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)、[DO 生命周期](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/)。部署新版 Worker 后才会启用 Cron 与持久快照，调整 Cron 间隔时应同步修改加载器的 `FEATURE_INDEX_CHECK_MS`。
 
 首次加载失败时停止检索并返回 503；有成功目录后刷新失败则继续使用上次版本，返回 `featureSync.status="stale"`，页面显示提示。文件必须与基础目录的 `baseIndexVersion` 对应，五语引用完整、ID 合法，且预编译索引对应当前特征内容。 现有 BGM 特征包绑定部署时的基础快照；该快照与当前 BGM 发布目录的名称附加字段和分类文本不同。需要重建离线目录但保留现有特征版本时，通过 `--bgm-base` 指向原基础快照目录，`--base`／`--features-base` 使用当前特征包目录。不要为了本次接入覆盖现有轻量身份目录或手动修改 `baseIndexVersion`。手动编辑对应语言文件的搜索描述后须用脚本重编译该播放器的 features，不能修改文本却保留旧索引。`--reindex <Player>/features.json` 自动读取同目录下五份 i18n 后更新索引，输出 features 仍不含字典副本。更新基础 ID、名称等资源资料时仍须重新构建并部署轻量身份目录；修改现有资源的特征文件则不需要重新部署 Worker。
 

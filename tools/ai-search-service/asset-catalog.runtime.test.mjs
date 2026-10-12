@@ -126,7 +126,7 @@ test('workerd Durable Object loads real feature files, checks ETags, swaps chang
       return worker.fetch(request, env);
     } };`;
   const modules = [{ type: 'ESModule', path: path.join(root, 'feature-runtime-entry.mjs'), contents: entry }];
-  for (const name of ['worker.mjs','asset-json-stream.mjs','asset-catalog-loader.mjs','asset-search.mjs','asset-features.mjs','agent-runtime.mjs','mcp-handler.mjs','provider-balance.mjs','system-prompt.mjs','model-response.mjs']) {
+  for (const name of ['worker.mjs','asset-json-stream.mjs','asset-catalog-loader.mjs','asset-catalog-snapshot.mjs','asset-search.mjs','asset-features.mjs','agent-runtime.mjs','mcp-handler.mjs','provider-balance.mjs','system-prompt.mjs','model-response.mjs','model-output-policy.mjs','model-responses.mjs']) {
     const contents = (await readFile(path.join(root, name), 'utf8')).replace(/ with \{ type: ['"]json['"] \}/g, '');
     modules.push({ type: 'ESModule', path: path.join(root, name), contents });
   }

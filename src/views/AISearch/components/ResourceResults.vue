@@ -9,14 +9,16 @@
       </nav>
     </div>
     <div :id="gridId" ref="grid" class="result-grid" :style="{ gridTemplateColumns: `repeat(${pageSize}, minmax(0, 1fr))`, minHeight: minimumGridHeight ? `${minimumGridHeight}px` : undefined }">
-      <article v-for="(card, index) in visibleCards" :key="card.resourceId" class="resource-card" :class="`resource-${card.kind}`" :data-effect-card="card.kind === 'effect' ? '' : undefined" :data-result-position="startIndex + index + 1">
-        <div class="resource-heading"><span class="resource-position" :aria-label="t('aiSearch.results.resultPosition', { position: startIndex + index + 1 })">{{ startIndex + index + 1 }}</span><span class="resource-icon"><SearchIcon :name="card.kind === 'sound' ? 'sound' : card.kind === 'bgm' ? 'music' : 'effect'" /></span><span class="resource-kind">{{ t(`aiSearch.scopes.${card.kind}`) }}</span><span class="resource-id">{{ t('aiSearch.assetId') }} {{ card.id }}</span></div>
-        <div class="resource-title-row"><h3 :title="card.title">{{ card.title }}</h3><span v-if="card.matchType === 'suggestion'" class="suggestion-match">{{ t('aiSearch.suggestedUses') }}</span></div>
-        <div v-if="card.audioMatch" class="resource-match-badges"><span class="audio-match"><SearchIcon name="sound" />{{ t('aiSearch.audioMatch') }}</span></div>
-        <div class="resource-copy-actions"><button type="button" @click="Clipboard(card.id)"><SearchIcon name="copy" />{{ t('aiSearch.preview.copyId') }}</button><button type="button" @click="Clipboard(card.title)"><SearchIcon name="copy" />{{ t('aiSearch.preview.copyName') }}</button></div>
-        <ResourceMiniPreview :card="card" />
-        <ResourceDetails :card="card" :detail-id="`${resultId}-${card.resourceId}`" />
-        <a :href="card.href" class="asset-link" target="_blank" rel="noopener noreferrer"><span>{{ t('aiSearch.openAsset') }}</span><SearchIcon name="external" /></a>
+      <article v-for="(card, index) in visibleCards" :key="`${startIndex + index}-${card.resourceId}`" class="resource-card" :class="card.unresolved ? 'resource-unresolved' : `resource-${card.kind}`" :data-effect-card="!card.unresolved && card.kind === 'effect' ? '' : undefined" :data-result-position="startIndex + index + 1">
+        <div class="resource-heading"><span class="resource-position" :aria-label="t('aiSearch.results.resultPosition', { position: startIndex + index + 1 })">{{ startIndex + index + 1 }}</span><span v-if="!card.unresolved" class="resource-icon"><SearchIcon :name="card.kind === 'sound' ? 'sound' : card.kind === 'bgm' ? 'music' : 'effect'" /></span><span v-if="!card.unresolved" class="resource-kind">{{ t(`aiSearch.scopes.${card.kind}`) }}</span><span class="resource-id">{{ t('aiSearch.assetId') }} {{ card.unresolved ? card.resourceId : card.id }}</span></div>
+        <div v-if="!card.unresolved" class="resource-title-row"><h3 :title="card.title">{{ card.title }}</h3><span v-if="card.matchType === 'suggestion'" class="suggestion-match">{{ t('aiSearch.suggestedUses') }}</span></div>
+        <p v-if="card.unresolved" class="resource-unresolved-notice">{{ t('aiSearch.results.unresolved') }}</p>
+        <div v-if="!card.unresolved && card.audioMatch" class="resource-match-badges"><span class="audio-match"><SearchIcon name="sound" />{{ t('aiSearch.audioMatch') }}</span></div>
+        <div class="resource-copy-actions"><button type="button" @click="Clipboard(card.unresolved ? card.resourceId : card.id)"><SearchIcon name="copy" />{{ t('aiSearch.preview.copyId') }}</button><button v-if="!card.unresolved" type="button" @click="Clipboard(card.title)"><SearchIcon name="copy" />{{ t('aiSearch.preview.copyName') }}</button></div>
+        <ResourceMiniPreview v-if="!card.unresolved" :card="card" />
+        <div v-else class="resource-unresolved-preview" aria-hidden="true"></div>
+        <ResourceDetails v-if="!card.unresolved || card.matchReason" :card="card" :detail-id="`${resultId}-${startIndex + index}`" />
+        <a v-if="!card.unresolved" :href="card.href" class="asset-link" target="_blank" rel="noopener noreferrer"><span>{{ t('aiSearch.openAsset') }}</span><SearchIcon name="external" /></a>
       </article>
     </div>
     <p class="result-notice">{{ t('aiSearch.resultNotice') }}</p>

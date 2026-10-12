@@ -2,6 +2,10 @@ name = "ugc-ai-search"
 main = "worker.mjs"
 compatibility_date = "2025-04-01"
 
+[triggers]
+# Check AISearch/index.json.data; feature files load only when it changes.
+crons = ["*/5 * * * *"]
+
 [[durable_objects.bindings]]
 name = "SEARCH_LEDGER"
 class_name = "SearchLedger"
@@ -15,7 +19,7 @@ new_sqlite_classes = ["SearchLedger"]
 ASSET_FEATURES_BASE_URL = "https://oss.xiaomol444.xyz/ugc-tool-data"
 # Public Markdown source; successful reads are cached for 60 seconds.
 SYSTEM_PROMPT_URL = "https://oss.xiaomol444.xyz/ugc-tool-data/AISearch/SystemPrompt.md"
-UPSTREAM_URL = "https://api.deepseek.com/chat/completions"
+UPSTREAM_URL = "https://api.deepseek.com/responses"
 MODEL = "deepseek-flash"
 MODEL_NAME = "DeepSeek 免费搜索"
 UPSTREAM_THINKING = "disabled"

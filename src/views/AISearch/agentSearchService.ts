@@ -1,14 +1,15 @@
 import { loadSystemPrompt, buildSystemPrompt } from "./systemPrompt";
 import { modelResponseText } from "./responseDiagnostics";
-import { httpRequestDiagnostic } from "./requestDiagnostics";
 import type { RequestContext } from "./requestDiagnostics";
-import { modelHeaders, toAnthropicRequest } from "./modelProtocol";
 import { parseModelJSON } from "../../../tools/ai-search-service/model-json.mjs";
 import { selectSuggestedUses } from "../../../tools/ai-search-service/asset-use-summary.mjs";
-import { AISearchError, modelConnection, modelResponseEnvelope, completionTokenOptions, chatToolCompatibilityOptions, fetchAISearch, readAISearchJSON, providerRequestError, parseFeatureSync, parseServerResources, requestServerAssets, requestServerCatalog, requestServerSearchBatch, validateSearchAnswer } from "./aiSearchService";
+import { AISearchError, modelConnection, modelResponseEnvelope, completionTokenOptions, responsesToolCompatibilityOptions, fetchConstrainedModel, fetchAISearch, readAISearchJSON, readAISearchHTTPDiagnostic, providerRequestError, parseFeatureSync, parseServerResources, requestServerAssets, requestServerCatalog, requestServerSearchBatch, validateSearchAnswer } from "./aiSearchService";
 import { record } from "./resourceCatalog";
 import { MAX_SEARCH_RESULTS, normalizeResultLimit, boundedHistoryContent } from "./resultLimits";
 import type { AgentSearchPayload, ChatMessage, ModelConfig, SearchAnswer, SearchResource, SearchScope, SearchMatchOn, ServerSearchInput, FeatureSync } from "./types";
+import { recoverResultDisplay } from "./resultDisplay";
+import { detectModelOutput, outputThinkingOptions, outputPrompt, OUTPUT_CONSTRAINTS } from "../../../tools/ai-search-service/model-output-policy.mjs";
+import type { OutputConstraint } from "../../../tools/ai-search-service/model-output-policy.mjs";
 
 const tool = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []) => ({ type: "function", function: { name, description,
   parameters: { type: "object", properties, required, additionalProperties: false } } });
@@ -42,7 +43,7 @@ export function buildAgentSearchPayload(query: string, locale: string, scope: Se
   if (new TextEncoder().encode(JSON.stringify(payload)).length > 21000) throw new AISearchError("PAYLOAD_TOO_LARGE");
   return payload;
 }
-interface AgentOptions { mode: "free" | "custom"; config: ModelConfig; freeBase: string; signal: AbortSignal; fetcher?: typeof fetch; maxSearchLimit?: number; maxAssetIds?: number; maxPreviousIds?: number; maxExcludeIds?: number }
+interface AgentOptions { mode: "free" | "custom"; config: ModelConfig; freeBase: string; signal: AbortSignal; fetcher?: typeof fetch; maxSearchLimit?: number; maxAssetIds?: number; maxPreviousIds?: number; maxExcludeIds?: number; hydrateFinalAssets?: boolean }
 interface ToolCall { id: string; type: "function"; function: { name: string; arguments: string } }
 type ModelMessage = { role: "system" | "user" | "assistant" | "tool"; content: string | null; tool_calls?: ToolCall[]; tool_call_id?: string; _anthropicContent?: unknown[] };
 function summary(item: SearchResource, detail = false, query = "") {
@@ -129,9 +130,9 @@ function parseFinal(content: unknown, allowed: SearchResource[], resultLimit: nu
   let parsed;
   try { parsed = parseModelJSON(content); } catch { throw new AISearchError("RESPONSE_FORMAT"); }
   const result = record(parsed);
-  const clarification = Object.hasOwn(result, "clarification");
-  if (clarification) {
-    if (result.clarification !== true || !Array.isArray(result.matches) || result.matches.length) throw new AISearchError("RESPONSE_FORMAT");
+  const clarification = result.clarification === true;
+  if (Object.hasOwn(result, "clarification")) {
+    if (typeof result.clarification !== "boolean" || clarification && (!Array.isArray(result.matches) || result.matches.length)) throw new AISearchError("RESPONSE_FORMAT");
     delete result.clarification;
   }
   if (Object.keys(result).some(key => key !== "answer" && key !== "matches")) throw new AISearchError("RESPONSE_FORMAT");
@@ -145,16 +146,23 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
     const response = await fetchAISearch(url, { method: "POST", signal: options.signal,
       headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }, context, fetcher);
     if (!response.ok) {
-      const diagnostic = await httpRequestDiagnostic(response, context);
+      const diagnostic = await readAISearchHTTPDiagnostic(response, context, options.signal);
       let raw: Record<string, unknown> = {};
       try { raw = await readAISearchJSON(response, context, options.signal); } catch { /* A gateway may return HTML. */ }
       const error = record(raw.error);
-      throw new AISearchError(typeof error.code === "string" ? error.code : response.status === 429 ? "QUOTA_EXCEEDED" : "FREE_UNAVAILABLE", error.reason, error.rawResponse, diagnostic);
+      const code = typeof error.code === "string" ? error.code : response.status === 429 ? "QUOTA_EXCEEDED" : "FREE_UNAVAILABLE";
+      throw new AISearchError(code, error.reason, error.rawResponse, diagnostic,
+        code === "RESPONSE_ASSET_ID" || code === "UPSTREAM_RESPONSE_INVALID" ? recoverResultDisplay(error.rawResponse, []) : undefined);
     }
     const raw = await readAISearchJSON(response, context, options.signal);
     if (typeof raw.catalogVersion !== "string" || !raw.catalogVersion || raw.catalogVersion.length > 200) throw new AISearchError("INVALID_RESPONSE");
     const resources = parseServerResources(raw.resources, payload.locale, new Set(), true);
-    const answer = validateSearchAnswer(raw, resources, normalizeResultLimit(payload.resultLimit));
+    let answer: SearchAnswer;
+    try { answer = validateSearchAnswer(raw, resources, normalizeResultLimit(payload.resultLimit)); }
+    catch (error) {
+      if (error instanceof AISearchError && error.code === "RESPONSE_ASSET_ID") throw new AISearchError(error.code, undefined, undefined, undefined, recoverResultDisplay(raw, resources));
+      throw error;
+    }
     const matched = new Set(answer.matches.map(match => match.resourceId));
     if (resources.length !== matched.size || resources.some(item => !matched.has(item.resourceId))) throw new AISearchError("INVALID_RESPONSE");
     if (resources.some(item => item.audioMatch && (!item.hasAudio || !item.audioDescription && !item.audioKeywords?.length))) throw new AISearchError("INVALID_RESPONSE");
@@ -164,17 +172,19 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
     const quota = record(raw.quota);
     const mode = raw.mode ?? raw.retrievalMode;
     return { ...answer, resources, catalogVersion: raw.catalogVersion, featureSync: parseFeatureSync(raw.featureSync), model: typeof raw.model === "string" ? raw.model : undefined,
+      ...(OUTPUT_CONSTRAINTS.includes(raw.outputConstraint as OutputConstraint) ? { outputConstraint: raw.outputConstraint as OutputConstraint } : {}),
       ...(mode === "keyword" || mode === "hybrid" ? { retrievalMode: mode } : {}),
       ...(Number.isInteger(quota.remaining) && Number.isInteger(quota.limit) && typeof quota.resetAt === "string" ? { quota: { remaining: Math.max(0, Number(quota.remaining)), limit: Math.max(0, Number(quota.limit)), resetAt: quota.resetAt } } : {}) };
   }
   if (!options.config.apiKey.trim() || !options.config.model.trim()) throw new AISearchError("CONFIG");
   const { url, protocol } = modelConnection(options.config), hostname = new URL(url).hostname;
   const deepSeek = hostname === "api.deepseek.com";
-  const jsonSupported = deepSeek || ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"].includes(hostname) || hostname.endsWith(".maas.aliyuncs.com");
+  let outputPolicy = detectModelOutput({ ...options.config, protocol });
   const systemPrompt = buildSystemPrompt(await loadSystemPrompt(options.signal, fetcher), "agent", normalizeResultLimit(payload.resultLimit));
-  const messages: ModelMessage[] = [{ role: "system", content: systemPrompt }, ...payload.messages,
+  const messages: ModelMessage[] = [{ role: "system", content: `${systemPrompt}\n\n${outputPrompt(true)}` }, ...payload.messages,
     { role: "user", content: JSON.stringify({ query: payload.query, locale: payload.locale, scope: payload.scope, matchOn: payload.matchOn ?? "any", includeEffectAudio: payload.includeEffectAudio, previousIds: payload.previousIds, resultLimit: normalizeResultLimit(payload.resultLimit) }) }];
   const known = new Map<string, SearchResource>();
+  const fullDetails = new Map<string, SearchResource>();
   const knownQueries = new Map<string, string>();
   const seenToolIds = new Set<string>();
   let version = "", toolCount = 0;
@@ -199,7 +209,12 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
       actualRetrievalMode = result.mode;
       const excluded = new Set(excludePrevious ? payload.previousIds : []);
       const items = result.items.filter(item => !excluded.has(item.resourceId));
-      items.forEach(item => { known.set(item.resourceId, item); knownQueries.set(item.resourceId, `${knownQueries.get(item.resourceId) || payload.query} ${input.query}`); });
+      items.forEach(item => {
+        // Full detail is projected for the retrieved visual or audio evidence.
+        if (fullDetails.has(item.resourceId) && Boolean(fullDetails.get(item.resourceId)?.audioMatch) !== Boolean(item.audioMatch)) fullDetails.delete(item.resourceId);
+        known.set(item.resourceId, item);
+        knownQueries.set(item.resourceId, `${knownQueries.get(item.resourceId) || payload.query} ${input.query}`);
+      });
       return { catalogVersion: version, mode: result.mode, total: result.total, items: items.map(item => summary(item, false, knownQueries.get(item.resourceId))),
         hasMore: result.hasMore, nextCursor: result.nextCursor, retrievalNotice: result.retrievalNotice,
         ...(excludePrevious ? { omittedPrevious: (result.omittedExcluded ?? 0) + result.items.length - items.length } : {}) };
@@ -210,7 +225,7 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
       const ids = args.ids as string[];
       const audioIds = new Set(ids.filter(id => known.get(id)?.audioMatch));
       const details = await requestServerAssets(options.freeBase, ids, payload.locale, version, options.signal, audioIds, fetcher, state => { featureSync = state; }, maxAssetIds);
-      details.forEach(item => known.set(item.resourceId, item));
+      details.forEach(item => { known.set(item.resourceId, item); fullDetails.set(item.resourceId, item); });
       return { catalogVersion: version, items: details.map(item => summary(item, true, knownQueries.get(item.resourceId) || payload.query)) };
     }
     if (call.function.name === "get_asset_catalog") {
@@ -229,17 +244,19 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
   for (let round = 0; round < 3; round++) {
     if (options.signal.aborted) throw new DOMException("Aborted", "AbortError");
     const finalRound = round === 2 || toolCount >= 4;
-    const request = { model: options.config.model.trim(), stream: false, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit)), ...chatToolCompatibilityOptions(url, options.config.model, !finalRound), messages,
+    const request = { model: options.config.model.trim(), stream: false, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit), protocol), ...responsesToolCompatibilityOptions(url, options.config.model, !finalRound), messages,
+      ...outputThinkingOptions(options.config),
       ...(deepSeek ? { thinking: { type: "disabled" } } : {}),
-      ...(finalRound ? { tools: AGENT_SEARCH_TOOLS, tool_choice: "none", ...(jsonSupported ? { response_format: { type: "json_object" } } : {}) }
+      ...(finalRound ? { tools: AGENT_SEARCH_TOOLS, tool_choice: "none" }
         : { tools: AGENT_SEARCH_TOOLS, tool_choice: "auto" }) };
-    const requestBody = JSON.stringify(protocol === "anthropic" ? toAnthropicRequest(request) : request);
-    if (new TextEncoder().encode(requestBody).length > 60000) throw new AISearchError("PAYLOAD_TOO_LARGE");
     const context: RequestContext = { stage: "model", endpoint: url, model: options.config.model.trim(), round: round + 1, startedAt: Date.now() };
     const secrets = [options.config.apiKey.trim()];
-    const response = await fetchAISearch(url, { method: "POST", signal: options.signal, headers: modelHeaders(protocol, options.config.apiKey.trim()), body: requestBody }, context, fetcher, secrets);
+    const constrained = await fetchConstrainedModel(url, request, outputPolicy, [...known.keys()], normalizeResultLimit(payload.resultLimit),
+      context, options.signal, options.config.apiKey.trim(), fetcher, true);
+    outputPolicy = constrained.policy;
+    const response = constrained.response;
     if (!response.ok) {
-      throw await providerRequestError(response, context, secrets, true);
+      throw await providerRequestError(response, context, secrets, true, options.signal);
     }
     const envelope = await readAISearchJSON(response, context, options.signal, secrets);
     const raw = modelResponseEnvelope(envelope, protocol, response, context, secrets), choice = record(Array.isArray(raw.choices) ? raw.choices[0] : undefined), message = record(choice.message);
@@ -253,15 +270,24 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
       try {
         parsedFinal = parseFinal(message.content, [...known.values()], normalizeResultLimit(payload.resultLimit));
       } catch (error) {
-        if (error instanceof AISearchError) throw new AISearchError(error.code, error.reason, rawResponse);
+        if (error instanceof AISearchError) throw new AISearchError(error.code, error.reason, rawResponse, undefined,
+          error.code === "RESPONSE_ASSET_ID" ? recoverResultDisplay(message.content, [...known.values()], [options.config.apiKey.trim()]) : undefined);
         throw error;
       }
       const { answer, clarification } = parsedFinal;
       if (!toolCount && !clarification) throw new AISearchError("TOOLS_UNSUPPORTED");
-      const selected = answer.matches.map(match => known.get(match.resourceId)!);
-      const details = selected.length ? await requestServerAssets(options.freeBase, selected.map(item => item.resourceId), payload.locale, version, options.signal, new Set(selected.filter(item => item.audioMatch).map(item => item.resourceId)), fetcher, state => { featureSync = state; }, maxAssetIds) : [];
-      return { ...answer, resources: details, catalogVersion: version || undefined, featureSync, model: options.config.model, retrievalMode: actualRetrievalMode };
+      const selected = answer.matches.map(match => fullDetails.get(match.resourceId) ?? known.get(match.resourceId)!);
+      const pendingAssetIds = selected.filter(item => !fullDetails.has(item.resourceId)).map(item => item.resourceId);
+      if (options.hydrateFinalAssets !== false && pendingAssetIds.length) {
+        const details = await requestServerAssets(options.freeBase, pendingAssetIds, payload.locale, version, options.signal,
+          new Set(selected.filter(item => item.audioMatch).map(item => item.resourceId)), fetcher, state => { featureSync = state; }, maxAssetIds);
+        details.forEach(item => fullDetails.set(item.resourceId, item));
+      }
+      return { ...answer, resources: selected.map(item => fullDetails.get(item.resourceId) ?? item),
+        ...(options.hydrateFinalAssets === false ? { pendingAssetIds } : {}),
+        catalogVersion: version || undefined, featureSync, model: options.config.model, outputConstraint: outputPolicy.mode, retrievalMode: actualRetrievalMode };
     }
+    if (choice.finish_reason !== "tool_calls") throw new AISearchError("RESPONSE_FORMAT", undefined, rawResponse);
     if (finalRound || calls.length > 4 - toolCount) throw new AISearchError("AGENT_LIMIT");
     const verified = calls.map(value => {
       const call = record(value), fn = record(call.function);
@@ -271,6 +297,7 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
       return { id: call.id, type: "function" as const, function: { name: fn.name, arguments: fn.arguments } };
     });
     messages.push({ role: "assistant", content: typeof message.content === "string" ? message.content.slice(0, 3000) : null, tool_calls: verified,
+      ...(protocol === "openai" && Array.isArray(message._responsesOutput) ? { _responsesOutput: message._responsesOutput } : {}),
       ...(protocol === "anthropic" && Array.isArray(message._anthropicContent) ? { _anthropicContent: message._anthropicContent } : {}) });
     for (const call of verified) {
       toolCount++;

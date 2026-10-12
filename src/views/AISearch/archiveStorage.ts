@@ -34,6 +34,16 @@ const strings = (value: unknown, maximum: number, count: number): string[] => (A
 
 function serializeCard(value: unknown): ResourceCard | undefined {
   const card = record(value);
+  if (card.unresolved === true) {
+    const resourceId = text(card.resourceId, 200);
+    if (!resourceId) return;
+    const prefix = resourceId.match(/^(sound|effect|bgm):/)?.[1];
+    return {
+      resourceId, id: resourceId, kind: (prefix || "sound") as ResourceCard["kind"], unresolved: true,
+      title: "", description: "", keywords: [], suggestedUses: [], href: "",
+      matchReason: text(card.matchReason, 800), matchType: card.matchType === "suggestion" ? "suggestion" : "feature",
+    };
+  }
   const match = text(card.resourceId, 40).match(/^(sound|effect|bgm):(\d{1,12})$/);
   if (!match) return;
   const kind = match[1] as ResourceCard["kind"];
@@ -56,12 +66,16 @@ function serializeMessage(value: unknown): ChatMessage | undefined {
   const mode = isMode(message.mode) ? message.mode : "basic";
   const status = message.status === "complete" || message.status === "error" ? message.status : "canceled";
   const rawResponse = message.role === "assistant" && status === "error" ? boundedRawResponse(message.rawResponse) : undefined;
-  const requestDiagnostic = message.role === "assistant" && status === "error" ? sanitizeRequestDiagnostic(message.requestDiagnostic) : undefined;
+  const resultWarning = message.role === "assistant" ? text(message.resultWarning, 800) : "";
+  const requestDiagnostic = message.role === "assistant" && (status === "error" || status === "complete" && resultWarning)
+    ? sanitizeRequestDiagnostic(message.requestDiagnostic) : undefined;
   return {
     id: text(message.id, 100), role: message.role, content: text(message.content, 4000),
     cards: (Array.isArray(message.cards) ? message.cards : []).slice(0, MAX_SEARCH_RESULTS)
       .flatMap(value => { const card = serializeCard(value); return card ? [card] : []; }),
     status, mode, source: mode, model: text(message.model, 100), error: status === "error",
+    ...(["json_schema", "json_object", "prompt"].includes(String(message.outputConstraint)) ? { outputConstraint: message.outputConstraint as ChatMessage["outputConstraint"] } : {}),
+    ...(resultWarning ? { resultWarning } : {}),
     ...(rawResponse ? { rawResponse } : {}),
     ...(requestDiagnostic ? { requestDiagnostic } : {}),
   };

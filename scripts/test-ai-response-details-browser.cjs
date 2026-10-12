@@ -136,7 +136,7 @@ async function checkCustomDiagnostics(browser) {
       throw new Error('No site chat or retrieval call expected before the model failure: ' + endpoint);
     }
     if (url.hostname === 'api.openai.com') {
-      assert.equal(url.pathname, '/v1/chat/completions');
+      assert.equal(url.pathname, '/v1/responses');
       modelCalls++;
       if (modelCalls === 1) return route.fulfill({ status: 403, headers: { 'x-request-id': 'fixture-permission-request', 'access-control-expose-headers': 'x-request-id' }, json: { error: { code: 'permission_denied', message: 'Account cannot access this model. ' + apiKey + ' <img data-diagnostic-payload src=x onerror="window.diagnosticExecuted=true">', param: 'model' } } });
       if (modelCalls === 2) return route.fulfill({ status: 429, json: { error: { code: 'rate_limit_exceeded', message: 'Please reduce request frequency.' } } });
@@ -179,7 +179,7 @@ async function checkCustomDiagnostics(browser) {
       await popup.waitFor({ state: 'visible' });
       const detail = await popup.locator('pre').innerText();
       assert.ok(detail.includes('Calling your model') && detail.includes('Model request round: 1'));
-      assert.ok(detail.includes('https://api.openai.com/v1/chat/completions'));
+      assert.ok(detail.includes('https://api.openai.com/v1/responses'));
       assert.ok(!detail.includes(apiKey));
       if (index === 0) {
         assert.ok(detail.includes('Request ID: fixture-permission-request') && detail.includes('Related parameter: model'), detail);
@@ -221,12 +221,14 @@ async function checkResponsesConfig(browser) {
     if (url.hostname === 'api.openai.com') {
       modelCalls++;
       assert.equal(route.request().method(), 'POST');
-      assert.equal(url.pathname, '/v1/chat/completions', 'The known official Responses URL is normalized to this page’s Chat Completions API');
+      assert.equal(url.pathname, '/v1/responses', 'The configured Responses URL is used directly');
       const request = route.request().postDataJSON();
       assert.equal(request.model, 'gpt-6-luna', 'The configured model stays unchanged');
-      assert.equal(request.reasoning_effort, 'none', 'The official GPT-6 tool flow uses non-reasoning mode');
+      assert.equal(request.reasoning_effort, undefined);
+      assert.equal(request.reasoning, undefined, 'The official Responses tool flow preserves model reasoning defaults');
+      assert.equal(request.text.format.type, 'json_schema');
       assert.equal(route.request().headers().authorization, 'Bearer ' + apiKey, 'The configured key is sent only to its provider');
-      return route.fulfill({ json: { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: 'What feeling should the sound convey?', matches: [], clarification: true }) } }] } });
+      return route.fulfill({ json: { object: 'response', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ answer: 'What feeling should the sound convey?', matches: [], clarification: true }) }] }] } });
     }
     if (url.pathname.startsWith('/ugc-tool-data')) {
       if (url.pathname.endsWith('/AISearch/SystemPrompt.md')) return route.fulfill({ contentType: 'text/markdown', body: '# Test prompt\nAsk a clarification when the request is ambiguous. Return JSON for RESULT_LIMIT assets.' });
@@ -243,7 +245,7 @@ async function checkResponsesConfig(browser) {
     const dialog = page.locator('#ai-model-dialog');
     await dialog.locator('[data-search-mode-option="custom"]').click();
     assert.equal(await dialog.locator('.config-field input').nth(0).inputValue(), 'https://api.openai.com/v1/responses');
-    assert.ok((await dialog.locator('.config-field small').first().innerText()).includes('Chat Completions'));
+    assert.ok((await dialog.locator('.config-field small').first().innerText()).includes('Responses'));
     await dialog.locator('.primary-button').click();
     await dialog.waitFor({ state: 'hidden' });
     await page.locator('#asset-query').fill('Find me a sound.');
@@ -257,7 +259,7 @@ async function checkResponsesConfig(browser) {
     assert.equal(saved.model, 'gpt-6-luna');
     assert.equal(saved.apiKey, apiKey);
     assert.deepEqual(errors, []);
-    console.log('Official Responses configuration normalizes to Chat Completions with unchanged GPT-6 model/key, reasoning_effort none, one mock request, and valid clarification.');
+    console.log('Official Responses configuration uses text.format Schema with unchanged GPT-6 model/key and reasoning defaults, one mock request, and valid clarification.');
   } finally { await context.close(); }
 }
 
@@ -288,12 +290,12 @@ async function checkPromptDiagnostics(browser) {
     if (url.hostname === 'api.openai.com') {
       modelCalls++;
       assert.equal(route.request().method(), 'POST');
-      assert.equal(url.pathname, '/v1/chat/completions');
+      assert.equal(url.pathname, '/v1/responses');
       assert.equal(route.request().headers().authorization, 'Bearer ' + apiKey);
       const payload = route.request().postDataJSON();
-      assert.ok(payload.messages.some(message => message.role === 'system' && message.content.includes(promptWithBytes(promptBytes))), 'The accepted complete public prompt reaches the model without clipping');
+      assert.ok(payload.input.some(message => message.role === 'system' && message.content.includes(promptWithBytes(promptBytes))), 'The accepted complete public prompt reaches the model without clipping');
       assert.ok(Buffer.byteLength(route.request().postData()) <= 60000, 'The separate complete request budget is retained');
-      return route.fulfill({ json: { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: answerFor(promptBytes), matches: [], clarification: true }) } }] } });
+      return route.fulfill({ json: { object: 'response', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ answer: answerFor(promptBytes), matches: [], clarification: true }) }] }] } });
     }
     if (url.pathname.startsWith('/ugc-tool-data')) {
       if (url.pathname.endsWith('/AISearch/SystemPrompt.md')) {

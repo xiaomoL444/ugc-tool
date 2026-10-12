@@ -4,7 +4,7 @@ import { createQuestStructWorkspace } from "./questExporter";
 
 export function importQuest(text: string) {
   const { data, ids } = readRuntime(text, DEFAULT_QUEST_STRUCT_IDS, DEFAULT_QUEST_STRUCT_IDS.configuration, createQuestStructWorkspace(DEFAULT_QUEST_STRUCT_IDS), {
-    [DEFAULT_QUEST_STRUCT_IDS.subQuest]: ["showGuide"],
+    [DEFAULT_QUEST_STRUCT_IDS.subQuest]: ["showGuide", "showEffect"],
   });
   const project = createQuestProject(); project.structIds = ids;
   project.chapters = keyedRows(data["章节"]).map(row => ({ id: Number(row.id), title: row["标题"] }));
@@ -16,7 +16,7 @@ export function importQuest(text: string) {
   project.subQuests = data["子任务"].flatMap((bucket: any) => keyedRows(bucket.value["子任务字典"], Number(bucket.key))).map((row: any) => ({
     id: Number(row.id), mainQuestId: Number(row.mainQuestId), title: row.title, description: row.desc,
     unitState: row["任务单位状态"], investigationPoint: row.pos, belondPrimaryId: Number(row.belondPrimaryId),
-    investigationRange: Number(row["调查点范围"]), hidden: row["隐藏任务"], showGuide: row.showGuide, nextQuestIds: row["后续任务"].map(Number),
+    investigationRange: Number(row["调查点范围"]), hidden: row["隐藏任务"], showGuide: row.showGuide, showEffect: row.showEffect, nextQuestIds: row["后续任务"].map(Number),
     failureQuestId: Number(row["失败回溯任务"]), finishMainQuest: row.finishMainQuest, questProgress: Number(row.questProgress),
   }));
   const errors = validateQuestProject(project); if (errors.length) throw new Error(errors.join("；"));

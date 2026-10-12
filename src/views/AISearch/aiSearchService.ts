@@ -8,6 +8,12 @@ import { selectSuggestedUses } from "../../../tools/ai-search-service/asset-use-
 import type { ChatMessage, ModelConfig, SearchAnswer, SearchResource, SearchScope, SearchMatchOn, ServerCatalogInfo, ServerSearchInput, ServerSearchResult, ServerChatPayload, FeatureSync } from "./types";
 import { record, resourceHref } from "./resourceCatalog";
 import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS, normalizeResultLimit, searchOutputTokens, boundedHistoryContent } from "./resultLimits";
+import { recoverResultDisplay } from "./resultDisplay";
+import { awaitRequest } from "./requestTimeout";
+import type { ResultDisplay } from "./resultDisplay";
+import { detectModelOutput, modelOutputOptions, outputThinkingOptions, outputPrompt, isOutputConstraintRejection, weakerOutputPolicy, OUTPUT_CONSTRAINTS } from "../../../tools/ai-search-service/model-output-policy.mjs";
+import type { OutputPolicy, OutputConstraint } from "../../../tools/ai-search-service/model-output-policy.mjs";
+import { responsesUrl, toResponsesRequest, normalizeResponsesResponse } from "../../../tools/ai-search-service/model-responses.mjs";
 
 const PROVIDER_BALANCE_REASONS = ["MISSING_KEY", "AUTH", "FORBIDDEN", "RATE_LIMIT", "UPSTREAM_ERROR", "TIMEOUT", "NETWORK", "INVALID_RESPONSE", "CNY_MISSING", "ACCOUNT_UNAVAILABLE", "ABORTED"] as const;
 export type ProviderBalanceReason = typeof PROVIDER_BALANCE_REASONS[number];
@@ -16,8 +22,9 @@ export class AISearchError extends Error {
   public readonly reason?: ProviderBalanceReason;
   public readonly rawResponse?: string;
   public readonly requestDiagnostic?: RequestDiagnostic;
-  constructor(public readonly code: string, reason?: unknown, rawResponse?: unknown, requestDiagnostic?: unknown) {
+  constructor(public readonly code: string, reason?: unknown, rawResponse?: unknown, requestDiagnostic?: unknown, public readonly displayResult?: ResultDisplay) {
     super(code);
+    if (code === "REQUEST_ABORTED") this.name = "AbortError";
     // Only retain public diagnostic categories, never provider text or account data.
     if (typeof reason === "string" && PROVIDER_BALANCE_REASONS.includes(reason as ProviderBalanceReason)) this.reason = reason as ProviderBalanceReason;
     if (MODEL_RESPONSE_ERROR_CODES.includes(code)) this.rawResponse = boundedRawResponse(rawResponse);
@@ -128,58 +135,88 @@ export function buildServerChatPayload(payload: SearchPayload, candidates: Searc
   if (size() > 21000) throw new AISearchError("PAYLOAD_TOO_LARGE");
   return body;
 }
-export function chatCompletionsUrl(base: string): string {
-  let url: URL;
-  try { url = new URL(base.trim()); } catch { throw new AISearchError("CONFIG"); }
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if ((url.protocol !== "https:" && !(local && url.protocol === "http:")) || url.username || url.password || url.search || url.hash) throw new AISearchError("CONFIG");
-  const path = url.pathname.replace(/\/+$/u, "");
-  if (url.hostname === "api.openai.com" && ["", "/v1", "/responses", "/v1/responses", "/chat/completions", "/v1/chat/completions", "/responses/chat/completions", "/v1/responses/chat/completions"].includes(path)) {
-    // This page speaks Chat Completions. A pasted Responses endpoint is not a base path.
-    url.pathname = "/v1/chat/completions";
-  } else url.pathname = path.endsWith("/chat/completions") ? path : `${path}/chat/completions`;
-  return url.href;
+export function modelResponsesUrl(base: string): string {
+  try { return responsesUrl(base); } catch { throw new AISearchError("CONFIG"); }
 }
-/** Official OpenAI uses the current parameter; compatible providers retain their existing API. */
-export function completionTokenOptions(url: string, limit: number): Record<string, number> {
-  return new URL(url).hostname === "api.openai.com" ? { max_completion_tokens: searchOutputTokens(limit) } : { max_tokens: searchOutputTokens(limit) };
+/** Custom Responses searches use the provider's output default; native Messages requires a limit. */
+export function completionTokenOptions(_url: string, limit: number, protocol: "openai" | "anthropic" = "openai"): Record<string, number> {
+  return protocol === "anthropic" ? { max_tokens: searchOutputTokens(limit) } : {};
 }
 /** Apply documented tool-call options only to known provider hosts. */
-export function chatToolCompatibilityOptions(url: string, model: string, toolsAllowed = true): { reasoning_effort?: "none"; parallel_tool_calls?: boolean } {
+export function responsesToolCompatibilityOptions(url: string, _model: string, toolsAllowed = true): { parallel_tool_calls?: boolean } {
   const hostname = new URL(url).hostname;
   // DashScope disables multiple tool calls per response unless explicitly enabled.
   if (["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"].includes(hostname) || hostname.endsWith(".maas.aliyuncs.com")) return { parallel_tool_calls: toolsAllowed };
-  return hostname === "api.openai.com" && model.trim() === "gpt-6-luna" ? { reasoning_effort: "none" } : {};
+  return {};
 }
 export function modelConnection(config: ModelConfig): { protocol: "openai" | "anthropic"; url: string } {
   try {
     const protocol = resolveModelProtocol(config);
     modelHeaders(protocol, config.apiKey.trim());
-    return { protocol, url: protocol === "anthropic" ? anthropicMessagesUrl(config.baseUrl) : chatCompletionsUrl(config.baseUrl) };
+    return { protocol, url: protocol === "anthropic" ? anthropicMessagesUrl(config.baseUrl) : modelResponsesUrl(config.baseUrl) };
   } catch { throw new AISearchError("CONFIG"); }
 }
+
+/** Downgrade only after an explicit unsupported-format HTTP rejection. No result retries. */
+export async function fetchConstrainedModel(url: string, request: Record<string, unknown>, policy: OutputPolicy, ids: string[], limit: number,
+  context: RequestContext, signal: AbortSignal, apiKey: string, fetcher: typeof fetch, agent = false): Promise<{ response: Response; policy: OutputPolicy }> {
+  let selected = policy;
+  while (true) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const body = { ...request, ...modelOutputOptions(selected, ids, limit, agent) };
+    const wireBody = JSON.stringify(selected.protocol === "anthropic" ? toAnthropicRequest(body) : toResponsesRequest(body, url));
+    if (agent && new TextEncoder().encode(wireBody).length > 60000) throw new AISearchError("PAYLOAD_TOO_LARGE");
+    const response = await fetchAISearch(url, { method: "POST", signal, headers: modelHeaders(selected.protocol, apiKey), body: wireBody }, context, fetcher, [apiKey]);
+    const weaker = selected.requested === "auto" ? weakerOutputPolicy(selected) : undefined;
+    if (response.ok || !weaker || ![400, 422].includes(response.status)) return { response, policy: selected };
+    let rejection = "";
+    const reader = response.clone().body?.getReader();
+    const cancelRead = () => { void reader?.cancel().catch(() => undefined); };
+    signal.addEventListener("abort", cancelRead, { once: true });
+    try {
+      if (reader) {
+        const chunks: Uint8Array[] = []; let size = 0;
+        while (size < 10000 && !signal.aborted) { const next = await awaitRequest(() => reader.read(), signal); if (next.done) break; chunks.push(next.value.subarray(0, 10000 - size)); size += next.value.length; }
+        rejection = chunks.map(chunk => new TextDecoder().decode(chunk)).join("");
+      }
+    } catch { /* Preserve the original rejection for diagnostics. */ }
+    finally { signal.removeEventListener("abort", cancelRead); if (reader) { void reader.cancel().catch(() => undefined); reader.releaseLock(); } }
+    if (signal.aborted) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new AISearchError("REQUEST_ABORTED", undefined, undefined,
+        { ...responseRequestDiagnostic(response, context, "response", [apiKey]), ...transportRequestDiagnostic(signal.reason, context, signal, [apiKey]) });
+    }
+    if (!isOutputConstraintRejection(response.status, rejection)) return { response, policy: selected };
+    void response.body?.cancel().catch(() => undefined);
+    selected = weaker;
+  }
+}
 export function modelResponseEnvelope(raw: Record<string, unknown>, protocol: "openai" | "anthropic", response: Response, context: RequestContext, secrets: readonly string[]): Record<string, unknown> {
-  if (protocol === "openai") return raw;
-  try { return normalizeAnthropicResponse(raw); }
+  try { return protocol === "openai" ? normalizeResponsesResponse(raw) : normalizeAnthropicResponse(raw); }
   catch { throw new AISearchError("INVALID_RESPONSE", undefined, undefined, responseRequestDiagnostic(response, context, "response", secrets)); }
 }
 export async function fetchAISearch(url: string, init: RequestInit, context: RequestContext, fetcher: typeof fetch = fetch, secrets: readonly string[] = [], failureCode = "NETWORK"): Promise<Response> {
-  try { return await fetcher(url, init); }
+  try { return await awaitRequest(() => fetcher(url, init), init.signal ?? undefined); }
   catch (error) {
     const diagnostic = transportRequestDiagnostic(error, context, init.signal ?? undefined, secrets);
-    throw new AISearchError(diagnostic.kind === "timeout" ? "REQUEST_ABORTED" : failureCode, undefined, undefined, diagnostic);
+    throw new AISearchError(diagnostic.kind === "timeout" || diagnostic.kind === "canceled" ? "REQUEST_ABORTED" : failureCode, undefined, undefined, diagnostic);
   }
 }
 export async function readAISearchJSON(response: Response, context: RequestContext, signal?: AbortSignal, secrets: readonly string[] = []): Promise<Record<string, unknown>> {
-  try { return record(await getJSON(response)); }
+  try { return record(await awaitRequest(() => getJSON(response), signal)); }
   catch (error) {
     if (error instanceof AISearchError) throw new AISearchError(error.code, error.reason, error.rawResponse, responseRequestDiagnostic(response, context, "response", secrets));
     const diagnostic = sanitizeRequestDiagnostic({ ...responseRequestDiagnostic(response, context, "response", secrets), ...transportRequestDiagnostic(error, context, signal, secrets) }, secrets)!;
-    throw new AISearchError(diagnostic.kind === "timeout" ? "REQUEST_ABORTED" : "NETWORK", undefined, undefined, diagnostic);
+    throw new AISearchError(diagnostic.kind === "timeout" || diagnostic.kind === "canceled" ? "REQUEST_ABORTED" : "NETWORK", undefined, undefined, diagnostic);
   }
 }
-export async function providerRequestError(response: Response, context: RequestContext, secrets: readonly string[] = [], tools = false): Promise<AISearchError> {
-  const diagnostic = await httpRequestDiagnostic(response, context, secrets);
+export async function readAISearchHTTPDiagnostic(response: Response, context: RequestContext, signal?: AbortSignal, secrets: readonly string[] = []): Promise<RequestDiagnostic> {
+  const diagnostic = await httpRequestDiagnostic(response, context, secrets, signal);
+  if (diagnostic.kind === "timeout" || diagnostic.kind === "canceled") throw new AISearchError("REQUEST_ABORTED", undefined, undefined, diagnostic);
+  return diagnostic;
+}
+export async function providerRequestError(response: Response, context: RequestContext, secrets: readonly string[] = [], tools = false, signal?: AbortSignal): Promise<AISearchError> {
+  const diagnostic = await readAISearchHTTPDiagnostic(response, context, signal, secrets);
   const text = `${diagnostic.providerCode || ""} ${diagnostic.parameter || ""} ${diagnostic.providerMessage || ""}`;
   const unsupported = tools && /(?:not support|unsupported|not available|not enabled|unknown parameter|unrecognized)[\s\S]{0,160}(?:tools?|function|tool_choice)|(?:tools?|function|tool_choice)[\s\S]{0,160}(?:not support|unsupported|not available|not enabled)/iu.test(text);
   const code = response.status === 401 ? "AUTH" : response.status === 403 ? "FORBIDDEN" : response.status === 429 ? "PROVIDER_RATE_LIMIT"
@@ -295,7 +332,7 @@ async function serverJSON(base: string, endpoint: string, signal: AbortSignal, b
   const response = await fetchAISearch(url, { signal, cache: "no-store",
     ...(body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) }, context, fetcher, [], "RETRIEVAL_FAILED");
   if (!response.ok) {
-    const diagnostic = await httpRequestDiagnostic(response, context);
+    const diagnostic = await readAISearchHTTPDiagnostic(response, context, signal);
     const code = diagnostic.providerCode;
     if (endpoint === "assets" && response.status === 413 && code === "DETAILS_TOO_LARGE") throw new AISearchError("DETAILS_TOO_LARGE", undefined, undefined, diagnostic);
     throw new AISearchError(code === "CATALOG_VERSION_MISMATCH" ? "CATALOG_CHANGED"
@@ -403,6 +440,28 @@ export async function requestServerAssets(base: string, ids: string[], locale: s
     }
   } catch (error) { if (error instanceof AISearchError && error.code === "CATALOG_CHANGED" || signal.aborted) throw error; throw new AISearchError("ASSET_DETAILS", undefined, undefined, error instanceof AISearchError ? error.requestDiagnostic : undefined); }
 }
+
+/** Best-effort metadata for displaying a failed answer; never used as retrieval evidence. */
+export async function requestServerDisplayAssets(base: string, ids: string[], locale: string, signal: AbortSignal, fetcher?: typeof fetch, serviceLimit = 10): Promise<SearchResource[]> {
+  const requested = [...new Set(ids.filter(id => /^(sound|effect|bgm):\d{1,12}$/u.test(id)))].slice(0, MAX_SEARCH_RESULTS);
+  const found = new Map<string, SearchResource>();
+  const batchLimit = Number.isInteger(serviceLimit) && serviceLimit >= 1 ? Math.min(MAX_SEARCH_RESULTS, serviceLimit) : 10;
+  for (let offset = 0; offset < requested.length; offset += batchLimit) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const batch = requested.slice(offset, offset + batchLimit), allowed = new Set(batch);
+    try {
+      const raw = await serverJSON(base, "assets", signal, { ids: batch, locale }, fetcher);
+      // Missing or malformed metadata leaves only that card blank.
+      for (const value of (Array.isArray(raw.items) ? raw.items : []).slice(0, batch.length)) {
+        try {
+          const item = parseServerResources([value], locale, new Set(), true)[0];
+          if (item && allowed.has(item.resourceId)) found.set(item.resourceId, item);
+        } catch { /* Keep other readable resource details in the same batch. */ }
+      }
+    } catch (error) { if (signal.aborted) throw error; }
+  }
+  return requested.flatMap(id => { const item = found.get(id); return item ? [item] : []; });
+}
 export async function requestSearch(payload: SearchPayload, candidates: SearchResource[], options: { mode: "free" | "custom"; config: ModelConfig; freeBase: string; signal: AbortSignal; fetcher?: typeof fetch; server?: { catalogVersion: string; includeEffectAudio: boolean } }): Promise<SearchAnswer> {
   const fetcher = options.fetcher ?? fetch;
   const custom = options.mode === "custom";
@@ -410,29 +469,30 @@ export async function requestSearch(payload: SearchPayload, candidates: SearchRe
   const connection = custom ? modelConnection(options.config) : undefined;
   const protocol = connection?.protocol ?? "openai";
   const url = connection?.url ?? `${options.freeBase.replace(/\/$/, "")}/chat`;
-  const hostname = custom ? new URL(url).hostname : "";
-  const deepSeek = hostname === "api.deepseek.com";
-  const jsonSupported = deepSeek || ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"].includes(hostname) || hostname.endsWith(".maas.aliyuncs.com");
+  const deepSeek = custom && new URL(url).hostname === "api.deepseek.com";
+  const policy = detectModelOutput({ ...options.config, protocol });
   const systemPrompt = custom ? buildSystemPrompt(await loadSystemPrompt(options.signal, fetcher), "candidates", normalizeResultLimit(payload.resultLimit)) : "";
   if (options.signal.aborted) throw new DOMException("Aborted", "AbortError");
   const context: RequestContext = { stage: custom ? "model" : "site", endpoint: url, ...(custom ? { model: options.config.model.trim(), round: 1 } : {}), startedAt: Date.now() };
   const secrets = custom ? [options.config.apiKey.trim()] : [];
-  const request = custom ? { model: options.config.model.trim(), stream: false, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit)),
-      ...(jsonSupported ? { response_format: { type: "json_object" } } : {}),
+  const request = custom ? { model: options.config.model.trim(), stream: false, ...completionTokenOptions(url, normalizeResultLimit(payload.resultLimit), protocol),
+      ...outputThinkingOptions(options.config),
       ...(deepSeek ? { thinking: { type: "disabled" } } : {}),
-      messages: [{ role: "system", content: systemPrompt }, ...payload.messages, { role: "user", content: JSON.stringify({ query: payload.query, locale: payload.locale, scope: payload.scope, matchOn: payload.matchOn ?? "any", resultLimit: normalizeResultLimit(payload.resultLimit), candidates: payload.candidates }) }] } : options.server
+      messages: [{ role: "system", content: `${systemPrompt}\n\n${outputPrompt()}` }, ...payload.messages, { role: "user", content: JSON.stringify({ query: payload.query, locale: payload.locale, scope: payload.scope, matchOn: payload.matchOn ?? "any", resultLimit: normalizeResultLimit(payload.resultLimit), candidates: payload.candidates }) }] } : options.server
       ? buildServerChatPayload(payload, candidates, options.server.catalogVersion, options.server.includeEffectAudio) : payload;
-  const response = await fetchAISearch(url, { method: "POST", signal: options.signal,
-    headers: custom ? modelHeaders(protocol, options.config.apiKey.trim()) : { "Content-Type": "application/json" },
-    body: JSON.stringify(custom && protocol === "anthropic" ? toAnthropicRequest(request as unknown as Record<string, unknown>) : request),
-  }, context, fetcher, secrets);
+  const constrained = custom ? await fetchConstrainedModel(url, request as unknown as Record<string, unknown>, policy,
+    payload.candidates.map(item => item.resourceId), normalizeResultLimit(payload.resultLimit), context, options.signal, options.config.apiKey.trim(), fetcher) : undefined;
+  const response = constrained?.response ?? await fetchAISearch(url, { method: "POST", signal: options.signal,
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }, context, fetcher, secrets);
   if (!response.ok) {
-    if (custom) throw await providerRequestError(response, context, secrets);
-    const diagnostic = await httpRequestDiagnostic(response, context);
+    if (custom) throw await providerRequestError(response, context, secrets, false, options.signal);
+    const diagnostic = await readAISearchHTTPDiagnostic(response, context, options.signal);
     if (!custom) {
       let error: Record<string, unknown> = {};
-      try { error = record(record(await getJSON(response)).error); } catch { /* Preserve a non-JSON gateway's HTTP status. */ }
-      throw new AISearchError(typeof error.code === "string" ? error.code : response.status === 429 ? "QUOTA_EXCEEDED" : "FREE_UNAVAILABLE", error.reason, error.rawResponse, diagnostic);
+      try { error = record(record(await readAISearchJSON(response, context, options.signal)).error); } catch { /* Preserve a non-JSON gateway's HTTP status. */ }
+      const code = typeof error.code === "string" ? error.code : response.status === 429 ? "QUOTA_EXCEEDED" : "FREE_UNAVAILABLE";
+      throw new AISearchError(code, error.reason, error.rawResponse, diagnostic,
+        code === "RESPONSE_ASSET_ID" || code === "UPSTREAM_RESPONSE_INVALID" ? recoverResultDisplay(error.rawResponse, candidates) : undefined);
     }
   }
   const envelope = await readAISearchJSON(response, context, options.signal, secrets);
@@ -458,13 +518,20 @@ export async function requestSearch(payload: SearchPayload, candidates: SearchRe
     try {
       answer = validateSearchAnswer(parsed, candidates.filter(item => transmittedIds.has(item.resourceId)), normalizeResultLimit(payload.resultLimit));
     } catch (error) {
-      if (error instanceof AISearchError) throw new AISearchError(error.code, error.reason, rawResponse);
+      if (error instanceof AISearchError) throw new AISearchError(error.code, error.reason, rawResponse, undefined,
+        error.code === "RESPONSE_ASSET_ID" ? recoverResultDisplay(parsed, candidates.filter(item => transmittedIds.has(item.resourceId)), [options.config.apiKey.trim()]) : undefined);
       throw error;
     }
     answer.model = options.config.model;
+    answer.outputConstraint = constrained?.policy.mode;
   } else {
-    answer = validateSearchAnswer(raw, candidates, normalizeResultLimit(payload.resultLimit));
+    try { answer = validateSearchAnswer(raw, candidates, normalizeResultLimit(payload.resultLimit)); }
+    catch (error) {
+      if (error instanceof AISearchError && error.code === "RESPONSE_ASSET_ID") throw new AISearchError(error.code, undefined, undefined, undefined, recoverResultDisplay(raw, candidates));
+      throw error;
+    }
     answer.featureSync = parseFeatureSync(raw.featureSync);
+    if (OUTPUT_CONSTRAINTS.includes(raw.outputConstraint as OutputConstraint)) answer.outputConstraint = raw.outputConstraint as OutputConstraint;
     if (raw.catalogVersion !== undefined) {
       if (typeof raw.catalogVersion !== "string" || !raw.catalogVersion || raw.catalogVersion.length > 200) throw new AISearchError("INVALID_RESPONSE");
       answer.catalogVersion = raw.catalogVersion;

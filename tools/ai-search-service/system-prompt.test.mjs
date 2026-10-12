@@ -198,12 +198,12 @@ test("the editable game-search prompt loads and measures its actual input withou
   const loader = createSystemPromptLoader({ fetcher: async () => promptResponse(source) });
   const loaded = await loader.read();
   assert.equal(loaded, source.trim());
-  const config = { maxOutputTokens: 5400, inputRate: 0, outputRate: 0, costSafety: 1 };
+  const config = { model: "mock-prompt-model", maxOutputTokens: 5400, inputRate: 0, outputRate: 0, costSafety: 1 };
   for (const resultLimit of [1, 10, 50]) {
     const request = { query: "适合机器人模块安装或跳跃落地的音效", scope: "sound", matchOn: "audio",
       locale: "zh-CN", includeEffectAudio: true, messages: [], previousIds: [], resultLimit };
     const { messages, tools, inputBytes } = buildAgentPrompt(request, config, loaded);
-    assert.equal(inputBytes, Buffer.byteLength(JSON.stringify({ messages, tools }), "utf8"));
+    assert.equal(inputBytes, Buffer.byteLength(JSON.stringify({ input: messages, tools: tools.map(tool => ({ type: "function", ...tool.function, strict: false })) }), "utf8"));
     for (const mode of ["agent", "candidates"]) {
       const rendered = renderSystemPrompt(loaded, resultLimit, mode);
       assert.ok(rendered.startsWith(loaded.replace(/\bRESULT_LIMIT\b/g, String(resultLimit))));

@@ -486,6 +486,7 @@ function editFlowTask(id: number) {
             <label class="quest-field"><span>单位状态 <code>unitState · ConfigReference</code></span><input v-model="selectedSub.unitState" aria-label="单位状态" placeholder="填写配置引用" /></label>
             <div class="quest-field"><span>所属一级区域 <code>belondPrimaryId</code></span><QuestMainAreaSelect v-model="selectedSub.belondPrimaryId" /></div>
             <label class="hidden-field"><input v-model="selectedSub.showGuide" type="checkbox" role="switch" aria-label="显示任务地图指引" /><span>显示任务地图指引</span></label>
+            <label class="hidden-field"><input v-model="selectedSub.showEffect" type="checkbox" role="switch" aria-label="显示任务指引特效" /><span>显示任务指引特效</span></label>
             <p v-if="selectedSub.legacyInvestigationPoint" class="inspector-info">已沿用旧调查点的 Vector3 坐标；原配置已保留备份。若原先使用实体、GUID 或偏移，请核对这里的最终坐标。</p>
             <div class="position-editor"><ClipPropertyEditor :property="pointProperty" :model-value="selectedSub.investigationPoint" @update:model-value="updatePoint" /></div>
             <label class="quest-field"><span>调查范围 <code>investigationRange</code></span><input type="number" aria-label="调查范围" :value="selectedSub.investigationRange" step="any" @input="updateRange" /><small>保留结构体默认值 -1；可填写所需范围。</small></label>

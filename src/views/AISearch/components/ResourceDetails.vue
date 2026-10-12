@@ -1,7 +1,7 @@
 <template>
   <button ref="trigger" type="button" class="resource-description resource-details-trigger"
     :class="{ 'is-pinned': pinned }"
-    :aria-label="t('aiSearch.results.detailsLabel', { name: card.title })"
+    :aria-label="t('aiSearch.results.detailsLabel', { name: card.unresolved ? card.resourceId : card.title })"
     :aria-expanded="opened" :aria-describedby="opened ? tooltipId : undefined"
     @pointerenter="enterTrigger" @pointerleave="leaveTrigger" @pointerdown="rememberPointer" @focus="show" @blur="blurTrigger" @click="toggleDetails" @wheel="scrollDetails">
     <span class="resource-details-summary">{{ summary }}</span><SearchIcon name="info" />
@@ -10,12 +10,12 @@
     <div v-if="opened" :id="tooltipId" ref="popover" class="resource-details-popover" :class="{ 'is-wide': wideDetails, 'is-pinned': pinned, 'is-touch': touchInteractive }" role="tooltip"
       :style="{ left: `${left}px`, top: `${top}px`, width: `${width}px`, visibility: positioned ? 'visible' : 'hidden' }"
       :tabindex="pinned && scrollable ? 0 : -1">
-      <strong class="resource-details-title">{{ card.title }}</strong>
-      <span class="resource-details-label">{{ t('aiSearch.results.detailsTitle') }}</span>
-      <p class="resource-details-description">{{ card.description || t('aiSearch.noDescription') }}</p>
-      <div v-if="card.keywords?.length" class="resource-details-keywords"><span class="resource-details-label">{{ t('aiSearch.results.keywords') }}</span><div class="resource-details-tags"><span v-for="keyword in card.keywords" :key="keyword">{{ keyword }}</span></div></div>
+      <strong v-if="!card.unresolved" class="resource-details-title">{{ card.title }}</strong>
+      <span v-if="!card.unresolved" class="resource-details-label">{{ t('aiSearch.results.detailsTitle') }}</span>
+      <p v-if="!card.unresolved" class="resource-details-description">{{ card.description || t('aiSearch.noDescription') }}</p>
+      <div v-if="!card.unresolved && card.keywords?.length" class="resource-details-keywords"><span class="resource-details-label">{{ t('aiSearch.results.keywords') }}</span><div class="resource-details-tags"><span v-for="keyword in card.keywords" :key="keyword">{{ keyword }}</span></div></div>
       <p v-if="card.matchReason" class="match-reason"><span class="resource-details-label">{{ t('aiSearch.matchReason') }}</span>{{ card.matchReason }}</p>
-      <div v-if="card.suggestedUses?.length" class="suggested-uses"><span class="resource-details-label">{{ t('aiSearch.suggestedUses') }}</span><div class="resource-details-tags"><span v-for="use in card.suggestedUses" :key="use" class="use-tag">{{ use }}</span></div></div>
+      <div v-if="!card.unresolved && card.suggestedUses?.length" class="suggested-uses"><span class="resource-details-label">{{ t('aiSearch.suggestedUses') }}</span><div class="resource-details-tags"><span v-for="use in card.suggestedUses" :key="use" class="use-tag">{{ use }}</span></div></div>
     </div>
   </Teleport>
 </template>
@@ -40,7 +40,7 @@ const touchInteractive = ref(false)
 const pinned = ref(false)
 const wideDetails = computed(() => props.card.kind === 'bgm' || props.card.description.length > 320)
 const tooltipId = computed(() => `resource-details-${props.detailId}`)
-const summary = computed(() => (props.card.description || t('aiSearch.noDescription')).replace(/\s+/g, ' ').trim())
+const summary = computed(() => (props.card.unresolved ? props.card.matchReason || '' : props.card.description || t('aiSearch.noDescription')).replace(/\s+/g, ' ').trim())
 let triggerHovered = false
 let hoverDismissed = false
 let lastPointerType = ''

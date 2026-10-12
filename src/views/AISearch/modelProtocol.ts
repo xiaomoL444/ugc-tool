@@ -92,7 +92,7 @@ function chatToolBlocks(value: unknown): Value[] {
 /** Converts only the text/function subset used by resource search; tools stay strict JSON. */
 export function toAnthropicRequest(chatRequest: Value): Value {
   const source = object(chatRequest, "chat request"), model = nonempty(source.model, "model name");
-  const maxTokens = source.max_tokens ?? source.max_completion_tokens;
+  const maxTokens = source.max_output_tokens ?? source.max_tokens ?? source.max_completion_tokens;
   if (!Number.isSafeInteger(maxTokens) || Number(maxTokens) < 1) throw new TypeError("Invalid model token limit.");
   if (!Array.isArray(source.messages) || !source.messages.length) throw new TypeError("Invalid chat messages.");
   const system: string[] = [], messages: NativeMessage[] = [], pending = new Set<string>(), seen = new Set<string>();
@@ -151,6 +151,7 @@ export function toAnthropicRequest(chatRequest: Value): Value {
     if (source.tool_choice !== "auto" && source.tool_choice !== "none") throw new TypeError("Unsupported chat tool choice.");
     request.tool_choice = { type: source.tool_choice };
   }
+  if (source.output_config !== undefined) request.output_config = source.output_config;
   // Leave thinking unset: defaults differ by model. Native blocks above preserve
   // signatures if a model requires thinking across its tool rounds.
   return request;

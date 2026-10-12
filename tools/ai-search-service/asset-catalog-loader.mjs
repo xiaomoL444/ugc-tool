@@ -1,9 +1,12 @@
 import { BoundedJsonParser } from './asset-json-stream.mjs';
 import { clearAssetSearchCache } from './asset-search.mjs';
+import { createAssetCatalogSnapshotStore } from './asset-catalog-snapshot.mjs';
 import defaultIdentities from './generated/asset-identities.json' with { type: 'json' };
 import { verifyAssetFeatureSidecar, normalizeAssetFeatureResources, extractAssetFeatureDictionary, computeAssetCatalogVersion, computeAssetFeatureSourceHash, FEATURE_LOCALES } from './asset-features.mjs';
 
 export const FEATURE_CACHE_MS = 60_000;
+export const FEATURE_INDEX_CHECK_MS = 5 * 60_000;
+const FEATURE_INDEX_PATH = 'AISearch/index.json';
 export const FEATURE_SOURCE_PATHS = Object.freeze([
   { kind: 'sound', project: 'SoundEffectPlayer', path: 'SoundEffectPlayer/features.json' },
   { kind: 'effect', project: 'EffectPlayer', path: 'EffectPlayer/features.json' },
@@ -26,7 +29,7 @@ async function hash(bytes) {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
 }
-async function readFeatureResponse(response, signal, maxBytes) {
+async function readFeatureResponse(response, signal, maxBytes, previousPostings) {
   const length = Number(response.headers.get('content-length'));
   if (Number.isFinite(length) && length > maxBytes) throw new AssetCatalogError('ASSET_FEATURES_TOO_LARGE');
   if (!response.body) throw new AssetCatalogError();
@@ -35,7 +38,7 @@ async function readFeatureResponse(response, signal, maxBytes) {
   // Node unit fixtures use the bounded WebCrypto fallback instead.
   const digestStream = typeof crypto.DigestStream === 'function' ? new crypto.DigestStream('SHA-256') : null;
   const writer = digestStream?.getWriter(); let chunks = digestStream ? null : [], size = 0;
-  const parser = new BoundedJsonParser();
+  const parser = new BoundedJsonParser({ previousPostings });
   digestStream?.digest.catch(() => {});
   const cancel = () => { Promise.resolve(reader.cancel()).catch(() => {}); if (writer) void writer.abort().catch(() => {}); };
   signal.addEventListener('abort', cancel, { once: true });
@@ -95,7 +98,7 @@ function shareAsset(asset, before) {
   if (audioUnchanged) asset.audio = before.audio;
   return asset;
 }
-async function readJsonFile(url, previous, fetcher, timeoutMs, maxBytes) {
+async function readJsonFile(url, previous, fetcher, timeoutMs, maxBytes, previousPostings) {
   const controller = new AbortController(); let timer;
   const timedOut = new Promise((_, reject) => {
     timer = setTimeout(() => { controller.abort(); reject(new AssetCatalogError('ASSET_FEATURES_TIMEOUT')); }, timeoutMs);
@@ -107,7 +110,7 @@ async function readJsonFile(url, previous, fetcher, timeoutMs, maxBytes) {
     if (response.status === 304 && previous) return { ...previous };
     const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     if (response.status !== 200 || !(type === 'application/json' || type.endsWith('+json'))) throw new AssetCatalogError();
-    const payload = await readFeatureResponse(response, controller.signal, maxBytes);
+    const payload = await readFeatureResponse(response, controller.signal, maxBytes, previousPostings);
     return { hash: payload.contentHash, etag: response.headers.get('etag'), value: payload.value };
   })();
   try { return await Promise.race([pending, timedOut]); }
@@ -116,7 +119,7 @@ async function readJsonFile(url, previous, fetcher, timeoutMs, maxBytes) {
 }
 const fileState = file => ({ hash: file.hash, etag: file.etag });
 async function readSource(url, previous, source, identities, fetcher, timeoutMs, maxBytes, onPhase) {
-  let feature = await readJsonFile(url, previous?.files?.feature || (previous && { hash: previous.hash, etag: previous.etag }), fetcher, timeoutMs, maxBytes);
+  let feature = await readJsonFile(url, previous?.files?.feature || (previous && { hash: previous.hash, etag: previous.etag }), fetcher, timeoutMs, maxBytes, previous?.lexical?.postings);
   const external = feature.value === undefined ? previous?.external === true : feature.value?.i18nSource === 'project-i18n-v1';
   const dictionaryFiles = {}, dictionaries = {};
   const rememberDictionary = (locale, file) => {
@@ -144,7 +147,7 @@ async function readSource(url, previous, source, identities, fetcher, timeoutMs,
   if (previous?.hash === contentHash) return { ...previous, etag: feature.etag, files: states() };
   // An unchanged 304 file is fetched without conditionals only when another file
   // changed and the whole project must be validated/normalized together.
-  if (feature.value === undefined) feature = await readJsonFile(url, undefined, fetcher, timeoutMs, maxBytes);
+  if (feature.value === undefined) feature = await readJsonFile(url, undefined, fetcher, timeoutMs, maxBytes, previous?.lexical?.postings);
   if (external) {
     if (feature.value?.i18nSource !== 'project-i18n-v1') throw new AssetCatalogError('ASSET_FEATURES_INVALID');
     for (const locale of FEATURE_LOCALES) {
@@ -203,9 +206,10 @@ async function assemble(identities, sources) {
       { lexical: identities.lexical, excludeKinds: [...byKind.keys()] }, ...sources.map(source => ({ lexical: source.lexical })),
     ] } };
 }
-/** Request-driven, per-isolate refresh. A visitor cancellation never cancels a shared refresh. */
+/** Legacy request-driven or scheduled index-driven refresh. Visitor cancellation never cancels shared work. */
 export function createAssetCatalogLoader({ fetcher, now = () => Date.now(), timeoutMs = 5000, maxBytes = 48_000_000,
-  identities = defaultIdentities, cacheMs = FEATURE_CACHE_MS, onPhase } = {}) {
+  identities = defaultIdentities, cacheMs = FEATURE_CACHE_MS, onPhase, indexDriven = false, storage } = {}) {
+  if (indexDriven) return createIndexDrivenLoader({ fetcher: fetcher ?? fetch, now, timeoutMs, maxBytes, identities, onPhase, storage });
   let current, sources, sync, nextCheckAt = 0, inFlight, configuredBase, activePins = 0;
   const pinWaiters = new Set();
   const snapshot = () => ({ catalog: current, featureSync: { ...sync, hashes: { ...sync.hashes } } });
@@ -273,6 +277,163 @@ export function createAssetCatalogLoader({ fetcher, now = () => Date.now(), time
         } finally { inFlight = undefined; }
       })();
       return inFlight;
+    },
+  };
+  return api;
+}
+
+/** Serve the last committed generation while a scheduled check prepares its replacement. */
+function createIndexDrivenLoader({ fetcher, now, timeoutMs, maxBytes, identities, onPhase, storage }) {
+  const persisted = storage ? createAssetCatalogSnapshotStore(storage, { baseIndexVersion: identities.indexVersion }) : null;
+  let current, sources, sync, markerVersion, configuredBase, inFlight, initialization, nextMarkerCheckAt = 0, restored = false;
+  const pins = new Map();
+  const snapshot = () => ({ catalog: current, featureSync: { ...sync, hashes: { ...sync.hashes } } });
+  const local = env => env.ASSET_SEARCH_CATALOG ? { catalog: env.ASSET_SEARCH_CATALOG,
+    featureSync: env.ASSET_FEATURE_SYNC || { status: 'disabled', hashes: {} } }
+    : !env.ASSET_FEATURES_BASE_URL ? { catalog: identities, featureSync: { status: 'disabled', hashes: {} } } : null;
+  const configure = env => {
+    const base = baseUrl(env.ASSET_FEATURES_BASE_URL);
+    if (configuredBase && configuredBase !== base) {
+      if (inFlight || initialization || pins.size) throw new AssetCatalogError('ASSET_FEATURES_SOURCE_INVALID');
+      current = sources = sync = markerVersion = undefined; nextMarkerCheckAt = 0; restored = false;
+    }
+    configuredBase = base;
+    return base;
+  };
+  const readMarker = async base => {
+    const url = new URL(`${base}/${FEATURE_INDEX_PATH}`); url.searchParams.set('_t', String(now()));
+    const { value } = await readJsonFile(url.href, undefined, fetcher, timeoutMs, 65_536);
+    if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.data !== 'string'
+      || !value.data.trim() || value.data.length > 256) throw new AssetCatalogError('ASSET_FEATURES_INDEX_INVALID');
+    return value.data.trim();
+  };
+  const fail = (error, checkedAt) => {
+    const failure = error instanceof AssetCatalogError ? error : new AssetCatalogError();
+    sync = { ...sync, status: 'stale', hashes: sync?.hashes || {}, checkedAt, errorCode: failure.code };
+    nextMarkerCheckAt = now() + FEATURE_INDEX_CHECK_MS;
+    if (current) return snapshot();
+    throw failure;
+  };
+  const refresh = async (base, version, checkedAt) => {
+    // A current generation and at most one pinned predecessor can be retained.
+    // Defer another replacement without making new readers wait for old model turns.
+    if (current && [...pins.keys()].some(catalog => catalog !== current)) {
+      nextMarkerCheckAt = now() + FEATURE_INDEX_CHECK_MS;
+      return snapshot();
+    }
+    if (current) clearAssetSearchCache(current);
+    const candidate = [];
+    for (const [index, source] of FEATURE_SOURCE_PATHS.entries()) {
+      const url = new URL(`${base}/${source.path}`); url.searchParams.set('_t', String(checkedAt));
+      candidate.push(await readSource(url.href, sources?.[index], source, identities, fetcher, timeoutMs, maxBytes, onPhase));
+    }
+    // The publisher updates the marker last. Never commit a release that changed during the read.
+    if (await readMarker(base) !== version) throw new AssetCatalogError('ASSET_FEATURES_VERSION_CHANGED');
+    const changed = !sources || candidate.some((source, index) => source.hash !== sources[index].hash);
+    const catalog = changed ? await assemble(identities, candidate) : current;
+    const ready = { status: 'ready', hashes: Object.fromEntries(FEATURE_SOURCE_PATHS.map((source, index) => [source.kind, candidate[index].hash])),
+      checkedAt, markerCheckedAt: checkedAt, markerVersion: version, lastGoodAt: now(), updatedAt: changed ? now() : sync?.updatedAt ?? now() };
+    if (onPhase) await onPhase('before-swap');
+    // Persist all chunks before changing either the durable manifest or the in-memory generation.
+    await persisted?.write(base, { sources: candidate, sync: ready, markerVersion: version });
+    current = catalog; sources = candidate; sync = ready; markerVersion = version;
+    nextMarkerCheckAt = now() + FEATURE_INDEX_CHECK_MS;
+    if (onPhase) await onPhase('after-swap');
+    return snapshot();
+  };
+  const start = operation => {
+    if (inFlight) return inFlight;
+    inFlight = (async () => { try { return await operation(); } finally { inFlight = undefined; } })();
+    return inFlight;
+  };
+  const initialize = async base => {
+    if (!restored) {
+      const stored = await persisted?.read(base);
+      restored = true;
+      if (stored) {
+        const catalog = await assemble(identities, stored.sources);
+        current = catalog; sources = stored.sources; sync = stored.sync; markerVersion = stored.markerVersion;
+        nextMarkerCheckAt = (sync.markerCheckedAt ?? sync.checkedAt ?? 0) + FEATURE_INDEX_CHECK_MS;
+        return snapshot();
+      }
+    }
+    return refresh(base, await readMarker(base), now());
+  };
+  const ensureInitialized = base => {
+    if (initialization) return initialization;
+    const checkedAt = now();
+    initialization = (async () => {
+      try { return await initialize(base); }
+      catch (error) { return fail(error, checkedAt); }
+      finally { initialization = undefined; }
+    })();
+    return initialization;
+  };
+  const api = {
+    async read(env = {}) {
+      const injected = local(env); if (injected) return injected;
+      const base = configure(env);
+      if (current) return snapshot();
+      if (initialization) return initialization;
+      if (restored && sync?.status === 'stale' && now() < nextMarkerCheckAt) throw new AssetCatalogError(sync.errorCode);
+      return ensureInitialized(base);
+    },
+    async acquire(env = {}, { signal } = {}) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      const selected = await api.read(env);
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (selected.featureSync.status === 'disabled') return { ...selected, release() {} };
+      pins.set(selected.catalog, (pins.get(selected.catalog) || 0) + 1);
+      let released = false;
+      return { ...selected, release() {
+        if (released) return; released = true;
+        const remaining = pins.get(selected.catalog) - 1;
+        if (remaining) pins.set(selected.catalog, remaining); else pins.delete(selected.catalog);
+      } };
+    },
+    async checkForUpdates(env = {}, { respectInterval = false, metadataOnly = false } = {}) {
+      const injected = local(env); if (injected) return injected;
+      const base = configure(env);
+      if (inFlight) return inFlight;
+      if (respectInterval && now() < nextMarkerCheckAt) {
+        if (current) return snapshot();
+        throw new AssetCatalogError(sync?.errorCode);
+      }
+      const checkedAt = now();
+      return start(async () => {
+        try {
+          // An idle Cron needs only the durable manifest and the tiny release marker.
+          // Keep the complete snapshot on disk until a visitor needs it or a release changes.
+          if (metadataOnly && !current && persisted) {
+            const metadata = await persisted.readMetadata(base);
+            if (metadata) {
+              const version = await readMarker(base);
+              if (version === metadata.markerVersion) {
+                const { errorCode: _errorCode, ...previous } = metadata.sync;
+                const ready = { ...previous, status: 'ready', checkedAt, markerCheckedAt: checkedAt };
+                await persisted.updateSync(base, ready);
+                if (current && markerVersion === version) sync = ready;
+                nextMarkerCheckAt = now() + FEATURE_INDEX_CHECK_MS;
+                return { catalog: current, featureSync: { ...ready, hashes: { ...ready.hashes } } };
+              }
+            }
+          }
+          if (!current) {
+            const initialized = await ensureInitialized(base);
+            // A brand-new baseline was checked on both sides of its source read already.
+            if (sync.markerCheckedAt >= checkedAt) return initialized;
+          }
+          const version = await readMarker(base);
+          if (version !== markerVersion) return await refresh(base, version, checkedAt);
+          const { errorCode: _errorCode, ...previous } = sync;
+          const ready = { ...previous, status: 'ready', checkedAt, markerCheckedAt: checkedAt };
+          await persisted?.updateSync(base, ready);
+          sync = ready;
+          // Saving an unchanged marker updates only the small manifest, never the snapshot chunks.
+          nextMarkerCheckAt = now() + FEATURE_INDEX_CHECK_MS;
+          return snapshot();
+        } catch (error) { return fail(error, checkedAt); }
+      });
     },
   };
   return api;

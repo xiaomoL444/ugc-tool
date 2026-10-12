@@ -1,3 +1,4 @@
+const { responsesFixture } = require('../tools/ai-search-service/responses-fixture.mjs');
 /* Offline model-response diagnostics, archive roundtrips, and Vue state. No real fetches. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -19,13 +20,13 @@ const payload = buildSearchPayload('rumble', 'en-US', 'sound', [], [asset], 'fix
 const agentPayload = buildAgentSearchPayload('rumble', 'en-US', 'sound', [], false, 'fixture-agent');
 const prompt = '# Fixture prompt\nReturn at most RESULT_LIMIT resources.\n';
 const failingBody = '  <img src=x onerror="alert(1)">\n{"answer":"unfinished","matches":[';
-const customResponse = (content, finish_reason = 'stop', extra = {}) => Response.json({
+const customResponse = (content, finish_reason = 'stop', extra = {}) => Response.json(responsesFixture({
   apiKey: 'fixture-envelope-secret', headers: { Authorization: 'Bearer fixture-header-secret' },
   choices: [{ finish_reason, message: { content, ...extra } }],
-});
+}));
 const fixtureFetch = handler => async (url, input) => {
   if (String(url).split('?')[0].endsWith('/AISearch/SystemPrompt.md')) return new Response(prompt, { headers: { 'Content-Type': 'text/markdown' } });
-  assert.ok(String(url).endsWith('/chat/completions'), `Unexpected paid route: ${url}`);
+  assert.ok(String(url).endsWith('/responses'), `Unexpected paid route: ${url}`);
   return handler(url, input);
 };
 const expectRaw = (code, rawResponse) => error => {

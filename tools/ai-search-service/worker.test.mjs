@@ -1,3 +1,5 @@
+import { responsesInputBytes, toResponsesRequest } from './model-responses.mjs';
+import { responsesFixture, responsesMessages } from './responses-fixture.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
@@ -9,7 +11,7 @@ const buildPrompt = (request, config) => buildPromptFromSource(request, config, 
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 const env = () => ({
-  UPSTREAM_URL: "https://provider.example/v1/chat/completions", UPSTREAM_API_KEY: "mock-test-only",
+  UPSTREAM_URL: "https://provider.example/v1/responses", UPSTREAM_API_KEY: "mock-test-only",
   VISITOR_HASH_SECRET: "mock-secret", MODEL: "mock-model", INPUT_CNY_PER_MILLION: "5",
   OUTPUT_CNY_PER_MILLION: "20", ALLOWED_ORIGINS: "https://site.example",
   ASSET_SEARCH_CATALOG: { indexVersion: "test-catalog-v1", coverage: { total: 1, described: 1 }, assets: [{
@@ -26,10 +28,10 @@ const req = (value) => new Request("https://ledger.internal/api/ai-search/chat",
   method: "POST", headers: { "content-type": "application/json", "x-visitor-key": visitor }, body: JSON.stringify(value),
 });
 const result = { answer: "这条是短促的金属感撞击。", matches: [{ resourceId: "sound:123", reason: "短促、金属感", matchType: "feature" }] };
-const upstreamResponse = (value = result) => new Response(JSON.stringify({
+const upstreamResponse = (value = result) => new Response(JSON.stringify(responsesFixture({
   choices: [{ finish_reason: "stop", message: { content: JSON.stringify(value) } }],
   usage: { prompt_tokens: 100, completion_tokens: 50 },
-}), { headers: { "content-type": "application/json" } });
+})), { headers: { "content-type": "application/json" } });
 
 class MemoryStorage {
   constructor() { this.values = new Map(); this.queue = Promise.resolve(); this.alarmAt = null; }
@@ -59,13 +61,13 @@ function ledger(custom = {}) {
 }
 
 const agentBody = (id = "agent-request-0001") => ({ requestId: id, workflow: "agent", query: "找短促的金属碰撞声", locale: "zh-CN", scope: "sound", messages: [], previousIds: [] });
-const toolResponse = (id, name, args, input = 100, output = 20) => new Response(JSON.stringify({
+const toolResponse = (id, name, args, input = 100, output = 20) => new Response(JSON.stringify(responsesFixture({
   choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(args) } }] } }],
   usage: { prompt_tokens: input, completion_tokens: output },
-}));
+})));
 
 const balanceUrl = "https://api.deepseek.com/user/balance";
-const deepSeekConfig = { UPSTREAM_URL: "https://api.deepseek.com/chat/completions", MODEL: "deepseek-flash" };
+const deepSeekConfig = { UPSTREAM_URL: "https://api.deepseek.com/responses", MODEL: "deepseek-flash" };
 const balanceResponse = (total = "20.00", available = true) => new Response(JSON.stringify({ is_available: available,
   balance_infos: [{ currency: "CNY", total_balance: total, granted_balance: total, topped_up_balance: "0.00" }] }));
 const configReq = () => new Request("https://ledger.internal/api/ai-search/config", { headers: { "x-visitor-key": visitor } });
@@ -86,9 +88,9 @@ test("both free chat workflows use the trusted file once, preserve its text and 
         }
         models += 1;
         const sent = JSON.parse(options.body);
-        assert.match(sent.messages[0].content, /LIVE_SOURCE_MARKER search_assets 10 matches:\[\]/);
-        assert.doesNotMatch(sent.messages[0].content, /CLIENT_PROMPT_INJECTION/);
-        assert.match(sent.messages[0].content, /resultLimit=10/);
+        assert.match(responsesMessages(sent)[0].content, /LIVE_SOURCE_MARKER search_assets 10 matches:\[\]/);
+        assert.doesNotMatch(responsesMessages(sent)[0].content, /CLIENT_PROMPT_INJECTION/);
+        assert.match(responsesMessages(sent)[0].content, /resultLimit=10/);
         if (makeBody === agentBody && models === 1) return toolResponse("source-search", "search_assets", { query: "金属撞击" });
         return upstreamResponse();
       };
@@ -144,11 +146,11 @@ test("model prompts over the former limit load, execute and cache both workflows
         }
         models += 1;
         const sent = JSON.parse(options.body);
-        assert.ok(Buffer.byteLength(JSON.stringify(sent.messages)) > 96000);
-        assert.ok(sent.messages[0].content.startsWith(source));
+        assert.ok(Buffer.byteLength(JSON.stringify(responsesMessages(sent))) > 96000);
+        assert.ok(responsesMessages(sent)[0].content.startsWith(source));
         if (makeBody === agentBody && models === 1) return toolResponse("large-source-search", "search_assets", { query: "金属撞击" }, 40000, 20);
-        return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }],
-          usage: { prompt_tokens: 40000, completion_tokens: 50 } }));
+        return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }],
+          usage: { prompt_tokens: 40000, completion_tokens: 50 } })));
       };
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const response = await service.fetch(req(makeBody())); const data = await response.json();
@@ -373,16 +375,16 @@ test("free agent executes search then details then JSON, bills one attempt and s
     assert.equal(options.headers.authorization, "Bearer mock-test-only");
     if (calls === 1) {
       assert.equal(sent.tool_choice, "auto");
-      assert.equal(sent.messages.at(-1).content.includes('"candidates"'), false);
+      assert.equal(responsesMessages(sent).at(-1).content.includes('"candidates"'), false);
       return toolResponse("search-1", "search_assets", { query: "金属 撞击", scope: "all" }, 100, 10);
     }
     if (calls === 2) {
-      const searched = sent.messages.find(message => message.role === "tool");
+      const searched = responsesMessages(sent).find(message => message.role === "tool");
       assert.match(searched.content, /sound:123/); assert.match(searched.content, /短促金属感撞击/);
       return toolResponse("details-1", "get_assets", { ids: ["sound:123"] }, 120, 15);
     }
-    assert.equal(calls, 3); assert.equal(sent.tool_choice, "none"); assert.deepEqual(sent.response_format, { type: "json_object" });
-    return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }], usage: { prompt_tokens: 80, completion_tokens: 30 } }));
+    assert.equal(calls, 3); assert.equal(sent.tool_choice, "none"); assert.equal(sent.text?.format, undefined, "Unknown model capabilities use prompt constraints");
+    return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }], usage: { prompt_tokens: 80, completion_tokens: 30 } })));
   });
   try {
     const response = await service.fetch(req(agentBody())); const data = await response.json();
@@ -405,7 +407,7 @@ test("agent reserves only its first actual round before any call and validates p
     assert.equal(calls, 0); assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), undefined);
     const cfg = settings(service.env), normalized = normalizeAgentRequest(agentBody(), cfg, service.env);
     const prompt = buildAgentPrompt(normalized, cfg);
-    assert.equal(prompt.inputBytes, Buffer.byteLength(JSON.stringify({ messages: prompt.messages, tools: prompt.tools })));
+    assert.equal(prompt.inputBytes, responsesInputBytes(toResponsesRequest({ model: cfg.model, max_tokens: cfg.maxOutputTokens, messages: prompt.messages, tools: prompt.tools })));
     assert.equal(prompt.reservedMicros, Math.ceil((prompt.inputBytes * cfg.inputRate + 1400 * cfg.outputRate) * cfg.costSafety));
     assert.throws(() => normalizeAgentRequest({ ...agentBody(), previousIds: ["https://evil.example"] }, cfg));
     assert.throws(() => normalizeAgentRequest({ ...agentBody(), previousIds: Array(21).fill("sound:123") }, cfg));
@@ -525,7 +527,7 @@ test("thinking mode is optional but rejects any unsupported nonempty configurati
 });
 
 test("DeepSeek non-thinking request sends explicit mode, bearer authorization and JSON output", async () => {
-  const deepSeekEnv = { ...env(), UPSTREAM_URL: "https://api.deepseek.com/chat/completions",
+  const deepSeekEnv = { ...env(), UPSTREAM_URL: "https://api.deepseek.com/responses",
     MODEL: "deepseek-flash", UPSTREAM_THINKING: "disabled" };
   const config = settings(deepSeekEnv);
   const normalized = normalizeRequest(body(), config);
@@ -538,11 +540,11 @@ test("DeepSeek non-thinking request sends explicit mode, bearer authorization an
     assert.equal(options.headers.authorization, "Bearer mock-test-only");
     const sent = JSON.parse(options.body);
     assert.equal(sent.model, "deepseek-flash");
-    assert.deepEqual(sent.thinking, { type: "disabled" });
-    assert.deepEqual(sent.response_format, { type: "json_object" });
+    assert.deepEqual(sent.reasoning, { effort: "none" });
+    assert.equal(sent.text.format.type, "json_schema");
     assert.equal(sent.stream, false);
-    assert.equal(sent.max_tokens, 1400, "Requests without a limit use the ten-card default budget");
-    assert.match(sent.messages[0].content, /JSON/);
+    assert.equal(sent.max_output_tokens, 1400, "Requests without a limit use the ten-card default budget");
+    assert.match(responsesMessages(sent)[0].content, /JSON/);
     return upstreamResponse();
   });
   assert.equal(calls, 1);
@@ -644,7 +646,7 @@ test("successful retries use stored result and complete usage releases unused bu
     calls += 1;
     const sent = JSON.parse(options.body);
     assert.equal(sent.model, "mock-model");
-    assert.equal(sent.messages[0].role, "system");
+    assert.equal(responsesMessages(sent)[0].role, "system");
     assert.equal(options.headers.authorization, "Bearer mock-test-only");
     return upstreamResponse();
   });
@@ -781,7 +783,7 @@ test("legacy effect+audio reads trusted soundtracks and renders effect audio car
     audio: { description: { "zh-CN": "低频爆炸声" }, keywords: { "zh-CN": ["爆炸", "低频"] } } }] };
   const { service, storage } = ledger({ ASSET_SEARCH_CATALOG: catalog }), originalFetch = globalThis.fetch; let calls = 0;
   globalThis.fetch = withPromptFetch(async (_url, options) => {
-    calls += 1; const sent = JSON.parse(options.body), input = JSON.parse(sent.messages.at(-1).content.split("\n").at(-1));
+    calls += 1; const sent = JSON.parse(options.body), input = JSON.parse(responsesMessages(sent).at(-1).content.split("\n").at(-1));
     assert.equal(input.scope, "effect"); assert.equal(input.matchOn, "audio");
     assert.equal(input.candidates[0].description, "低频爆炸声"); assert.equal(input.candidates[0].audioMatch, true);
     assert.deepEqual(input.candidates[0].keywords, ["爆炸", "低频"]); assert.doesNotMatch(input.candidates[0].description, /光环/);
@@ -819,7 +821,7 @@ test("free agent separates effect soundtrack evidence from visual explosions and
       globalThis.fetch = withPromptFetch(async (_url, options) => {
         calls += 1;
         if (calls === 1) return toolResponse("effect-audio", "search_assets", { query: "爆炸", scope: "effect", matchOn: "audio", searchType: "feature", filters: { hasAudio: true } });
-        const sent = JSON.parse(options.body), found = JSON.parse(sent.messages.at(-1).content).items;
+        const sent = JSON.parse(options.body), found = JSON.parse(responsesMessages(sent).at(-1).content).items;
         assert.deepEqual(found.map(item => item.resourceId), ["effect:3"]); assert.equal(found[0].audioMatch, true);
         return upstreamResponse({ answer: "找到有爆炸声的特效。", matches: [{ resourceId: "effect:3", reason: "音轨描述低频爆炸声", matchType: "feature" }] });
       });
@@ -1008,11 +1010,11 @@ test("a missing usage report in any agent round preserves the complete turn cost
   const originalFetch = globalThis.fetch; let calls = 0, reserved = 0;
   globalThis.fetch = withPromptFetch(async (_url, options) => {
     const sent = JSON.parse(options.body);
-    reserved += Math.ceil((Buffer.byteLength(JSON.stringify({ messages: sent.messages, tools: sent.tools })) * cfg.inputRate
-      + sent.max_tokens * cfg.outputRate) * cfg.costSafety);
+    reserved += Math.ceil((responsesInputBytes(sent) * cfg.inputRate
+      + sent.max_output_tokens * cfg.outputRate) * cfg.costSafety);
     assert.equal(await storage.get(`budget:${periods().month}`), reserved);
     return ++calls === 1 ? toolResponse("search-1", "search_assets", { query: "金属撞击" })
-      : new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }] }));
+      : new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }] })));
   });
   try {
     const response = await service.fetch(req(agentBody())); const data = await response.json();
@@ -1122,12 +1124,12 @@ test("the selected result count controls per-round tokens, incremental reservati
       let calls = 0, reserved = 0;
       globalThis.fetch = withPromptFetch(async (_url, options) => {
         calls += 1; const sent = JSON.parse(options.body);
-        assert.equal(sent.max_tokens, tokens);
-        reserved += Math.ceil((Buffer.byteLength(JSON.stringify({ messages: sent.messages, tools: sent.tools })) * 5 + tokens * 20) * 1.25);
+        assert.equal(sent.max_output_tokens, tokens);
+        reserved += Math.ceil((responsesInputBytes(sent) * 5 + tokens * 20) * 1.25);
         assert.equal(await storage.get(`budget:${periods().month}`), reserved);
         if (calls === 1) return toolResponse("search-count", "search_assets", { query: "金属撞击" }, 100, 20);
-        return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }],
-          usage: { prompt_tokens: 200, completion_tokens: tokens } }));
+        return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }],
+          usage: { prompt_tokens: 200, completion_tokens: tokens } })));
       });
       const response = await service.fetch(req(raw)); const data = await response.json();
       assert.equal(response.status, 200); assert.equal(calls, 2);
@@ -1153,9 +1155,9 @@ test("twenty-card free replies contain bounded summaries and preserve all select
   const originalFetch = globalThis.fetch; let calls = 0;
   globalThis.fetch = withPromptFetch(async (_url, options) => {
     calls += 1; const sent = JSON.parse(options.body);
-    assert.equal(sent.max_tokens, 2400);
+    assert.equal(sent.max_output_tokens, 2400);
     if (calls === 1) return toolResponse("twenty-search", "search_assets", { query: "雷声" });
-    const payload = JSON.parse(sent.messages.find(item => item.role === "tool").content);
+    const payload = JSON.parse(responsesMessages(sent).find(item => item.role === "tool").content);
     assert.equal(payload.items.length, 20);
     return upstreamResponse(answer);
   });
@@ -1215,10 +1217,10 @@ test("legacy candidate-ID and candidate-object requests can both return twenty t
   const originalFetch = globalThis.fetch; let calls = 0;
   globalThis.fetch = withPromptFetch(async (_url, options) => {
     calls += 1; const sent = JSON.parse(options.body);
-    assert.equal(sent.max_tokens, 2400);
+    assert.equal(sent.max_output_tokens, 2400);
     assert.equal(Object.hasOwn(sent, "tools"), false);
-    assert.match(sent.messages[0].content, /最多 20 条/);
-    const requestData = JSON.parse(sent.messages.at(-1).content.split("\n").at(-1));
+    assert.match(responsesMessages(sent)[0].content, /最多 20 条/);
+    const requestData = JSON.parse(responsesMessages(sent).at(-1).content.split("\n").at(-1));
     assert.equal(requestData.resultLimit, 20); assert.equal(requestData.candidates.length, 20);
     assert.ok(requestData.candidates.every(item => item.description.startsWith("真实短促金属撞击声")));
     assert.equal(JSON.stringify(requestData).includes("伪造浏览器描述"), false);
@@ -1276,6 +1278,109 @@ test("both free workflows return twenty trusted cards for title-only model match
 });
 import { createAssetCatalogLoader } from './asset-catalog-loader.mjs';
 import { identityFixture, featureFixture, featureResponse } from './asset-catalog-fixture.mjs';
+
+test('catalog Cron uses only the private ledger binding, waits for completion and reports refresh failure', async () => {
+  let forwarded, complete, finished = false;
+  const responseReady = new Promise(resolve => { complete = resolve; });
+  const configured = { ASSET_FEATURES_BASE_URL: 'https://assets.example/catalog', SEARCH_LEDGER: {
+    idFromName: name => { assert.equal(name, 'global-budget-v1'); return 'ledger'; },
+    get: id => { assert.equal(id, 'ledger'); return { fetch: request => { forwarded = request; return responseReady; } }; },
+  } };
+  const pending = worker.scheduled({ cron: '*/5 * * * *' }, configured).then(() => { finished = true; });
+  assert.equal(new URL(forwarded.url).hostname, 'ledger.internal');
+  assert.equal(new URL(forwarded.url).pathname, '/internal/asset-catalog/check-for-updates');
+  assert.equal(forwarded.method, 'POST'); assert.equal(forwarded.headers.get('x-visitor-key'), null);
+  assert.equal(finished, false, 'the Cron invocation must cover the whole refresh');
+  complete(Response.json({ featureSync: { status: 'ready' } })); await pending;
+  assert.equal(finished, true);
+  await assert.rejects(worker.scheduled({}, { ...configured, SEARCH_LEDGER: {
+    idFromName: () => 'ledger', get: () => ({ fetch: async () => Response.json({ featureSync: { status: 'stale' } }, { status: 503 }) }),
+  } }), error => error.code === 'ASSET_FEATURES_UNAVAILABLE');
+  await assert.rejects(worker.scheduled({}, { ASSET_FEATURES_BASE_URL: configured.ASSET_FEATURES_BASE_URL }),
+    error => error.code === 'ASSET_FEATURES_RUNTIME_UNAVAILABLE');
+  await worker.scheduled({}, {});
+  await worker.scheduled({}, { ASSET_SEARCH_CATALOG: env().ASSET_SEARCH_CATALOG, ASSET_FEATURES_BASE_URL: configured.ASSET_FEATURES_BASE_URL });
+});
+
+test('the public Worker refuses the private refresh path even with forged internal headers', async () => {
+  let forwards = 0;
+  const configured = { ...env(), ASSET_FEATURES_BASE_URL: 'https://assets.example/catalog', SEARCH_LEDGER: {
+    idFromName: () => 'ledger', get: () => ({ fetch: async () => { forwards++; return Response.json({}); } }),
+  } };
+  for (const method of ['GET', 'POST', 'OPTIONS']) {
+    const response = await worker.fetch(new Request('https://worker.example/internal/asset-catalog/check-for-updates', {
+      method, headers: { origin: 'https://site.example', 'x-public-retrieval': '1', 'x-visitor-key': visitor },
+    }), configured);
+    assert.equal(response.status, 404); assert.equal((await response.json()).error.code, 'NOT_FOUND');
+  }
+  assert.equal(forwards, 0);
+});
+
+test('index-driven Cron skips unchanged features and public/config/search keep serving the old version during refresh', { timeout: 10000 }, async () => {
+  const identities = identityFixture(), sound = await featureFixture('sound', identities), effect = await featureFixture('effect', identities);
+  const bgm = await featureFixture('bgm', identities, '舒缓钢琴 peaceful piano', '小关胜利 level victory');
+  const changed = await featureFixture('sound', identities, 'updated rumble');
+  let marker = 'source-v1', downloads = 0, markerReads = 0, releaseRefresh, notifyRefresh;
+  const blocked = new Promise(resolve => { releaseRefresh = resolve; });
+  const refreshStarted = new Promise(resolve => { notifyRefresh = resolve; });
+  const { service } = ledger({ ASSET_SEARCH_CATALOG: undefined, ASSET_FEATURES_BASE_URL: 'https://assets.example/catalog' });
+  service.assetCatalog = createAssetCatalogLoader({ identities, indexDriven: true, fetcher: async url => {
+    if (new URL(url).pathname.endsWith('/AISearch/index.json')) { markerReads++; return Response.json({ data: marker }); }
+    downloads++;
+    if (marker === 'source-v2' && url.includes('SoundEffectPlayer')) { notifyRefresh(); await blocked; }
+    return featureResponse(url.includes('SoundEffectPlayer') ? marker === 'source-v2' ? changed : sound : url.includes('BgmPlayer') ? bgm : effect);
+  } });
+  const configured = { ...service.env, SEARCH_LEDGER: {
+    idFromName: () => 'ledger', get: () => ({ fetch: request => service.fetch(request) }),
+  } };
+  const publicRequest = (endpoint, value) => new Request(`https://ledger.internal/api/ai-search/${endpoint}`, {
+    headers: { 'x-public-retrieval': '1', ...(value ? { 'content-type': 'application/json' } : {}) },
+    ...(value ? { method: 'POST', body: JSON.stringify(value) } : {}),
+  });
+  const initial = await (await service.fetch(publicRequest('catalog'))).json();
+  assert.equal(downloads, 3);
+  const initialMarkerReads = markerReads;
+  await worker.scheduled({}, configured);
+  assert.equal(downloads, 3, 'an unchanged data marker never requests the source files');
+  assert.equal(markerReads, initialMarkerReads + 1);
+  marker = 'source-v2';
+  const pending = worker.scheduled({}, configured);
+  await refreshStarted;
+  const beforeCompletion = async promise => {
+    let timer;
+    try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error('request waited for the background refresh')), 1000); })]); }
+    finally { clearTimeout(timer); }
+  };
+  try {
+    const catalog = await (await beforeCompletion(service.fetch(publicRequest('catalog')))).json();
+    assert.equal(catalog.catalogVersion, initial.catalogVersion);
+    const config = await (await beforeCompletion(service.fetch(configReq()))).json();
+    assert.equal(config.retrieval.catalogVersion, initial.catalogVersion);
+    const search = await (await beforeCompletion(service.fetch(publicRequest('search', { query: 'thunder', scope: 'sound' })))).json();
+    assert.equal(search.catalogVersion, initial.catalogVersion);
+    assert.ok(search.items.some(item => item.resourceId === 'sound:1'));
+  } finally { releaseRefresh(); await pending; }
+  const refreshed = await (await service.fetch(publicRequest('catalog'))).json();
+  assert.notEqual(refreshed.catalogVersion, initial.catalogVersion);
+  assert.equal(downloads, 6);
+});
+
+test('asset requests register interval-limited background checks without waiting for them', async () => {
+  const tasks = [], calls = [], storage = new MemoryStorage();
+  const service = new SearchLedger({ storage, waitUntil: task => { tasks.push(task); } }, {
+    ...env(), ASSET_SEARCH_CATALOG: undefined, ASSET_FEATURES_BASE_URL: 'https://assets.example/catalog',
+  });
+  let finishCheck;
+  const checking = new Promise(resolve => { finishCheck = resolve; });
+  service.assetCatalog = {
+    checkForUpdates: (_environment, options) => { calls.push(options); return checking; },
+    read: async () => ({ catalog: env().ASSET_SEARCH_CATALOG, featureSync: { status: 'ready', hashes: {} } }),
+  };
+  const response = await service.fetch(new Request('https://ledger.internal/api/ai-search/catalog', { headers: { 'x-public-retrieval': '1' } }));
+  assert.equal(response.status, 200); assert.equal((await response.json()).catalogVersion, 'test-catalog-v1');
+  assert.deepEqual(calls, [{ respectInterval: true }]); assert.equal(tasks.length, 1);
+  finishCheck(); await Promise.all(tasks);
+});
 
 test('public remote retrieval forwards heavy work to the ledger without loading features or allocating quota in the outer Worker', async () => {
   const originalFetch = globalThis.fetch; let forwards = 0;
@@ -1368,7 +1473,7 @@ test('one free agent turn pins search, detail and final cards while an overdue p
         assert.equal(newer.catalog.indexVersion, initial.catalog.indexVersion, "a live model turn defers the source refresh");
         return toolResponse('pinned-details', 'get_assets', { ids: ['sound:1'] });
       }
-      const details = JSON.parse(sent.messages.filter(message => message.role === 'tool').at(-1).content);
+      const details = JSON.parse(responsesMessages(sent).filter(message => message.role === 'tool').at(-1).content);
       assert.match(details.items[0].description, /雷声/); assert.doesNotMatch(details.items[0].description, /updated rumble/);
       return upstreamResponse({ answer: 'thunder', matches: [{ resourceId: 'sound:1', reason: 'thunder', matchType: 'feature' }] });
     });
@@ -1397,10 +1502,10 @@ test('custom thirty-three and fifty card replies stay trusted and fit the ledger
       const answer = { answer: '找到这些雷声。', matches: selected.map(item => ({ resourceId: item.resourceId, reason: '雷声描述支持'.repeat(35), matchType: 'feature' })) };
       globalThis.fetch = withPromptFetch(async (_url, options) => {
         calls += 1; const sent = JSON.parse(options.body);
-        assert.equal(sent.max_tokens, 2400 + (resultLimit - 20) * 100);
+        assert.equal(sent.max_output_tokens, 2400 + (resultLimit - 20) * 100);
         if (calls === 1) return toolResponse('custom-count-search', 'search_assets', { query: '雷声' });
-        assert.equal(JSON.parse(sent.messages.find(item => item.role === 'tool').content).items.length, resultLimit);
-        assert.ok(new TextEncoder().encode(JSON.stringify({ messages: sent.messages, tools: sent.tools })).byteLength > 30000);
+        assert.equal(JSON.parse(responsesMessages(sent).find(item => item.role === 'tool').content).items.length, resultLimit);
+        assert.ok(responsesInputBytes(sent) > 30000);
         return upstreamResponse(answer);
       });
       const response = await service.fetch(req({ ...agentBody(`custom-${resultLimit}-cards`), query: '雷声', resultLimit }));
@@ -1426,12 +1531,12 @@ test('fifty-card follow-ups exclude the complete previous batch through Worker t
   globalThis.fetch = withPromptFetch(async (_url, options) => {
     calls += 1; const sent = JSON.parse(options.body);
     if (calls === 1) {
-      const data = JSON.parse(sent.messages.at(-1).content.split('：').at(-1));
+      const data = JSON.parse(responsesMessages(sent).at(-1).content.split('：').at(-1));
       assert.deepEqual(data.previousIds, previousIds);
       return toolResponse('fifty-more-search', 'search_assets', { query: '雷声', previousQuery: '雷声', excludeIds: previousIds, limit: 50 });
     }
     assert.equal(calls, 2);
-    const payload = JSON.parse(sent.messages.find(item => item.role === 'tool').content);
+    const payload = JSON.parse(responsesMessages(sent).find(item => item.role === 'tool').content);
     assert.equal(payload.items.length, 50);
     assert.deepEqual(new Set(payload.items.map(item => item.resourceId)), new Set(selectedIds));
     assert.ok(payload.items.every(item => !previousIds.includes(item.resourceId)));
@@ -1489,13 +1594,13 @@ test("both model workflows expose only bounded failed answer text and preserve c
       let reserved = 0;
       globalThis.fetch = withPromptFetch(async (_url, options) => {
         const sent = JSON.parse(options.body);
-        const inputBytes = Buffer.byteLength(JSON.stringify(makeBody === agentBody ? { messages: sent.messages, tools: sent.tools } : sent.messages));
-        reserved += Math.ceil((inputBytes * cfg.inputRate + sent.max_tokens * cfg.outputRate) * cfg.costSafety);
+        const inputBytes = responsesInputBytes(sent);
+        reserved += Math.ceil((inputBytes * cfg.inputRate + sent.max_output_tokens * cfg.outputRate) * cfg.costSafety);
         calls += 1;
         if (makeBody === agentBody && calls === 1) return toolResponse("raw-search", "search_assets", { query: "金属撞击" });
-        return new Response(JSON.stringify({ upstream_secret: "PRIVATE_ENVELOPE", headers: { authorization: "PRIVATE_HEADER" },
+        return new Response(JSON.stringify(responsesFixture({ upstream_secret: "PRIVATE_ENVELOPE", headers: { authorization: "PRIVATE_HEADER" },
           choices: [{ finish_reason: scenario.finish, message: { ...scenario.message, reasoning_content: "PRIVATE_REASONING", diagnostic: "PRIVATE_DIAGNOSTIC" } }],
-          usage: { prompt_tokens: 100, completion_tokens: 20, details: "PRIVATE_USAGE" } }), { headers: { "x-upstream-private": "PRIVATE_RESPONSE_HEADER" } });
+          usage: { prompt_tokens: 100, completion_tokens: 20, details: "PRIVATE_USAGE" } })), { headers: { "x-upstream-private": "PRIVATE_RESPONSE_HEADER" } });
       });
       const response = await service.fetch(req(input)); const data = await response.json();
       assert.equal(response.status, 502); assert.equal(data.error.code, "UPSTREAM_RESPONSE_INVALID");
@@ -1525,9 +1630,9 @@ test("neither workflow exposes envelopes, exceptions or fabricated text when no 
   try {
     const failures = [
       { code: "UPSTREAM_RESPONSE_INVALID", response: () => new Response("INVALID_ENVELOPE mock-test-only") },
-      { code: "UPSTREAM_RESPONSE_INVALID", response: () => new Response(JSON.stringify({ choices: [{ finish_reason: "length", message: { content: null, reasoning_content: "PRIVATE_REASONING" } }] })) },
-      { code: "UPSTREAM_RESPONSE_INVALID", response: () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: { text: "PRIVATE_CONTENT_OBJECT" }, refusal: { text: "PRIVATE_REFUSAL_OBJECT" } } }] })) },
-      { code: "UPSTREAM_REJECTED", response: () => new Response(JSON.stringify({ choices: [{ message: { content: "PRIVATE_HTTP_FAILURE" } }] }), { status: 500 }) },
+      { code: "UPSTREAM_RESPONSE_INVALID", response: () => new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "length", message: { content: null, reasoning_content: "PRIVATE_REASONING" } }] }))) },
+      { code: "UPSTREAM_RESPONSE_INVALID", response: () => new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: { text: "PRIVATE_CONTENT_OBJECT" }, refusal: { text: "PRIVATE_REFUSAL_OBJECT" } } }] }))) },
+      { code: "UPSTREAM_REJECTED", response: () => new Response(JSON.stringify(responsesFixture({ choices: [{ message: { content: "PRIVATE_HTTP_FAILURE" } }] })), { status: 500 }) },
       { code: "UPSTREAM_UNAVAILABLE", response: () => { throw Object.assign(new Error("PRIVATE_EXCEPTION mock-test-only"), { response: "PRIVATE_EXCEPTION_RESPONSE", rawResponse: "PRIVATE_EXCEPTION_RAW" }); } },
     ];
     for (const makeBody of [body, agentBody]) for (const failure of failures) {
@@ -1594,8 +1699,8 @@ test("both free workflows repair model JSON syntax without repeating a paid requ
       globalThis.fetch = withPromptFetch(async () => {
         calls += 1;
         if (makeBody === agentBody && calls === 1) return toolResponse("repair-search", "search_assets", { query: "金属撞击" });
-        return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: repairedText } }],
-          usage: { prompt_tokens: 100, completion_tokens: 50 } }));
+        return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: repairedText } }],
+          usage: { prompt_tokens: 100, completion_tokens: 50 } })));
       });
       const input = makeBody(makeBody === agentBody ? "agent-repaired-json" : "legacy-repaired-json");
       const response = await service.fetch(req(input)), data = await response.json();
@@ -1624,7 +1729,7 @@ test("repaired model JSON still rejects invalid fields and IDs and preserves the
       globalThis.fetch = withPromptFetch(async () => {
         calls += 1;
         if (makeBody === agentBody && calls === 1) return toolResponse("invalid-repair-search", "search_assets", { query: "金属撞击" });
-        return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: source } }], usage: { prompt_tokens: 100, completion_tokens: 50 } }));
+        return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: source } }], usage: { prompt_tokens: 100, completion_tokens: 50 } })));
       });
       const response = await service.fetch(req({ ...makeBody(`repair-invalid-${index}`), resultLimit: 5 })), data = await response.json();
       assert.equal(response.status, 502); assert.equal(data.error.code, "UPSTREAM_RESPONSE_INVALID");
@@ -1645,7 +1750,7 @@ test("repair never overrides incomplete-generation guards or fixes provider enve
         calls += 1;
         if (makeBody === agentBody && calls === 1) return toolResponse("incomplete-repair-search", "search_assets", { query: "金属撞击" });
         return scenario === "envelope" ? new Response("{choices:[],}")
-          : new Response(JSON.stringify({ choices: [{ finish_reason: scenario === "length" ? "length" : "stop", message: { content: text } }] }));
+          : new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: scenario === "length" ? "length" : "stop", message: { content: text } }] })));
       });
       const response = await service.fetch(req(makeBody(`repair-incomplete-${scenario}`))), data = await response.json();
       assert.equal(response.status, 502); assert.equal(data.error.code, "UPSTREAM_RESPONSE_INVALID");
@@ -1735,7 +1840,7 @@ test('a mocked agent can choose BGM from all scope and return authoritative BGM 
     globalThis.fetch = withPromptFetch(async (_url, options) => {
       calls++; const sent = JSON.parse(options.body);
       if (calls === 1) return toolResponse('bgm-search', 'search_assets', { query: 'victory', scope: 'bgm', searchType: 'suggestion' });
-      const tool = JSON.parse(sent.messages.filter(m => m.role === 'tool').at(-1).content);
+      const tool = JSON.parse(responsesMessages(sent).filter(m => m.role === 'tool').at(-1).content);
       if (calls === 2) {
         assert.deepEqual(tool.items.map(a => a.resourceId).sort(), ['bgm:1', 'bgm:2']);
         return toolResponse('bgm-details', 'get_assets', { ids: ['bgm:1'], locale: 'zh-CN' });

@@ -21,7 +21,7 @@ function project() {
   const result = model.createQuestProject();
   result.mainQuests.push({ id: 1, chapterId: null, title: '第一章任务', style: 'Mainline' }, { id: 2, chapterId: null, title: '另一主任务', style: 'Mainline' });
   result.subQuests = [0, 1, 2].map(id => ({ id, mainQuestId: id === 2 ? 2 : 1, title: '任务 ' + id, description: '', unitState: '0', investigationPoint: '0,0,0', investigationRange: -1,
-    belondPrimaryId: 0, hidden: false, showGuide: false, nextQuestIds: [], failureQuestId: -1, finishMainQuest: false, questProgress: 0 }));
+    belondPrimaryId: 0, hidden: false, showGuide: false, showEffect: true, nextQuestIds: [], failureQuestId: -1, finishMainQuest: false, questProgress: 0 }));
   return result;
 }
 test('graph and panel compile with their actual templates and styles', () => {

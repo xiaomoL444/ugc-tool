@@ -12,7 +12,7 @@
 
 右侧模型按钮在站点 AI 模式显示通用“站点 AI”与剩余次数，自有模型显示用户配置的模型名称，基础搜索显示“基础搜索”。站点 AI 按钮、提示文字和设置弹窗均不显示服务端实际模型 ID；底层模型信息与调用逻辑仍保留。点击按钮打开“选择搜索模型”弹窗，可在站点 AI、自有模型和基础搜索三种模式之间选择。弹窗内的选择先作为草稿；点击“使用此模型”或自有模型的“保存并使用”后才提交，取消或关闭不改变已选模式。调用中或存档读取中禁止切换。
 
-每轮结果上限可快捷选择 5／10／20／50 条，也可自定义 1–50 的整数，默认 10 条。选择写入统一存档并在刷新后恢复；自定义输入点击“应用”或按 Enter 才生效，取消或关闭面板不改变原选择。每条回复可保留最多 50 张可信资源卡片；模型可以返回更少的真实匹配，不强制凑数。数量选择同样进入自有模型与站点 AI 请求，输出预算随上限调整，不重复调用模型来拼接卡片。
+每轮结果上限可快捷选择 5／10／20／50 条，也可自定义 1–50 的整数，默认 10 条。选择写入统一存档并在刷新后恢复；自定义输入点击“应用”或按 Enter 才生效，取消或关闭面板不改变原选择。每条回复可保留最多 50 张资源结果卡片；模型可以返回更少的真实匹配，不强制凑数。数量选择同样进入自有模型与站点 AI 请求，输出预算随上限调整，不重复调用模型来拼接卡片。
 
 每轮紧凑卡片以 240px 为目标宽度、12px 为间距，按容器宽度分页，同一行每页显示 1～6 张，手机每页显示 1 张。翻页只切换已取得的结果，不调用 AI，并停止离开当前页的媒体播放。同一轮结果在当前布局宽度下保留已测得的最高行高，各卡片拉齐高度；上一页、下一页以工具栏的屏幕位置保持滚动锚点，较短页面或最后一页不会缩短整段结果而挤动聊天。媒体异步加载时继续更新保留高度，布局宽度变化后重新测量。存档与后续上下文继续保留整轮结果及原始顺序，分页不截断完整结果。
 
@@ -28,11 +28,17 @@
 
 - **基础搜索**：由 Worker 检索真实的音效、特效、BGM 资源 ID、名称、描述、关键词和单独的用途建议。无需聊天模型或 API Key，但需要资产检索服务可用。支持上次结果中的序号和按整体时长排序的简单追问；不能把总时长当尾音长度。
 - **站点 AI**：使用站点提供的模型。连接服务端 `/api/ai-search/config` 和 `/api/ai-search/chat`。未部署服务时明确显示未接通，不伪造调用结果或站点 AI 使用次数。新服务负责权威资产检索与详情，并重新根据候选 ID 读取描述。部署模板在 `tools/ai-search-service/`，当前主配置为每日 10 次、每月 50 元的服务端保守预算，两个示例仍为每日 5 次。
-- **我的模型**：填写支持聊天接口的服务基础地址、模型名和自己的 Key。请求使用 OpenAI 兼容 `chat/completions`；网页直连需要该服务允许浏览器跨域请求。如果提供商不允许跨域，可填写你部署的兼容代理地址。网站不会接收或保存自有模型 Key；只有明确勾选保存时才写入当前浏览器的 localStorage，否则仅保留在当前标签页的 sessionStorage 和内存中。
+- **我的模型**：填写支持聊天接口的服务基础地址、模型名和自己的 Key。请求统一使用 OpenAI 兼容 `responses`（Claude 原生仍使用 Messages）；网页直连需要该服务允许浏览器跨域请求。如果提供商不允许跨域，可填写你部署的兼容代理地址。网站不会接收或保存自有模型 Key；只有明确勾选保存时才写入当前浏览器的 localStorage，否则仅保留在当前标签页的 sessionStorage 和内存中。
 
 对话和卡片不会存储 API Key。模型正文作为纯文本显示。模型回复格式、资源 ID 校验或输出截断失败且有实际正文时，错误文字右侧显示感叹号；悬停、键盘聚焦或手机点击可查看、滚动和选择复制原文。从浮层内拖选文字时，移出并在外松开不会关闭浮层；选区保留期间可继续复制，点击外部或按 Escape 关闭。模型设置与会话管理对话框仅在按下和松开均位于真实背景时关闭，框内开始的拖选不会误关。原文按 UTF-8 最多保留 16 KiB，并遮蔽凭据字段，随错误消息写入浏览器存档；不会加入后续模型上下文，也不会再次调用模型。旧记录或旧服务没有返回原文时不显示图标；站点 AI 需部署支持 `error.rawResponse` 的新 Worker。模型只能选择检索工具实际返回的 ID；网页用可信详情生成 `/SoundEffectPlayer?id=...`、`/EffectPlayer?id=...` 和 `/BgmPlayer?id=...`，不采用模型生成的网址。卡片按类型显示小预览，并提供数字资产 ID、名称复制与资产页入口；BGM 资产页链接使用本库资产 ID，预览播放器使用元数据中的网易云 `song_id`。
 
-自有模型使用 DeepSeek 官方接口时，页面每轮显式关闭思考。新检索服务下采用 function calling，最终一轮启用 JSON 输出；百炼官方兼容接口也在最终一轮启用 JSON 输出。其他兼容服务保留通用请求参数。输出被截断时单独提示，仍要求完整回复与可信资源 ID，不自动重复付费调用。
+资源 ID 无效、超出本轮候选或重复时，页面保留可解析的模型正文和结果顺序，并在正文下提示资料不完整。可以读取权威详情的条目仍正常显示；无法读取的条目保留模型原始资源 ID 和匹配原因，名称、描述及预览留空，不显示推测的资源类型、媒体或资产页入口。重复条目各自显示，未知 ID 可直接复制；误写为数字的 ID 按原值显示，不猜测类型或前缀。提示和空白条目随对话存档恢复；旧错误记录若保存了可解析的原始 JSON，也能在重新打开时本地恢复回答与 ID。这类回复继续标记为校验失败，不进入后续模型上下文，也不自动重试模型。其他格式、网络或截断错误沿用原有错误与原文诊断。本次只需发布前端，站点 AI 兼容已经提供 `error.rawResponse` 的 Worker。
+
+自有模型根据 API 基础地址、模型名称和所选协议自动选择输出约束，配置窗口显示检测到的模型类型和所选方式。检测在本地完成，不探测接口，也不读取密钥；中转接口的识别明确标为推断，可手动覆盖。OpenAI 支持模型使用 `text.format` 的 `json_schema` 与 `strict: true`；DeepSeek 官方 `deepseek-flash`／`deepseek-v4-pro` 使用 Responses Schema（其参考没有 `strict` 开关，按文档传 `name` 和 `schema`）；其他 DeepSeek 兼容服务自动使用 JSON 模式。已知豆包 Seed 2.0／2.1 系列使用 Schema，其他豆包使用 JSON 模式。百炼 Responses 文档未列出 `text.format` 且会忽略未列出参数，因此千问自动模式使用提示词约束并显示说明；可按提供商实际能力手动覆盖。支持结构化输出的 Claude 原生模型使用 `output_config.format`；无法确认能力的模型使用提示词约束。Claude 的 OpenAI 兼容代理按 JSON 模式处理，不把原生 Schema 能力视为代理能力。规则集中于 `tools/ai-search-service/model-output-policy.mjs`。
+
+候选搜索的严格 Schema 只枚举实际传给模型的候选 ID；工具检索每轮更新为本轮工具已返回的完整 ID 集合，历史卡片不进入白名单。JSON 约束从第一轮起启用，模型自然提前结束仍受约束。严格 Schema 的 agent 输出包含必填布尔值 `clarification`；`true` 只允许空结果，`false` 为正常回答，旧格式省略该字段仍兼容。Claude 不支持的数组数量限制不下发；所有协议继续进行资源身份、重复项、数量、理由与匹配类型校验。DeepSeek 官方 Responses 每轮通过 `reasoning.effort: "none"` 显式关闭思考；百炼千问使用 `enable_thinking: false` 以保持非思考 JSON 输出。
+
+自有模型的自动模式仅在 HTTP 400/422 明确拒绝 JSON 格式参数时回退：严格 Schema → JSON 模式 → 提示词；Claude 原生 Schema → 提示词。手动模式不会悄悄回退。鉴权、限流、网络错误、非法 Schema、截断、空响应或生成结果不合格均不触发重复调用；回退不会重新执行检索工具，较弱模式沿用至本轮结束。成功回复显示实际采用的约束并保存到存档，避免把回退结果标成严格 Schema。站点 AI Worker 共用检测和 Schema 规则，但保留最多三次模型调用的费用预留，不追加格式回退请求；支持站点 AI 的新规则需另行部署 Worker。模型连接测试仍只验证基础连接，不验证 JSON 能力。
 
 ## 模型返回格式修复
 
@@ -76,7 +82,7 @@ VUE_APP_AI_SEARCH_API_BASE=https://your-service.workers.dev/api/ai-search
 
 余额状态在 `/config` 最多缓存 30 秒，充值后等待缓存到期并刷新模型状态即可重新检查。每次 `/chat` 会实时查余额，包括读取已缓存回复之前；agent 与旧候选流程入场前被拦不会扣访客次数或月预算。agent 后续第 2、3 轮还会重新检查；前面已发生的调用和预留按原失败机制保留。该保护不能硬锁账户，也不能保证其他项目或并发结算后仍有 20 元。
 
-余额保护与页面提示需要重新部署 `tools/ai-search-service` 的 Worker，并重新构建、发布前端；本次未部署，也未查询真实账户余额。主配置仍为每日 10 次、每月 50 元；最多 50 条结果时模型输出上限为 5400 tokens，较少结果使用较低输出预算。
+余额保护与页面提示需要重新部署 `tools/ai-search-service` 的 Worker，并重新构建、发布前端；本次未部署，也未查询真实账户余额。站点 AI 主配置仍为每日 10 次、每月 50 元；最多 50 条结果时模型输出上限为 5400 tokens，较少结果使用较低输出预算。自有 OpenAI 兼容模型搜索不设置输出 token 上限，不使用站点 AI 的费用预留。
 
 ## 资源描述约定
 
@@ -118,7 +124,9 @@ Worker 在有请求时每分钟检查来源 SHA-256；文件 hash 不变则复�
 
 工具循环最多请求模型 3 次、执行 4 次模型工具调用，最后一轮关闭工具并要求最终 JSON。自有模型 Key 仅发送给用户填写的聊天地址，绝不会随检索请求发送给网站。每轮最多返回 50 条裁剪摘要；批量详情最多 5 个已检索 ID，不能用模型猜测的 ID 绕过检索。单条工具消息最多 16 KB，完整模型轮次请求最多 60 KB，保留 ID 和翻页信息、裁剪过长正文。工具服务或模型不支持 function calling 时明确报错，不自动退回关键词回复，也不额外自动付费重试。
 
-工具模式发送最新问题与最近最多 8 条成功问答，由模型判断当前是新主题还是追问，不再用固定追问词表决定是否给 AI 上下文。初始构造体按 UTF-8 字节裁剪到 21 KB，上一轮显示结果的 ID、标题、时长与声音标记随助手历史发送。明确“再来点”等短句默认排除上一轮 ID；其他换一批请求由模型设置 `excludePrevious`。显式资源范围优先，选择“全部资产”时模型可主动缩小到 BGM、音效或特效。总请求超时为 60 秒。停止后不接受晚到回复，失败或取消的问答整对不进入后续上下文；清空上下文后不发送历史。
+工具模式发送最新问题与最近最多 8 条成功问答，由模型判断当前是新主题还是追问，不再用固定追问词表决定是否给 AI 上下文。初始构造体按 UTF-8 字节裁剪到 21 KB，上一轮显示结果的 ID、标题、时长与声音标记随助手历史发送。明确“再来点”等短句默认排除上一轮 ID；其他换一批请求由模型设置 `excludePrevious`。显式资源范围优先，选择“全部资产”时模型可主动缩小到 BGM、音效或特效。自有模型的模型与工具阶段最多等待 180 秒，站点 AI 工具模式为 60 秒，基础搜索和旧站点候选模式为 45 秒。停止后不接受晚到回复，失败或取消的问答整对不进入后续上下文；清空上下文后不发送历史。
+
+自有模型最终回答通过格式、资源 ID 和资产版本校验后，立即显示回答与本轮可信检索摘要，再使用独立的 20 秒期限补全详情。工具 `get_assets` 已取得的同版、同视觉／音轨投影详情直接复用，其余 ID 才请求 `/assets`。最终详情超时或网络失败保留回答和摘要，显示资料补全提示及诊断，并作为有效问答保存；工具阶段失败仍是搜索失败。版本冲突会清除卡片、刷新目录并提示用户重新搜索，不自动重跑模型。停止、切换会话或离开页面会取消补全，并保留已显示的内容；迟到响应不能写回。
 
 候选协议最多发送 50 条裁剪摘要；未声明新结果能力的旧站点 AI 服务仍限制为 12 个候选、五条结果；已升级检索、但未声明 agent 的站点 AI 服务只传 `candidateIds`、`audioCandidateIds` 与资产版本，由服务端重读。旧协议相关追问最多携带 8 条成功问答。不会发送整个资产库。
 
@@ -126,13 +134,13 @@ Worker 在有请求时每分钟检查来源 SHA-256；文件 hash 不变则复�
 
 ## 请求失败诊断
 
-“我的模型”由浏览器直接请求用户配置的模型服务，Worker 只提供资产检索；Python 中的简单问候测试成功，不能证明浏览器跨域请求或带工具、上下文的搜索请求也会成功。支持 OpenAI 兼容 Chat Completions 与 Claude 原生 Messages 两种协议；默认自动识别官方 Claude 域名和 `/v1/messages` 路径，也可手动选择协议。Claude 原生调用使用 `/v1/messages`、`x-api-key` 和 SDK 所用的版本／浏览器请求头；代理是否接受浏览器调用仍由该服务决定。工具请求转换为 `tool_use/tool_result`，思考签名仅在当前调用的内存对话中原样传回 Claude，不加入网页存档、诊断或 Worker 请求。
+“我的模型”由浏览器直接请求用户配置的模型服务，Worker 只提供资产检索；Python 中的简单问候测试成功，不能证明浏览器跨域请求或带工具、上下文的搜索请求也会成功。支持 OpenAI 兼容 Responses 与 Claude 原生 Messages 两种协议；默认自动识别官方 Claude 域名和 `/v1/messages` 路径，也可手动选择协议。Claude 原生调用使用 `/v1/messages`、`x-api-key` 和 SDK 所用的版本／浏览器请求头；代理是否接受浏览器调用仍由该服务决定。工具请求转换为 `tool_use/tool_result`，思考签名仅在当前调用的内存对话中原样传回 Claude，不加入网页存档、诊断或 Worker 请求。
 
-官方 OpenAI 地址支持填 `https://api.openai.com`、`https://api.openai.com/v1` 或完整 `/v1/chat/completions`；粘贴官方 `/v1/responses` 或以前误拼的 `/v1/responses/chat/completions` 也会规范为 `/v1/chat/completions`，不会按 Responses 协议发送请求。官方接口使用 `max_completion_tokens` 控制输出；其他兼容服务保留原 `max_tokens` 参数。官方 `gpt-6-luna` 的 Chat Completions 工具调用需 `reasoning_effort="none"`，工具流程会按[官方要求](https://developers.openai.com/api/docs/models/gpt-6-luna)设置此参数，不改用户选择的模型名称。
+官方 OpenAI 地址支持填 `https://api.openai.com`、`https://api.openai.com/v1` 或完整 `/v1/responses`。旧 `/chat/completions` 地址会自动规范为 `/responses`；DeepSeek 官方规范为 `https://api.deepseek.com/responses`，百炼和方舟保留各自基础路径。全部 OpenAI 兼容调用（包括候选搜索、工具检索及连接测试）使用 `input`、扁平 function 工具和 `text.format`，不发送 Chat Completions 参数，不回退到 Chat Completions。自有模型的候选搜索与工具检索不传 `max_output_tokens`、`max_completion_tokens` 或 `max_tokens`，输出长度由供应商默认值和模型限制决定；原生 Claude Messages 必填 `max_tokens`，保留对应参数，连接测试也保留独立的 128 token 短请求。官方 OpenAI 保留模型默认推理强度，不强制 `none`。Responses 输出的 message／function_call／reasoning Items 在下一工具轮次完整回传，函数结果通过 `call_id` 配对；使用 `store: false`，不依赖 `previous_response_id`，官方 OpenAI 请求加密 reasoning 以支持无状态回传。推理 Items 只存在于当前调用内存，不进入用户可见回答、诊断或存档。共享适配位于 `tools/ai-search-service/model-responses.mjs`。
 
 模型设置中的“测试模型”由用户手动触发一次短请求，最多生成 128 个 token，弹窗最多等待 20 秒。测试不读取资产、系统提示词或聊天记录，也不请求 Worker；打开／保存设置不会触发测试。成功显示请求模型及服务返回的模型标识，若服务没有返回标识则明确说明。此结果仅证明基础模型调用已返回有效响应，不证明服务商实际权重、工具调用或完整搜索 JSON 支持；截断响应另作提示。修改地址、模型、密钥或协议，切换模式、关闭弹窗或离开页面都会取消未完成的测试，旧响应不能写入新配置的状态。
 
-失败回复会说明出错环节（模型接口、站点服务、资产目录、检索、详情或系统提示词）、HTTP 状态及可读取的服务商原因。右侧诊断入口提供接口地址、模型、轮次、耗时、错误码、参数和请求 ID。自有 API 的 429 与站点每日次数用完分开，403 与密钥无效的 401 分开，5xx 标明服务端错误。服务返回非 JSON 错误页时仍保留 HTTP 状态，不把它误报为模型 JSON 格式错误。
+失败回复会说明出错环节（模型接口、站点服务、资产目录、检索、详情或系统提示词）、HTTP 状态及可读取的服务商原因。右侧诊断入口提供接口地址、模型、轮次、阶段耗时、整轮耗时、中断原因、错误码、参数和请求 ID；保留回答但详情补全失败时也显示该入口，并随存档恢复。模型阶段到期、详情阶段到期和用户停止分别记录原因。自有 API 的 429 与站点每日次数用完分开，403 与密钥无效的 401 分开，5xx 标明服务端错误。服务返回非 JSON 错误页时仍保留 HTTP 状态，不把它误报为模型 JSON 格式错误。请求与响应体读取都响应取消，即使底层请求未及时响应 AbortSignal，也会按期结束等待。
 
 浏览器没有提供可读取响应时，只能判断请求失败，无法从 `TypeError` 单独确定是跨域、DNS、TLS、代理还是网络连接；页面会明确这个限制，提示查看开发者工具中第一条失败请求及 Console。诊断仅保存经过限长、密钥脱敏的公开字段，剥离 URL 用户信息、查询参数及片段；不保存 Authorization、请求体或整个服务商错误包。诊断与模型原文分别展示，仅错误回复进入浏览器存档，均不发送到后续模型上下文。打开诊断不会重试模型调用。
 
@@ -145,8 +153,10 @@ node scripts/test-ai-search-catalog-cache.cjs
 node scripts/test-ai-search-agent.cjs
 node scripts/test-ai-search-system-prompt.cjs
 node scripts/test-ai-search-request-diagnostics.cjs
+node scripts/test-ai-search-timeouts.cjs
 node scripts/test-ai-search-model-protocol.cjs
 node scripts/test-ai-search-model-probe.cjs
+node scripts/test-ai-search-output-constraints.cjs
 node scripts/test-ai-search-response-errors.cjs
 node scripts/test-ai-search-request-cors-browser.cjs
 node scripts/test-ai-search-archive.cjs
@@ -161,6 +171,8 @@ node --test tools/ai-search-service/worker.test.mjs tools/ai-search-service/agen
 浏览器回归 `scripts/test-ai-search-browser.cjs`、`scripts/test-ai-card-previews-browser.cjs`、`scripts/test-asset-deep-links.cjs` 和 `H:/Code/ugc-web/ugc-ai-search-file/experiments/ai-search-ui/verify-ui.cjs` 需要 Playwright，可用当前本机的 bundled runtime 通过 `NODE_PATH` 提供；默认测试地址 `http://127.0.0.1:8080`。AI 搜索实验统一保存到 `H:/Code/ugc-web/ugc-ai-search-file/experiments`，浏览器截图输出到 `H:/Code/ugc-web/ugc-ai-search-file/verification/browser`，开发与验证日志保存到 `verification/logs`。浏览器测试使用模拟目录和模拟模型，不消耗 API 额度。卡片预览回归使用本地合成 WAV 校验真实波形、播放和定位，另校验特效悬停、BGM 懒加载及手机布局。
 
 模型验证窗口回归：`node scripts/test-ai-model-probe-browser.cjs http://127.0.0.1:8080`。模拟 OpenAI／Claude 响应，验证手动请求、模型标识、诊断浮层、协议保存恢复及编辑／关闭后的取消；不调用真实 API。
+
+模型输出约束窗口离线回归：设置 `NODE_PATH` 为可用的 Playwright 模块目录后运行 `node scripts/test-ai-search-output-settings-browser.cjs`。使用真实 Vue 组件验证桌面／手机上的自动检测、模式切换与零 API 请求；构建文件保存到 `H:\Code\ugc-web\ugc-ai-search-file\experiments\model-output-constraints`，截图保存到 `H:\Code\ugc-web\ugc-ai-search-file\verification\browser`。
 
 历史对话搜索回归：`node scripts/test-ai-history-search-browser.cjs http://127.0.0.1:8080`。验证最近会话排序、标题／正文／卡片匹配、键盘和输入法、消息定位、关闭后的焦点恢复、忙态禁用以及手机触控布局；使用模拟存档与请求，不调用真实 API。
 

@@ -115,6 +115,14 @@
             "param_type" : "Bool",
             "value" : "True"
          }
+      },
+      {
+         "key" : "showEffect",
+         "param_type" : "Bool",
+         "value" : {
+            "param_type" : "Bool",
+            "value" : "True"
+         }
       }
    ]
 }

@@ -1,5 +1,6 @@
 import type { ModelConfig } from "./types";
-import { AISearchError, modelConnection, modelResponseEnvelope, chatToolCompatibilityOptions, fetchAISearch, readAISearchJSON, providerRequestError } from "./aiSearchService";
+import { AISearchError, modelConnection, modelResponseEnvelope, fetchAISearch, readAISearchJSON, providerRequestError } from "./aiSearchService";
+import { toResponsesRequest } from "../../../tools/ai-search-service/model-responses.mjs";
 import { modelHeaders, toAnthropicRequest } from "./modelProtocol";
 import { responseRequestDiagnostic, sanitizeRequestDiagnostic } from "./requestDiagnostics";
 import type { RequestContext } from "./requestDiagnostics";
@@ -22,17 +23,16 @@ export async function probeCustomModel(config: ModelConfig, signal: AbortSignal,
   const context: RequestContext = { stage: "model", endpoint: url, model: config.model.trim(), round: 1, startedAt: Date.now() };
   const secrets = [config.apiKey.trim()];
   const chatRequest = { model: config.model.trim(), stream: false,
-    ...(protocol === "openai" && new URL(url).hostname === "api.openai.com" ? { max_completion_tokens: 128 } : { max_tokens: 128 }),
-    ...(protocol === "openai" ? chatToolCompatibilityOptions(url, config.model) : {}),
+    max_output_tokens: 128,
     messages: [{ role: "user", content: "Connection test. Reply only OK." }] };
   let headers: Record<string, string>, body: string;
   try {
     headers = modelHeaders(protocol, config.apiKey.trim());
-    body = JSON.stringify(protocol === "anthropic" ? toAnthropicRequest(chatRequest) : chatRequest);
+    body = JSON.stringify(protocol === "anthropic" ? toAnthropicRequest(chatRequest) : toResponsesRequest(chatRequest, url));
   } catch { throw new AISearchError("CONFIG"); }
   const response = await fetchAISearch(url, { method: "POST", signal, headers, body }, context, fetcher, secrets);
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-  if (!response.ok) throw await providerRequestError(response, context, secrets);
+  if (!response.ok) throw await providerRequestError(response, context, secrets, false, signal);
   const envelope = await readAISearchJSON(response, context, signal, secrets);
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   const diagnostic = responseRequestDiagnostic(response, context, "response", secrets);

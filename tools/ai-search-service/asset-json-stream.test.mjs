@@ -144,7 +144,8 @@ test('fatal UTF-8 decoding catches overlong, surrogate, out-of-range and truncat
   const identities = identityFixture();
   const valid = await featureFixture('sound', identities, '中文😀𝄞声音', '用途\n转义');
   const effect = await featureFixture('effect', identities, 'Русский 日本語😀');
-  const loader = createAssetCatalogLoader({ identities, timeoutMs: 10000, fetcher: async url => streamedResponse(encoder.encode(JSON.stringify(url.includes('SoundEffectPlayer') ? valid : effect)), [1, 2, 7]) });
+  const bgm = await featureFixture('bgm', identities, '音乐 piano😀');
+  const loader = createAssetCatalogLoader({ identities, timeoutMs: 10000, fetcher: async url => streamedResponse(encoder.encode(JSON.stringify(url.includes('SoundEffectPlayer') ? valid : url.includes('BgmPlayer') ? bgm : effect)), [1, 2, 7]) });
   const loaded = await loader.read({ ASSET_FEATURES_BASE_URL: 'https://offline.example/catalog' });
   assert.equal(loaded.featureSync.status, 'ready');
   assert.ok(loaded.catalog.assets.find(asset => asset.resourceId === 'sound:1').description['zh-CN'].includes('中文😀𝄞'));
@@ -157,7 +158,7 @@ test('complete published feature bytes match native JSON.parse across varied UTF
   for (const project of ['SoundEffectPlayer', 'EffectPlayer']) {
     const filename = process.env.FEATURE_RUNTIME_SOURCE_DIR
       ? path.join(process.env.FEATURE_RUNTIME_SOURCE_DIR, project, 'features.json')
-      : new URL(`../../exports/ugc-tool-data/${project}/features.json`, import.meta.url);
+      : new URL(`../../../ugc-ai-search-file/exports/ugc-tool-data/${project}/features.json`, import.meta.url);
     const bytes = await readFile(filename);
     const expected = JSON.parse(bytes.toString('utf8'));
     for (const widths of [[1021], [65536], [1048576], [1, 7, 31, 4096, 65536]]) {

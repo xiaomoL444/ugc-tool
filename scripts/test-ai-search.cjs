@@ -1,3 +1,4 @@
+const { responsesFixture, responsesMessages } = require('../tools/ai-search-service/responses-fixture.mjs');
 /* Run: node scripts/test-ai-search.cjs. No network requests or paid model calls. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -6,7 +7,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
 const { buildSearchResources, retrieveResources, resolveSearchScope, resolveSearchIntent, normalizeSearchText, resourceHref, loadResourceCatalog } = require('../src/views/AISearch/resourceCatalog.ts');
-const { buildSearchContext, isSearchRefinement, buildSearchPayload, buildServerChatPayload, validateSearchAnswer, chatCompletionsUrl, requestSearch: requestSearchActual, parseServerCatalog, parseServerResources, requestServerSearch, requestServerAssets } = require('../src/views/AISearch/aiSearchService.ts');
+const { buildSearchContext, isSearchRefinement, buildSearchPayload, buildServerChatPayload, validateSearchAnswer, modelResponsesUrl, requestSearch: requestSearchActual, parseServerCatalog, parseServerResources, requestServerSearch, requestServerAssets } = require('../src/views/AISearch/aiSearchService.ts');
 const promptFixture = '# External prompt fixture\nReturn at most RESULT\\_LIMIT resources.\n';
 async function requestSearch(payload, candidates, options) {
   const fetcher = options.fetcher;
@@ -16,8 +17,8 @@ async function requestSearch(payload, candidates, options) {
       assert.equal(input.headers?.Authorization, undefined);
       return new Response(promptFixture, { headers: { 'Content-Type': 'text/markdown' } });
     }
-    if (String(url).endsWith('/chat/completions')) {
-      const system = JSON.parse(input.body).messages[0].content;
+    if (String(url).endsWith('/responses')) {
+      const system = responsesMessages(JSON.parse(input.body))[0].content;
       assert.ok(system.includes('External prompt fixture'));
       assert.ok(system.includes(`at most ${payload.resultLimit} resources`));
     }
@@ -136,10 +137,10 @@ assert.ok(retrieveResources(hits, { query: '受击', scope: 'all', includeEffect
 assert.throws(() => validateSearchAnswer({ answer: 'found', matches: [{ resourceId: 'sound:999', reason: 'invented', matchType: 'feature' }] }, catalog));
 assert.throws(() => validateSearchAnswer({ answer: 'found', matches: [{ resourceId: 'sound:1', reason: 'one', matchType: 'feature' }, { resourceId: 'sound:1', reason: 'duplicate', matchType: 'feature' }] }, catalog));
 assert.equal(validateSearchAnswer({ answer: 'No match', matches: [] }, catalog).matches.length, 0);
-assert.equal(chatCompletionsUrl('https://example.com/v1'), 'https://example.com/v1/chat/completions');
-assert.equal(chatCompletionsUrl('https://example.com/v1/chat/completions'), 'https://example.com/v1/chat/completions');
-assert.throws(() => chatCompletionsUrl('http://external.example/v1'));
-assert.throws(() => chatCompletionsUrl('https://user:secret@example.com/v1'));
+assert.equal(modelResponsesUrl('https://example.com/v1'), 'https://example.com/v1/responses');
+assert.equal(modelResponsesUrl('https://example.com/v1/responses'), 'https://example.com/v1/responses');
+assert.throws(() => modelResponsesUrl('http://external.example/v1'));
+assert.throws(() => modelResponsesUrl('https://user:secret@example.com/v1'));
 const restored = restoreConversations([{ id: 'conversation', messages: [{ role: 'assistant', content: 'test', cards: [{ resourceId: 'sound:1', href: 'javascript:alert(1)', title: 'one' }], status: 'complete', mode: 'basic' }] }]);
 assert.equal(restored[0].messages[0].cards[0].href, '/SoundEffectPlayer?id=1');
 const question = content => ({ role: 'user', status: 'complete', content, cards: [], mode: 'basic', source: 'basic' });
@@ -183,7 +184,7 @@ assert.ok(new TextEncoder().encode(JSON.stringify(huge)).length <= 21000);
   const payload = buildSearchPayload('雷声', 'zh-CN', 'sound', [], [audioResult], 'test-request');
   let outgoing;
   const result = await requestSearch(payload, [audioResult], { mode: 'custom', config: { baseUrl: 'https://example.com/v1', model: 'test', apiKey: 'test-only-placeholder', rememberKey: false }, freeBase: '/api/ai-search', signal: new AbortController().signal,
-    fetcher: async (url, options) => { outgoing = { url, options }; return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: '匹配音轨', matches: [{ resourceId: 'effect:1', reason: '雷声', matchType: 'feature' }] }) } }] })); } });
+    fetcher: async (url, options) => { outgoing = { url, options }; return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: '匹配音轨', matches: [{ resourceId: 'effect:1', reason: '雷声', matchType: 'feature' }] }) } }] }))); } });
   assert.equal(result.matches[0].resourceId, 'effect:1');
   assert.ok(!outgoing.options.body.includes('蓝色'), 'Visual audio leakage must be prevented in the actual model payload');
   assert.ok(!outgoing.options.body.includes('test-only-placeholder'), 'Keys never belong in model context');
@@ -192,14 +193,14 @@ assert.ok(new TextEncoder().encode(JSON.stringify(huge)).length <= 21000);
   assert.ok(!('response_format' in genericBody));
   const customOptions = { mode: 'custom', config: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash', apiKey: 'test-only-placeholder', rememberKey: false }, freeBase: '/api/ai-search', signal: new AbortController().signal };
   await requestSearch(payload, [audioResult], { ...customOptions, fetcher: async (url, options) => {
-    assert.equal(url, 'https://api.deepseek.com/v1/chat/completions');
+    assert.equal(url, 'https://api.deepseek.com/responses');
     const body = JSON.parse(options.body);
-    assert.deepEqual(body.response_format, { type: 'json_object' });
-    assert.deepEqual(body.thinking, { type: 'disabled' });
-    return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '{"answer":"没有匹配","matches":[]}' } }] }));
+    assert.equal(body.text.format.type, 'json_schema');
+    assert.deepEqual(body.reasoning, { effort: 'none' });
+    return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: '{"answer":"没有匹配","matches":[]}' } }] })));
   } });
-  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '{"answer":"不完整","matches":[]}' } }] })) }), error => error.code === 'OUTPUT_TRUNCATED');
-  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '' } }] })) }), error => error.code === 'EMPTY_RESPONSE');
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'length', message: { content: '{"answer":"不完整","matches":[]}' } }] }))) }), error => error.code === 'OUTPUT_TRUNCATED');
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: '' } }] }))) }), error => error.code === 'EMPTY_RESPONSE');
   const version = 'fixture-v1';
   const metadata = { catalogVersion: version, mode: 'keyword', counts: { total: 3000 }, coverage: { described: 2000, total: 3000 } };
   assert.equal(parseServerCatalog(metadata).total, 3000);
@@ -307,7 +308,7 @@ assert.ok(new TextEncoder().encode(JSON.stringify(huge)).length <= 21000);
   assert.equal(failed.sources.length, 0);
   assert.equal(failed.failures.length, 3);
   // Strict answer validation also diagnoses compatible-provider failures safely.
-  const modelReply = (content, extra = {}) => async () => new Response(JSON.stringify({ choices: [{ message: { content }, ...extra }] }));
+  const modelReply = (content, extra = {}) => async () => new Response(JSON.stringify(responsesFixture({ choices: [{ message: { content }, ...extra }] })));
   const noMatch = '{"answer":"没有符合条件的资源","matches":[]}';
   for (const finishReason of [undefined, null, 'stop']) {
     const compatible = await requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(noMatch, { finish_reason: finishReason }) });
@@ -319,7 +320,7 @@ assert.ok(new TextEncoder().encode(JSON.stringify(huge)).length <= 21000);
   let repairedCalls = 0;
   const repaired = await requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => {
     repairedCalls++;
-    return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: repairable } }] }));
+    return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: repairable } }] })));
   } });
   assert.equal(repaired.matches[0].resourceId, 'effect:1');
   assert.equal(repairedCalls, 1, 'Repairing final JSON does not issue a new paid model request');
@@ -328,16 +329,16 @@ assert.ok(new TextEncoder().encode(JSON.stringify(huge)).length <= 21000);
   const repairedDuplicate = "{answer:'found',matches:[{resourceId:'effect:1',reason:'one',matchType:'feature'},{resourceId:'effect:1',reason:'duplicate',matchType:'feature'},],}";
   await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(repairedDuplicate, { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_ASSET_ID', 'Repair does not remove duplicate matches');
   const tooMany = "{answer:'found',matches:[" + Array.from({ length: payload.resultLimit + 1 }, () => "{resourceId:'effect:1',reason:'one',matchType:'feature'}").join(',') + ",],}";
-  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(tooMany, { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_FORMAT', 'Repaired output retains the configured result-count bound');
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(tooMany, { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_RESULT_LIMIT', 'Repaired output retains the configured result-count bound');
   await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply("{answer:'missing matches',}", { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_FORMAT', 'Repair cannot invent required fields');
   await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(repairable.slice(0, -2), { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_FORMAT', 'An obviously unfinished outer object remains an error even without the provider length flag');
   await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(repairable.slice(0, -2), { finish_reason: 'length' }) }), error => error.code === 'OUTPUT_TRUNCATED', 'Provider truncation is rejected even when jsonrepair could close the brackets');
   await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => new Response('{choices:[{message:{content:"{}"},}],}') }), error => error.code === 'INVALID_RESPONSE', 'Provider HTTP envelopes remain strict JSON');
-  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: null, reasoning_content: noMatch } }] })) }), error => error.code === 'EMPTY_RESPONSE', 'Reasoning text never replaces a missing final answer');
-  for (const content of ['这里是结果：' + noMatch, '{"answer":"没有匹配"}', '{"answer":"found","matches":[{"resourceId":"effect:1","reason":"雷声"}]}']) {
-    await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(content, { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_FORMAT');
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: async () => new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: null, reasoning_content: noMatch } }] }))) }), error => error.code === 'EMPTY_RESPONSE', 'Reasoning text never replaces a missing final answer');
+  for (const [content, code] of [['这里是结果：' + noMatch, 'RESPONSE_FORMAT'], ['{"answer":"没有匹配"}', 'RESPONSE_FORMAT'], ['{"answer":"found","matches":[{"resourceId":"effect:1","reason":"雷声"}]}', 'RESPONSE_MATCH_TYPE']]) {
+    await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(content, { finish_reason: 'stop' }) }), error => error.code === code);
   }
-  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(noMatch, { finish_reason: 'tool_calls' }) }), error => error.code === 'RESPONSE_FORMAT');
+  await assert.rejects(() => requestSearch(payload, [audioResult], { ...customOptions, fetcher: modelReply(noMatch, { finish_reason: 'tool_calls' }) }), error => error.code === 'INVALID_RESPONSE');
   const hiddenCandidate = { ...audioResult, resourceId: 'effect:999', id: '999' };
   const hiddenMatch = JSON.stringify({ answer: 'found', matches: [{ resourceId: hiddenCandidate.resourceId, reason: 'not sent', matchType: 'feature' }] });
   await assert.rejects(() => requestSearch(payload, [audioResult, hiddenCandidate], { ...customOptions, fetcher: modelReply(hiddenMatch, { finish_reason: 'stop' }) }), error => error.code === 'RESPONSE_ASSET_ID', 'Only IDs actually included in the model context can become cards');

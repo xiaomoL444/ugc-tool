@@ -2,7 +2,7 @@ import type { QuestChapter, QuestMain, QuestProject, QuestStructIds, QuestSub } 
 
 export const DEFAULT_QUEST_MAIN_STYLE = "NOLOC_Mainline";
 export const DEFAULT_QUEST_SUB_FIELDS = {
-  failureQuestId: -1, finishMainQuest: false, questProgress: 0, belondPrimaryId: 0, showGuide: true,
+  failureQuestId: -1, finishMainQuest: false, questProgress: 0, belondPrimaryId: 0, showGuide: true, showEffect: true,
 } as const;
 
 export const DEFAULT_QUEST_STRUCT_IDS: QuestStructIds = {
@@ -210,6 +210,7 @@ export function validateQuestProject(project: QuestProject, options: QuestValida
     if (typeof sub.investigationRange !== "number" || !Number.isFinite(sub.investigationRange)) errors.push(`${label}调查点范围必须是有限数值。`);
     if (typeof sub.hidden !== "boolean") errors.push(`${label}隐藏任务必须是布尔值。`);
     if (typeof sub.showGuide !== "boolean") errors.push(`${label}显示任务地图指引必须是布尔值。`);
+    if (typeof sub.showEffect !== "boolean") errors.push(`${label}显示任务指引特效必须是布尔值。`);
     if (sub.failureQuestId !== null && !int32(sub.failureQuestId)) errors.push(`${label}失败回溯任务必须是 Int32 整数或空值。`);
     if (typeof sub.finishMainQuest !== "boolean") errors.push(`${label}完成主任务必须是布尔值。`);
     if (!int32(sub.questProgress)) errors.push(`${label}任务进度必须是 Int32 整数。`);

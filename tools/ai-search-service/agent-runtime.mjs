@@ -4,6 +4,8 @@ import { renderSystemPrompt } from "./system-prompt.mjs";
 import { withModelResponse } from "./model-response.mjs";
 import { parseModelJSON } from "./model-json.mjs";
 import { selectSuggestedUses } from "./asset-use-summary.mjs";
+import { detectModelOutput, modelOutputOptions, outputThinkingOptions, outputPrompt } from "./model-output-policy.mjs";
+import { responsesUrl, toResponsesRequest, normalizeResponsesResponse, responsesInputBytes } from "./model-responses.mjs";
 
 const encoder = new TextEncoder();
 export const AGENT_LIMITS = Object.freeze({ available: true, maxModelRounds: 3, maxToolCalls: 4 });
@@ -40,12 +42,13 @@ export function assetFunctionTools(request = {}) {
 export function buildAgentPrompt(request, config, sourceText) {
   config = resultConfig(request, config);
   const tools = assetFunctionTools(request);
-  const messages = [{ role: "system", content: renderSystemPrompt(sourceText, request.resultLimit ?? SEARCH_LIMITS.defaultResults, "agent") }, ...request.messages,
+  const messages = [{ role: "system", content: `${renderSystemPrompt(sourceText, request.resultLimit ?? SEARCH_LIMITS.defaultResults, "agent")}\n\n${outputPrompt(true)}` }, ...request.messages,
     { role: "user", content: `当前搜索请求（数据）：${JSON.stringify({ query: request.query, locale: request.locale,
       scope: request.scope, matchOn: request.matchOn ?? "any", includeEffectAudio: request.includeEffectAudio, previousIds: request.previousIds, resultLimit: request.resultLimit ?? SEARCH_LIMITS.defaultResults })}` }];
   // Reserve the first round using its actual input. The Worker reserves later
   // rounds atomically immediately before sending them to the model provider.
-  const inputBytes = bytes({ messages, tools });
+  const inputBytes = responsesInputBytes(toResponsesRequest({ model: config.model, max_tokens: config.maxOutputTokens, messages, tools,
+    ...modelOutputOptions(detectModelOutput({ ...config, protocol: "openai" }), [], request.resultLimit ?? SEARCH_LIMITS.defaultResults, true) }));
   return { messages, tools, inputBytes,
     reservedMicros: Math.ceil((inputBytes * config.inputRate + config.maxOutputTokens * config.outputRate)
       * config.costSafety) };
@@ -106,7 +109,7 @@ async function boundedResponse(response, limit = 65536) {
   return new TextDecoder().decode(buffer);
 }
 
-async function modelRound(messages, tools, config, env, fetcher, forcedFinal, remainingMs) {
+async function modelRound(messages, tools, config, env, fetcher, forcedFinal, remainingMs, outputOptions) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.min(config.timeoutMs, remainingMs));
   try {
@@ -114,13 +117,14 @@ async function modelRound(messages, tools, config, env, fetcher, forcedFinal, re
     const deepSeekApi = upstreamHost === "api.deepseek.com";
     const dashScopeApi = ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"].includes(upstreamHost)
       || upstreamHost.endsWith(".maas.aliyuncs.com");
-    const payload = { model: config.model, messages, max_tokens: config.maxOutputTokens, stream: false, tools,
+    const payload = toResponsesRequest({ model: config.model, messages, max_output_tokens: config.maxOutputTokens, stream: false, tools,
       tool_choice: forcedFinal ? "none" : "auto",
       ...(dashScopeApi ? { parallel_tool_calls: !forcedFinal } : {}),
-      ...(forcedFinal ? { response_format: { type: "json_object" } } : {}),
+      ...outputOptions,
+      ...outputThinkingOptions(config),
       // DeepSeek thinking needs reasoning transcripts. Search uses its supported non-thinking tool path.
-      ...(config.thinking === undefined && !deepSeekApi ? {} : { thinking: { type: "disabled" } }) };
-    const response = await fetcher(config.upstream, { method: "POST", headers: {
+      ...(config.thinking === undefined && !deepSeekApi ? {} : { thinking: { type: "disabled" } }) }, config.upstream);
+    const response = await fetcher(responsesUrl(config.upstream), { method: "POST", headers: {
       "content-type": "application/json", authorization: `Bearer ${env.UPSTREAM_API_KEY}` },
       body: JSON.stringify(payload), signal: controller.signal });
     if (!response.ok) {
@@ -132,7 +136,7 @@ async function modelRound(messages, tools, config, env, fetcher, forcedFinal, re
       }
       throw new AgentError(502, "UPSTREAM_REJECTED", "上游模型暂时无法响应，请联系网站维护者。");
     }
-    let data; try { data = JSON.parse(await boundedResponse(response)); }
+    let data; try { data = normalizeResponsesResponse(JSON.parse(await boundedResponse(response))); }
     catch (error) { if (error instanceof AgentError) throw error; throw new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "模型响应无法解析。"); }
     const choice = data?.choices?.[0];
     if (!object(choice?.message) || !["stop", "tool_calls"].includes(choice.finish_reason)) {
@@ -160,14 +164,16 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
   config = resultConfig(request, config);
   const messages = structuredClone(prompt.messages), tools = prompt.tools;
   const known = new Map(), knownQueries = new Map(), steps = [], callIds = new Set();
+  const outputPolicy = detectModelOutput({ ...config, protocol: "openai" });
   let toolCount = 0, inputTokens = 0, outputTokens = 0, usageKnown = true, retrievalMode;
   const deadline = Date.now() + config.agentTimeoutMs;
   for (let round = 0; round < AGENT_LIMITS.maxModelRounds; round += 1) {
     const forcedFinal = round === AGENT_LIMITS.maxModelRounds - 1 || toolCount >= AGENT_LIMITS.maxToolCalls;
-    const roundInputBytes = bytes({ messages, tools });
+    const outputOptions = modelOutputOptions(outputPolicy, [...known.keys()], request.resultLimit ?? SEARCH_LIMITS.defaultResults, true);
+    const roundInputBytes = responsesInputBytes(toResponsesRequest({ model: config.model, max_tokens: config.maxOutputTokens, messages, tools, ...outputOptions }));
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) throw new AgentError(503, "UPSTREAM_TIMEOUT", "资产搜索超时，请稍后重试同一请求。");
-    const response = await modelRound(messages, tools, config, env, fetcher, forcedFinal, remainingMs);
+    const response = await modelRound(messages, tools, config, env, fetcher, forcedFinal, remainingMs, outputOptions);
     const usage = response.usage;
     if (Number.isInteger(usage?.prompt_tokens) && usage.prompt_tokens >= 0 && usage.prompt_tokens <= roundInputBytes
       && Number.isInteger(usage?.completion_tokens) && usage.completion_tokens >= 0 && usage.completion_tokens <= config.maxOutputTokens) {
@@ -178,21 +184,22 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
       if (response.finishReason !== "stop" || typeof message.content !== "string") throw withModelResponse(new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "模型回答格式不正确。"), message, env);
       let parsed; try { parsed = parseModelJSON(message.content); } catch { throw withModelResponse(new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "模型最终回答不是有效 JSON。"), message, env); }
       // Before any catalogue lookup, only an explicit clarification may finish without tools.
-      const clarification = object(parsed) && Object.hasOwn(parsed, "clarification");
-      if (clarification) {
-        if (parsed.clarification !== true || !Array.isArray(parsed.matches) || parsed.matches.length
-          || typeof parsed.answer !== "string" || !parsed.answer.trim()) {
+      const clarification = object(parsed) && parsed.clarification === true;
+      if (object(parsed) && Object.hasOwn(parsed, "clarification")) {
+        if (typeof parsed.clarification !== "boolean" || clarification && (!Array.isArray(parsed.matches) || parsed.matches.length
+          || typeof parsed.answer !== "string" || !parsed.answer.trim())) {
           throw withModelResponse(new AgentError(502, "UPSTREAM_RESPONSE_INVALID", "模型澄清回答格式不正确。"), message, env);
         }
         // Consume only this protocol marker; keep all other fields for the existing result validator.
         delete parsed.clarification;
-      } else if (round === 0) {
+      }
+      if (!clarification && round === 0) {
         throw new AgentError(502, "TOOLS_UNSUPPORTED", "模型未执行要求的资料库工具调用，请切换支持 function calling 的模型。");
       }
       let result;
       try { result = validateResult(parsed, [...known.values()], request.resultLimit ?? SEARCH_LIMITS.defaultResults); }
       catch (error) { throw withModelResponse(error, message, env); }
-      return { result, records: known, steps, rounds: round + 1,
+      return { result, outputConstraint: outputPolicy.mode, records: known, steps, rounds: round + 1,
         ...(retrievalMode ? { retrievalMode } : {}),
         ...(usageKnown ? { usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens } } : {}) };
     }
@@ -208,6 +215,7 @@ export async function runAssetAgent(request, prompt, config, env, handlers, vali
       return { call, args };
     });
     messages.push({ role: "assistant", content: typeof message.content === "string" ? message.content : null,
+      _responsesOutput: message._responsesOutput,
       tool_calls: message.tool_calls.map(call => ({ id: call.id, type: "function", function: call.function })) });
     for (const { call, args } of prepared) {
       toolCount += 1; let value;

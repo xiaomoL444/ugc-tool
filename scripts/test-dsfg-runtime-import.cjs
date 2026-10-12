@@ -60,37 +60,47 @@ async function main() {
       }
       visit(value); return rows;
     }
-    await test('Quest map guide booleans survive runtime import, editor reopen and export with custom IDs', () => {
+    await test('All four Quest map guide and effect combinations independently survive import, reopen and export with custom IDs', () => {
       const p = qm.createQuestProject(); customIds(p);
       const main = qm.createQuestMain(p);
-      const guided = qm.createQuestSub(p, main.id); guided.id = 199; guided.showGuide = true;
-      const hidden = qm.createQuestSub(p, main.id); hidden.id = 100; hidden.showGuide = false;
+      const combinations = [[false, false], [false, true], [true, false], [true, true]];
+      combinations.forEach(([showGuide, showEffect], index) => {
+        Object.assign(qm.createQuestSub(p, main.id), { id: [99, 100, 199, 9999][index], showGuide, showEffect });
+      });
       const output = qe.exportQuestVariables(p), imported = qi(output.json);
-      assert.deepEqual(imported.subQuests.map(sub => [sub.id, sub.showGuide]), [[100, false], [199, true]]);
-      assert.deepEqual(questRows(output.value, p.structIds.subQuest).map(row => row[13]), [
-        { param_type: 'Bool', value: 'False' }, { param_type: 'Bool', value: 'True' },
+      assert.deepEqual(imported.subQuests.map(sub => [sub.id, sub.showGuide, sub.showEffect]), [
+        [99, false, false], [100, false, true], [199, true, false], [9999, true, true],
       ]);
+      assert.deepEqual(questRows(output.value, p.structIds.subQuest).map(row => row.slice(13)),
+        combinations.map(values => values.map(value => ({ param_type: 'Bool', value: value ? 'True' : 'False' }))));
       const reopened = qm.decodeQuestProject(qm.encodeQuestProject(imported));
       assert.deepEqual(reopened, imported);
       assert.deepEqual(qe.exportQuestVariables(reopened).value, output.value);
-      for (const invalid of ['true', 'false', '1', '', 0, 1, true, false, null, {}]) {
-        const malformed = JSON.parse(output.json);
-        questRows(malformed, p.structIds.subQuest)[0][13].value = invalid;
-        assert.throws(() => qi(JSON.stringify(malformed)), /布尔值|Bool/);
+      for (const index of [13, 14]) {
+        for (const invalid of ['true', 'false', '1', '', 0, 1, true, false, null, {}]) {
+          const malformed = JSON.parse(output.json);
+          questRows(malformed, p.structIds.subQuest)[0][index].value = invalid;
+          assert.throws(() => qi(JSON.stringify(malformed)), /布尔值|Bool/);
+        }
+        const wrongType = JSON.parse(output.json);
+        questRows(wrongType, p.structIds.subQuest)[0][index].param_type = 'Int32';
+        assert.throws(() => qi(JSON.stringify(wrongType)), /Bool/);
       }
-      const wrongType = JSON.parse(output.json);
-      questRows(wrongType, p.structIds.subQuest)[0][13].param_type = 'Int32';
-      assert.throws(() => qi(JSON.stringify(wrongType)), /Bool/);
     });
-    await test('Legacy Quest runtime rows omit only trailing showGuide and backfill true', () => {
+    await test('Legacy 14/13-field Quest rows backfill only missing trailing guide booleans to true', () => {
       const p = qm.createQuestProject(); customIds(p);
-      const main = qm.createQuestMain(p); qm.createQuestSub(p, main.id); qm.createQuestSub(p, main.id);
+      const main = qm.createQuestMain(p); qm.createQuestSub(p, main.id).showGuide = false; qm.createQuestSub(p, main.id);
       const output = qe.exportQuestVariables(p), old = JSON.parse(output.json);
       const rows = questRows(old, p.structIds.subQuest); assert.equal(rows.length, 2);
-      rows.forEach(fields => { assert.equal(fields.length, 14); fields.pop(); });
-      const imported = qi(JSON.stringify(old));
-      assert.deepEqual(imported.subQuests.map(sub => sub.showGuide), [true, true]);
-      assert.deepEqual(qe.exportQuestVariables(qm.decodeQuestProject(qm.encodeQuestProject(imported))).value, output.value);
+      rows.forEach(fields => { assert.equal(fields.length, 15); fields.pop(); });
+      const imported14 = qi(JSON.stringify(old));
+      assert.deepEqual(imported14.subQuests.map(sub => [sub.showGuide, sub.showEffect]), [[false, true], [true, true]]);
+      assert.deepEqual(qe.exportQuestVariables(qm.decodeQuestProject(qm.encodeQuestProject(imported14))).value, output.value);
+      rows.forEach(fields => fields.pop());
+      const imported13 = qi(JSON.stringify(old)), expected13 = JSON.parse(output.json);
+      assert.deepEqual(imported13.subQuests.map(sub => [sub.showGuide, sub.showEffect]), [[true, true], [true, true]]);
+      questRows(expected13, p.structIds.subQuest).forEach(fields => { fields[13].value = 'True'; });
+      assert.deepEqual(qe.exportQuestVariables(qm.decodeQuestProject(qm.encodeQuestProject(imported13))).value, expected13);
       rows[0].pop();
       assert.throws(() => qi(JSON.stringify(old)), /字段数量/);
       const missingMiddle = JSON.parse(output.json);
@@ -283,8 +293,9 @@ async function main() {
         cameraNode.lines[0].clips.push(cameraClip);
         const dialogueOutput = de.exportQxqyPerformance(dialogueSource);
         const questSource = qm.createQuestProject(), questMain = qm.createQuestMain(questSource);
-        qm.createQuestSub(questSource, questMain.id).showGuide = true;
-        qm.createQuestSub(questSource, questMain.id).showGuide = false;
+        for (const [showGuide, showEffect] of [[false, false], [false, true], [true, false], [true, true]]) {
+          Object.assign(qm.createQuestSub(questSource, questMain.id), { showGuide, showEffect });
+        }
         const questOutput = qe.exportQuestVariables(questSource);
         const text = kind === 'Dialogue' ? dialogueOutput.json : kind === 'Quest' ? questOutput.json : we.exportWalkTalk(wm.createWalkTalkProject()).json;
         await context.runImport({ name: 'runtime.json', size: text.length, text: async () => text });
@@ -301,7 +312,7 @@ async function main() {
         }
         if (kind === 'Quest') {
           const persisted = qm.decodeQuestProject(files.get(outputPath));
-          assert.deepEqual(persisted.subQuests.map(sub => sub.showGuide), [true, false]);
+          assert.deepEqual(persisted.subQuests.map(sub => [sub.showGuide, sub.showEffect]), [[false, false], [false, true], [true, false], [true, true]]);
           assert.deepEqual(qe.exportQuestVariables(persisted).value, questOutput.value);
         }
         assert.equal(messages.length, 1);

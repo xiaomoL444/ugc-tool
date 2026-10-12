@@ -1,3 +1,4 @@
+const { responsesFixture, responsesMessages } = require('../tools/ai-search-service/responses-fixture.mjs');
 /* Mock-only tool calling. No network or paid model calls. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -6,7 +7,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
 const { AGENT_SEARCH_TOOLS, buildAgentSearchPayload, requestAgentSearch: requestAgentSearchActual } = require('../src/views/AISearch/agentSearchService.ts');
-const { buildSearchPayload, chatToolCompatibilityOptions } = require('../src/views/AISearch/aiSearchService.ts');
+const { buildSearchPayload, responsesToolCompatibilityOptions } = require('../src/views/AISearch/aiSearchService.ts');
 const promptFixture = '# External prompt fixture\nCURRENT query must define the requested asset. Return at most RESULT\\_LIMIT resources.\n';
 async function requestAgentSearch(payload, options) {
   const fetcher = options.fetcher;
@@ -16,8 +17,8 @@ async function requestAgentSearch(payload, options) {
       assert.equal(input.headers?.Authorization, undefined, 'Prompt storage never receives the model key');
       return new Response(promptFixture, { headers: { 'Content-Type': 'text/markdown' } });
     }
-    if (String(url).endsWith('/chat/completions')) {
-      const system = JSON.parse(input.body).messages[0].content;
+    if (String(url).endsWith('/responses')) {
+      const system = responsesMessages(JSON.parse(input.body))[0].content;
       assert.ok(system.includes('External prompt fixture'), 'The external file becomes the actual system message');
       assert.ok(system.includes(`at most ${payload.resultLimit} resources`), 'The escaped result-limit marker is expanded');
     }
@@ -29,8 +30,8 @@ const metadata = { catalogVersion: version, mode: 'keyword', counts: { total: 53
 const asset = { resourceId: 'effect:777', kind: 'effect', title: '爆炸', description: '短促爆炸', keywords: ['爆炸'], hasAudio: true, href: 'javascript:alert(1)' };
 const result = items => new Response(JSON.stringify({ ...metadata, total: items.length, items, hasMore: false }));
 const details = items => new Response(JSON.stringify({ catalogVersion: version, items, missingIds: [] }));
-const toolCall = (name, args, id = 'call-1') => new Response(JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] }));
-const finalValue = value => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] }));
+const toolCall = (name, args, id = 'call-1') => new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] })));
+const finalValue = value => new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] })));
 const final = (matches = [{ resourceId: asset.resourceId, reason: '爆炸名称', matchType: 'feature' }]) => finalValue({ answer: '已找到', matches });
 const config = { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash', apiKey: 'mock-key-only', rememberKey: false };
 const options = { mode: 'custom', config, freeBase: '/api/ai-search', signal: new AbortController().signal };
@@ -43,6 +44,17 @@ assert.ok(followup.messages[1].content.includes(asset.resourceId));
 assert.deepEqual(followup.previousIds, [asset.resourceId]);
 assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('音乐'), answer('error', [], 'error')], true, 'fresh').messages.length, 0);
 (async () => {
+  for (const reason of ['max_output_tokens', 'content_filter']) {
+    const incomplete = await toolCall('search_assets', { query: '爆炸', scope: 'effect' }).json();
+    incomplete.status = 'incomplete'; incomplete.incomplete_details = { reason };
+    let modelCalls = 0, retrievalCalls = 0;
+    await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async url => {
+      if (url.endsWith('/responses')) { modelCalls++; return new Response(JSON.stringify(incomplete)); }
+      retrievalCalls++; throw new Error('Incomplete output must not execute tools');
+    } }), error => error.code === (reason === 'max_output_tokens' ? 'OUTPUT_TRUNCATED' : 'RESPONSE_FORMAT'));
+    assert.equal(modelCalls, 1, 'Incomplete responses are not retried');
+    assert.equal(retrievalCalls, 0, 'Incomplete responses never execute function calls');
+  }
   const { assetFunctionTools } = await import('../tools/ai-search-service/agent-runtime.mjs');
   const workerQuery = assetFunctionTools().find(item => item.function.name === 'search_assets').function.parameters.properties.query.description;
   const customQuery = AGENT_SEARCH_TOOLS.find(item => item.function.name === 'search_assets').function.parameters.properties.query.description;
@@ -63,9 +75,9 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
     const expectedScope = scene.toolScope ?? scene.scope, expectedMatchOn = scene.toolMatchOn ?? scene.matchOn;
     const completed = await requestAgentSearch(scenePayload, { ...options, fetcher: async (url, input) => {
       const sent = JSON.parse(input.body);
-      if (url.endsWith('/chat/completions')) {
+      if (url.endsWith('/responses')) {
         modelCalls++;
-        const guide = sent.tools.find(item => item.function.name === 'search_assets').function.parameters.properties.query.description;
+        const guide = sent.tools.find(item => item.name === 'search_assets').parameters.properties.query.description;
         assert.equal(guide, workerQuery, 'The corrected instruction reaches the actual provider request');
         assert.match(guide, /visual effects or matchOn=visual use color, shape, motion/);
         assert.match(guide, /matchOn=audio use attack, timbre, pitch, rhythm and decay/);
@@ -93,16 +105,16 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   const calls = []; let rounds = 0;
   const found = await requestAgentSearch(payload, { ...options, fetcher: async (url, input) => {
     const body = JSON.parse(input.body); calls.push({ url, body, headers: input.headers });
-    if (url.endsWith('/chat/completions')) {
+    if (url.endsWith('/responses')) {
       rounds++;
-      assert.deepEqual(body.thinking, { type: 'disabled' });
+      assert.deepEqual(body.reasoning, { effort: 'none' });
       assert.ok(!input.body.includes(config.apiKey));
-      if (rounds === 1) { assert.equal(body.tool_choice, 'auto'); assert.ok(!body.response_format); return toolCall('search_assets', { query: '炮火', scope: 'effect' }); }
+      if (rounds === 1) { assert.equal(body.tool_choice, 'auto'); assert.equal(body.text.format.type, 'json_schema'); return toolCall('search_assets', { query: '炮火', scope: 'effect' }); }
       if (rounds === 2) {
-        assert.ok(body.messages.some(message => message.role === 'tool' && JSON.parse(message.content).items.length === 0), 'Model must receive empty evidence and be allowed to rewrite the query');
+        assert.ok(responsesMessages(body).some(message => message.role === 'tool' && JSON.parse(message.content).items.length === 0), 'Model must receive empty evidence and be allowed to rewrite the query');
         return toolCall('search_assets', { query: '爆炸', scope: 'effect' }, 'call-2');
       }
-      assert.equal(body.tool_choice, 'none'); assert.deepEqual(body.response_format, { type: 'json_object' });
+      assert.equal(body.tool_choice, 'none'); assert.equal(body.text.format.type, 'json_schema');
       return final();
     }
     assert.equal(input.headers.Authorization, undefined, 'BYOK never reaches asset service');
@@ -110,7 +122,7 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
     if (url.endsWith('/assets')) return details([asset]);
     throw new Error(`Unexpected route ${url}`);
   } });
-  assert.equal(calls[0].url, 'https://api.deepseek.com/v1/chat/completions', 'AI receives the natural request before retrieval');
+  assert.equal(calls[0].url, 'https://api.deepseek.com/responses', 'AI receives the natural request before retrieval');
   assert.equal(rounds, 3); assert.equal(found.resources[0].href, '/EffectPlayer?id=777');
   assert.equal(found.retrievalMode, 'keyword', 'The latest actual search mode overrides an earlier hybrid mode after fallback');
   assert.equal(found.matches[0].resourceId, asset.resourceId);
@@ -118,8 +130,8 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   const repairableFinal = "{answer:'已找到',matches:[{resourceId:'effect:777',reason:'名称为爆炸',matchType:'feature',}],}";
   let repairRounds = 0;
   const repairedAgent = await requestAgentSearch(payload, { ...options, fetcher: async (url) => {
-    if (url.endsWith('/chat/completions')) return ++repairRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' })
-      : new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: repairableFinal } }] }));
+    if (url.endsWith('/responses')) return ++repairRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' })
+      : new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: repairableFinal } }] })));
     if (url.endsWith('/search')) return result([asset]);
     return details([asset]);
   } });
@@ -134,15 +146,15 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   ]) {
     let rounds = 0;
     await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async url => {
-      if (url.endsWith('/chat/completions')) return ++rounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' })
-        : new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content } }] }));
+      if (url.endsWith('/responses')) return ++rounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' })
+        : new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content } }] })));
       return result([asset]);
     } }), error => error.code === expectedCode && error.rawResponse === content, 'Repaired finals still validate IDs, duplicates and shape, with unchanged raw diagnostics');
     assert.equal(rounds, 2, 'Invalid repaired fields do not trigger paid retry');
   }
   let truncatedRepairRounds = 0;
-  await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async url => url.endsWith('/chat/completions')
-    ? ++truncatedRepairRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' }) : new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: repairableFinal.slice(0, -2) } }] }))
+  await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async url => url.endsWith('/responses')
+    ? ++truncatedRepairRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' }) : new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'length', message: { content: repairableFinal.slice(0, -2) } }] })))
     : result([asset]) }), error => error.code === 'OUTPUT_TRUNCATED', 'A truncated agent final cannot be repaired into apparent success');
   await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async () => new Response('{choices:[{message:{content:"{}"},}],}') }), error => error.code === 'INVALID_RESPONSE', 'Agent provider envelopes remain strict JSON');
 
@@ -150,7 +162,7 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   const clarificationPayload = buildAgentSearchPayload(unclearQuery, 'zh-CN', 'sound', [], true, 'clarification');
   let clarificationModelCalls = 0, clarificationRetrievalCalls = 0;
   const clarified = await requestAgentSearch(clarificationPayload, { ...options, fetcher: async (url, input) => {
-    if (!url.endsWith('/chat/completions')) { clarificationRetrievalCalls++; throw new Error(`Unexpected clarification retrieval ${url}`); }
+    if (!url.endsWith('/responses')) { clarificationRetrievalCalls++; throw new Error(`Unexpected clarification retrieval ${url}`); }
     clarificationModelCalls++;
     assert.equal(JSON.parse(input.body).tool_choice, 'auto', 'DeepSeek may ask a useful question before searching');
     return finalValue({ answer: '更想要轻巧咔哒、清脆上扬，还是柔和的电子音？', matches: [], clarification: true });
@@ -167,10 +179,10 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   let directionModelCalls = 0, directionSearchCalls = 0, directionDetailCalls = 0;
   const direction = await requestAgentSearch(directionPayload, { ...options, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
-    if (url.endsWith('/chat/completions')) {
+    if (url.endsWith('/responses')) {
       if (++directionModelCalls === 1) {
-        assert.equal(body.messages[1].content, unclearQuery);
-        assert.equal(body.messages[2].content, clarified.answer, 'The question and its offered directions reach the model');
+        assert.equal(responsesMessages(body)[1].content, unclearQuery);
+        assert.equal(responsesMessages(body)[2].content, clarified.answer, 'The question and its offered directions reach the model');
         return toolCall('search_assets', { query: '短促 清脆 上扬', scope: 'sound', matchOn: 'audio', searchType: 'feature' });
       }
       return final([{ resourceId: directionAsset.resourceId, reason: '用途建议：短促清脆的听感可尝试用于解锁反馈', matchType: 'suggestion' }]);
@@ -184,7 +196,6 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   assert.equal(direction.matches[0].matchType, 'suggestion', 'Feature evidence can support a clearly labeled use recommendation');
 
   for (const value of [
-    { answer: '选哪个方向？', matches: [], clarification: false },
     { answer: '选哪个方向？', matches: [], clarification: 'true' },
     { answer: '选哪个方向？', matches: [], clarification: null },
     { answer: '选哪个方向？', matches: [], clarification: true, unknown: 'Do not discard this field' },
@@ -199,7 +210,7 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
 
   let afterSearchModelCalls = 0, afterSearchDetailCalls = 0;
   const afterSearchClarification = await requestAgentSearch(payload, { ...options, fetcher: async url => {
-    if (url.endsWith('/chat/completions')) return ++afterSearchModelCalls === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' })
+    if (url.endsWith('/responses')) return ++afterSearchModelCalls === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' })
       : finalValue({ answer: '更想要烟尘还是明亮的闪光？', matches: [], clarification: true });
     if (url.endsWith('/search')) return result([asset]);
     afterSearchDetailCalls++; throw new Error(`Unexpected empty-match detail route ${url}`);
@@ -207,7 +218,6 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   assert.equal(afterSearchModelCalls, 2); assert.equal(afterSearchDetailCalls, 0);
   assert.deepEqual(afterSearchClarification.matches, [], 'The same clarification protocol works after tools');
   for (const value of [
-    { answer: '确认一下？', matches: [], clarification: false },
     { answer: '确认一下？', matches: [{ resourceId: asset.resourceId, reason: '已搜索资源', matchType: 'feature' }], clarification: true },
   ]) {
     let modelCalls = 0;
@@ -219,7 +229,7 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   const newAsset = { ...asset, resourceId: 'effect:778', title: '黄色爆炸' };
   const more = await requestAgentSearch(followup, { ...options, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
-    if (url.endsWith('/chat/completions')) return ++moreRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' }) : final([{ resourceId: newAsset.resourceId, reason: '黄色爆炸名称', matchType: 'feature' }]);
+    if (url.endsWith('/responses')) return ++moreRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect' }) : final([{ resourceId: newAsset.resourceId, reason: '黄色爆炸名称', matchType: 'feature' }]);
     if (url.endsWith('/search')) { excluded = body.excludeIds; return result([asset, newAsset]); }
     return details([newAsset]);
   } });
@@ -229,7 +239,7 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   const music = { resourceId: 'bgm:9', kind: 'bgm', title: '战斗音乐', description: '', keywords: [] };
   const musicAnswer = await requestAgentSearch(buildAgentSearchPayload('打架用的激昂音乐', 'zh-CN', 'all', [], true, 'music'), { ...options, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
-    if (url.endsWith('/chat/completions')) {
+    if (url.endsWith('/responses')) {
       if (++musicRounds === 1) return toolCall('search_assets', { query: '激昂', scope: 'bgm' });
       if (musicRounds === 2) return toolCall('search_assets', { query: '战斗', scope: 'bgm' }, 'music-rewrite');
       return final([{ resourceId: 'bgm:9', reason: '名称为战斗音乐，尚无风格描述，需试听确认', matchType: 'feature' }]);
@@ -255,7 +265,7 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   assert.equal(repeated, 3, 'At most three model requests occur');
 
   let toolBudgetRequests = 0;
-  await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async () => { toolBudgetRequests++; return new Response(JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { tool_calls: Array.from({ length: 5 }, (_, index) => ({ id: `over-${index}`, type: 'function', function: { name: 'search_assets', arguments: '{"query":"爆炸"}' } })) } }] })); } }), error => error.code === 'AGENT_LIMIT');
+  await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async () => { toolBudgetRequests++; return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { tool_calls: Array.from({ length: 5 }, (_, index) => ({ id: `over-${index}`, type: 'function', function: { name: 'search_assets', arguments: '{"query":"爆炸"}' } })) } }] }))); } }), error => error.code === 'AGENT_LIMIT');
   assert.equal(toolBudgetRequests, 1);
 
   let freeCalls = 0;
@@ -272,24 +282,24 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
     const audioPayload = buildAgentSearchPayload(query, 'zh-CN', 'effect', [question('爆炸音效'), answer('普通音效', [{ ...asset, resourceId: 'sound:40224', kind: 'sound' }])], false, 'effect-audio-request');
     const audioFound = await requestAgentSearch(audioPayload, { ...options, fetcher: async (url, input) => {
       const body = JSON.parse(input.body);
-      if (url.endsWith('/chat/completions')) {
+      if (url.endsWith('/responses')) {
         audioRounds++;
         if (audioRounds === 1) {
-          const task = JSON.parse(body.messages.at(-1).content);
+          const task = JSON.parse(responsesMessages(body).at(-1).content);
           assert.equal(task.query, query);
           assert.equal(task.scope, 'effect');
           assert.equal(task.matchOn, 'any', 'The model receives the query before independently choosing audio evidence');
-          assert.ok(body.messages[0].content.includes('CURRENT query'));
+          assert.ok(responsesMessages(body)[0].content.includes('CURRENT query'));
           return toolCall('search_assets', { query: '爆炸', scope: 'effect', matchOn: 'audio', searchType: 'feature', filters: { hasAudio: true } });
         }
         if (audioRounds === 2) {
-          const observed = JSON.parse(body.messages.find(message => message.role === 'tool').content).items[0];
+          const observed = JSON.parse(responsesMessages(body).find(message => message.role === 'tool').content).items[0];
           assert.equal(observed.audioMatch, true);
           assert.equal(observed.visualDescription, '蓝色护盾展开');
           assert.equal(observed.audioDescription, '猛烈爆炸轰鸣');
           return toolCall('get_assets', { ids: [audioAsset.resourceId] }, 'audio-detail');
         }
-        const detail = JSON.parse(body.messages.filter(message => message.role === 'tool').at(-1).content).items[0];
+        const detail = JSON.parse(responsesMessages(body).filter(message => message.role === 'tool').at(-1).content).items[0];
         assert.equal(detail.visualDescription, '蓝色护盾展开', 'get_assets retains trusted legacy visual prose after audio projection');
         assert.equal(detail.audioDescription, '猛烈爆炸轰鸣');
         assert.deepEqual(detail.audioKeywords, ['爆炸', '轰鸣']);
@@ -319,9 +329,9 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   let missingRounds = 0;
   const missingAudio = await requestAgentSearch(buildAgentSearchPayload('带爆炸音效的特效', 'zh-CN', 'all', [], true, 'missing-audio'), { ...options, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
-    if (url.endsWith('/chat/completions')) {
+    if (url.endsWith('/responses')) {
       if (++missingRounds === 1) return toolCall('search_assets', { query: '爆炸', scope: 'effect', matchOn: 'audio', filters: { hasAudio: true } });
-      assert.equal(JSON.parse(body.messages.find(message => message.role === 'tool').content).retrievalNotice.code, 'EFFECT_AUDIO_DESCRIPTION_MISSING');
+      assert.equal(JSON.parse(responsesMessages(body).find(message => message.role === 'tool').content).retrievalNotice.code, 'EFFECT_AUDIO_DESCRIPTION_MISSING');
       return final([]);
     }
     return new Response(JSON.stringify({ ...metadata, total: 0, items: [], hasMore: false, retrievalNotice: { code: 'EFFECT_AUDIO_DESCRIPTION_MISSING' } }));
@@ -330,13 +340,13 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   let fixedFacetRounds = 0;
   await requestAgentSearch(buildAgentSearchPayload('带爆炸音效的特效', 'zh-CN', 'effect', [], false, 'fixed-audio', 10, 'audio'), { ...options, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
-    if (url.endsWith('/chat/completions')) return ++fixedFacetRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect', matchOn: 'visual' }) : final();
+    if (url.endsWith('/responses')) return ++fixedFacetRounds === 1 ? toolCall('search_assets', { query: '爆炸', scope: 'effect', matchOn: 'visual' }) : final();
     if (url.endsWith('/search')) { assert.equal(body.matchOn, 'audio', 'An explicit outer evidence constraint cannot be changed by model tool arguments'); return result([{ ...audioAsset, visualDescription: '蓝色护盾展开', audioMatch: true }]); }
     return details([audioAsset]);
   } });
   let oldWorkerModelCalls = 0;
   await assert.rejects(() => requestAgentSearch(payload, { ...options, fetcher: async url => {
-    if (url.endsWith('/chat/completions')) { oldWorkerModelCalls++; return toolCall('search_assets', { query: '爆炸', scope: 'effect', matchOn: 'audio' }); }
+    if (url.endsWith('/responses')) { oldWorkerModelCalls++; return toolCall('search_assets', { query: '爆炸', scope: 'effect', matchOn: 'audio' }); }
     return new Response('{"error":{"code":"INVALID_SEARCH"}}', { status: 400 });
   } }), error => error.code === 'RETRIEVAL_MATCH_ON_UNSUPPORTED');
   assert.equal(oldWorkerModelCalls, 1, 'An old Worker rejection does not trigger a paid retry with weaker visual evidence');
@@ -347,14 +357,14 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   const gameFound = await requestAgentSearch(buildAgentSearchPayload('更短', 'zh-CN', 'sound', [question('适合升级的尖锐音效'), answer('可尝试尖锐的强化确认。', [])], true, 'game-upgrade', 10, 'audio'), {
     ...options, fetcher: async (url, input) => {
       const body = JSON.parse(input.body);
-      if (url.endsWith('/chat/completions')) {
+      if (url.endsWith('/responses')) {
         if (++gameRounds === 1) return toolCall('search_assets', { query: '升级 短促 尖锐', scope: 'sound', matchOn: 'audio', searchType: 'feature' });
-        const observed = JSON.parse(body.messages.filter(message => message.role === 'tool').at(-1).content).items[0];
+        const observed = JSON.parse(responsesMessages(body).filter(message => message.role === 'tool').at(-1).content).items[0];
         assert.equal(observed.suggestedUses[0], gameUse, 'Custom AI sees the relevant added game use beyond the first three legacy entries');
         assert.equal(observed.description, gameSound.description);
         if (gameRounds === 2) return toolCall('get_assets', { ids: [gameSound.resourceId] }, 'game-detail');
         assert.equal(body.tool_choice, 'none');
-        assert.ok(body.messages.at(-1).content.includes('Show useful candidates even when few'));
+        assert.ok(responsesMessages(body).at(-1).content.includes('Show useful candidates even when few'));
         return finalValue({ answer: '先试这个短音；你想要轻量还是更有力度的升级反馈？', matches: [
           { resourceId: gameSound.resourceId, reason: '用途建议：短促尖锐起音可用于强化确认。', matchType: 'suggestion' },
         ] });
@@ -368,31 +378,31 @@ assert.equal(buildAgentSearchPayload('爆炸特效', 'zh-CN', 'all', [question('
   assert.equal(legacyPayload.candidates[0].suggestedUses[0], gameUse, 'Candidate-only AI also receives the relevant game use');
   assert.ok(legacyPayload.candidates[0].description.includes(gameSound.description));
   for (const host of ['dashscope.aliyuncs.com', 'dashscope-intl.aliyuncs.com', 'workspace.cn-beijing.maas.aliyuncs.com']) {
-    assert.deepEqual(chatToolCompatibilityOptions(`https://${host}/compatible-mode/v1/chat/completions`, 'qwen-flash'), { parallel_tool_calls: true });
-    assert.deepEqual(chatToolCompatibilityOptions(`https://${host}/compatible-mode/v1/chat/completions`, 'qwen-flash', false), { parallel_tool_calls: false });
+    assert.deepEqual(responsesToolCompatibilityOptions(`https://${host}/compatible-mode/v1/responses`, 'qwen-flash'), { parallel_tool_calls: true });
+    assert.deepEqual(responsesToolCompatibilityOptions(`https://${host}/compatible-mode/v1/responses`, 'qwen-flash', false), { parallel_tool_calls: false });
   }
   for (const host of ['api.deepseek.com', 'proxy.example', 'dashscope.aliyuncs.com.example', 'maas.aliyuncs.com.example']) {
-    assert.deepEqual(chatToolCompatibilityOptions(`https://${host}/v1/chat/completions`, 'qwen-flash'), {}, 'Unknown providers do not inherit DashScope options');
+    assert.deepEqual(responsesToolCompatibilityOptions(`https://${host}/v1/responses`, 'qwen-flash'), {}, 'Unknown providers do not inherit DashScope options');
   }
-  assert.deepEqual(chatToolCompatibilityOptions('https://api.openai.com/v1/chat/completions', 'gpt-6-luna', false), { reasoning_effort: 'none' });
+  assert.deepEqual(responsesToolCompatibilityOptions('https://api.openai.com/v1/responses', 'gpt-6-luna', false), {});
   let dashScopeRounds = 0;
   const dashScopeFound = await requestAgentSearch(buildAgentSearchPayload('机关锁定的声音', 'zh-CN', 'sound', [], true, 'dashscope-dual-search', 10, 'audio'), {
     ...options, config: { ...config, baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-flash' },
     fetcher: async (url, input) => {
       const body = JSON.parse(input.body);
-      if (url.endsWith('/chat/completions')) {
+      if (url.endsWith('/responses')) {
         dashScopeRounds++;
         assert.equal(body.parallel_tool_calls, dashScopeRounds < 3);
-        if (dashScopeRounds === 1) return new Response(JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [
+        if (dashScopeRounds === 1) return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [
           { id: 'usage-route', type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query: '机关锁定', searchType: 'both' }) } },
           { id: 'acoustic-route', type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query: '短促 咔哒', searchType: 'feature' }) } },
-        ] } }] }));
+        ] } }] })));
         if (dashScopeRounds === 2) {
-          assert.equal(body.messages.filter(message => message.role === 'tool').length, 2, 'Both independent results reach the next model round');
+          assert.equal(responsesMessages(body).filter(message => message.role === 'tool').length, 2, 'Both independent results reach the next model round');
           return toolCall('get_assets', { ids: [gameSound.resourceId] }, 'dashscope-detail');
         }
         assert.equal(body.tool_choice, 'none');
-        assert.equal(body.messages.filter(message => message.role === 'tool').length, 3);
+        assert.equal(responsesMessages(body).filter(message => message.role === 'tool').length, 3);
         return finalValue({ answer: '候选待场景试听。', matches: [{ resourceId: gameSound.resourceId, reason: '用途建议：短音可考虑用于瞬间确认。', matchType: 'suggestion' }] });
       }
       return url.endsWith('/search') ? result([gameSound]) : details([gameSound]);

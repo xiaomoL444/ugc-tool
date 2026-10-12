@@ -1,11 +1,13 @@
 import { boundedRawResponse } from "./responseDiagnostics";
+import { awaitRequest } from "./requestTimeout";
+import type { RequestAbortReason } from "./requestTimeout";
 
 const promptValidationCodes = ["PROMPT_TOO_LARGE", "UNSUPPORTED_CONTENT_TYPE", "INVALID_UTF8", "EMPTY_PROMPT", "HTML_RESPONSE", "INVALID_CONTROL_CHARACTERS", "REDIRECTED_RESPONSE", "MISSING_BODY"] as const;
 export type PromptValidationCode = typeof promptValidationCodes[number];
 
 export interface RequestDiagnostic {
   stage: "model" | "site" | "catalog" | "search" | "assets" | "prompt";
-  kind: "http" | "network" | "timeout" | "response";
+  kind: "http" | "network" | "timeout" | "response" | "canceled";
   endpoint?: string;
   status?: number;
   providerCode?: string;
@@ -15,6 +17,8 @@ export interface RequestDiagnostic {
   model?: string;
   round?: number;
   elapsedMs?: number;
+  totalElapsedMs?: number;
+  abortReason?: RequestAbortReason;
   browserMessage?: string;
   validationCode?: PromptValidationCode;
   responseBytes?: number;
@@ -30,7 +34,8 @@ export interface RequestContext {
 }
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const stages = ["model", "site", "catalog", "search", "assets", "prompt"];
-const kinds = ["http", "network", "timeout", "response"];
+const kinds = ["http", "network", "timeout", "response", "canceled"];
+const abortReasons = ["search_timeout", "details_timeout", "user_cancelled"];
 
 function safeEndpoint(value: unknown, secrets: readonly string[]): string | undefined {
   if (typeof value !== "string" || value.length > 8192) return;
@@ -66,6 +71,8 @@ export function sanitizeRequestDiagnostic(raw: unknown, secrets: readonly string
   if (Number.isInteger(source.status) && Number(source.status) >= 100 && Number(source.status) <= 599) result.status = Number(source.status);
   if (Number.isInteger(source.round) && Number(source.round) >= 1 && Number(source.round) <= 3) result.round = Number(source.round);
   if (typeof source.elapsedMs === "number" && Number.isFinite(source.elapsedMs) && source.elapsedMs >= 0) result.elapsedMs = Math.min(3600000, Math.round(source.elapsedMs));
+  if (typeof source.totalElapsedMs === "number" && Number.isFinite(source.totalElapsedMs) && source.totalElapsedMs >= 0) result.totalElapsedMs = Math.min(3600000, Math.round(source.totalElapsedMs));
+  if (abortReasons.includes(String(source.abortReason))) result.abortReason = source.abortReason as RequestAbortReason;
   if (promptValidationCodes.includes(source.validationCode as PromptValidationCode)) result.validationCode = source.validationCode as PromptValidationCode;
   if (Number.isInteger(source.responseBytes) && Number(source.responseBytes) >= 0 && Number(source.responseBytes) <= 1048576) result.responseBytes = Number(source.responseBytes);
   if (Number.isInteger(source.responseByteLimit) && Number(source.responseByteLimit) >= 1 && Number(source.responseByteLimit) <= 1048576) result.responseByteLimit = Number(source.responseByteLimit);
@@ -78,14 +85,17 @@ export function responseRequestDiagnostic(response: Response, context: RequestCo
 }
 export function transportRequestDiagnostic(error: unknown, context: RequestContext, signal?: AbortSignal, secrets: readonly string[] = []): RequestDiagnostic {
   const cause = object(error);
+  const reason = object(signal?.reason);
   const timeout = signal?.aborted || cause.name === "AbortError" || cause.name === "TimeoutError";
-  return sanitizeRequestDiagnostic({ ...context, kind: timeout ? "timeout" : "network",
+  return sanitizeRequestDiagnostic({ ...context, kind: reason.abortReason === "user_cancelled" ? "canceled" : timeout ? "timeout" : "network",
+    abortReason: reason.abortReason,
+    totalElapsedMs: typeof reason.startedAt === "number" ? Date.now() - reason.startedAt : undefined,
     browserMessage: typeof cause.message === "string" ? `${typeof cause.name === "string" ? cause.name + ": " : ""}${cause.message}` : undefined,
     elapsedMs: context.startedAt === undefined ? undefined : Date.now() - context.startedAt }, secrets)!;
 }
 
 /** Read a small clone of an HTTP error; invalid JSON must not hide the HTTP status. */
-export async function httpRequestDiagnostic(response: Response, context: RequestContext, secrets: readonly string[] = []): Promise<RequestDiagnostic> {
+export async function httpRequestDiagnostic(response: Response, context: RequestContext, secrets: readonly string[] = [], signal?: AbortSignal): Promise<RequestDiagnostic> {
   const diagnostic = responseRequestDiagnostic(response, context, "http", secrets);
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
@@ -94,7 +104,7 @@ export async function httpRequestDiagnostic(response: Response, context: Request
     const chunks: Uint8Array[] = [];
     let size = 0;
     while (size <= 8192) {
-      const chunk = await reader.read();
+      const chunk = await awaitRequest(() => reader!.read(), signal);
       if (chunk.done) break;
       size += chunk.value.byteLength;
       if (size > 8192) return diagnostic;
@@ -108,6 +118,6 @@ export async function httpRequestDiagnostic(response: Response, context: Request
     // Whitelist public provider fields; never save the error envelope or an HTML proxy page.
     return sanitizeRequestDiagnostic({ ...diagnostic, providerCode: error.code ?? error.type,
       providerMessage: error.message ?? payload.message, parameter: error.param }, secrets)!;
-  } catch { return diagnostic; }
+  } catch (error) { return signal?.aborted ? { ...diagnostic, ...transportRequestDiagnostic(error, context, signal, secrets) } : diagnostic; }
   finally { if (reader) { void reader.cancel().catch(() => undefined); reader.releaseLock(); } }
 }

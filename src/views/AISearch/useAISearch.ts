@@ -2,15 +2,19 @@ import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, watch } 
 import type { StorageClass } from "../../services/storage/storage";
 import { useI18n } from "vue-i18n";
 import { record, resourceHref, resolveSearchScope, resolveSearchIntent } from "./resourceCatalog";
-import { AISearchError, fetchAISearch, readAISearchJSON, featureHashesChanged, buildSearchContext, buildSearchPayload, chatCompletionsUrl, previousSearchQuery, requestSearch, parseServerCatalog, requestServerCatalog, requestServerSearchBatch, requestServerAssets } from "./aiSearchService";
+import { AISearchError, fetchAISearch, readAISearchJSON, featureHashesChanged, buildSearchContext, buildSearchPayload, modelResponsesUrl, previousSearchQuery, requestSearch, parseServerCatalog, requestServerCatalog, requestServerSearchBatch, requestServerAssets, requestServerDisplayAssets } from "./aiSearchService";
 import { buildAgentSearchPayload, requestAgentSearch } from "./agentSearchService";
 import { AISearchArchiveRepository } from "./archiveStorage";
 import { boundedRawResponse } from "./responseDiagnostics";
-import { sanitizeRequestDiagnostic, httpRequestDiagnostic, responseRequestDiagnostic } from "./requestDiagnostics";
+import { sanitizeRequestDiagnostic, httpRequestDiagnostic, responseRequestDiagnostic, transportRequestDiagnostic } from "./requestDiagnostics";
+import { createRequestDeadline, requestAbortError, CUSTOM_SEARCH_TIMEOUT_MS, ASSET_DETAILS_TIMEOUT_MS } from "./requestTimeout";
 import type { RequestDiagnostic } from "./requestDiagnostics";
 import { DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS, normalizeResultLimit } from "./resultLimits";
 import { createDataUpdateMonitor } from "./dataUpdateMonitor";
 import { resolveModelProtocol, anthropicMessagesUrl } from "./modelProtocol";
+import { recoverResultDisplay } from "./resultDisplay";
+import { OUTPUT_MODES, OUTPUT_CONSTRAINTS } from "../../../tools/ai-search-service/model-output-policy.mjs";
+import type { OutputMode, OutputConstraint } from "../../../tools/ai-search-service/model-output-policy.mjs";
 import type { ChatMessage, Conversation, FreeQuota, ModelConfig, ResourceCard, SearchMode, SearchScope, SearchResource, ServerCatalogInfo, RetrievalMode, FeatureSync } from "./types";
 
 const HISTORY_KEY = "ugc-tools.ai-search.history.v1";
@@ -39,7 +43,7 @@ function requestCatalog() {
 
 export { previousSearchQuery } from "./aiSearchService";
 
-export function restoreConversations(raw: unknown): Conversation[] {
+export function restoreConversations(raw: unknown, partialResultWarning?: string): Conversation[] {
   if (!Array.isArray(raw)) return [];
   return raw.slice(0, 30).flatMap(value => {
     const source = record(value);
@@ -47,8 +51,17 @@ export function restoreConversations(raw: unknown): Conversation[] {
     const messages: ChatMessage[] = source.messages.slice(-100).flatMap(value => {
       const item = record(value);
       if (!["user", "assistant"].includes(String(item.role))) return [];
-      const cards: ResourceCard[] = (Array.isArray(item.cards) ? item.cards : []).slice(0, MAX_SEARCH_RESULTS).flatMap(rawCard => {
+      const cards: ResourceCard[] = (Array.isArray(item.cards) ? item.cards : []).slice(0, MAX_SEARCH_RESULTS).flatMap<ResourceCard>(rawCard => {
         const card = record(rawCard);
+        if (card.unresolved === true) {
+          const resourceId = text(card.resourceId, 200);
+          if (!resourceId) return [];
+          const prefix = resourceId.match(/^(sound|effect|bgm):/)?.[1];
+          return [{ resourceId, id: resourceId, kind: (prefix || "sound") as ResourceCard["kind"], unresolved: true,
+            title: "", description: "", keywords: [], suggestedUses: [], href: "",
+            matchReason: text(card.matchReason, 800), matchType: card.matchType === "suggestion" ? "suggestion" as const : "feature" as const,
+          }];
+        }
         const match = text(card.resourceId, 40).match(/^(sound|effect|bgm):(\d{1,12})$/);
         if (!match) return [];
         const kind = match[1] as ResourceCard["kind"];
@@ -64,20 +77,27 @@ export function restoreConversations(raw: unknown): Conversation[] {
       const mode: SearchMode = item.mode === "free" || item.mode === "custom" ? item.mode : "basic";
       const status = item.status === "complete" ? "complete" : item.status === "error" ? "error" : "canceled";
       const rawResponse = item.role === "assistant" && status === "error" ? boundedRawResponse(item.rawResponse) : undefined;
-      const requestDiagnostic = item.role === "assistant" && status === "error" ? sanitizeRequestDiagnostic(item.requestDiagnostic) : undefined;
-      return [{ id: text(item.id, 100) || uid(), role: item.role as ChatMessage["role"], content: text(item.content), cards, status,
-        mode, source: mode, model: text(item.model, 100), error: status === "error", ...(rawResponse ? { rawResponse } : {}), ...(requestDiagnostic ? { requestDiagnostic } : {}) }];
+      const requestDiagnostic = item.role === "assistant" && (status === "error" || status === "complete" && text(item.resultWarning, 800)) ? sanitizeRequestDiagnostic(item.requestDiagnostic) : undefined;
+      // Older failed replies may contain only the original JSON. Restore readable IDs locally.
+      const recovered = item.role === "assistant" && status === "error" && !cards.length && rawResponse
+        ? recoverResultDisplay(rawResponse, []) : undefined;
+      const resultWarning = item.role === "assistant" ? text(item.resultWarning, 800) || (recovered ? partialResultWarning || text(item.content, 800) : "") : "";
+      return [{ id: text(item.id, 100) || uid(), role: item.role as ChatMessage["role"], content: recovered?.answer || text(item.content), cards: recovered?.cards ?? cards, status,
+        mode, source: mode, model: text(item.model, 100), error: status === "error",
+        ...(OUTPUT_CONSTRAINTS.includes(item.outputConstraint as OutputConstraint) ? { outputConstraint: item.outputConstraint as OutputConstraint } : {}),
+        ...(resultWarning ? { resultWarning } : {}), ...(rawResponse ? { rawResponse } : {}), ...(requestDiagnostic ? { requestDiagnostic } : {}) }];
     });
     const contextStart = Number.isInteger(source.contextStart) ? Math.min(messages.length, Math.max(0, Number(source.contextStart) - Math.max(0, source.messages.length - 100))) : 0;
     return [{ id: source.id.slice(0, 100), title: text(source.title, 80), updatedAt: typeof source.updatedAt === "number" ? source.updatedAt : Date.now(), messages, contextStart }];
   });
 }
 function readSavedConfig(): ModelConfig {
-  const defaults: ModelConfig = { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-flash", apiKey: "", rememberKey: false, protocol: "auto" };
+  const defaults: ModelConfig = { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-flash", apiKey: "", rememberKey: false, protocol: "auto", outputMode: "auto" };
   try {
     const saved = record(JSON.parse(localStorage.getItem(CONFIG_KEY) || "null"));
     return { baseUrl: text(saved.baseUrl, 500) || defaults.baseUrl, model: text(saved.model, 100) || defaults.model,
       protocol: saved.protocol === "openai" || saved.protocol === "anthropic" ? saved.protocol : "auto",
+      outputMode: OUTPUT_MODES.includes(saved.outputMode as OutputMode) ? saved.outputMode as OutputMode : "auto",
       rememberKey: saved.rememberKey === true, apiKey: saved.rememberKey === true ? text(saved.apiKey, 500) : sessionStorage.getItem(SESSION_KEY) || "" };
   } catch { return defaults; }
 }
@@ -138,7 +158,7 @@ export function useAISearch() {
   const freeError = ref("");
   const freeDiagnostic = shallowRef<RequestDiagnostic>();
   const freeMinBalanceCny = ref(DEFAULT_MIN_BALANCE_CNY);
-  let currentRun: { controller: AbortController; message: ChatMessage; timedOut: boolean } | undefined;
+  let currentRun: { controller: AbortController; message: ChatMessage; startedAt: number; answerReady: boolean } | undefined;
   let catalogGeneration = 0;
   let freeGeneration = 0;
   let destroyed = false;
@@ -175,19 +195,22 @@ export function useAISearch() {
     if (!currentRun) return;
     const run = currentRun;
     currentRun = undefined;
-    run.controller.abort();
+    run.controller.abort(requestAbortError("user_cancelled", run.startedAt));
     run.message.status = "canceled";
-    run.message.content = t("aiSearch.canceled");
+    if (run.answerReady) run.message.resultWarning = t("aiSearch.errors.detailsUnavailable");
+    else run.message.content = t("aiSearch.canceled");
     busy.value = false;
   }
   function saveConfig(config: ModelConfig): boolean {
     const protocol = config.protocol ?? "auto";
+    const outputMode = config.outputMode ?? "auto";
+    if (!OUTPUT_MODES.includes(outputMode)) { errorMessage.value = t("aiSearch.errors.config"); return false; }
     if (!["auto", "openai", "anthropic"].includes(protocol)) { errorMessage.value = t("aiSearch.errors.config"); return false; }
-    try { if (resolveModelProtocol({ ...config, protocol }) === "anthropic") anthropicMessagesUrl(config.baseUrl); else chatCompletionsUrl(config.baseUrl); } catch { errorMessage.value = t("aiSearch.errors.config"); return false; }
+    try { if (resolveModelProtocol({ ...config, protocol }) === "anthropic") anthropicMessagesUrl(config.baseUrl); else modelResponsesUrl(config.baseUrl); } catch { errorMessage.value = t("aiSearch.errors.config"); return false; }
     if (!config.model.trim() || config.model.length > 100 || !config.apiKey.trim() || /[\r\n]/u.test(config.apiKey.trim())) { errorMessage.value = t("aiSearch.errors.config"); return false; }
-    modelConfig.value = { baseUrl: config.baseUrl.trim(), model: config.model.trim(), apiKey: config.apiKey.trim(), rememberKey: config.rememberKey, protocol };
+    modelConfig.value = { baseUrl: config.baseUrl.trim(), model: config.model.trim(), apiKey: config.apiKey.trim(), rememberKey: config.rememberKey, protocol, outputMode };
     try {
-      localStorage.setItem(CONFIG_KEY, JSON.stringify({ baseUrl: modelConfig.value.baseUrl, model: modelConfig.value.model, rememberKey: config.rememberKey, protocol,
+      localStorage.setItem(CONFIG_KEY, JSON.stringify({ baseUrl: modelConfig.value.baseUrl, model: modelConfig.value.model, rememberKey: config.rememberKey, protocol, outputMode,
         ...(config.rememberKey ? { apiKey: modelConfig.value.apiKey } : {}) }));
       if (config.rememberKey) sessionStorage.removeItem(SESSION_KEY);
       else sessionStorage.setItem(SESSION_KEY, modelConfig.value.apiKey);
@@ -203,7 +226,7 @@ export function useAISearch() {
       if (destroyed) return;
       let legacy: string | null = null;
       if (saved) {
-        conversations.value = restoreConversations(saved.conversations);
+        conversations.value = restoreConversations(saved.conversations, t("aiSearch.errors.partialResults"));
         activeConversationId.value = conversations.value.some(item => item.id === saved.activeConversationId) ? saved.activeConversationId : conversations.value[0]?.id || "";
         mode.value = saved.selectedMode;
         resultLimit.value = normalizeResultLimit(saved.resultLimit);
@@ -213,7 +236,7 @@ export function useAISearch() {
           if (legacy.length > 2500000) throw new Error("Legacy history is too large");
           const parsed: unknown = JSON.parse(legacy);
           if (!Array.isArray(parsed)) throw new Error("Invalid legacy history");
-          conversations.value = restoreConversations(parsed);
+          conversations.value = restoreConversations(parsed, t("aiSearch.errors.partialResults"));
           activeConversationId.value = conversations.value[0]?.id || "";
         }
       }
@@ -272,7 +295,7 @@ export function useAISearch() {
     const context = { stage: "site" as const, endpoint, startedAt: Date.now() };
     try {
       const response = await fetchAISearch(endpoint, { signal: controller.signal, cache: "no-store" }, context, fetch, [], "FREE_UNAVAILABLE");
-      const diagnostic = response.ok ? undefined : await httpRequestDiagnostic(response, context);
+      const diagnostic = response.ok ? undefined : await httpRequestDiagnostic(response, context, [], controller.signal);
       let raw: Record<string, unknown>;
       try { raw = await readAISearchJSON(response, context, controller.signal); }
       catch (error) { if (diagnostic) throw new AISearchError("FREE_UNAVAILABLE", undefined, undefined, diagnostic); throw error; }
@@ -348,6 +371,8 @@ export function useAISearch() {
     return t("aiSearch.errors.network");
   }
   function diagnosticHint(diagnostic: RequestDiagnostic): string | undefined {
+    if (diagnostic.abortReason === "details_timeout") return "detailsTimeout";
+    if (diagnostic.kind === "canceled") return "canceled";
     if (diagnostic.stage === "prompt" && diagnostic.validationCode) return "promptValidation";
     if (diagnostic.stage === "prompt" && diagnostic.kind === "response") return "promptResponse";
     if (diagnostic.kind === "network") return diagnostic.status === undefined ? "noResponse" : "bodyInterrupted";
@@ -368,6 +393,8 @@ export function useAISearch() {
       ["status", diagnostic.status === undefined ? undefined : `HTTP ${diagnostic.status}`],
       ["endpoint", diagnostic.endpoint], ["model", diagnostic.model], ["round", diagnostic.round],
       ["elapsed", diagnostic.elapsedMs === undefined ? undefined : t("aiSearch.requestDiagnostics.elapsedValue", { milliseconds: Math.round(diagnostic.elapsedMs) })],
+      ["totalElapsed", diagnostic.totalElapsedMs === undefined ? undefined : t("aiSearch.requestDiagnostics.elapsedValue", { milliseconds: Math.round(diagnostic.totalElapsedMs) })],
+      ["abortReason", diagnostic.abortReason ? t(`aiSearch.requestDiagnostics.abortReasons.${diagnostic.abortReason}`) : undefined],
       ["providerCode", diagnostic.providerCode], ["providerMessage", diagnostic.providerMessage],
       ["validationCode", diagnostic.stage === "prompt" && diagnostic.validationCode ? t("aiSearch.errors.promptValidation." + diagnostic.validationCode) + " (" + diagnostic.validationCode + ")" : diagnostic.validationCode],
       ["responseBytes", diagnostic.responseBytes], ["responseByteLimit", diagnostic.responseByteLimit], ["contentType", diagnostic.contentType],
@@ -386,7 +413,7 @@ export function useAISearch() {
     const bodyInterrupted = transportFailure && diagnostic?.status !== undefined;
     const serviceDenied = !!diagnostic && diagnostic.stage !== "model" && ["AUTH", "FORBIDDEN"].includes(code);
     const promptValidation = diagnostic?.stage === "prompt" && diagnostic.validationCode ? t("aiSearch.errors.promptValidation." + diagnostic.validationCode) : undefined;
-    const base = promptValidation ?? (timedOut ? t("aiSearch.errors.timeout") : noResponse ? t("aiSearch.errors.noResponse") : bodyInterrupted ? t("aiSearch.errors.bodyInterrupted") : serviceDenied ? t("aiSearch.errors.serviceDenied") : explainErrorCode(error));
+    const base = promptValidation ?? (timedOut || diagnostic?.kind === "timeout" ? t("aiSearch.errors.timeout") : noResponse ? t("aiSearch.errors.noResponse") : bodyInterrupted ? t("aiSearch.errors.bodyInterrupted") : serviceDenied ? t("aiSearch.errors.serviceDenied") : explainErrorCode(error));
     if (!diagnostic) return base;
     const context = `${t("aiSearch.requestDiagnostics.stage")}: ${t(`aiSearch.requestDiagnostics.stages.${diagnostic.stage}`)}${diagnostic.status === undefined ? "" : ` · HTTP ${diagnostic.status}`}`;
     const reason = [diagnostic.providerCode, diagnostic.providerMessage].filter(Boolean).join(": ").slice(0, 240);
@@ -430,10 +457,11 @@ export function useAISearch() {
     if (conversation.messages.length === 2) conversation.title = query.slice(0, 36);
     conversation.updatedAt = Date.now();
     errorMessage.value = "";
-    const run = { controller: new AbortController(), message: reply, timedOut: false };
+    const run = { controller: new AbortController(), message: reply, startedAt: Date.now(), answerReady: false };
     currentRun = run;
     busy.value = true;
-    const timer = setTimeout(() => { run.timedOut = true; run.controller.abort(); }, agentWorkflow ? 60000 : 45000);
+    const modelPhase = createRequestDeadline(run.controller.signal, selectedMode === "custom" ? CUSTOM_SEARCH_TIMEOUT_MS : agentWorkflow ? 60000 : 45000,
+      "search_timeout", run.startedAt);
     try {
       if (agentWorkflow) {
         const history = conversation.messages.slice(conversation.contextStart, -2);
@@ -441,25 +469,56 @@ export function useAISearch() {
         // the explicit selector as a filter, rather than inferring one up front.
         const payload = buildAgentSearchPayload(query, requestLocale, scope.value, history, includeAudio, uid(), selectedResultLimit);
         if (selectedMode === "free") payload.previousIds = payload.previousIds.slice(0, freePreviousIdLimit.value);
-        const result = await requestAgentSearch(payload, { mode: selectedMode as "free" | "custom", config: { ...modelConfig.value }, freeBase: FREE_BASE, signal: run.controller.signal,
+        const result = await requestAgentSearch(payload, { mode: selectedMode as "free" | "custom", config: { ...modelConfig.value }, freeBase: FREE_BASE, signal: modelPhase.signal,
+          hydrateFinalAssets: selectedMode !== "custom",
           maxSearchLimit: serverCatalog.value?.maxSearchLimit, maxAssetIds: serverCatalog.value?.maxAssetIds,
           maxPreviousIds: serverCatalog.value?.maxPreviousIds, maxExcludeIds: serverCatalog.value?.maxExcludeIds });
+        if (modelPhase.signal.aborted) throw modelPhase.signal.reason;
         if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
+        modelPhase.dispose();
         if (result.quota) freeQuota.value = result.quota;
         if (selectedMode === "free" && text(result.model, 100)) freeModel.value = text(result.model, 100);
         observeFeatureSync(result.featureSync);
         if (result.retrievalMode) retrievalMode.value = result.retrievalMode;
         reply.content = result.answer;
         reply.model = result.model;
+        reply.outputConstraint = result.outputConstraint;
         reply.cards = result.matches.flatMap(match => {
           const item = result.resources?.find(item => item.resourceId === match.resourceId);
           return item ? [{ ...item, matchReason: match.reason, matchType: match.matchType }] : [];
         });
         reply.status = "complete";
+        run.answerReady = true;
+        if (selectedMode === "custom" && result.pendingAssetIds?.length && result.catalogVersion) {
+          const detailsStartedAt = Date.now();
+          const detailsPhase = createRequestDeadline(run.controller.signal, ASSET_DETAILS_TIMEOUT_MS, "details_timeout", run.startedAt);
+          try {
+            const details = await detailsPhase.run(signal => requestServerAssets(FREE_BASE, result.pendingAssetIds!, requestLocale,
+              result.catalogVersion!, signal, new Set(result.resources?.filter(item => item.audioMatch).map(item => item.resourceId)),
+              undefined, state => { if (currentRun === run && !run.controller.signal.aborted && !destroyed) observeFeatureSync(state); }, serverCatalog.value?.maxAssetIds));
+            if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
+            const fullDetails = new Map(details.map(item => [item.resourceId, item]));
+            reply.cards = reply.cards.map(card => {
+              const detail = fullDetails.get(card.resourceId);
+              if (!detail) return card;
+              return { ...detail, matchReason: card.matchReason, matchType: card.matchType,
+                ...(card.audioMatch ? { audioMatch: true, description: detail.audioDescription || card.description,
+                  keywords: detail.audioKeywords?.length ? detail.audioKeywords : card.keywords,
+                  suggestedUses: detail.audioSuggestedUses?.length ? detail.audioSuggestedUses : card.suggestedUses } : {}) };
+            });
+          } catch (error) {
+            if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
+            if (error instanceof AISearchError && (error.code === "CATALOG_CHANGED" || /CATALOG_VERSION/u.test(error.code))) throw error;
+            reply.resultWarning = t("aiSearch.errors.detailsUnavailable");
+            const diagnostic = error instanceof AISearchError && error.requestDiagnostic ? error.requestDiagnostic
+              : transportRequestDiagnostic(error, { stage: "assets", endpoint: `${FREE_BASE}/assets`, startedAt: detailsStartedAt }, detailsPhase.signal);
+            reply.requestDiagnostic = sanitizeRequestDiagnostic({ ...diagnostic, totalElapsedMs: Date.now() - run.startedAt }, [modelConfig.value.apiKey]);
+          } finally { detailsPhase.dispose(); }
+        }
         return;
       }
       const retrieved = await requestServerSearchBatch(FREE_BASE, { query, locale: requestLocale, scope: selectedScope, matchOn: selectedIntent.matchOn, includeEffectAudio: includeAudio, limit: Math.max(20, selectedResultLimit),
-        ...(selectedIntent.filters ? { filters: selectedIntent.filters, searchType: "feature" } : {}), previousIds: previousCards.slice(0, MAX_SEARCH_RESULTS).map(card => card.resourceId), previousQuery: previousSearchQuery(context), ...(excludeIds.length ? { excludeIds } : {}) }, run.controller.signal, undefined, serverCatalog.value?.maxSearchLimit,
+        ...(selectedIntent.filters ? { filters: selectedIntent.filters, searchType: "feature" } : {}), previousIds: previousCards.slice(0, MAX_SEARCH_RESULTS).map(card => card.resourceId), previousQuery: previousSearchQuery(context), ...(excludeIds.length ? { excludeIds } : {}) }, modelPhase.signal, undefined, serverCatalog.value?.maxSearchLimit,
         { maxPreviousIds: serverCatalog.value?.maxPreviousIds, maxExcludeIds: serverCatalog.value?.maxExcludeIds });
       if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
       const candidates = retrieved.items;
@@ -479,7 +538,7 @@ export function useAISearch() {
       }
       const detailsFor = async (chosen: SearchResource[]) => {
         if (!chosen.length) return chosen;
-        const details = await requestServerAssets(FREE_BASE, chosen.map(item => item.resourceId), requestLocale, catalogVersion, run.controller.signal, new Set(chosen.filter(item => item.audioMatch).map(item => item.resourceId)), undefined, state => { if (currentRun === run && !destroyed) observeFeatureSync(state); }, serverCatalog.value?.maxAssetIds);
+        const details = await requestServerAssets(FREE_BASE, chosen.map(item => item.resourceId), requestLocale, catalogVersion, modelPhase.signal, new Set(chosen.filter(item => item.audioMatch).map(item => item.resourceId)), undefined, state => { if (currentRun === run && !destroyed) observeFeatureSync(state); }, serverCatalog.value?.maxAssetIds);
         return chosen.map(summary => {
           const detail = details.find(item => item.resourceId === summary.resourceId)!;
           // A projected audio summary can safely fill absent audio detail fields; visual detail cannot.
@@ -499,7 +558,7 @@ export function useAISearch() {
         const modelCandidates = selectedMode === "free" ? candidates.slice(0, freeResultLimit.value > 5 ? MAX_SEARCH_RESULTS : 12) : candidates;
         const payload = buildSearchPayload(query, requestLocale, selectedScope, context, serverFree ? [] : modelCandidates, uid(), selectedResultLimit, selectedIntent.matchOn);
         const boundedCandidates = serverFree ? modelCandidates : modelCandidates.filter(item => payload.candidates.some(candidate => candidate.resourceId === item.resourceId));
-        const result = await requestSearch(payload, boundedCandidates, { mode: selectedMode, config: { ...modelConfig.value }, freeBase: FREE_BASE, signal: run.controller.signal,
+        const result = await requestSearch(payload, boundedCandidates, { mode: selectedMode, config: { ...modelConfig.value }, freeBase: FREE_BASE, signal: modelPhase.signal,
           ...(serverFree ? { server: { catalogVersion, includeEffectAudio: includeAudio } } : {}) });
         if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
         if (result.quota) freeQuota.value = result.quota;
@@ -510,6 +569,7 @@ export function useAISearch() {
         if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
         reply.content = result.answer;
         reply.model = result.model;
+        reply.outputConstraint = result.outputConstraint;
         reply.cards = result.matches.flatMap(match => {
           const item = detailed.find(item => item.resourceId === match.resourceId);
           return item ? [{ ...item, matchReason: match.reason, matchType: match.matchType }] : [];
@@ -518,13 +578,37 @@ export function useAISearch() {
       if (currentRun === run) reply.status = "complete";
     } catch (error) {
       if (currentRun !== run || destroyed) return;
+      run.answerReady = false;
       reply.status = "error";
       reply.error = true;
-      reply.content = explainError(error, run.timedOut);
-      const requestDiagnostic = error instanceof AISearchError ? sanitizeRequestDiagnostic(error.requestDiagnostic, [modelConfig.value.apiKey]) : undefined;
+      const timedOut = modelPhase.signal.aborted && modelPhase.signal.reason?.name === "TimeoutError";
+      reply.content = explainError(error, timedOut);
+      const requestDiagnostic = error instanceof AISearchError ? sanitizeRequestDiagnostic({ ...error.requestDiagnostic, totalElapsedMs: Date.now() - run.startedAt }, [modelConfig.value.apiKey]) : undefined;
       if (requestDiagnostic) reply.requestDiagnostic = requestDiagnostic;
-      if (!run.timedOut && error instanceof AISearchError && error.rawResponse) reply.rawResponse = error.rawResponse;
+      if (!timedOut && error instanceof AISearchError && error.rawResponse) reply.rawResponse = error.rawResponse;
+      if (!timedOut && !run.controller.signal.aborted && error instanceof AISearchError
+        && (error.code === "RESPONSE_ASSET_ID" || error.code === "UPSTREAM_RESPONSE_INVALID")) {
+        const display = error.displayResult ?? recoverResultDisplay(error.rawResponse, [], [modelConfig.value.apiKey.trim()]);
+        if (display) {
+          reply.content = display.answer || reply.content;
+          reply.cards = display.cards;
+          reply.resultWarning = t("aiSearch.errors.partialResults");
+          // Show IDs immediately; any failed detail lookup leaves its placeholder visible.
+          const missingIds = display.cards.filter(card => card.unresolved).map(card => card.resourceId);
+          try {
+            const details = await requestServerDisplayAssets(FREE_BASE, missingIds, requestLocale, modelPhase.signal, undefined, serverCatalog.value?.maxAssetIds);
+            if (currentRun !== run || run.controller.signal.aborted || destroyed) return;
+            const known = new Map(details.map(item => [item.resourceId, item]));
+            reply.cards = display.cards.map(card => {
+              const item = known.get(card.resourceId);
+              return card.unresolved && item ? { ...item, matchReason: card.matchReason, matchType: card.matchType } : card;
+            });
+          } catch { /* Rendering the original IDs does not depend on asset availability. */ }
+        }
+      }
       if (error instanceof AISearchError && (error.code === "CATALOG_CHANGED" || /CATALOG_VERSION/u.test(error.code))) {
+        reply.cards = [];
+        reply.resultWarning = undefined;
         retryQuery.value = query;
         retryConversationId.value = conversation.id;
         // Refresh evidence only. Retrying a model call requires a fresh user action.
@@ -540,7 +624,7 @@ export function useAISearch() {
         } else void refreshFreeStatus();
       }
     } finally {
-      clearTimeout(timer);
+      modelPhase.dispose();
       if (currentRun === run) { currentRun = undefined; busy.value = false; }
     }
   }

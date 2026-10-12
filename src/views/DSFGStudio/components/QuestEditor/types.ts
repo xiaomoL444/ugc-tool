@@ -24,6 +24,7 @@ export interface QuestSub {
   investigationRange: number;
   hidden: boolean;
   showGuide: boolean;
+  showEffect: boolean;
   nextQuestIds: Array<number | null>;
   /** -1 是默认标记；null 表示主动清空或目标被删除，导出时需警告。 */
   failureQuestId: number | null;

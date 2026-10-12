@@ -30,6 +30,10 @@
   },
   "include": [
     "tools/ai-search-service/asset-features.d.mts",
+    "tools/ai-search-service/model-output-policy.d.mts",
+    "tools/ai-search-service/model-output-policy.mjs.d.ts",
+    "tools/ai-search-service/model-responses.mjs.d.ts",
+    "tools/ai-search-service/model-responses.d.mts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "src/**/*.vue",

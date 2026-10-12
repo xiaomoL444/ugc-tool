@@ -1,3 +1,4 @@
+const { responsesFixture, responsesMessages } = require('../tools/ai-search-service/responses-fixture.mjs');
 /* NODE_PATH=<bundled playwright modules> node scripts/test-ai-search-browser.cjs [base URL] */
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
@@ -147,41 +148,41 @@ async function install(context, state) {
     (state.events ||= []).push('model');
     if (state.delay) await new Promise(resolve => setTimeout(resolve, 1500));
     const modelRequest = state.customRequests.at(-1).payload;
-    const system = modelRequest.messages[0].content;
+    const system = responsesMessages(modelRequest)[0].content;
     assert.ok(system.includes('Browser external prompt fixture'), 'Custom model system messages use the OSS file');
     assert.ok(!/RESULT(?:\\_)?LIMIT/u.test(system), 'Result-limit placeholders are expanded before model calls');
     if (modelRequest.tools) {
-      const tasks = modelRequest.messages.filter(message => message.role === 'user').flatMap(message => {
+      const tasks = responsesMessages(modelRequest).filter(message => message.role === 'user').flatMap(message => {
         try { const value = JSON.parse(message.content); return value.query ? [value] : []; } catch { return []; }
       });
       const task = tasks.at(-1);
-      const toolResults = modelRequest.messages.filter(message => message.role === 'tool').map(message => JSON.parse(message.content));
+      const toolResults = responsesMessages(modelRequest).filter(message => message.role === 'tool').map(message => JSON.parse(message.content));
       const latest = toolResults.at(-1);
       if (state.effectAudioScenario) {
-        if (!latest) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: `browser_audio_${state.customRequests.length}`, type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query: '爆炸', scope: 'effect', matchOn: 'audio', searchType: 'feature', filters: { hasAudio: true } }) } }] } }] }) });
-        if (latest.items.length && toolResults.length === 1) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: `browser_audio_detail_${state.customRequests.length}`, type: 'function', function: { name: 'get_assets', arguments: JSON.stringify({ ids: [effectAudioAsset.resourceId] }) } }] } }] }) });
-        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: latest.items.length ? '找到带爆炸音轨的特效。' : '特效音轨尚无特征描述，无法确认爆炸音效。', matches: latest.items.length ? [{ resourceId: effectAudioAsset.resourceId, reason: '音轨描述为爆炸轰鸣', matchType: 'feature' }] : [] }) } }] }) });
+        if (!latest) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: `browser_audio_${state.customRequests.length}`, type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query: '爆炸', scope: 'effect', matchOn: 'audio', searchType: 'feature', filters: { hasAudio: true } }) } }] } }] })) });
+        if (latest.items.length && toolResults.length === 1) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: `browser_audio_detail_${state.customRequests.length}`, type: 'function', function: { name: 'get_assets', arguments: JSON.stringify({ ids: [effectAudioAsset.resourceId] }) } }] } }] })) });
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: latest.items.length ? '找到带爆炸音轨的特效。' : '特效音轨尚无特征描述，无法确认爆炸音效。', matches: latest.items.length ? [{ resourceId: effectAudioAsset.resourceId, reason: '音轨描述为爆炸轰鸣', matchType: 'feature' }] : [] }) } }] })) });
       }
       if (state.quantityScenario && task.query.includes('数量测试')) {
-        if (!latest) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: `browser_quantity_${state.customRequests.length}`, type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query: task.query, scope: 'sound', limit: task.resultLimit }) } }] } }] }) });
+        if (!latest) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: `browser_quantity_${state.customRequests.length}`, type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query: task.query, scope: 'sound', limit: task.resultLimit }) } }] } }] })) });
         const matches = latest.items.slice(0, task.resultLimit).map(item => ({ resourceId: item.resourceId, reason: '数量测试词条匹配', matchType: 'feature' }));
-        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: '已通过工具找到资源。', matches }) } }] }) });
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answer: '已通过工具找到资源。', matches }) } }] })) });
       }
       if (!latest || latest.items?.length === 0 && toolResults.length === 1 && /音乐/u.test(task.query)) {
         const music = /音乐/u.test(task.query);
         const more = /再来点/u.test(task.query);
         const query = latest ? /激昂/u.test(task.query) ? '战斗' : '轻松' : more ? '爆炸' : task.query;
         const scope = task.scope !== 'all' ? task.scope : music ? 'bgm' : /特效|再来点/u.test(task.query) ? 'effect' : 'sound';
-        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: `browser_call_${state.customRequests.length}`, type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query, scope, ...(more ? { excludePrevious: true } : {}) }) } }] } }] }) });
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: `browser_call_${state.customRequests.length}`, type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query, scope, ...(more ? { excludePrevious: true } : {}) }) } }] } }] })) });
       }
       const candidate = latest.items?.[0];
       const answer = { answer: candidate ? candidate.kind === 'bgm' ? '按战斗标题推荐，请试听；现有资料不能确认节奏和情绪。' : '已通过工具找到资源。' : '音乐尚未提供情绪和节奏描述，换词搜索后也没有可靠结果。', matches: candidate ? [{ resourceId: candidate.resourceId, reason: candidate.kind === 'bgm' ? '仅根据战斗标题推荐' : '工具返回的真实资料', matchType: candidate.kind === 'bgm' ? 'suggestion' : 'feature' }] : [] };
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(answer) } }] }) });
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(answer) } }] })) });
     }
-    const payload = JSON.parse(state.customRequests.at(-1).payload.messages.at(-1).content);
+    const payload = JSON.parse(responsesMessages(state.customRequests.at(-1).payload).at(-1).content);
     const candidate = payload.candidates[0];
     const answer = { answer: '<img src=x onerror=alert(1)>', matches: state.invented ? [{ resourceId: 'sound:99999999', reason: 'invented', matchType: 'feature' }] : candidate ? [{ resourceId: candidate.resourceId, reason: 'matching evidence', matchType: 'feature' }] : [] };
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ choices: [{ finish_reason: state.truncated ? 'length' : 'stop', message: { content: JSON.stringify(answer) } }] }) }).catch(() => {});
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(responsesFixture({ choices: [{ finish_reason: state.truncated ? 'length' : 'stop', message: { content: JSON.stringify(answer) } }] })) }).catch(() => {});
   });
 }
 async function send(page, text) {
@@ -622,9 +623,9 @@ async function testEffectAudio(browser) {
       const before = state.customRequests.length;
       await send(page, query);
       assert.equal(state.customRequests.length, before + 3, 'The model searches and inspects details before selecting the effect');
-      const firstTask = JSON.parse(state.customRequests[before].payload.messages.at(-1).content);
+      const firstTask = JSON.parse(responsesMessages(state.customRequests[before].payload).at(-1).content);
       assert.equal(firstTask.query, query); assert.equal(firstTask.scope, 'all'); assert.equal(firstTask.matchOn, 'any');
-      const detail = JSON.parse(state.customRequests.at(-1).payload.messages.filter(message => message.role === 'tool').at(-1).content).items[0];
+      const detail = JSON.parse(responsesMessages(state.customRequests.at(-1).payload).filter(message => message.role === 'tool').at(-1).content).items[0];
       assert.equal(detail.visualDescription, '蓝色护盾向外展开'); assert.equal(detail.audioDescription, '猛烈爆炸轰鸣'); assert.deepEqual(detail.audioKeywords, ['爆炸', '轰鸣']);
       await assertEffectCard();
     }
@@ -1123,7 +1124,7 @@ async function testFeatureSync(browser) {
     await page.getByRole('button', { name: '全部资产', exact: true }).click();
     for (const query of ['帮我找受击声', '有没有受击的音效', '更短一点']) {
       await send(page, query);
-      const payload = JSON.parse(state.customRequests.at(-1).payload.messages.at(-1).content);
+      const payload = JSON.parse(responsesMessages(state.customRequests.at(-1).payload).at(-1).content);
       assert.equal(payload.scope, 'sound', 'Model and retrieval must share the resolved scope');
       assert.ok(payload.candidates.length > 0 && payload.candidates.every(item => item.kind === 'sound'));
       assert.equal(await page.locator('.chat-message').last().locator('.resource-sound').count(), 1);
@@ -1203,11 +1204,11 @@ async function testFeatureSync(browser) {
     assert.equal(serverState.customRequests.length, 2);
     assert.equal(serverState.promptRequests, 1, 'A custom agent downloads one prompt for the complete tool turn');
     assert.deepEqual(serverState.events, ['model', 'search', 'model'], 'Model interprets the request before retrieval');
-    const initialTask = JSON.parse(serverState.customRequests[0].payload.messages.at(-1).content);
+    const initialTask = JSON.parse(responsesMessages(serverState.customRequests[0].payload).at(-1).content);
     assert.equal(initialTask.query, '雷声');
     assert.ok(!('candidates' in initialTask), 'No keyword shortlist gates the initial model request');
-    assert.ok(serverState.customRequests[0].payload.tools.some(tool => tool.function.name === 'search_assets'));
-    const searched = JSON.parse(serverState.customRequests[1].payload.messages.find(message => message.role === 'tool').content);
+    assert.ok(serverState.customRequests[0].payload.tools.some(tool => tool.name === 'search_assets'));
+    const searched = JSON.parse(responsesMessages(serverState.customRequests[1].payload).find(message => message.role === 'tool').content);
     assert.ok(searched.items.some(item => item.resourceId === 'sound:88001'));
     assert.ok(searched.items.filter(item => item.kind === 'effect').every(item => !item.description.includes('蓝色')));
     assert.equal(serverState.assetRequests.length, 2);
@@ -1229,7 +1230,7 @@ async function testFeatureSync(browser) {
     await send(serverPage, '爆炸特效');
     const switched = serverState.customRequests[callsBeforeExplosion].payload;
     assert.equal(serverState.customRequests.length, callsBeforeExplosion + 2);
-    assert.equal(JSON.parse(switched.messages.at(-1).content).query, '爆炸特效');
+    assert.equal(JSON.parse(responsesMessages(switched).at(-1).content).query, '爆炸特效');
     assert.equal(serverState.searchRequests.at(-1).scope, 'effect');
     assert.equal(await serverPage.locator('.chat-message').last().locator('.resource-effect').count(), 1);
     assert.equal(await serverPage.locator('.chat-message').last().locator('h3').innerText(), '爆炸特效');
@@ -1303,7 +1304,7 @@ async function testFeatureSync(browser) {
     const customQuantityResults = await readAllResults(serverPage.locator('.chat-message').last());
     assert.equal(customQuantityResults.length, 20, 'Custom model tool loop renders all twenty matches');
     assert.deepEqual(customQuantityResults.map(item => item.href), quantityAssets.slice(0, 20).map(item => `/SoundEffectPlayer?id=${item.resourceId.split(':')[1]}`), 'Desktop pagination preserves every asset ID in the model result order');
-    const quantityTask = JSON.parse(serverState.customRequests.at(-2).payload.messages.at(-1).content);
+    const quantityTask = JSON.parse(responsesMessages(serverState.customRequests.at(-2).payload).at(-1).content);
     assert.equal(quantityTask.resultLimit, 20, 'Custom model receives selected twenty-result limit');
     await serverPage.setViewportSize({ width: 390, height: 844 });
     await serverPage.waitForFunction(() => [...document.querySelectorAll('.chat-message')].at(-1)?.querySelectorAll('.resource-card').length === 1);

@@ -1,3 +1,4 @@
+const { responsesFixture, responsesMessages } = require('../tools/ai-search-service/responses-fixture.mjs');
 /* Run: node scripts/test-ai-search-request-diagnostics.cjs. Mock-only, no keys or network. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -6,7 +7,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
 const { sanitizeRequestDiagnostic } = require('../src/views/AISearch/requestDiagnostics.ts');
-const { AISearchError, buildSearchPayload, chatCompletionsUrl, requestSearch, requestServerCatalog, requestServerSearch, requestServerAssets } = require('../src/views/AISearch/aiSearchService.ts');
+const { AISearchError, buildSearchPayload, modelResponsesUrl, requestSearch, requestServerCatalog, requestServerSearch, requestServerAssets } = require('../src/views/AISearch/aiSearchService.ts');
 const { buildAgentSearchPayload, requestAgentSearch } = require('../src/views/AISearch/agentSearchService.ts');
 const fakeKey = 'mock-secret-request-diagnostics-only';
 const config = { baseUrl: 'https://api.openai.com', model: 'mock-compatible-model', apiKey: fakeKey, rememberKey: false };
@@ -20,15 +21,15 @@ const promptFixture = '# Request diagnostic fixture\nReturn at most RESULT_LIMIT
 const metadata = { catalogVersion: 'diagnostic-catalog-v1', mode: 'keyword', counts: { total: 1 }, coverage: 1 };
 const jsonResponse = (value, options = {}) => new Response(JSON.stringify(value), { ...options,
   headers: { 'content-type': 'application/json', ...options.headers } });
-const modelResponse = value => jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] });
-const searchTool = () => jsonResponse({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{
+const modelResponse = value => jsonResponse(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] }));
+const searchTool = () => jsonResponse(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{
   id: 'diagnostic-search', type: 'function', function: { name: 'search_assets', arguments: JSON.stringify({ query: '金属撞击', scope: 'sound' }) },
-}] } }] });
-const detailsTool = () => jsonResponse({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{
+}] } }] }));
+const detailsTool = () => jsonResponse(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{
   id: 'diagnostic-details', type: 'function', function: { name: 'get_assets', arguments: JSON.stringify({ ids: [resource.resourceId] }) },
-}] } }] });
+}] } }] }));
 const isPrompt = url => String(url).split('?')[0].endsWith('/AISearch/SystemPrompt.md');
-const isModel = url => String(url).endsWith('/chat/completions');
+const isModel = url => String(url).endsWith('/responses');
 function fixtureFetch(route) {
   const counts = { model: 0, site: 0, prompt: 0 };
   const fetcher = async (url, options = {}) => {
@@ -72,18 +73,18 @@ async function runModelFailure(mode, route, signal = new AbortController().signa
 }
 
 (async () => {
-  const sanitized = sanitizeRequestDiagnostic({ stage: 'model', kind: 'http', endpoint: 'https://username:password@provider.example/v1/chat/completions?token=PRIVATE_QUERY#PRIVATE_HASH',
+  const sanitized = sanitizeRequestDiagnostic({ stage: 'model', kind: 'http', endpoint: 'https://username:password@provider.example/v1/responses?token=PRIVATE_QUERY#PRIVATE_HASH',
     status: 400, model: 'mock-model', round: 2, requestId: 'request-fake', parameter: 'max_tokens',
     providerCode: 'unsupported_parameter', providerMessage: `Unsupported parameter; ${fakeKey}; Bearer sk-private-diagnostic-key; https://name:pass@provider.example/?key=PRIVATE_QUERY`,
     browserMessage: `network ${fakeKey}`, elapsedMs: 42, headers: { Authorization: `Bearer ${fakeKey}` }, rawBody: 'PRIVATE_ENVELOPE', extra: 'PRIVATE_EXTRA' }, [fakeKey]);
-  assert.equal(sanitized.endpoint, 'https://provider.example/v1/chat/completions');
+  assert.equal(sanitized.endpoint, 'https://provider.example/v1/responses');
   assert.equal(sanitized.stage, 'model'); assert.equal(sanitized.kind, 'http'); assert.equal(sanitized.status, 400);
   assert.equal(sanitized.parameter, 'max_tokens'); assert.equal(sanitized.round, 2);
   assert.doesNotMatch(JSON.stringify(sanitized), /mock-secret|PRIVATE_QUERY|PRIVATE_HASH|sk-private|username|password|name:pass|PRIVATE_ENVELOPE|PRIVATE_EXTRA/);
   assert.equal(Object.hasOwn(sanitized, 'headers'), false); assert.equal(Object.hasOwn(sanitized, 'rawBody'), false);
   assert.equal(sanitizeRequestDiagnostic({ stage: 'unknown', kind: 'http' }), undefined);
   assert.equal(sanitizeRequestDiagnostic({ stage: 'model', kind: 'unknown' }), undefined);
-  assert.ok((sanitizeRequestDiagnostic({ stage: 'model', kind: 'response', endpoint: 'https://provider.example/v1/chat/completions', providerMessage: 'x'.repeat(100000) })?.providerMessage ?? '').length < 100000);
+  assert.ok((sanitizeRequestDiagnostic({ stage: 'model', kind: 'response', endpoint: 'https://provider.example/v1/responses', providerMessage: 'x'.repeat(100000) })?.providerMessage ?? '').length < 100000);
 
   const promptFields = { stage: 'prompt', kind: 'response', status: 200, validationCode: 'INVALID_UTF8', responseBytes: 16783, responseByteLimit: 32768, contentType: 'text/markdown' };
   assert.deepEqual(sanitizeRequestDiagnostic({ ...promptFields, body: 'PRIVATE_PROMPT_BODY', headers: { authorization: fakeKey } }), promptFields);
@@ -100,22 +101,21 @@ async function runModelFailure(mode, route, signal = new AbortController().signa
   assert.equal(sanitizeRequestDiagnostic({ ...promptFields, contentType: 'x'.repeat(1000) }).contentType.length, 160);
 
   const officialInputs = ['https://api.openai.com', 'https://api.openai.com/', 'https://api.openai.com/v1',
-    'https://api.openai.com/v1/chat/completions', 'https://api.openai.com/v1/responses', 'https://api.openai.com/v1/responses/',
-    'https://api.openai.com/v1/responses/chat/completions', 'https://api.openai.com/responses', 'https://api.openai.com/responses/chat/completions'];
-  for (const baseUrl of officialInputs) assert.equal(chatCompletionsUrl(baseUrl), 'https://api.openai.com/v1/chat/completions', `Normalize known official API path ${baseUrl}`);
-  assert.equal(chatCompletionsUrl('https://provider.example/v1'), 'https://provider.example/v1/chat/completions');
+    'https://api.openai.com/v1/responses', 'https://api.openai.com/v1/responses', 'https://api.openai.com/v1/responses/',
+    'https://api.openai.com/v1/responses/responses', 'https://api.openai.com/responses', 'https://api.openai.com/responses/responses'];
+  for (const baseUrl of officialInputs) assert.equal(modelResponsesUrl(baseUrl), 'https://api.openai.com/v1/responses', `Normalize known official API path ${baseUrl}`);
+  assert.equal(modelResponsesUrl('https://provider.example/v1'), 'https://provider.example/v1/responses');
   for (const [baseUrl, expected] of [
-    ['https://provider.example/openai/v1', 'https://provider.example/openai/v1/chat/completions'],
-    ['https://provider.example/v1/responses/chat/completions', 'https://provider.example/v1/responses/chat/completions'],
-    ['https://provider.example/custom/chat/completions', 'https://provider.example/custom/chat/completions'],
-  ]) assert.equal(chatCompletionsUrl(baseUrl), expected, 'Do not rewrite compatible providers\' custom paths');
+    ['https://provider.example/openai/v1', 'https://provider.example/openai/v1/responses'],
+    ['https://provider.example/v1/responses/responses', 'https://provider.example/v1/responses/responses'],
+    ['https://provider.example/custom/responses', 'https://provider.example/custom/responses'],
+  ]) assert.equal(modelResponsesUrl(baseUrl), expected, 'Do not rewrite compatible providers\' custom paths');
   for (const mode of ['legacy', 'agent']) {
     for (const baseUrl of officialInputs) {
       const fixture = fixtureFetch((url, options) => {
-        assert.equal(url, 'https://api.openai.com/v1/chat/completions', 'Responses URL must not acquire a duplicated chat/completions suffix');
+        assert.equal(url, 'https://api.openai.com/v1/responses', 'Responses URL must not acquire a duplicated chat/completions suffix');
         const sent = JSON.parse(options.body);
-        assert.ok(Number.isInteger(sent.max_completion_tokens) && sent.max_completion_tokens > 0);
-        assert.equal(Object.hasOwn(sent, 'max_tokens'), false, 'Official OpenAI uses max_completion_tokens');
+        for (const field of ['max_output_tokens', 'max_completion_tokens', 'max_tokens']) assert.equal(Object.hasOwn(sent, field), false, 'Custom models do not receive an application output quota');
         assert.equal(Object.hasOwn(sent, 'reasoning_effort'), false, 'Unrelated models must retain their original request fields');
         return modelResponse(mode === 'agent' ? { answer: '你想要更低沉还是明亮的声音？', matches: [], clarification: true } : finalResult);
       });
@@ -160,8 +160,9 @@ async function runModelFailure(mode, route, signal = new AbortController().signa
 
   for (const compatibility of [
     { baseUrl: 'https://api.openai.com/v1/responses', model: 'gpt-6-luna', reasoning: 'none', official: true },
-    { baseUrl: 'https://api.openai.com/v1/responses/chat/completions', model: 'gpt-6-luna', reasoning: 'none', official: true },
+    { baseUrl: 'https://api.openai.com/v1/responses/responses', model: 'gpt-6-luna', reasoning: 'none', official: true },
     { baseUrl: 'https://api.openai.com', model: 'gpt-4.1-nano', official: true },
+    { baseUrl: 'https://api.openai.com/v1', model: 'gpt-6.1-sol', official: true },
     { baseUrl: 'https://provider.example/openai/v1', model: 'gpt-6-luna', official: false },
   ]) {
     const fixture = fixtureFetch((url, options, counts) => {
@@ -170,17 +171,14 @@ async function runModelFailure(mode, route, signal = new AbortController().signa
         if (url.endsWith('/assets')) assert.deepEqual(JSON.parse(options.body).ids, [resource.resourceId]);
         return jsonResponse({ ...metadata, total: 1, items: [resource], hasMore: false });
       }
-      assert.equal(url, compatibility.official ? 'https://api.openai.com/v1/chat/completions' : 'https://provider.example/openai/v1/chat/completions');
+      assert.equal(url, compatibility.official ? 'https://api.openai.com/v1/responses' : 'https://provider.example/openai/v1/responses');
       const sent = JSON.parse(options.body);
       assert.equal(sent.model, compatibility.model);
-      if (compatibility.reasoning) assert.equal(sent.reasoning_effort, compatibility.reasoning, 'Official gpt-6-luna tool requests disable reasoning on every round');
-      else assert.equal(Object.hasOwn(sent, 'reasoning_effort'), false, 'Do not force official-model fields onto other models or proxies');
-      const tokenField = compatibility.official ? 'max_completion_tokens' : 'max_tokens';
-      assert.ok(Number.isInteger(sent[tokenField]) && sent[tokenField] > 0);
-      assert.equal(Object.hasOwn(sent, compatibility.official ? 'max_tokens' : 'max_completion_tokens'), false);
+      assert.equal(Object.hasOwn(sent, 'reasoning_effort'), false, 'Responses preserves model reasoning defaults');
+      for (const field of ['max_output_tokens', 'max_completion_tokens', 'max_tokens']) assert.equal(Object.hasOwn(sent, field), false, 'Planning, tool and final custom rounds retain no application output quota');
       assert.ok(Array.isArray(sent.tools) && sent.tools.length, 'All rounds retain the function schemas');
       assert.equal(sent.tool_choice, counts.model === 3 ? 'none' : 'auto');
-      if (counts.model > 1) assert.ok(sent.messages.some(message => message.role === 'tool'), 'Post-tool requests carry the tool results');
+      if (counts.model > 1) assert.ok(responsesMessages(sent).some(message => message.role === 'tool'), 'Post-tool requests carry the tool results');
       if (counts.model === 1) return searchTool();
       if (counts.model === 2) return detailsTool();
       return modelResponse(finalResult);
@@ -189,7 +187,7 @@ async function runModelFailure(mode, route, signal = new AbortController().signa
       freeBase, signal: new AbortController().signal, fetcher: fixture.fetcher });
     assert.equal(answer.matches[0].resourceId, resource.resourceId);
     assert.equal(fixture.counts.model, 3, 'The compatibility adjustment does not add retries or a fourth model round');
-    assert.equal(fixture.counts.site, 3, 'The mock executes search, tool details, and final card hydration without extra model calls');
+    assert.equal(fixture.counts.site, 2, 'The mock reuses tool details for the final cards without a redundant asset request or extra model calls');
   }
 
   const unsupported = await runModelFailure('agent', () => jsonResponse({ error: { code: 'unsupported_tools', message: 'This model does not support tools.' } }, { status: 400 }));
@@ -260,7 +258,7 @@ async function runModelFailure(mode, route, signal = new AbortController().signa
       if (isPrompt(url)) return new Response(new TextEncoder().encode(source));
       modelCalls++;
       const request = JSON.parse(input.body);
-      assert.ok(request.messages.some(message => message.role === 'system' && message.content.includes(source)), 'The complete prompt reaches the model without file-size clipping');
+      assert.ok(responsesMessages(request).some(message => message.role === 'system' && message.content.includes(source)), 'The complete prompt reaches the model without file-size clipping');
       assert.ok(Buffer.byteLength(input.body) <= 60000, 'The complete agent request stays within its separate budget');
       return modelResponse({ answer: 'Prompt loaded', matches: [], clarification: true });
     };

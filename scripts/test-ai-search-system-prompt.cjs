@@ -1,3 +1,4 @@
+const { responsesFixture, responsesMessages } = require('../tools/ai-search-service/responses-fixture.mjs');
 /* Mock-only system prompt integration. No asset host, AI, or balance requests. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -15,8 +16,8 @@ const promptResponse = (body = source) => new Response(body, { headers: { 'Conte
 const isPrompt = url => String(url).split('?')[0].endsWith('/AISearch/SystemPrompt.md');
 const answer = { answer: '找到', matches: [] };
 const json = body => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
-const modelFinal = matches => json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...answer, matches: matches ?? [] }) } }] });
-const toolCall = (name, args, id) => json({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] });
+const modelFinal = matches => json(responsesFixture({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...answer, matches: matches ?? [] }) } }] }));
+const toolCall = (name, args, id) => json(responsesFixture({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] }));
 const config = { baseUrl: 'https://model.invalid/v1', model: 'fixture-model', apiKey: 'fixture-model-key', rememberKey: false };
 const options = (fetcher, signal = new AbortController().signal) => ({ mode: 'custom', config, freeBase: '/api/ai-search', signal, fetcher });
 const legacyPayload = count => buildSearchPayload('音效', 'zh-CN', 'all', [], [], `legacy-${count}`, count);
@@ -133,9 +134,9 @@ const unavailable = error => error.code === 'PROMPT_UNAVAILABLE';
     if (isPrompt(url)) { legacyReads++; return promptResponse(); }
     legacyModels++;
     const sent = JSON.parse(init.body);
-    assert.equal(sent.messages[0].role, 'system');
-    assert.ok(sent.messages[0].content.includes('Custom rule from the file'));
-    assert.ok(sent.messages[0].content.includes('up to 20 resources'));
+    assert.equal(responsesMessages(sent)[0].role, 'system');
+    assert.ok(responsesMessages(sent)[0].content.includes('Custom rule from the file'));
+    assert.ok(responsesMessages(sent)[0].content.includes('up to 20 resources'));
     assert.equal(init.headers.Authorization, 'Bearer fixture-model-key');
     return modelFinal();
   };
@@ -149,10 +150,10 @@ const unavailable = error => error.code === 'PROMPT_UNAVAILABLE';
   const systems = [];
   const agentFetch = async (url, init) => {
     if (isPrompt(url)) { agentReads++; return promptResponse(); }
-    if (String(url).endsWith('/chat/completions')) {
+    if (String(url).endsWith('/responses')) {
       agentModels++;
       const sent = JSON.parse(init.body);
-      systems.push(sent.messages[0].content);
+      systems.push(responsesMessages(sent)[0].content);
       assert.ok(systems.at(-1).includes('Custom rule from the file'));
       assert.ok(systems.at(-1).includes('up to 10 resources'));
       if (agentModels === 1) return toolCall('search_assets', { query: '短促', scope: 'sound' }, 'fixture-search');

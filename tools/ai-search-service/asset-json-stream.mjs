@@ -1,9 +1,10 @@
 // Incremental JSON parsing keeps source bytes and full serialized dictionaries out of memory.
 // Values are parsed individually; object order and numeric key ordering match JSON.parse.
 export class BoundedJsonParser {
-  constructor({ maxNodes = 1_000_000, maxDepth = 32, maxStringCharacters = 2_000_000 } = {}) {
+  constructor({ maxNodes = 1_000_000, maxDepth = 32, maxStringCharacters = 2_000_000, previousPostings } = {}) {
     this.maxNodes = maxNodes; this.maxDepth = maxDepth; this.maxStringCharacters = maxStringCharacters;
     this.nodes = 0; this.buffer = ''; this.position = 0; this.scan = null; this.stack = []; this.hasRoot = false;
+    this.previousPostings = previousPostings;
   }
   invalid() { throw new SyntaxError('Invalid or excessive JSON source'); }
   closeContainer() { this.stack.pop().postingValues?.clear(); }
@@ -15,6 +16,10 @@ export class BoundedJsonParser {
     // Reuse only complete string values in the actual root lexical.postings table.
     // A small FIFO pool avoids retaining another term-sized lookup table.
     if (frame.postingValues && typeof value === 'string') {
+      // Reuse the committed string as soon as it is decoded, rather than keeping
+      // duplicate index text until an entire refreshed source has finished parsing.
+      if (this.previousPostings && Object.hasOwn(this.previousPostings, frame.key)
+        && this.previousPostings[frame.key] === value) value = this.previousPostings[frame.key];
       const previous = frame.postingValues.get(value);
       if (previous !== undefined) value = previous;
       else {

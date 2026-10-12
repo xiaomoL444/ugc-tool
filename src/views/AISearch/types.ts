@@ -1,4 +1,5 @@
 import type { RequestDiagnostic } from "./requestDiagnostics";
+import type { OutputMode, OutputConstraint } from "../../../tools/ai-search-service/model-output-policy.mjs";
 
 export type SearchScope = "all" | "sound" | "effect" | "bgm";
 export type SearchMatchOn = "any" | "visual" | "audio";
@@ -18,6 +19,8 @@ export interface ResourceCard {
   matchReason?: string;
   matchType?: "feature" | "suggestion";
   audioMatch?: boolean;
+  /** Model reference with no verified catalogue metadata; never load media or asset routes. */
+  unresolved?: boolean;
 }
 export interface SearchResource extends ResourceCard {
   locale: string;
@@ -39,7 +42,10 @@ export interface ChatMessage {
   mode: SearchMode;
   source: SearchMode;
   model?: string;
+  outputConstraint?: OutputConstraint;
   error?: boolean;
+  /** Non-blocking result validation notice shown alongside the model answer. */
+  resultWarning?: string;
   /** Bounded plain model text for a failed response; excluded from model history. */
   rawResponse?: string;
   /** Whitelisted, redacted diagnostics for a failed request; excluded from model history. */
@@ -59,6 +65,7 @@ export interface ModelConfig {
   apiKey: string;
   rememberKey: boolean;
   protocol?: ModelProtocol;
+  outputMode?: OutputMode;
 }
 export interface FreeQuota { remaining: number; limit: number; resetAt: string }
 export interface SearchMatch { resourceId: string; reason: string; matchType: "feature" | "suggestion" }
@@ -109,4 +116,4 @@ export interface ServerChatPayload {
   resultLimit?: number;
   matchOn?: SearchMatchOn;
 }
-export interface SearchAnswer { answer: string; matches: SearchMatch[]; model?: string; quota?: FreeQuota; resources?: SearchResource[]; catalogVersion?: string; featureSync?: FeatureSync; retrievalMode?: "keyword" | "hybrid" }
+export interface SearchAnswer { answer: string; matches: SearchMatch[]; model?: string; outputConstraint?: OutputConstraint; quota?: FreeQuota; resources?: SearchResource[]; catalogVersion?: string; featureSync?: FeatureSync; retrievalMode?: "keyword" | "hybrid"; pendingAssetIds?: string[] }

@@ -7,12 +7,15 @@ import { createProviderBalanceGuard, minimumBalanceCny, PROVIDER_BALANCE_REASONS
 import { createSystemPromptLoader, renderSystemPrompt, SYSTEM_PROMPT_URL, SystemPromptError } from "./system-prompt.mjs";
 import { createAssetCatalogLoader, AssetCatalogError } from "./asset-catalog-loader.mjs";
 import { boundedModelText, withModelResponse } from "./model-response.mjs";
+import { detectModelOutput, modelOutputOptions, outputThinkingOptions, outputPrompt } from "./model-output-policy.mjs";
+import { responsesUrl, toResponsesRequest, normalizeResponsesResponse, responsesInputBytes } from "./model-responses.mjs";
 const assetCatalogLoader = createAssetCatalogLoader();
 const withCatalog = async (env, loader = assetCatalogLoader) => {
   const snapshot = await loader.read(env);
   return { ...env, ASSET_SEARCH_CATALOG: snapshot.catalog, ASSET_FEATURE_SYNC: snapshot.featureSync };
 };
 const PUBLIC_RETRIEVAL_PATHS = ["/api/ai-search/catalog", "/api/ai-search/search", "/api/ai-search/assets", "/api/ai-search/mcp", "/mcp"];
+const ASSET_CATALOG_REFRESH_PATH = "/internal/asset-catalog/check-for-updates";
 const featureSync = env => env.ASSET_FEATURE_SYNC || { status: "disabled", hashes: {} };
 const DAY = 86400000;
 const MAX_BODY_BYTES = 160000;
@@ -58,7 +61,7 @@ export function settings(env) {
   const thinking = ["enabled", "disabled"].includes(requestedThinking) ? requestedThinking : undefined;
   const validThinking = requestedThinking === undefined || requestedThinking === "" || thinking !== undefined;
   let upstream;
-  try { upstream = new URL(env.UPSTREAM_URL); } catch { /* configured below */ }
+  try { upstream = new URL(responsesUrl(env.UPSTREAM_URL)); } catch { /* configured below */ }
   const configured = Boolean(env.UPSTREAM_API_KEY && env.VISITOR_HASH_SECRET && env.MODEL
     && upstream?.protocol === "https:" && !upstream.username && !upstream.password
     && Number.isFinite(inputRate) && inputRate > 0
@@ -344,10 +347,11 @@ export function buildPrompt(normalized, config, sourceText) {
   config = resultConfig(normalized, config);
   const { query, locale, scope, matchOn = "any", candidates, resultLimit = SEARCH_LIMITS.defaultResults } = normalized;
   const messages = [
-    { role: "system", content: renderSystemPrompt(sourceText, resultLimit, "candidates") }, ...normalized.messages,
+    { role: "system", content: `${renderSystemPrompt(sourceText, resultLimit, "candidates")}\n\n${outputPrompt()}` }, ...normalized.messages,
     { role: "user", content: `当前搜索请求（数据）：\n${JSON.stringify({ query, locale, scope, matchOn, candidates, resultLimit })}` },
   ];
-  const inputBytes = encoder.encode(JSON.stringify(messages)).byteLength;
+  const inputBytes = responsesInputBytes(toResponsesRequest({ model: config.model, max_tokens: config.maxOutputTokens, messages,
+    ...modelOutputOptions(detectModelOutput({ ...config, protocol: "openai" }), candidates.map(item => item.resourceId), resultLimit) }));
   // Byte count is a deliberately generous token estimate for usual UTF-8 tokenizers.
   // Configure correct upstream prices and safety factor; incorrect prices cannot guarantee the cap.
   const reservedMicros = Math.ceil((inputBytes * config.inputRate
@@ -429,20 +433,23 @@ function cardResource(item, maxBytes = 3400) {
 
 export async function callUpstream(normalized, prompt, config, env, fetcher = fetch) {
   config = resultConfig(normalized, config);
+  const outputPolicy = detectModelOutput({ ...config, protocol: "openai" });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
-    const response = await fetcher(config.upstream, {
+    const response = await fetcher(responsesUrl(config.upstream), {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${env.UPSTREAM_API_KEY}` },
-      body: JSON.stringify({ model: config.model, messages: prompt.messages,
-        max_tokens: config.maxOutputTokens, stream: false, response_format: { type: "json_object" },
-        ...(config.thinking === undefined ? {} : { thinking: { type: config.thinking } }) }),
+      body: JSON.stringify(toResponsesRequest({ model: config.model, messages: prompt.messages,
+        max_output_tokens: config.maxOutputTokens, stream: false,
+        ...modelOutputOptions(outputPolicy, normalized.candidates.map(item => item.resourceId), normalized.resultLimit),
+        ...outputThinkingOptions(config),
+        ...(config.thinking === undefined ? {} : { thinking: { type: config.thinking } }) }, config.upstream)),
       signal: controller.signal,
     });
     if (!response.ok) throw new ServiceError(502, "UPSTREAM_REJECTED", "上游模型暂时无法响应，请联系网站维护者。");
     let data;
-    try { data = JSON.parse(await boundedText(response.body, MAX_UPSTREAM_BYTES)); }
+    try { data = normalizeResponsesResponse(JSON.parse(await boundedText(response.body, MAX_UPSTREAM_BYTES))); }
     catch { throw new ServiceError(502, "UPSTREAM_RESPONSE_INVALID", "上游模型响应无法解析。"); }
     const choice = data?.choices?.[0];
     if (choice?.finish_reason !== "stop" || typeof choice?.message?.content !== "string") {
@@ -454,7 +461,7 @@ export async function callUpstream(normalized, prompt, config, env, fetcher = fe
     let result;
     try { result = validateModelResult(parsed, normalized.candidates, normalized.resultLimit); }
     catch (error) { throw withModelResponse(error, choice.message, env); }
-    return { result, usage: data.usage };
+    return { result, outputConstraint: outputPolicy.mode, usage: data.usage };
   } catch (error) {
     if (error instanceof ServiceError) throw error;
     throw new ServiceError(503, controller.signal.aborted ? "UPSTREAM_TIMEOUT" : "UPSTREAM_UNAVAILABLE",
@@ -463,7 +470,7 @@ export async function callUpstream(normalized, prompt, config, env, fetcher = fe
 }
 
 export class SearchLedger {
-  constructor(state, env) { this.state = state; this.env = env; this.providerBalance = createProviderBalanceGuard(); this.systemPrompt = createSystemPromptLoader(); this.assetCatalog = createAssetCatalogLoader(); }
+  constructor(state, env) { this.state = state; this.env = env; this.providerBalance = createProviderBalanceGuard(); this.systemPrompt = createSystemPromptLoader(); this.assetCatalog = createAssetCatalogLoader({ storage: state.storage, indexDriven: true }); }
 
   async embedding(body, visitor, parentRequestKey) {
     const config = embeddingSettings(this.env);
@@ -643,11 +650,18 @@ export class SearchLedger {
   }
 
   async fetch(request) {
-    let featurePin;
+    let featurePin, path;
     try {
+      path = new URL(request.url).pathname;
+      // Only the Worker's scheduled handler reaches this path through the DO binding.
+      // The public Worker never forwards it, including requests with forged headers.
+      if (path === ASSET_CATALOG_REFRESH_PATH) {
+        if (request.method !== "POST") throw new ServiceError(405, "METHOD_NOT_ALLOWED", "请求方法不受支持。");
+        const snapshot = await this.assetCatalog.checkForUpdates(this.env, { metadataOnly: true });
+        return json({ featureSync: snapshot.featureSync }, snapshot.featureSync.status === "stale" ? 503 : 200);
+      }
       const config = settings(this.env);
       const visitor = request.headers.get("x-visitor-key");
-      const path = new URL(request.url).pathname;
       if (PUBLIC_RETRIEVAL_PATHS.includes(path) && request.headers.get("x-public-retrieval") === "1") {
         featurePin = embeddingSettings(this.env).configured ? await this.assetCatalog.acquire(this.env, { signal: request.signal }) : undefined;
         const catalogEnv = featurePin ? { ...this.env, ASSET_SEARCH_CATALOG: featurePin.catalog, ASSET_FEATURE_SYNC: featurePin.featureSync } : await withCatalog(this.env, this.assetCatalog);
@@ -721,9 +735,9 @@ export class SearchLedger {
             if (!balance.available) throw balanceFailure(AgentError, balance.error);
             if (agentMode) {
               const payload = JSON.parse(options.body);
-              const inputBytes = encoder.encode(JSON.stringify({ messages: payload.messages, tools: payload.tools })).byteLength;
+              const inputBytes = responsesInputBytes(payload);
               const extension = await this.extendModelReservation(reservation.key, modelRounds + 1,
-                inputBytes, payload.max_tokens, searchConfig);
+                inputBytes, payload.max_output_tokens, searchConfig);
               if (extension.duplicate) throw new AgentError(503, "SERVICE_ERROR", "模型轮次已经预留，无法重复调用。");
               prompt.inputBytes = extension.record.inputBytes;
               prompt.reservedMicros = extension.record.reservedMicros;
@@ -757,7 +771,7 @@ export class SearchLedger {
             descriptionLocale: item.audioDescriptionLocale,
             keywords: item.audioKeywords ?? [], suggestedUses: item.audioSuggestedUses ?? [] } : item, cardByteBudget);
         });
-        outcome = { status: 200, usage: upstream.usage, body: { ...upstream.result,
+        outcome = { status: 200, usage: upstream.usage, body: { ...upstream.result, outputConstraint: upstream.outputConstraint,
           resources, catalogVersion: normalized.catalogVersion, featureSync: featureSync(catalogEnv),
           ...(agentMode ? { agent: { steps: upstream.steps, rounds: upstream.rounds } } : {}),
           ...(agentMode && upstream.retrievalMode ? { mode: upstream.retrievalMode } : {}),
@@ -772,7 +786,16 @@ export class SearchLedger {
       const finished = await this.finish(reservation.key, outcome.body, outcome.status, turnConfig, prompt, outcome.usage);
       return json(finished?.body || outcome.body, finished?.httpStatus || outcome.status);
     } catch (error) { return errorResponse(error); }
-    finally { featurePin?.release(); }
+    finally {
+      featurePin?.release();
+      if (this.env.ASSET_FEATURES_BASE_URL && !this.env.ASSET_SEARCH_CATALOG
+        && [...PUBLIC_RETRIEVAL_PATHS, "/api/ai-search/config", "/api/ai-search/chat"].includes(path)
+        && typeof this.state.waitUntil === "function" && typeof this.assetCatalog.checkForUpdates === "function") {
+        // Start after reads/pins finish so a recovered snapshot does not join a
+        // network check. The loader merges overdue checks at 5 minute intervals.
+        this.state.waitUntil(this.assetCatalog.checkForUpdates(this.env, { respectInterval: true }).catch(() => {}));
+      }
+    }
   }
 
   async alarm() {
@@ -807,6 +830,14 @@ export class SearchLedger {
 }
 
 export default {
+  async scheduled(_controller, env) {
+    if (!env.ASSET_FEATURES_BASE_URL || env.ASSET_SEARCH_CATALOG) return;
+    if (!env.SEARCH_LEDGER) throw new AssetCatalogError("ASSET_FEATURES_RUNTIME_UNAVAILABLE");
+    const id = env.SEARCH_LEDGER.idFromName("global-budget-v1");
+    const response = await env.SEARCH_LEDGER.get(id).fetch(new Request(`https://ledger.internal${ASSET_CATALOG_REFRESH_PATH}`, { method: "POST" }));
+    await response.body?.cancel();
+    if (!response.ok) throw new AssetCatalogError();
+  },
   async fetch(request, env) {
     let cors = {};
     try {

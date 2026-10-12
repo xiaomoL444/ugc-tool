@@ -1,3 +1,4 @@
+const { responsesFixture, responsesMessages } = require('../tools/ai-search-service/responses-fixture.mjs');
 /* Run: node scripts/test-ai-search-model-probe.cjs. All provider responses are in-memory mocks. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -11,7 +12,7 @@ const fakeKey = 'mock-model-probe-key-not-real';
 const nativeEnvelope = (model, content = [{ type: 'text', text: 'OK' }], stop_reason = 'end_turn') => ({
   id: 'msg_local_probe', type: 'message', role: 'assistant', model, content, stop_reason,
 });
-const openAIEnvelope = (model, content = 'OK', finish_reason = 'stop') => ({ model, choices: [{ message: { role: 'assistant', content }, finish_reason }] });
+const openAIEnvelope = (model, content = 'OK', finish_reason = 'stop') => (responsesFixture({ model, choices: [{ message: { role: 'assistant', content }, finish_reason }] }));
 const json = (value, status = 200, headers = {}) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json', ...headers } });
 const nativeConfig = { baseUrl: 'https://api.anthropic.com', model: 'claude-mock-local', apiKey: fakeKey, rememberKey: false, protocol: 'auto' };
 async function caught(run) {
@@ -36,18 +37,18 @@ function diagnostic(error, kind, status) {
       { config: { ...nativeConfig, model: ' claude-mock-local ' }, protocol: 'anthropic', endpoint: 'https://api.anthropic.com/v1/messages', returned: 'claude-mock-version' },
       { config: { ...nativeConfig, baseUrl: 'https://provider.example/claude', protocol: 'anthropic' }, protocol: 'anthropic', endpoint: 'https://provider.example/claude/v1/messages', returned: 'proxy-claude-mock' },
       { config: { ...nativeConfig, baseUrl: 'https://provider.example/claude/v1/messages' }, protocol: 'anthropic', endpoint: 'https://provider.example/claude/v1/messages', returned: 'native-auto-mock' },
-      { config: { ...nativeConfig, baseUrl: 'https://api.openai.com/v1/responses', model: 'gpt-6-luna' }, protocol: 'openai', endpoint: 'https://api.openai.com/v1/chat/completions', returned: 'gpt-6-luna-mock-version', official: true },
-      { config: { ...nativeConfig, baseUrl: 'https://provider.example/openai/v1', model: 'gpt-6-luna', protocol: 'openai' }, protocol: 'openai', endpoint: 'https://provider.example/openai/v1/chat/completions', returned: 'proxy-openai-mock' },
+      { config: { ...nativeConfig, baseUrl: 'https://api.openai.com/v1/responses', model: 'gpt-6-luna' }, protocol: 'openai', endpoint: 'https://api.openai.com/v1/responses', returned: 'gpt-6-luna-mock-version', official: true },
+      { config: { ...nativeConfig, baseUrl: 'https://provider.example/openai/v1', model: 'gpt-6-luna', protocol: 'openai' }, protocol: 'openai', endpoint: 'https://provider.example/openai/v1/responses', returned: 'proxy-openai-mock' },
     ]) {
       let calls = 0;
       const result = await probeCustomModel(fixture.config, new AbortController().signal, async (url, options) => {
         calls += 1; assert.equal(url, fixture.endpoint, 'Probe sends directly to the selected model endpoint, without Worker, prompt, or asset requests');
         assert.equal(options.method, 'POST'); const body = JSON.parse(options.body);
         assert.equal(body.model, fixture.config.model.trim()); assert.equal(body.stream, false);
-        assert.equal(body.messages.length, 1); assert.equal(body.messages[0].role, 'user');
+        assert.equal(responsesMessages(body).length, 1); assert.equal(responsesMessages(body)[0].role, 'user');
         for (const field of ['tools', 'system', 'candidates', 'candidateIds', 'previousIds', 'response_format']) assert.equal(Object.hasOwn(body, field), false);
         assert.doesNotMatch(JSON.stringify(body), /mock-model-probe-key|resourceId|catalogVersion/);
-        const token = fixture.official ? 'max_completion_tokens' : 'max_tokens'; assert.equal(body[token], 128);
+        const token = fixture.protocol === 'anthropic' ? 'max_tokens' : 'max_output_tokens'; assert.equal(body[token], 128);
         assert.equal(Object.hasOwn(body, fixture.official ? 'max_tokens' : 'max_completion_tokens'), false);
         if (fixture.protocol === 'anthropic') {
           assert.equal(options.headers['x-api-key'], fakeKey); assert.equal(options.headers.Authorization, undefined);
@@ -56,7 +57,7 @@ function diagnostic(error, kind, status) {
           return json(nativeEnvelope(fixture.returned, [{ type: 'thinking', thinking: 'PRIVATE_REASONING', signature: 'PRIVATE_SIGNATURE' }, { type: 'text', text: 'OK' }]));
         }
         assert.equal(options.headers.Authorization, `Bearer ${fakeKey}`); assert.equal(options.headers['x-api-key'], undefined);
-        if (fixture.official) assert.equal(body.reasoning_effort, 'none'); else assert.equal(Object.hasOwn(body, 'reasoning_effort'), false);
+        assert.equal(Object.hasOwn(body, 'reasoning_effort'), false);
         return json(openAIEnvelope(fixture.returned));
       });
       assert.equal(calls, 1, 'A manually initiated validation makes exactly one model POST, with no retries');

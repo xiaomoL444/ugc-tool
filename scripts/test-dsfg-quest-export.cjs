@@ -276,7 +276,7 @@ async function main() {
       assert.deepEqual(keys(result.chapters), [7]); assert.deepEqual(keys(result.mains), [21]);
       assert.equal(values(result.mains)[0].value.chapter.value, "7");
       const value = values(values(result.subs)[0])[0];
-      assert.deepEqual(Object.keys(value.value), ["id", "mainQuestId", "title", "desc", "任务单位状态", "pos", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress", "belondPrimaryId", "showGuide"]);
+      assert.deepEqual(Object.keys(value.value), ["id", "mainQuestId", "title", "desc", "任务单位状态", "pos", "调查点范围", "隐藏任务", "后续任务", "失败回溯任务", "finishMainQuest", "questProgress", "belondPrimaryId", "showGuide", "showEffect"]);
       assert.equal(value.value["mainQuestId"].type, "Int32"); assert.equal(value.value["mainQuestId"].value, "21");
       assert.equal(value.value["title"].value, sub.title); assert.equal(value.value["desc"].value, sub.description);
       assert.equal(value.value["任务单位状态"].value, sub.unitState);
@@ -287,23 +287,25 @@ async function main() {
       assert.equal(slot.type, "Vector3");
       assert.equal(slot.value, sub.investigationPoint);
     });
-    test("new sub fields use exact source types/defaults and preserve the fourteen-field order", () => {
+    test("new sub fields use exact source types/defaults and preserve the fifteen-field order", () => {
       const project = source();
       const definition = require(path.join(assetDirectory, "1077936145[任务]子任务.json"));
       assert.deepEqual(definition.value.map((field) => [field.key, field.param_type]), [
         ["id", "Int32"], ["mainQuestId", "Int32"], ["title", "String"], ["desc", "String"], ["任务单位状态", "ConfigReference"],
         ["pos", "Vector3"], ["调查点范围", "Float"], ["隐藏任务", "Bool"], ["后续任务", "Int32List"],
-        ["失败回溯任务", "Int32"], ["finishMainQuest", "Bool"], ["questProgress", "Int32"], ["belondPrimaryId", "Int32"], ["showGuide", "Bool"],
+        ["失败回溯任务", "Int32"], ["finishMainQuest", "Bool"], ["questProgress", "Int32"], ["belondPrimaryId", "Int32"], ["showGuide", "Bool"], ["showEffect", "Bool"],
       ]);
-      assert.deepEqual(definition.value.slice(9).map((field) => field.value.value), ["-1", "False", "0", "0", "True"]);
+      assert.deepEqual(definition.value.slice(9).map((field) => field.value.value), ["-1", "False", "0", "0", "True", "True"]);
       const sub = project.subQuests[0];
       assert.equal(sub.failureQuestId, -1); assert.equal(sub.finishMainQuest, false); assert.equal(sub.questProgress, 0);
       assert.equal(sub.showGuide, true);
+      assert.equal(sub.showEffect, true);
       const { subs, result } = exported(project);
       const value = values(values(subs)[0])[0];
       assert.deepEqual(Object.keys(value.value), definition.value.map((field) => field.key));
       assert.equal(value.value["失败回溯任务"].value, "-1"); assert.equal(value.value.finishMainQuest.value, "False"); assert.equal(value.value.questProgress.value, "0");
       assert.equal(value.value.showGuide.type, "Bool"); assert.equal(value.value.showGuide.value, "True");
+      assert.equal(value.value.showEffect.type, "Bool"); assert.equal(value.value.showEffect.value, "True");
       assert.deepEqual(result.warnings.filter((warning) => /失败回溯/.test(warning)), []);
     });
     test("old sub documents backfill only missing new fields without changing IDs, references or existing values", () => {
@@ -333,6 +335,23 @@ async function main() {
       const { subs } = exported(reopened);
       const guides = values(subs).flatMap(value => values(value)).map(sub => [sub.value.id.value, sub.value.showGuide.value]);
       assert.deepEqual(guides, [["1", "True"], ["2", "False"], ["199", "True"]]);
+    });
+    test("missing guide effect defaults to true while saved true and false and map guide values remain independent", () => {
+      const project = source(3);
+      project.subQuests[0].id = 199; project.subQuests[0].nextQuestIds = [null, 1, 2];
+      delete project.subQuests[0].showEffect;
+      project.subQuests[0].showGuide = false;
+      Object.assign(project.subQuests[1], { showGuide: false, showEffect: true });
+      Object.assign(project.subQuests[2], { showGuide: true, showEffect: false });
+      const raw = JSON.stringify(project), expected = JSON.parse(raw);
+      expected.subQuests[0].showEffect = true;
+      const decoded = decodeQuestProject(raw);
+      assert.deepEqual(decoded, expected); assert.equal(JSON.stringify(project), raw);
+      const reopened = decodeQuestProject(encodeQuestProject(decoded));
+      assert.deepEqual(reopened, decoded);
+      const { subs } = exported(reopened);
+      const guides = values(subs).flatMap(value => values(value)).map(sub => [sub.value.id.value, sub.value.showGuide.value, sub.value.showEffect.value]);
+      assert.deepEqual(guides, [["1", "False", "True"], ["2", "True", "False"], ["199", "False", "True"]]);
     });
     test("custom IDs and cross-bucket rollback references export global IDs with literal title/desc", () => {
       const project = source(2);
@@ -380,6 +399,7 @@ async function main() {
         failureQuestId: ["1", true, {}, 1.5, 2147483648, -2147483649, NaN, Infinity],
         finishMainQuest: ["False", "True", 0, 1, null, {}],
         showGuide: ["False", "True", 0, 1, null, {}, [], undefined],
+        showEffect: ["False", "True", 0, 1, null, {}, [], undefined],
         questProgress: ["1", true, null, {}, 1.5, 2147483648, -2147483649, NaN, Infinity],
       };
       for (const [field, invalid] of Object.entries(cases)) for (const value of invalid) {

@@ -51,7 +51,8 @@ export function createPreviewMediaLoader(fetcher: typeof fetch = fetch, base = O
     return request
   }
 
-  return async function loadPreviewMedia(card: Pick<ResourceCard, 'kind' | 'id' | 'resourceId'>): Promise<PreviewMedia | null> {
+  return async function loadPreviewMedia(card: Pick<ResourceCard, 'kind' | 'id' | 'resourceId' | 'unresolved'>): Promise<PreviewMedia | null> {
+    if (card.unresolved) return null;
     const match = /^(sound|effect|bgm):(\d{1,12})$/u.exec(card.resourceId)
     if (!match || card.kind !== match[1] || String(card.id) !== match[2]) return null
     const id = match[2]

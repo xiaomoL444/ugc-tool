@@ -26,7 +26,7 @@ const original = { baseUrl: 'https://api.openai.com/v1', model: 'gpt-6-luna', ap
       if (String(url).startsWith('https://slow.fixture.invalid/')) {
         const item = { aborted: false };
         input.signal.addEventListener('abort', () => { item.aborted = true; });
-        const pending = new Promise(resolve => { item.resolve = () => resolve(new Response(JSON.stringify({ model: 'stale-response-model', choices: [{ finish_reason: 'stop', message: { content: 'OK' } }] }), { headers: { 'Content-Type': 'application/json' } })); });
+        const pending = new Promise(resolve => { item.resolve = () => resolve(new Response(JSON.stringify({ object: 'response', status: 'completed', model: 'stale-response-model', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'OK' }] }] }), { headers: { 'Content-Type': 'application/json' } })); });
         window.__slowProbes.push(item);
         return pending;
       }
@@ -48,14 +48,17 @@ const original = { baseUrl: 'https://api.openai.com/v1', model: 'gpt-6-luna', ap
       const request = route.request().postDataJSON();
       assert.equal(route.request().method(), 'POST');
       assert.equal(request.stream, false);
-      assert.equal(request.messages.length, 1, 'The probe sends no saved chat context');
       assert.equal(request.tools, undefined, 'Basic call verification does not claim tool compatibility');
       if (url.hostname === 'api.openai.com') {
-        assert.equal(url.pathname, '/v1/chat/completions');
-        assert.equal(request.max_completion_tokens, 128);
-        assert.equal(request.reasoning_effort, 'none');
+        assert.equal(request.input.length, 1, 'The probe sends no saved chat context');
+        assert.equal(request.messages, undefined);
+        assert.equal(url.pathname, '/v1/responses');
+        assert.equal(request.max_output_tokens, 128);
+        assert.equal(request.reasoning_effort, undefined);
+        assert.equal(request.reasoning, undefined, 'Preserve model reasoning defaults');
         assert.equal(route.request().headers().authorization, 'Bearer ' + key);
       } else {
+        assert.equal(request.messages.length, 1, 'The native probe sends no saved chat context');
         assert.equal(url.pathname, '/v1/messages');
         assert.equal(request.max_tokens, 128);
         assert.equal(route.request().headers()['x-api-key'], key);
@@ -65,7 +68,7 @@ const original = { baseUrl: 'https://api.openai.com/v1', model: 'gpt-6-luna', ap
       if (outcome === 'malformed') return route.fulfill({ json: { choices: [] } });
       if (outcome === 'unauthorized') return route.fulfill({ status: 401, headers: { 'x-request-id': 'probe-auth-id', 'access-control-expose-headers': 'x-request-id' }, json: { error: { code: 'invalid_api_key', message: 'The provided key was rejected. ' + key } } });
       if (url.hostname === 'api.anthropic.com') return route.fulfill({ json: { type: 'message', role: 'assistant', model: 'claude-fixture-returned', content: [{ type: 'text', text: 'OK' }], stop_reason: 'end_turn' } });
-      return route.fulfill({ json: { model: 'gpt-6-luna-returned-id', choices: [{ finish_reason: 'stop', message: { content: 'OK' } }] } });
+      return route.fulfill({ json: { object: 'response', status: 'completed', model: 'gpt-6-luna-returned-id', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'OK' }] }] } });
     }
     if (url.pathname.startsWith('/ugc-tool-data')) {
       assert.ok(!url.pathname.endsWith('/AISearch/SystemPrompt.md'), 'The probe does not load the search prompt');
