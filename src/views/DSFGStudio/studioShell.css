@@ -101,7 +101,7 @@
 #app .dsfg-studio :is(.text-preview-toolbar, .text-preview-legend) { background: #ffffff80; }
 #app .dsfg-studio .text-preview-viewport { background: transparent; background-image: none; }
 #app .dsfg-studio .vue-flow__background { opacity: .25; }
-#app .dsfg-studio .text-collection-panel { border-color: var(--studio-line); background: #ffffffad; }
+#app .dsfg-studio .text-collection-panel { border-color: #bdcbe0; background: #f8faff; }
 #app .dsfg-studio .text-flow-block:not(.block-entry):not(.block-output) { border-color: #cdd7f5; border-top: 3px solid var(--block-color, var(--studio-cyan)); box-shadow: 0 3px 12px #7283c10b; }
 #app .dsfg-studio .text-block-header { background: #f7faff; }
 #app .dsfg-studio .timeline-panel { margin-top: 8px; border: 1px solid var(--studio-line); border-radius: 9px; overflow: hidden; }

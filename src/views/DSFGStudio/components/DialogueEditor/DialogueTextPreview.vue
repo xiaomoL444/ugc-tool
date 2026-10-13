@@ -556,22 +556,29 @@ onBeforeUnmount(() => {
 .text-editing-workspace { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .text-canvas-panel { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
 .text-collection-panel { flex: 0 0 218px; padding: 18px 16px; box-sizing: border-box; overflow-y: auto; border-left: 1px solid #dce4ef; background: #fff; text-align: left; }
-.text-collection-panel header h3 { margin: 7px 0 3px; font-size: 16px; color: #344c70; }
-.text-collection-panel header p { margin: 0; color: #8a96a8; font-size: 12px; }
-.panel-eyebrow { font-size: 11px; color: #8a96a8; }
-.delete-content { color: #a46770 !important; }
-.delete-content:hover { background: #fbe9ec !important; color: #b84251 !important; }
-.panel-hint { color: #8c98a9; font-size: 11px; line-height: 1.7; text-align: left; }
-.panel-section { display: grid; gap: 8px; padding: 16px 0; border-top: 1px solid #edf0f5; }
-.panel-field { display: grid; gap: 7px; font-size: 11px; color: #8a96a8; margin: 12px 0; }
-.collection-navigator { margin: 0 0 14px; padding-bottom: 14px; border-bottom: 1px solid #edf0f5; }
+.text-collection-panel header h3 { margin: 7px 0 3px; font-size: 16px; color: #253d63; }
+.text-collection-panel header p { margin: 0; color: #52627b; font-size: 12px; }
+.panel-eyebrow { font-size: 11px; font-weight: 600; color: #405477; }
+.delete-content:not(.panel-secondary) { color: #a46770 !important; }
+.delete-content:not(.panel-secondary):hover { background: #fbe9ec !important; color: #b84251 !important; }
+.panel-hint { color: #5f7088; font-size: 11px; line-height: 1.7; text-align: left; }
+.panel-section { display: grid; gap: 8px; padding: 16px 0; border-top: 1px solid #cad5e4; }
+.panel-field { display: grid; gap: 7px; font-size: 11px; font-weight: 600; color: #405477; margin: 12px 0; }
+.collection-navigator { margin: 0 0 14px; padding-bottom: 14px; border-bottom: 1px solid #cad5e4; }
 .panel-field select { width: 100%; min-width: 0; }
-.panel-add-button { display: grid; gap: 6px; width: 100%; padding: 12px 10px; border: 1px solid #dce6f3; border-radius: 7px; text-align: left; color: #4b72a2; background: #f6f9fe; cursor: pointer; }
+.panel-field :deep(.style-trigger) { border-color: #7b8eae; color: #334c70; font-weight: 400; }
+.panel-field :deep(.style-trigger:hover), .panel-field :deep(.style-trigger.is-open) { border-color: #7562b9; background: #f2edff; color: #59449a; }
+.panel-add-button { display: grid; gap: 6px; width: 100%; padding: 12px 10px; border: 1px solid #6a8bb5; border-radius: 7px; text-align: left; color: #215b9c; background: #eaf3ff; cursor: pointer; }
 .panel-add-button strong { font-size: 12px; font-weight: 600; }
-.panel-add-button small { color: #95a2b4; font-size: 10px; line-height: 1.6; }
-.panel-add-button:hover { border-color: #93b5de; background: #eff5fd; }
-.panel-add-button:disabled { opacity: .4; cursor: default; }
-.panel-secondary { padding: 7px 0; border: 0; background: transparent; color: #7587a1; text-align: left; font-size: 11px; cursor: pointer; }
+.panel-add-button small { color: #52627b; font-size: 10px; line-height: 1.6; }
+.panel-add-button:hover:not(:disabled) { border-color: #3f6fa9; background: #dceaff; }
+.panel-add-button:disabled { color: #758194; background: #f1f3f6; border-color: #bbc4d2; cursor: default; }
+.panel-add-button:disabled small { color: inherit; }
+.panel-secondary { padding: 8px 10px; border: 1px solid #7b8eae; border-radius: 6px; background: #f2f6fc; color: #315f9b; text-align: left; font-size: 11px; cursor: pointer; }
+.panel-secondary:hover { border-color: #426d9e; background: #e2ecfa; }
+.panel-secondary.delete-content { border-color: #c28491; background: #fff5f7; color: #9f3e50; }
+.panel-secondary.delete-content:hover { border-color: #a84d61; background: #ffe6ec; }
+.panel-add-button:focus-visible, .panel-secondary:focus-visible, .panel-hint button:focus-visible { outline: 2px solid #2463a8; outline-offset: 2px; }
 .text-node-summary { padding: 12px 20px; color: #8b97a8; font-size: 12px; text-align: left; }
 .block-action { --block-color: #77828e; background: #fafbfc; }
 .text-block-outlets .outlet-focus { padding-left: 0; text-align: left; }
