@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const vue = require('vue');
 const { parse, compileScript, compileTemplate, compileStyle } = require('@vue/compiler-sfc');
-require.extensions['.ts'] = (m, f) => m._compile(ts.transpileModule(fs.readFileSync(f, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText, f);
+require.extensions['.ts'] = (m, f) => m._compile(ts.transpileModule(fs.readFileSync(f, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText, f);
 const root = path.resolve(__dirname, '../src/views/ClientUIAnimationEditor');
 const registry = require(path.join(root, 'tweenRegistry.ts'));
 const { easeCurvePath } = require(path.join(root, 'easeCurve.ts'));
@@ -32,7 +32,7 @@ for (const file of ['EasePicker.vue', 'KeyframeTimeline.vue']) {
   const body = ast.statements.filter(s => !ts.isImportDeclaration(s)).map(s => s.getText(ast)).join('\n');
   const props = vue.reactive({ modelValue: 'Linear', disabled: false });
   const events = []; let shows = 0, closes = 0, focuses = 0;
-  const ctx = vm.createContext({ ...vue, ...registry, defineProps: () => props, defineEmits: () => (...args) => events.push(args), onBeforeUnmount: () => {} });
+  const ctx = vm.createContext({ ...vue, ...registry, ...require('../src/i18n/index.ts'), defineProps: () => props, defineEmits: () => (...args) => events.push(args), onBeforeUnmount: () => {} });
   const scope = vue.effectScope();
   scope.run(() => vm.runInContext(ts.transpileModule(body + '\nglobalThis.api={panel,trigger,opened,query,filtered,open,closed,choose}', { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, ctx));
   const a = ctx.api;

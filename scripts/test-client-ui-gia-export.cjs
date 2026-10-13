@@ -1,9 +1,10 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Real native codec round trips; optional arguments are original client UI GIA files. */
 const assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), Module = require("node:module"), ts = require("typescript");
 async function main() {
   const converter = await import("genshin-impact-ugc-file-converter-web"), oldLoad = Module._load, oldTs = Module._extensions[".ts"];
   Module._load = function (request, parent, isMain) { return request === "genshin-impact-ugc-file-converter-web" ? converter : oldLoad.call(this, request, parent, isMain); };
-  Module._extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText, file);
+  Module._extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true } }).outputText, file);
   try {
     const { exportGiaUI, originalGiaUIIndex, createGiaExportBaseline } = require("../src/views/ClientUIAnimationEditor/giaExporter.ts");
     const { importGiaControls } = require("../src/views/ClientUIAnimationEditor/giaImporter.ts");
@@ -71,7 +72,7 @@ async function main() {
     imageProperties[1].properties.fillAmount = 1;
     assert.equal(importGiaControls(buffer(exportGiaUI({ name:'full', uiIndex:32, deviceIndex:0, nodes:imageProperties }).bytes)).controls[1].properties.fillAmount, 1);
     imageProperties[1].properties.fillAmount = .715;
-    assert.throws(() => exportGiaUI({ name:'invalid', uiIndex:32, deviceIndex:0, nodes:imageProperties }), /整数百分比/);
+    assert.throws(() => exportGiaUI({ name:'invalid', uiIndex:32, deviceIndex:0, nodes:imageProperties }), errorMatches(/整数百分比/));
     console.log('PASS image type and mask numeric fields: percent conversion, float widths, zero/full values, unknown field preservation and precision validation');
     const nestedMasks = [node('container', 'mask-root'), node('image', 'outer-mask', 'mask-root'), node('image', 'inner-mask', 'outer-mask'), node('text', 'masked-content', 'inner-mask')];
     nestedMasks[1].properties.enableMask = true; nestedMasks[2].properties.enableMask = true;
@@ -179,10 +180,10 @@ async function main() {
     const maskedOutput = exportGiaUI({ name: "Masked", uiIndex: 1, deviceIndex: 0, nodes: clippedNodes });
     assert.equal(importGiaControls(buffer(maskedOutput.bytes)).controls.find(c => c.type === 'image').properties.enableMask, true);
     const invalid = clone(fresh); invalid[1].properties.imageSource = 'item';
-    assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: invalid }), /图片来源/);
-    assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: [node("container", "gia_node_123")] }), /原始 GIA/);
+    assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: invalid }), errorMatches(/图片来源/));
+    assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: [node("container", "gia_node_123")] }), errorMatches(/原始 GIA/));
     const badTree = clone(fresh); badTree[1].parentId = "missing";
-    assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: badTree }), /父控件/);
+    assert.throws(() => exportGiaUI({ name: "Invalid", uiIndex: 1, deviceIndex: 0, nodes: badTree }), errorMatches(/父控件/));
     console.log("PASS unknown changed fields, old imports without provenance and malformed trees fail before download");
     for (const file of process.argv.slice(2)) {
       const bytes = buffer(fs.readFileSync(file)), original = importGiaControls(bytes);

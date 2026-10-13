@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-control-templates.cjs [template.gia ...] */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -10,7 +11,7 @@ async function main() {
   const originalLoad = Module._load, originalTs = Module._extensions[".ts"];
   Module._load = function (request, parent, isMain) { return request === "genshin-impact-ugc-file-converter-web" ? converter : originalLoad.call(this, request, parent, isMain); };
   Module._extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), {
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true },
   }).outputText, file);
   try {
     const { readControlTemplate, buildTemplateScene, normalizeControlTemplates, templateIndexError } = require("../src/views/ClientUIAnimationEditor/controlTemplates.ts");
@@ -64,9 +65,9 @@ async function main() {
     assert.equal(importGiaControls(encode({ "1": primary, "2": [primary, ...children] })).controls.length, 3);
     assert.throws(() => readControlTemplate(new ArrayBuffer(3), "invalid.gia", 1));
     assert.ok(templateIndexError(.5, [])); assert.ok(templateIndexError(-1, [])); assert.ok(templateIndexError(0, [asset]));
-    assert.equal(templateIndexError(0, [asset], asset.id), "");
+    assert.equal(templateIndexError(0, [asset], asset.id), null);
     const cyclic = clone(asset); cyclic.devices[0][0].parentSourceNodeIndex = 2;
-    assert.throws(() => normalizeControlTemplates([cyclic]), /循环/);
+    assert.throws(() => normalizeControlTemplates([cyclic]), errorMatches(/循环/));
     console.log("PASS ordinary GIA import compatibility, deduplication and invalid data rejection");
 
     const transformed = clone(asset);

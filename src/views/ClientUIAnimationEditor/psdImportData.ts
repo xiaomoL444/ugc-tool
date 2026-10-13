@@ -1,4 +1,6 @@
+import { t } from "../../i18n";
 import type { Layer, LayerMaskData, PixelData, Psd } from "ag-psd";
+
 import { createControlProperties } from "./controlRegistry";
 import type { PrimitiveImageResource } from "./primitiveResources";
 import type { UINode } from "./types";
@@ -9,13 +11,13 @@ type EncodeImage = (pixels: Uint8ClampedArray, width: number, height: number) =>
 const opacity = (value: number | undefined) => Number.isFinite(value) ? Math.min(1, Math.max(0, value!)) : 1;
 
 export function validatePsdHeader(buffer: ArrayBuffer) {
-  if (buffer.byteLength < 26) throw new Error("文件不完整，不是有效的 PSD。");
+  if (buffer.byteLength < 26) throw new Error(t("clientUIAnimationEditor.ui.psdImport.incompleteFile"));
   const v = new DataView(buffer);
-  if (v.getUint32(0) !== 0x38425053) throw new Error("请选择 Photoshop PSD 文件。");
-  if (v.getUint16(4) !== 1) throw new Error("暂不支持 PSB 大型文档，请另存为 PSD。");
-  if (v.getUint16(22) !== 8 || ![1, 3].includes(v.getUint16(24))) throw new Error("请将 PSD 转为 8 位 RGB 或灰度模式后导入。");
+  if (v.getUint32(0) !== 0x38425053) throw new Error(t("clientUIAnimationEditor.ui.psdImport.selectFile"));
+  if (v.getUint16(4) !== 1) throw new Error(t("clientUIAnimationEditor.ui.psdImport.psbUnsupported"));
+  if (v.getUint16(22) !== 8 || ![1, 3].includes(v.getUint16(24))) throw new Error(t("clientUIAnimationEditor.ui.psdImport.unsupportedColorMode"));
   const width = v.getUint32(18), height = v.getUint32(14);
-  if (!width || !height || width > 16384 || height > 16384 || width * height > 32000000) throw new Error("PSD 画布过大，请缩小到 3200 万像素以内，单边不超过 16384 像素。");
+  if (!width || !height || width > 16384 || height > 16384 || width * height > 32000000) throw new Error(t("clientUIAnimationEditor.ui.psdImport.canvasTooLarge"));
 }
 
 /** PSD raster masks use document coordinates (or explicitly layer-relative offsets). */
@@ -30,11 +32,11 @@ function maskAlpha(mask: LayerMaskData, x: number, y: number, layer: Layer) {
 
 /** Build detached project data: an unsuccessful decode never changes the open editor. */
 export async function convertPsdDocument(psd: Psd, name: string, encode: EncodeImage, progress: (done: number, total: number) => void = () => {}): Promise<PsdImportResult> {
-  if (!psd.children?.length) throw new Error("PSD 没有可导入的图层，请保存包含图层的 PSD。");
+  if (!psd.children?.length) throw new Error(t("clientUIAnimationEditor.ui.psdImport.noLayers"));
   const bounds = new Map<Layer, Bounds | null>();
   let total = 0;
   function measure(layer: Layer, depth: number): Bounds | null {
-    if (++total > 1024 || depth > 64) throw new Error("PSD 层级过多，最多支持 1024 个图层与文件夹、64 层嵌套。");
+    if (++total > 1024 || depth > 64) throw new Error(t("clientUIAnimationEditor.ui.psdImport.hierarchyLimitExceeded"));
     let box: Bounds | null = null;
     if (layer.children) {
       for (const child of layer.children) {
@@ -43,14 +45,15 @@ export async function convertPsdDocument(psd: Psd, name: string, encode: EncodeI
       }
     } else if (layer.imageData) {
       const p = layer.imageData;
-      if (!Number.isInteger(p.width) || !Number.isInteger(p.height) || p.width <= 0 || p.height <= 0 || p.width * p.height > 32000000 || p.data.length !== p.width * p.height * 4) throw new Error(`图层「${layer.name ?? "未命名"}」的像素数据无效。`);
+      if (!Number.isInteger(p.width) || !Number.isInteger(p.height) || p.width <= 0 || p.height <= 0 || p.width * p.height > 32000000 || p.data.length !== p.width * p.height * 4) throw new Error(t("clientUIAnimationEditor.ui.psdImport.invalidLayerPixels", { name: layer.name ?? t("clientUIAnimationEditor.ui.psdImport.untitledLayer") }));
       box = { left: layer.left ?? 0, top: layer.top ?? 0, right: (layer.left ?? 0) + p.width, bottom: (layer.top ?? 0) + p.height };
     }
-    if (box && !Object.values(box).every(Number.isFinite)) throw new Error("PSD 图层位置无效。");
+    if (box && !Object.values(box).every(Number.isFinite)) throw new Error(t("clientUIAnimationEditor.ui.psdImport.invalidLayerPosition"));
     bounds.set(layer, box); return box;
   }
   psd.children.forEach(layer => measure(layer, 1));
   const warnings = new Set<string>();
+  const addWarning = (message: string) => { warnings.add(message); };
   const result: PsdImportResult = { width: psd.width, height: psd.height, nodes: [], resources: [], folders: 0, layers: 0, hidden: 0, warnings: [] };
   const canvas = { left: 0, top: 0, right: psd.width, bottom: psd.height };
   function nodeFor(name: string, type: "primitive" | "container", box: Bounds, parent: Bounds, parentId: string | null, visible: boolean): UINode {
@@ -73,24 +76,24 @@ export async function convertPsdDocument(psd: Psd, name: string, encode: EncodeI
     const box = bounds.get(layer) ?? (group ? parentBox : { left: layer.left ?? 0, top: layer.top ?? 0, right: (layer.left ?? 0) + 1, bottom: (layer.top ?? 0) + 1 });
     const node = nodeFor(layer.name || (group ? "未命名文件夹" : "未命名图层"), group ? "container" : "primitive", box, parentBox, parentId, !layer.hidden);
     result.nodes.push(node); if (layer.hidden) result.hidden++;
-    if (layer.blendMode && !["normal", "pass through"].includes(layer.blendMode)) warnings.add("特殊混合模式按普通叠加显示");
-    if (layer.clipping) warnings.add("剪贴蒙版未还原");
-    if (layer.effects) warnings.add("图层样式未重新渲染");
-    if (layer.adjustment) warnings.add("调整图层未重新渲染");
-    if (layer.vectorMask) warnings.add("矢量蒙版按已保存的栅格内容导入");
+    if (layer.blendMode && !["normal", "pass through"].includes(layer.blendMode)) addWarning(t("clientUIAnimationEditor.ui.psdImport.blendModesFlattened"));
+    if (layer.clipping) addWarning(t("clientUIAnimationEditor.ui.psdImport.clippingMaskNotRestored"));
+    if (layer.effects) addWarning(t("clientUIAnimationEditor.ui.psdImport.layerStylesNotRendered"));
+    if (layer.adjustment) addWarning(t("clientUIAnimationEditor.ui.psdImport.adjustmentLayersNotRendered"));
+    if (layer.vectorMask) addWarning(t("clientUIAnimationEditor.ui.psdImport.vectorMaskRasterized"));
     const masks = [...inheritedMasks];
     const mask = layer.realMask ?? layer.mask;
-    if (mask && !mask.disabled) { masks.push({ mask, layer }); if (mask.userMaskFeather || mask.userMaskDensity !== undefined) warnings.add("蒙版羽化和密度未还原"); }
+    if (mask && !mask.disabled) { masks.push({ mask, layer }); if (mask.userMaskFeather || mask.userMaskDensity !== undefined) addWarning(t("clientUIAnimationEditor.ui.psdImport.maskEffectsNotRestored")); }
     const alpha = inheritedOpacity * opacity(layer.opacity) * opacity(layer.fillOpacity);
     if (group) {
       result.folders++;
-      if (opacity(layer.opacity) !== 1) warnings.add("文件夹不透明度已分摊到子图层，重叠区域可能不同");
+      if (opacity(layer.opacity) !== 1) addWarning(t("clientUIAnimationEditor.ui.psdImport.folderOpacityFlattened"));
       // ag-psd's decoded array is bottom-to-top; the editor tree is top-to-bottom.
       for (const child of [...layer.children!].reverse()) await visit(child, box, node.id, alpha, masks);
     } else {
       result.layers++;
       const pixels: PixelData = layer.imageData ?? { width: 1, height: 1, data: new Uint8ClampedArray(4) };
-      if (!layer.imageData) warnings.add("无像素的空图层已保留为透明资源");
+      if (!layer.imageData) addWarning(t("clientUIAnimationEditor.ui.psdImport.emptyLayerTransparentResource"));
       const rgba = new Uint8ClampedArray(pixels.data);
       for (let y = 0; y < pixels.height; y++) for (let x = 0; x < pixels.width; x++) {
         let a = alpha;
@@ -105,5 +108,5 @@ export async function convertPsdDocument(psd: Psd, name: string, encode: EncodeI
     progress(++done, total);
   }
   for (const layer of [...psd.children].reverse()) await visit(layer, canvas, root.id, 1, []);
-  result.warnings = [...warnings]; return result;
+  result.warnings = [...warnings.values()]; return result;
 }

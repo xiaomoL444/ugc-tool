@@ -1,4 +1,5 @@
 <script setup lang="ts">
+
 import StudioSelectField from "../StudioSelectField.vue";
 import { inject, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 import { toast } from "vue-sonner";
@@ -48,7 +49,7 @@ const history = useStudioDocumentHistory({
   project, element: historyElement, blocked: () => busy.value, label: "修改任务",
   ownsTarget: target => !!target.closest?.(".quest-settings"),
   afterRestore: () => { settingsOpen.value = false; },
-  onError: error => showError(error, "任务恢复失败"),
+  onError: error => { console.error(error); toast.error(error instanceof Error ? error.message : "任务恢复失败"); },
 });
 
 function showError(error: unknown, fallback: string) {

@@ -4,12 +4,13 @@ const path = require('node:path');
 const vm = require('node:vm');
 const Module = require('node:module');
 const ts = require('typescript');
+const { messageText } = require('./i18n-test-helpers.cjs');
 const vue = require('vue');
 const { parse } = require('@vue/compiler-sfc');
 const editor = path.resolve(__dirname,'../src/views/ClientUIAnimationEditor');
 const previous = Module._extensions['.ts'];
 Module._extensions['.ts'] = (module,file) => module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,file);
-const imports=Object.assign({},...['boneCreation','tweenRegistry','keyframeTimeline','editorHistory'].map(name=>require(path.join(editor,name+'.ts'))));
+const imports=Object.assign({},require('../src/i18n/index.ts'),...['boneCreation','tweenRegistry','keyframeTimeline','editorHistory'].map(name=>require(path.join(editor,name+'.ts'))));
 const source=parse(fs.readFileSync(path.join(editor,'ClientUIAnimationEditor.vue'),'utf8')).descriptor.scriptSetup.content;
 const ast=ts.createSourceFile('editor.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
 const names=['localMatrix','multiplyMatrix','transformVector','calculateWorldTransforms','roundLayout','clamp01','roundTweenTime',
@@ -63,7 +64,7 @@ async function main(){
   assert.equal(f.reparentNode(f.child,null,true),true);samePose(before,f.previewWorldTransforms.value,'child');
   for(const parent of [{scaleX:0},{scaleY:0},{scaleX:2,scaleY:3,rotation:25}]){
     const blocked=fixture(parent),saved=JSON.stringify(blocked.state.nodes.value);
-    assert.equal(blocked.reparentNode(blocked.child,'b',true),false);assert.equal(JSON.stringify(blocked.state.nodes.value),saved);assert.match(blocked.state.timelineEditNotice.value,/取消/);
+    assert.equal(blocked.reparentNode(blocked.child,'b',true),false);assert.equal(JSON.stringify(blocked.state.nodes.value),saved);assert.match(messageText(blocked.state.timelineEditNotice.value),/取消/);
     assert.equal(blocked.placeNodeRelative(blocked.child,blocked.state.nodes.value.find(n=>n.id==='sibling'),'after'),false);assert.equal(JSON.stringify(blocked.state.nodes.value),saved);
   }
   const guards=fixture();

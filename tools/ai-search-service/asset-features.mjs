@@ -48,6 +48,7 @@ export function extractAssetFeatureDictionary(project, raw) {
   const source = typeof project === 'string' && own(PROJECTS, project) ? PROJECTS[project] : null;
   assert(source, 'Missing project feature dictionaries');
   assert(object(raw), 'Incomplete project feature locales');
+  if (object(raw.translations) && own(raw, 'namespace')) assert(raw.namespace === source.namespace, 'Project feature dictionary namespace mismatch');
   const prefix = source.namespace + '.search.', table = object(raw.translations) ? raw.translations : raw;
   const selected = Object.create(null);
   for (const key in table) {
@@ -59,16 +60,28 @@ export function extractAssetFeatureDictionary(project, raw) {
   }
   return selected;
 }
-export function extractAssetFeatureDictionaries(project, dictionaries) {
+function selectedFeatureLocales(locales = FEATURE_LOCALES) {
+  assert(Array.isArray(locales) && locales.length > 0 && new Set(locales).size === locales.length
+    && locales.every(locale => FEATURE_LOCALES.includes(locale)), 'Invalid feature locale selection');
+  return locales;
+}
+export function extractAssetFeatureDictionaries(project, dictionaries, locales = FEATURE_LOCALES) {
   assert(object(dictionaries), 'Missing project feature dictionaries');
   const output = {};
-  for (let index = 0; index < FEATURE_LOCALES.length; index++) {
-    const locale = FEATURE_LOCALES[index];
-    output[locale] = extractAssetFeatureDictionary(project, dictionaries[locale] ?? dictionaries[SEARCH_LOCALES[index]]);
+  for (const locale of selectedFeatureLocales(locales)) {
+    const index = FEATURE_LOCALES.indexOf(locale);
+    const dictionary = dictionaries[locale] ?? dictionaries[SEARCH_LOCALES[index]];
+    if (object(dictionary) && object(dictionary.translations) && own(dictionary, 'locale')) {
+      assert(typeof dictionary.locale === 'string' && dictionary.locale.toLowerCase() === locale, 'Project feature dictionary locale mismatch');
+    }
+    output[locale] = extractAssetFeatureDictionary(project, dictionary);
   }
   return output;
 }
 export function parseAssetFeatureSidecar(raw, options = {}) {
+  const locales = selectedFeatureLocales(options.locales);
+  // Browser display can validate one language; canonical Worker/export validation stays complete.
+  if (locales.length !== FEATURE_LOCALES.length) assert(options.requireCompiled === false, 'Partial feature locales cannot validate a compiled index');
   let sidecar = raw;
   if (typeof raw === 'string') {
     assert(raw.length <= FEATURE_LIMITS.rawCharacters, 'Feature JSON exceeds size limit');
@@ -81,10 +94,10 @@ export function parseAssetFeatureSidecar(raw, options = {}) {
   assert(typeof sidecar.baseIndexVersion === 'string' && sidecar.baseIndexVersion.length > 0 && sidecar.baseIndexVersion.length <= 200, 'Missing identity index version');
   if (object(options.identities) && options.identities.indexVersion) assert(sidecar.baseIndexVersion === options.identities.indexVersion, 'Feature identity index version mismatch');
   assert(sidecar.i18nSource == null || sidecar.i18nSource === 'project-i18n-v1', 'Unsupported feature dictionary source');
-  if (sidecar.i18nSource === 'project-i18n-v1' && options.dictionaries != null) sidecar = { ...sidecar, i18n: extractAssetFeatureDictionaries(sidecar.project, options.dictionaries) };
+  if (sidecar.i18nSource === 'project-i18n-v1' && options.dictionaries != null) sidecar = { ...sidecar, i18n: extractAssetFeatureDictionaries(sidecar.project, options.dictionaries, locales) };
   assert(object(sidecar.resources) && object(sidecar.i18n), 'Missing feature records or dictionaries');
   assert(Object.keys(sidecar.resources).length <= FEATURE_LIMITS.resources, 'Too many feature resources');
-  assert(Object.keys(sidecar.i18n).length === FEATURE_LOCALES.length && FEATURE_LOCALES.every(locale => object(sidecar.i18n[locale])), 'Incomplete feature locales');
+  assert(Object.keys(sidecar.i18n).length === locales.length && locales.every(locale => object(sidecar.i18n[locale])), 'Incomplete feature locales');
   const knownIds = options.identities ? new Set(identityRows(options.identities).filter(item => item.kind === source.kind).map(item => String(item.id))) : null;
   const prefix = `${source.namespace}.search.`, refs = new Set();
   let provenanceCharacters = 0;
@@ -106,12 +119,12 @@ export function parseAssetFeatureSidecar(raw, options = {}) {
       else assert(partRefs.length === 0, 'Unavailable feature contains generated references');
       for (const key of partRefs) {
         refs.add(key);
-        for (const locale of FEATURE_LOCALES) assert(own(sidecar.i18n[locale], key) && typeof sidecar.i18n[locale][key] === 'string' && sidecar.i18n[locale][key].trim(), 'Dangling feature translation reference');
+        for (const locale of locales) assert(own(sidecar.i18n[locale], key) && typeof sidecar.i18n[locale][key] === 'string' && sidecar.i18n[locale][key].trim(), 'Dangling feature translation reference');
       }
     }
   }
   let dictionaryCharacters = 0;
-  for (const locale of FEATURE_LOCALES) {
+  for (const locale of locales) {
     let dictionaryKeys = 0;
     for (const key in sidecar.i18n[locale]) {
       if (!own(sidecar.i18n[locale], key)) continue;
@@ -181,6 +194,7 @@ function blockHasher(domain) {
   };
 }
 export async function computeLexicalFeatureHash(sidecar) {
+  assert(object(sidecar.i18n) && FEATURE_LOCALES.every(locale => object(sidecar.i18n[locale])), 'Canonical feature hashes require all locales');
   const hasher = blockHasher('asset-feature-source');
   await hasher.add(['header', sidecar.schemaVersion, sidecar.project, sidecar.kind, sidecar.baseIndexVersion]);
   await hasher.add(['resources']);
@@ -235,6 +249,7 @@ function resolvedPart(metadata, partName, dictionaries) {
   if (part?.status !== 'generated') return result;
   for (let index = 0; index < FEATURE_LOCALES.length; index++) {
     const locale = SEARCH_LOCALES[index], dictionary = dictionaries[FEATURE_LOCALES[index]];
+    if (!dictionary) continue;
     for (const [name, field] of [['description', 'shortDescriptionI18nKey'], ['detailedDescription', 'descriptionI18nKey']]) {
       const value = text(dictionary[part[field]]); if (value) result[name][locale] = value;
     }

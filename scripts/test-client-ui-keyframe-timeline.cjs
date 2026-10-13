@@ -16,10 +16,12 @@ assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename
 const ast = ts.createSourceFile(filename + ".ts", descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 const declarations = ast.statements.filter((item) => !ts.isImportDeclaration(item)).map((item) => item.getText(ast)).join("\n");
 const names = ["root", "ruler", "rows", "selection", "notice", "menu", "clipboard", "startKeyDrag", "startSeek", "startRowSeek", "snapTime", "changeKeyTime", "changeDuration", "changeEase", "changeInterpolation", "patchSelected", "addKey", "openMenu", "menuAddKey", "menuDeleteKey", "menuDeleteTrack", "removeSelectedKey", "copyKey", "pasteKey", "handleKeyDown", "handleRulerKey", "toggleCollapsed"];
-const code = ts.transpileModule(`${declarations}\nglobalThis.api={${names.join(",")}}`, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText;
+const compilerOptions = { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true };
+const code = ts.transpileModule(`${declarations}\nglobalThis.api={${names.join(",")}}`, { compilerOptions }).outputText;
 const originalTs = Module._extensions[".ts"];
-Module._extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText, file);
+Module._extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { fileName: file, compilerOptions }).outputText, file);
 const registry = require(path.join(editor, "tweenRegistry.ts"));
+const editorText = require("../src/i18n/index.ts");
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const key = (id, time, value = 0) => ({ id, time, value, relative: false, easeType: "Linear", interpolation: "tween" });
 function fixture() {
@@ -46,7 +48,7 @@ function fixture() {
     if (name === "remove-keyframe") track.keyframes = track.keyframes.filter((item) => item.id !== args[1]);
     if (name === "remove-track") props.tracks = props.tracks.filter((item) => item.id !== args[0]);
   };
-  const context = vm.createContext({ ...vue, ...registry, defineProps: () => props, defineEmits: () => emit,
+  const context = vm.createContext({ ...vue, ...registry, ...editorText, defineProps: () => props, defineEmits: () => emit,
     onMounted: (fn) => fn(), onBeforeUnmount: (fn) => unmounts.push(fn),
     window: { innerWidth: 1000, innerHeight: 700,
       addEventListener(type, fn) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(fn); },
@@ -71,7 +73,7 @@ async function main() {
   await test("Key dragging wins over seeking, clamps to duration and rejects duplicate times", ({ api, props, events, pointer, dispatch }) => {
     api.startKeyDrag(pointer(), props.tracks[0], props.tracks[0].keyframes[0]);
     dispatch("pointermove", pointer(200)); assert.equal(props.tracks[0].keyframes[0].time, 1);
-    dispatch("pointermove", pointer(300)); assert.equal(props.tracks[0].keyframes[0].time, 1); assert.match(api.notice.value, /不能/);
+    dispatch("pointermove", pointer(300)); assert.equal(props.tracks[0].keyframes[0].time, 1); assert.match(editorText.t(api.notice.value), /不能/);
     dispatch("pointermove", pointer(1000)); assert.equal(props.tracks[0].keyframes[0].time, 5);
     dispatch("pointermove", pointer(-100)); assert.equal(props.tracks[0].keyframes[0].time, 0);
     dispatch("pointerup", pointer());
@@ -121,7 +123,7 @@ async function main() {
   await test("The time collision epsilon is inclusive, matching the parent editor's validation", ({ api, props }) => {
     props.selectedKeyframeId = "b"; props.currentTime = 2;
     api.changeKeyTime(0.000001); assert.equal(props.tracks[0].keyframes[1].time, 2);
-    assert.match(api.notice.value, /已有/);
+    assert.match(editorText.t(api.notice.value), /已有/);
     api.changeKeyTime(0.000002); assert.equal(props.tracks[0].keyframes[1].time, 0.000002);
   });
   await test("Scrubbing playhead and Home/End change only time, never create history transactions", ({ api, props, lane, pointer, dispatch, events }) => {
@@ -153,7 +155,7 @@ async function main() {
     props.currentTime = 3; await api.pasteKey();
     const pasted = props.tracks[1].keyframes.find((key) => key.time === 3); assert.ok(pasted); assert.equal(pasted.value.r, 10);
     assert.notEqual(pasted.id, "d"); assert.equal(props.selectedKeyframeId, pasted.id);
-    const count = events.length; await api.pasteKey(); assert.equal(events.length, count); assert.match(api.notice.value, /已有/);
+    const count = events.length; await api.pasteKey(); assert.equal(events.length, count); assert.match(editorText.t(api.notice.value), /已有/);
   });
   await test("Pasting an implicit absolute key explicitly clears relative mode inherited from its new predecessor", async ({ api, props, events }) => {
     const source = props.tracks[0].keyframes[0]; delete source.relative;
@@ -196,14 +198,14 @@ async function main() {
   });
   await test("Keyframe inspector inputs and interpolation controls carry the red animated treatment", () => {
     const template = descriptor.template.content;
-    for (const label of ["关键帧时间", "关键帧属性值"]) {
-      const input = template.match(new RegExp(`<ScrubbableNumberInput\\b[^>]*aria-label="${label}"[^>]*>`))?.[0];
+    for (const label of ["clientUIAnimationEditor.ui.keyframes.time", "clientUIAnimationEditor.ui.timeline.keyframeValue"]) {
+      const input = template.match(new RegExp(`<ScrubbableNumberInput\\b[^>]*:aria-label="t\\('${label.replaceAll(".", "\\.")}'\\)"[^>]*>`))?.[0];
       assert.ok(input); assert.match(input, /:animated="true"/);
       assert.doesNotMatch(input, /(?:\s|:)allow-empty(?:\s|=)/);
     }
     assert.match(template, /<ColorRGBAField\b[^>]*:animated="true"/);
-    for (const label of ["关键帧插值方式"]) {
-      const select = template.match(new RegExp(`<select\\b[^>]*aria-label="${label}"[^>]*>`))?.[0];
+    for (const label of ["clientUIAnimationEditor.ui.keyframes.interpolation"]) {
+      const select = template.match(new RegExp(`<select\\b[^>]*:aria-label="t\\('${label.replaceAll(".", "\\.")}'\\)"[^>]*>`))?.[0];
       assert.ok(select); assert.match(select, /data-animated="true"/);
     }
     assert.match(template, /class="kf-relative is-animated" data-animated="true"/);

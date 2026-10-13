@@ -1,23 +1,24 @@
 <template>
-  <aside class="animation-list-panel" :class="{ 'is-collapsed': collapsed }" aria-label="Animator 动画列表">
-    <header><div v-show="!collapsed"><b>Animations</b><small>Animator · {{ animations.length }} 个动画</small></div><div class="panel-tools"><button v-show="!collapsed" :disabled="disabled" aria-label="新建 Animation" title="新建空白动画" @click="emit('create')">＋</button><button class="collapse-button" :aria-label="collapsed ? '展开动画面板' : '收起动画面板'" :title="collapsed ? '展开动画面板' : '收起动画面板'" :aria-expanded="!collapsed" @click="emit('toggle-collapse')">{{ collapsed ? '‹' : '›' }}</button></div></header>
+  <aside class="animation-list-panel" :class="{ 'is-collapsed': collapsed }" :aria-label="t('clientUIAnimationEditor.ui.animations.animatorList')">
+    <header><div v-show="!collapsed"><b>Animations</b><small>{{ t('clientUIAnimationEditor.ui.animations.countHeading', { count: animations.length }) }}</small></div><div class="panel-tools"><button v-show="!collapsed" :disabled="disabled" :aria-label="t('clientUIAnimationEditor.ui.animations.create')" :title="t('clientUIAnimationEditor.ui.animations.createBlank')" @click="emit('create')">＋</button><button class="collapse-button" :aria-label="collapsed ? t('clientUIAnimationEditor.ui.animations.expandPanel') : t('clientUIAnimationEditor.ui.animations.collapsePanel')" :title="collapsed ? t('clientUIAnimationEditor.ui.animations.expandPanel') : t('clientUIAnimationEditor.ui.animations.collapsePanel')" :aria-expanded="!collapsed" @click="emit('toggle-collapse')">{{ collapsed ? '‹' : '›' }}</button></div></header>
     <div v-if="collapsed" class="collapsed-caption" :title="selected?.name"><b>Animations</b><span>{{ selected?.name }}</span></div>
-    <div v-show="!collapsed" class="animation-list" role="listbox" aria-label="选择 Animation">
+    <div v-show="!collapsed" class="animation-list" role="listbox" :aria-label="t('clientUIAnimationEditor.ui.animations.select')">
       <button v-for="animation in animations" :key="animation.id" role="option" :aria-selected="animation.id === selectedId" :disabled="disabled" :class="{ selected: animation.id === selectedId }" :title="animation.name" @click="emit('select', animation.id)">
-        <span class="animation-diamond">◇</span><span class="animation-name"><b>{{ animation.name }}</b><small>{{ animation.duration }} s · {{ animation.keyframeTracks.length }} 条轨道</small></span>
+        <span class="animation-diamond">◇</span><span class="animation-name"><b>{{ animation.name }}</b><small>{{ t('clientUIAnimationEditor.ui.animations.durationTrackSummary', { value: animation.duration, count: animation.keyframeTracks.length }) }}</small></span>
       </button>
     </div>
     <footer v-if="selected" v-show="!collapsed">
-      <label>动画名称<input :key="selectedId" v-model="draftName" :disabled="disabled" maxlength="80" aria-label="Animation 名称" @change="rename" @keydown.enter.prevent="rename" /></label>
-      <div class="animation-actions"><button :disabled="disabled" @click="emit('duplicate')">复制动画</button><button :disabled="disabled || animations.length <= 1" title="至少保留一个动画" @click="pendingDelete = selectedId">删除</button></div>
-      <div v-if="pendingDelete === selectedId" class="delete-confirm" role="alertdialog" aria-label="确认删除 Animation"><p>删除「{{ selected.name }}」及其关键帧？控件不会删除，可撤销。</p><button @click="pendingDelete = null">取消</button><button class="danger" @click="emit('remove', selectedId); pendingDelete = null">确认删除</button></div>
+      <label>{{ t('clientUIAnimationEditor.ui.animations.name') }}<input :key="selectedId" v-model="draftName" :disabled="disabled" maxlength="80" :aria-label="t('clientUIAnimationEditor.ui.animations.nameLabel')" @change="rename" @keydown.enter.prevent="rename" /></label>
+      <div class="animation-actions"><button :disabled="disabled" @click="emit('duplicate')">{{ t('clientUIAnimationEditor.ui.animations.duplicate') }}</button><button :disabled="disabled || animations.length <= 1" :title="t('clientUIAnimationEditor.ui.animations.keepAtLeastOne')" @click="pendingDelete = selectedId">{{ t('clientUIAnimationEditor.ui.common.delete') }}</button></div>
+      <div v-if="pendingDelete === selectedId" class="delete-confirm" role="alertdialog" :aria-label="t('clientUIAnimationEditor.ui.animations.confirmDeletion')"><p>{{ t('clientUIAnimationEditor.ui.animations.deleteConfirm', { name: selected.name }) }}</p><button @click="pendingDelete = null">{{ t('clientUIAnimationEditor.ui.actions.cancel') }}</button><button class="danger" @click="emit('remove', selectedId); pendingDelete = null">{{ t('clientUIAnimationEditor.ui.actions.confirmDelete') }}</button></div>
       <p v-if="notice" class="animation-notice" role="status">{{ notice }}</p>
-      <p class="animation-help">共用控件层级与基础参数。<br />关键帧、时长及 Lua Data 对应当前动画。</p>
+      <p class="animation-help">{{ t('clientUIAnimationEditor.ui.animations.sharedControlsHint') }}<br />{{ t('clientUIAnimationEditor.ui.animations.currentDataHint') }}</p>
     </footer>
   </aside>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, nextTick, ref, watch } from "vue";
 import type { UIAnimation } from "./types";
 const props = defineProps<{ animations: UIAnimation[]; selectedId: string; disabled?: boolean; notice?: string; collapsed?: boolean }>();

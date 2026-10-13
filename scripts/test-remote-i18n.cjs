@@ -37,7 +37,7 @@ function setup(queue, messages = {}, timeoutMs = 100) {
 }
 
 function validateFormat() {
-  const parse = (input) => parseTranslationTable(input, source.namespace, source.locale);
+  const parse = (input) => { const { messages, entries } = parseTranslationTable(input, source.namespace, source.locale); return { messages, entries }; };
   const parsed = parse(table({ "names.2": "White Dust", "names.3": null, "names.4": "", "names.5": "   ", "tags.4": "Glow" }));
   assert.equal(parsed.entries, 2);
   assert.deepEqual(parsed.messages, { names: { 2: "White Dust" }, tags: { 4: "Glow" } });
@@ -67,6 +67,10 @@ function validateFormat() {
   ]) assert.throws(() => parse(invalid));
   assert.throws(() => parseTranslationTable(table({}), "__proto__", source.locale));
   assert.throws(() => parseTranslationTable(table({}), source.namespace, "en_US"));
+  const category = parseTranslationTable({ 3: " Icons @ {x} | ", "clientUIAnimationEditor.category.4": "Frames" }, "clientUIAnimationEditor", "en-US", "category");
+  assert.deepEqual(category.dictionary, { "clientUIAnimationEditor.category.3": " Icons @ {x} | ", "clientUIAnimationEditor.category.4": "Frames" });
+  assert.throws(() => parseTranslationTable({ 3: "Old", "clientUIAnimationEditor.category.3": "Conflict" }, "clientUIAnimationEditor", "en-US", "category"));
+  assert.throws(() => parseTranslationTable({ 3: "Old" }, "clientUIAnimationEditor", "en-US", "__proto__"));
   assert.equal({}.injected, undefined);
   const inherited = parse(table({ "names.toString.remoteI18nProbe": "Safe name" }));
   assert.equal(inherited.messages.names.toString.remoteI18nProbe, "Safe name");
@@ -81,23 +85,23 @@ async function textAndMessages() {
     response({ "effectPlayer.data.10001": "风声", "effectPlayer.category.1": "环境" }),
     response({}),
   ]);
-  assert.equal((await flat.loader.load(source)).status, "loaded");
+  assert.equal((await flat.loader.load(source, { refresh: true })).status, "loaded");
   assert.equal(flat.composer.t("effectPlayer.data.10001"), literal);
   assert.equal(flat.composer.t("effectPlayer.category.1"), "Environment");
-  await flat.loader.load(chineseSource);
+  await flat.loader.load(chineseSource, { refresh: true });
   flat.composer.locale.value = "zh-CN";
   assert.equal(flat.composer.t("effectPlayer.data.10001"), "风声");
   assert.equal(flat.composer.t("effectPlayer.category.1"), "环境");
-  await flat.loader.load(chineseSource);
+  await flat.loader.load(chineseSource, { refresh: true });
   assert.equal(flat.composer.t("effectPlayer.data.10001"), "effectPlayer.data.10001");
   flat.composer.locale.value = "en-US";
   assert.equal(flat.composer.t("effectPlayer.data.10001"), literal);
   const { composer, loader } = setup([response(table({ "names.2": literal })), response(table({
     greeting: "Hello, {name}", count: "One effect | {count} effects",
   }, { format: "message" }))]);
-  assert.deepEqual(await loader.load(source), { status: "loaded", namespace: source.namespace, locale: source.locale, entries: 1 });
+  assert.deepEqual(await loader.load(source, { refresh: true }), { status: "loaded", namespace: source.namespace, locale: source.locale, entries: 1 });
   assert.equal(composer.t("effectPlayer.names.2"), literal, "Text format preserves message punctuation literally");
-  await loader.load(source);
+  await loader.load(source, { refresh: true });
   assert.equal(composer.t("effectPlayer.greeting", { name: "Luna" }), "Hello, Luna");
   assert.equal(composer.t("effectPlayer.count", { count: 2 }, 2), "2 effects");
 }
@@ -116,16 +120,16 @@ async function concurrencyAndIsolation() {
   assert.equal(calls.length, 1);
   assert.equal((await loader.load({ ...source, url: "/another.json" })).status, "failed");
   assert.equal(calls.length, 1, "One namespace and locale pair cannot race multiple translation sources");
-  assert.deepEqual(await loader.load(chineseSource), { status: "loaded", namespace: source.namespace, locale: "zh-CN", entries: 1 }, "Different languages in the same namespace may load concurrently");
+  assert.deepEqual(await loader.load(chineseSource, { refresh: true }), { status: "loaded", namespace: source.namespace, locale: "zh-CN", entries: 1 }, "Different languages in the same namespace may load concurrently");
   assert.match(calls[1].url, /\/i18n\/zh-cn\.json\?_t=\d+$/);
-  assert.equal((await loader.load(other)).status, "loaded", "Independent namespaces may load concurrently");
+  assert.equal((await loader.load(other, { refresh: true })).status, "loaded", "Independent namespaces may load concurrently");
   assert.match(calls[2].url, /\?revision=2&_t=\d+$/);
   resolveFirst(response(table({ "names.2": "Effect" })));
   assert.equal((await first).status, "loaded");
   assert.equal(composer.t("effectPlayer.names.2"), "Effect");
   assert.equal(composer.t("soundPlayer.names.2"), "Sound");
   assert.equal(composer.t("common.save"), "Save");
-  await loader.load(source);
+  await loader.load(source, { refresh: true });
   assert.equal(calls.length, 4, "Completed loads revalidate on the next call");
   assert.equal(composer.t("effectPlayer.names.2"), "Effect updated");
   assert.equal(composer.t("soundPlayer.names.2"), "Sound");
@@ -143,10 +147,10 @@ async function snapshotReplacement() {
     response(table({ "names.2": "Updated", "names.3": "  ", "names.4": null })),
     response(null, 404), response(table({ "names.2": "Uploaded again" })), response(null, 404),
   ], { "en-US": { effectPlayer: { title: "Local title", tags: { 4: "Local tag" } } }, "zh-CN": { effectPlayer: { title: "本地标题" } } });
-  await loader.load(source);
+  await loader.load(source, { refresh: true });
   assert.equal(composer.t("effectPlayer.title"), "Remote title");
-  await loader.load(chineseSource);
-  await loader.load(source);
+  await loader.load(chineseSource, { refresh: true });
+  await loader.load(source, { refresh: true });
   assert.equal(composer.t("effectPlayer.names.2"), "Updated");
   assert.equal(composer.t("effectPlayer.names.3"), "effectPlayer.names.3", "Removed or empty cells delete obsolete translations");
   assert.equal(composer.t("effectPlayer.title"), "Local title", "Removing remote overrides restores the baseline");
@@ -156,15 +160,15 @@ async function snapshotReplacement() {
   assert.equal(composer.t("effectPlayer.names.3"), "保留中文");
   assert.equal(composer.t("effectPlayer.title"), "本地标题");
   composer.locale.value = "en-US";
-  assert.deepEqual(await loader.load(source), { status: "missing", namespace: source.namespace, locale: source.locale });
+  assert.deepEqual(await loader.load(source, { refresh: true }), { status: "missing", namespace: source.namespace, locale: source.locale });
   assert.equal(composer.t("effectPlayer.names.2"), "effectPlayer.names.2", "404 clears the remote snapshot");
   assert.equal(composer.t("effectPlayer.title"), "Local title");
   composer.locale.value = "zh-CN";
   assert.equal(composer.t("effectPlayer.names.2"), "初版", "English 404 does not clear Chinese translations");
   composer.locale.value = "en-US";
-  assert.equal((await loader.load(source)).status, "loaded");
+  assert.equal((await loader.load(source, { refresh: true })).status, "loaded");
   assert.equal(composer.t("effectPlayer.names.2"), "Uploaded again", "404 never prevents a later upload from being read");
-  assert.deepEqual(await loader.load(chineseSource), { status: "missing", namespace: source.namespace, locale: "zh-CN" });
+  assert.deepEqual(await loader.load(chineseSource, { refresh: true }), { status: "missing", namespace: source.namespace, locale: "zh-CN" });
   assert.equal(composer.t("effectPlayer.names.2"), "Uploaded again", "Chinese 404 leaves English translations intact");
   composer.locale.value = "zh-CN";
   assert.equal(composer.t("effectPlayer.names.2"), "effectPlayer.names.2", "Missing Chinese must not fall back to the available English name");
@@ -181,17 +185,17 @@ async function failuresAndRetry() {
     response(table({ "names.2": "Recovered" })),
   ]);
   for (let i = 0; i < 3; i++) {
-    const result = await loader.load(source);
+    const result = await loader.load(source, { refresh: true });
     assert.equal(result.status, "failed"); assert.ok(result.error instanceof Error);
     assert.equal(result.namespace, source.namespace); assert.equal(result.locale, source.locale);
   }
-  assert.equal((await loader.load(source)).status, "loaded");
+  assert.equal((await loader.load(source, { refresh: true })).status, "loaded");
   for (let i = 0; i < 4; i++) {
-    assert.equal((await loader.load(source)).status, "failed");
+    assert.equal((await loader.load(source, { refresh: true })).status, "failed");
     assert.equal(composer.t("effectPlayer.names.2"), "Last good value", "Validation and transient failures preserve the complete snapshot");
     assert.equal(composer.t("effectPlayer.names.3"), "effectPlayer.names.3");
   }
-  assert.equal((await loader.load(source)).status, "loaded");
+  assert.equal((await loader.load(source, { refresh: true })).status, "loaded");
   assert.equal(composer.t("effectPlayer.names.2"), "Recovered");
   assert.equal(calls.length, 9, "Failures leave the loader retryable");
 }
@@ -202,11 +206,11 @@ async function timeout() {
     observedSignal = signal;
     signal.addEventListener("abort", () => reject(new DOMException("Timed out", "AbortError")), { once: true });
   }), response(table({ "names.2": "After timeout" }))], {}, 5);
-  const result = await loader.load(source);
+  const result = await loader.load(source, { refresh: true });
   assert.equal(result.status, "failed");
   assert.equal(result.error.name, "AbortError");
   assert.equal(observedSignal.aborted, true);
-  assert.equal((await loader.load(source)).status, "loaded");
+  assert.equal((await loader.load(source, { refresh: true })).status, "loaded");
   assert.equal(composer.t("effectPlayer.names.2"), "After timeout");
   assert.equal(calls.length, 2, "Timeouts do not leave stale in-flight requests");
 }
@@ -223,24 +227,24 @@ async function reactiveSearch() {
   assert.equal(index.value.get("2").includes("dust"), false);
   assert.ok(index.value.get("2").includes("source_effect"));
   assert.ok(index.value.get("2").includes("原始标签"));
-  await loader.load(source);
+  await loader.load(source, { refresh: true });
   assert.equal(title.value, literal, "Rendered names update after the remote request");
   assert.ok(index.value.get("2").includes(literal.toLowerCase()), "Escaped storage messages are searchable by visible text");
   assert.equal(index.value.get("2").includes("远程白色烟尘"), false, "Unloaded languages have no remote search entries");
-  await loader.load(chineseSource);
+  await loader.load(chineseSource, { refresh: true });
   assert.ok(index.value.get("2").includes("远程白色烟尘"));
   assert.ok(index.value.get("2").includes("remote spark"));
   const englishIndex = index.value;
   composer.locale.value = "zh-CN";
   assert.equal(title.value, "远程白色烟尘");
   assert.equal(index.value, englishIndex, "Display language does not discard the multilingual index");
-  await loader.load(source);
+  await loader.load(source, { refresh: true });
   assert.equal(title.value, "远程白色烟尘", "Refreshing English preserves the displayed Chinese name");
   assert.ok(index.value.get("2").includes("fresh snow"));
   assert.equal(index.value.get("2").includes("dust"), false);
   assert.equal(index.value.get("2").includes("remote spark"), false);
   assert.ok(index.value.get("2").includes("原始标题"));
-  await loader.load(chineseSource);
+  await loader.load(chineseSource, { refresh: true });
   assert.equal(title.value, "effectPlayer.data.2", "Missing Chinese does not fall back to English");
   assert.equal(index.value.get("2").includes("远程白色烟尘"), false, "Empty Chinese snapshots remove their old search entries");
   assert.ok(index.value.get("2").includes("fresh snow"), "Deleting Chinese search entries preserves loaded English names");
@@ -280,20 +284,20 @@ async function translatedFiltersKeepSelections() {
   assert.equal(groups.value[0].name, "effectPlayer.category.1", "Categories show keys until OSS translations load");
   assert.equal(composer.te("effectPlayer.category.属性"), false, "No bundled legacy category translations remain");
   assert.equal(composer.t("effectPlayer.filter.open"), englishMessages.filter.open);
-  await loader.load(source);
+  await loader.load(source, { refresh: true });
   assert.equal(groups.value[0].name, "Remote element family");
   assert.equal(groups.value[1].name, "Remote custom group", "Custom category keys render through Vue I18n");
   assert.equal(groups.value[0].tags[0].name, "Remote wind");
   assert.equal(composer.t("effectPlayer.filter.open"), englishMessages.filter.open, "Site UI retains its local translation");
   unchangedSelection();
-  await loader.load(chineseSource);
+  await loader.load(chineseSource, { refresh: true });
   composer.locale.value = "zh-CN";
   assert.equal(groups.value[0].name, "远程元素类别");
   assert.equal(groups.value[1].name, "远程自定义类别");
   assert.equal(groups.value[0].tags[0].name, "远程风元素");
   assert.equal(composer.t("effectPlayer.filter.open"), chineseMessages.filter.open);
   unchangedSelection();
-  await loader.load(chineseSource);
+  await loader.load(chineseSource, { refresh: true });
   assert.equal(groups.value[0].name, "更新的元素类别");
   assert.equal(groups.value[1].name, "更新的自定义类别");
   assert.equal(groups.value[0].tags[0].name, "更新的风元素");
@@ -303,7 +307,7 @@ async function translatedFiltersKeepSelections() {
   assert.equal(groups.value[0].name, "Remote element family", "Refreshing Chinese preserves English labels");
   unchangedSelection();
   composer.locale.value = "zh-CN";
-  await loader.load(chineseSource);
+  await loader.load(chineseSource, { refresh: true });
   assert.equal(groups.value[0].name, "effectPlayer.category.1", "Deleted category translations have no local fallback");
   unchangedSelection();
 }
@@ -319,7 +323,7 @@ async function shippedExamplesCompile() {
       assert.equal(typeof example.table.translations[key], "string", `${example.source.locale} example must demonstrate ${key}`);
     }
     assert.ok(Object.keys(example.table.translations).every((key) => !key.startsWith("filter.")), "Site UI translations stay in local catalogs");
-    const result = await loader.load(example.source);
+    const result = await loader.load(example.source, { refresh: true });
     assert.equal(result.status, "loaded", `${example.source.locale} example must satisfy the remote contract`);
     composer.locale.value = example.source.locale;
     const compileErrors = [];

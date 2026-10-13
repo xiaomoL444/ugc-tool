@@ -2,11 +2,13 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const ts = require('typescript');
+global.window = {};
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
   fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
 const { createFeatureSidecar } = require('./ai-search-feature-fixtures.cjs');
 const { buildAssetFeatureCollection, loadAssetFeatures, assetFeaturePath, assetFeatureUrl } = require('../src/utils/assetFeatures.ts');
+const { loadOssTranslations } = require('../src/i18n/index.ts');
 
 const multilingual = { 'zh-cn': '低沉敲击', 'zh-tw': '低沉敲擊', 'en-us': 'low knock', 'ja-jp': '低い打撃音', 'ru-ru': 'низкий стук' };
 const effects = createFeatureSidecar('EffectPlayer', {
@@ -66,13 +68,15 @@ const sound = createFeatureSidecar('SoundEffectPlayer', { 7: { audio: { short: m
   const external = structuredClone(sound), dictionaries = external.i18n;
   external.i18nSource = 'project-i18n-v1'; delete external.i18n;
   const dictionaryInput = Object.fromEntries(Object.entries(dictionaries).map(([locale, values]) => [locale, {
-    translations: { ...values, 'soundEffectPlayer.data.7': '原本的资产名称' },
+    version: 1, namespace: 'soundEffectPlayer', locale,
+    translations: Object.fromEntries(Object.entries({ ...values, 'soundEffectPlayer.data.7': '原本的资产名称' })
+      .map(([key, value]) => [key.replace(/^soundEffectPlayer\./, ''), value])),
   }]));
   const externalCollection = buildAssetFeatureCollection('SoundEffectPlayer', external, [{ id: 7 }], { dictionaries: dictionaryInput });
   assert.deepEqual(externalCollection.get(7, 'zh-CN'), audio.get(7, 'zh-CN'));
   assert.ok(!externalCollection.searchText.get('7').includes('原本的资产名称'), 'Names remain in the player dictionary, outside feature evidence');
   const orphaned = structuredClone(dictionaryInput);
-  for (const value of Object.values(orphaned)) value.translations['soundEffectPlayer.search.999.audio.short'] = '孤立描述不能绑定任何资源';
+  for (const value of Object.values(orphaned)) value.translations['search.999.audio.short'] = '孤立描述不能绑定任何资源';
   assert.throws(() => buildAssetFeatureCollection('SoundEffectPlayer', external, [{ id: 7 }], { dictionaries: orphaned }),
     'Unreferenced feature translation is rejected rather than invented as asset evidence');
   let externalCalls = 0, badLocale = false, changed = false;
@@ -81,37 +85,151 @@ const sound = createFeatureSidecar('SoundEffectPlayer', { 7: { audio: { short: m
     const pathname = new URL(url).pathname;
     if (pathname.endsWith('/features.json')) return Response.json(external);
     const locale = pathname.match(/\/i18n\/(.*)\.json$/)?.[1];
-    assert.ok(locale && dictionaries[locale], 'External mode only loads the five corresponding player dictionaries');
-    if (badLocale && locale === 'ru-ru') return new Response('', { status: 404 });
+    assert.ok(locale && dictionaries[locale], 'External mode uses the corresponding project dictionary');
+    if (badLocale && locale === 'en-us') return new Response('', { status: 503 });
     const values = structuredClone(dictionaryInput[locale]);
-    if (changed) values.translations['soundEffectPlayer.search.7.audio.short'] = `updated-${locale}`;
+    if (changed) values.translations['search.7.audio.short'] = `updated-${locale}`;
     return Response.json(values);
   };
-  const externalOptions = { baseUrl: 'https://external-cache-fixture.invalid/data', fetcher: externalFetcher, cached: true };
+  const externalOptions = { baseUrl: 'https://external-cache-fixture.invalid/data', fetcher: externalFetcher, cached: true, locale: 'en-US' };
   const externalResults = await Promise.all([
     loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], externalOptions),
     loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], externalOptions),
   ]);
-  assert.equal(externalCalls, 6, 'External descriptors and all five dictionaries share one atomic singleflight');
+  assert.equal(externalCalls, 2, 'Concurrent description consumers download metadata and the selected shared dictionary once');
   assert.equal(externalResults[0].get(7, 'en-US')[0].short, 'low knock');
   changed = true; badLocale = true;
   const partial = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], { ...externalOptions, force: true });
   assert.equal(partial.status, 'stale');
-  for (const [locale, text] of Object.entries(multilingual)) assert.equal(partial.get(7, locale)[0].short, text,
-    'A failed language refresh cannot mix new dictionaries with last-good ones');
+  assert.equal(partial.get(7, 'en-US')[0].short, 'low knock', 'A failed refresh retains its last-good language');
+  assert.deepEqual(partial.get(7, 'zh-CN'), [], 'Last-good data cannot fall back to another language');
   badLocale = false;
+  const retry = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], externalOptions);
+  assert.equal(retry.get(7, 'en-US')[0].short, 'updated-en-us', 'The shared i18n entry retries a failed refresh without an explicit force');
+  const afterRecovery = externalCalls;
   const originalNow = Date.now;
   Date.now = () => originalNow() + 61_000;
   let localeUpdate;
   try { localeUpdate = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], externalOptions); }
   finally { Date.now = originalNow; }
   assert.equal(localeUpdate.status, 'ready');
-  for (const locale of Object.keys(multilingual)) assert.equal(localeUpdate.get(7, locale)[0].short, `updated-${locale}`,
-    'TTL reloads dictionary changes even when features.json is byte-for-byte unchanged');
+  assert.equal(localeUpdate.get(7, 'en-US')[0].short, 'updated-en-us');
+  assert.equal(externalCalls, afterRecovery + 1, 'The metadata TTL does not bypass the central dictionary cache');
+  const explicitRefresh = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], { ...externalOptions, force: true });
+  assert.equal(explicitRefresh.get(7, 'en-US')[0].short, 'updated-en-us', 'An explicit refresh goes through the shared dictionary entry');
   const tooSmallExternal = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], {
     ...externalOptions, cached: false, maxBytes: new TextEncoder().encode(JSON.stringify(external)).byteLength + 1,
   });
   assert.equal(tooSmallExternal.errorCode, 'ASSET_FEATURES_TOO_LARGE', 'One byte budget bounds the entire features-plus-dictionaries group');
+
+  const localeRequests = [];
+  const localeFetcher = async url => {
+    const pathname = new URL(url).pathname;
+    localeRequests.push(pathname);
+    if (pathname.endsWith('/features.json')) return Response.json(external);
+    const locale = pathname.match(/\/i18n\/(.*)\.json$/)?.[1];
+    assert.ok(locale && dictionaryInput[locale]);
+    return Response.json(dictionaryInput[locale]);
+  };
+  const localeOptions = { baseUrl: 'https://locale-cache-fixture.invalid/data', fetcher: localeFetcher, cached: true, locale: 'zh-CN' };
+  const chinese = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], localeOptions);
+  assert.equal(chinese.status, 'ready');
+  assert.equal(chinese.get(7, 'zh-CN')[0].short, multilingual['zh-cn']);
+  assert.deepEqual(chinese.get(7, 'en-US'), [], 'Unloaded languages have no guessed fallback descriptions');
+  assert.ok(!chinese.searchText.get('7').includes('low knock'), 'Search only indexes downloaded descriptions');
+  assert.deepEqual(localeRequests, ['/data/SoundEffectPlayer/features.json', '/data/SoundEffectPlayer/i18n/zh-cn.json'],
+    'External descriptions only download the current dictionary');
+  await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], { ...localeOptions, locale: 'zh_cn' });
+  assert.equal(localeRequests.length, 2, 'Equivalent locale spellings share cached data');
+  const english = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], { ...localeOptions, locale: 'en-US' });
+  assert.equal(english.get(7, 'en-US')[0].short, multilingual['en-us']);
+  assert.deepEqual(english.get(7, 'zh-CN'), [], 'A language switch uses an independent parsed snapshot');
+  assert.deepEqual(localeRequests.slice(2), ['/data/SoundEffectPlayer/i18n/en-us.json'], 'Language switches reuse locale-independent feature metadata');
+  await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], localeOptions);
+  assert.equal(localeRequests.length, 3, 'Switching back reuses the public dictionary cache');
+  const failedEnglish = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], {
+    ...localeOptions, locale: 'en-US', force: true, fetcher: async () => new Response('', { status: 503 }),
+  });
+  assert.equal(failedEnglish.status, 'stale');
+  assert.equal(failedEnglish.get(7, 'en-US')[0].short, multilingual['en-us']);
+  assert.deepEqual(failedEnglish.get(7, 'zh-CN'), [], 'Last-good refresh data remains scoped to its language');
+  let embeddedCalls = 0;
+  const embedded = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], {
+    locale: 'zh-CN', fetcher: async () => { embeddedCalls++; return Response.json(sound); }, cached: false,
+  });
+  assert.equal(embeddedCalls, 1, 'Embedded dictionaries do not trigger any extra i18n request');
+  assert.equal(embedded.get(7, 'en-US')[0].short, multilingual['en-us'], 'Embedded sidecars keep their existing multilingual search');
+  const wrongLanguage = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], {
+    ...localeOptions, cached: false, locale: 'en-US', fetcher: async url => url.includes('/features.json')
+      ? Response.json(external) : Response.json({ ...dictionaryInput['en-us'], locale: 'zh-cn' }),
+  });
+  assert.equal(wrongLanguage.status, 'unavailable');
+  assert.equal(wrongLanguage.errorCode, 'ASSET_FEATURES_INVALID', 'A mislabeled wrapper must not display another language as English');
+
+  // Reproduce a sidecar gaining new description references while shared dictionaries
+  // are already cached. Successful metadata updates must revalidate each used language.
+  const updatedShort = Object.fromEntries(Object.keys(multilingual).map(locale => [locale, `new-${locale}`]));
+  const updatedDetail = Object.fromEntries(Object.keys(multilingual).map(locale => [locale, `detail-${locale}`]));
+  const revisions = [sound, createFeatureSidecar('SoundEffectPlayer', {
+    7: { audio: { short: multilingual, description: updatedDetail, keywords: ['低沉'], uses: ['探险提示'],
+      possibleSources: ['猜测齿轮'], uncertainDetails: ['未确认鸣叫'] } },
+    8: { audio: { short: updatedShort } },
+  })];
+  let revision = 0;
+  const updateRequests = [];
+  const updateFetcher = async url => {
+    const pathname = new URL(url).pathname;
+    updateRequests.push(pathname);
+    if (pathname.endsWith('/features.json')) {
+      const { i18n, ...metadata } = revisions[revision];
+      return Response.json({ ...metadata, i18nSource: 'project-i18n-v1' });
+    }
+    const locale = pathname.match(/\/i18n\/(.*)\.json$/)?.[1];
+    assert.ok(locale && revisions[revision].i18n[locale]);
+    return Response.json(revisions[revision].i18n[locale]);
+  };
+  const updateOptions = { baseUrl: 'https://metadata-update-fixture.invalid/data', fetcher: updateFetcher, cached: true, locale: 'zh-CN' };
+  const updateIdentities = [{ id: 7 }, { id: 8 }];
+  await loadAssetFeatures('SoundEffectPlayer', updateIdentities, updateOptions);
+  await loadAssetFeatures('SoundEffectPlayer', updateIdentities, { ...updateOptions, locale: 'en-US' });
+  assert.equal(updateRequests.length, 3, 'Initial metadata is shared across the two explicitly selected languages');
+  revision = 1;
+  Date.now = () => originalNow() + 61_000;
+  let updated;
+  try {
+    updated = await Promise.all([
+      loadAssetFeatures('SoundEffectPlayer', updateIdentities, updateOptions),
+      loadAssetFeatures('SoundEffectPlayer', updateIdentities, updateOptions),
+    ]);
+  } finally { Date.now = originalNow; }
+  assert.ok(updated.every(collection => collection.status === 'ready'), 'Changed metadata plus its shared dictionary recover atomically');
+  assert.equal(updated[0].get(8, 'zh-CN')[0].short, 'new-zh-cn');
+  assert.equal(updated[0].get(7, 'zh-CN')[0].detail, 'detail-zh-cn');
+  assert.deepEqual(updated[0].get(8, 'en-US'), [], 'The current snapshot never reads another cached language');
+  assert.equal(updateRequests.length, 5, 'Changed metadata triggers one current-language revalidation, shared by concurrent consumers');
+  await loadAssetFeatures('SoundEffectPlayer', updateIdentities, updateOptions);
+  assert.equal(updateRequests.length, 5, 'An already aligned metadata/dictionary pair returns to normal shared caching');
+  const updatedEnglish = await loadAssetFeatures('SoundEffectPlayer', updateIdentities, { ...updateOptions, locale: 'en-US' });
+  assert.equal(updatedEnglish.status, 'ready');
+  assert.equal(updatedEnglish.get(8, 'en-US')[0].short, 'new-en-us');
+  assert.deepEqual(updatedEnglish.get(8, 'zh-CN'), [], 'A previously cached language is revalidated without a cross-language fallback');
+  assert.equal(updateRequests.length, 6, 'Switching to an older cached language refreshes only its shared dictionary');
+  Date.now = () => originalNow() + 122_000;
+  try { await loadAssetFeatures('SoundEffectPlayer', updateIdentities, updateOptions); }
+  finally { Date.now = originalNow; }
+  assert.equal(updateRequests.length, 7, 'Unchanged metadata after another TTL revalidation does not fetch a dictionary again');
+
+  const namesOnlyBase = 'https://name-first-fixture.invalid/data';
+  revision = 0;
+  await loadOssTranslations('SoundEffectPlayer', 'soundEffectPlayer', 'i18n', {
+    locale: 'zh-CN', baseUrl: namesOnlyBase, fetcher: updateFetcher,
+  });
+  revision = 1;
+  const namesOnlyRequests = updateRequests.length;
+  const firstDescription = await loadAssetFeatures('SoundEffectPlayer', updateIdentities, { ...updateOptions, baseUrl: namesOnlyBase });
+  assert.equal(firstDescription.status, 'ready', 'A first description load recovers a dictionary cached earlier by a name-only consumer');
+  assert.equal(firstDescription.get(8, 'zh-CN')[0].short, 'new-zh-cn');
+  assert.equal(updateRequests.length, namesOnlyRequests + 2, 'Dangling references cause just one shared dictionary refresh');
 
   for (const [fetcher, options, code] of [
     [async () => new Response('', { status: 404 }), {}, 'ASSET_FEATURES_UNAVAILABLE'],
@@ -127,5 +245,5 @@ const sound = createFeatureSidecar('SoundEffectPlayer', { 7: { audio: { short: m
     assert.equal(missing.status, 'unavailable'); assert.equal(missing.errorCode, code);
     assert.equal(missing.get(7, 'zh-CN').length, 0); assert.equal(missing.searchText.size, 0);
   }
-  console.log('Asset feature binding, five languages, external dictionaries, atomic shared cache, evidence separation, limits, timeout and fallback passed.');
+  console.log('Asset feature binding, shared current-language dictionaries, metadata revision coherence, central cache and refresh, embedded multilingual data, evidence separation, limits, timeout and fallback passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -4,12 +4,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
 const ts = require("typescript");
+const { messageText } = require('./i18n-test-helpers.cjs');
 const { parse, compileScript, compileTemplate } = require("@vue/compiler-sfc");
 const originalTsExtension = Module._extensions[".ts"];
 Module._extensions[".ts"] = (module, filename) => {
   const result = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
     fileName: filename,
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true },
   });
   module._compile(result.outputText, filename);
 };
@@ -37,12 +38,13 @@ try {
     mutator(after);
     const result = describeHistoryChange(before, JSON.stringify(after));
     assert.equal(JSON.stringify(source), before, "Description must not mutate its source");
-    return result;
+    assert.equal(typeof result, 'string', 'History stores the translated label');
+    return messageText(result);
   }
   let passed = 0;
   function test(name, run) { run(); passed++; console.log(`PASS ${name}`); }
 
-  test("Added controls use their registered Chinese type and name", () => {
+  test("Added controls render their registered type and name through i18n", () => {
     assert.equal(change((state) => state.nodes.push(node("NewText", "text", "Root"))), "新增文本框「NewText」");
     assert.equal(change((state) => state.nodes.push(node("One"), node("Two"))), "新增 2 个控件");
   });
@@ -129,9 +131,9 @@ try {
     assert.equal(change((state) => { state.showContainerBones = false; }), "隐藏容器骨骼");
   });
   test("Malformed and unknown data falls back safely without crashes", () => {
-    assert.equal(describeHistoryChange("malformed", "{}"), "修改编辑内容");
-    assert.equal(describeHistoryChange("[]", "null"), "修改编辑内容");
-    assert.equal(describeHistoryChange("{}", "{}"), "修改编辑内容");
+    assert.equal(messageText(describeHistoryChange("malformed", "{}")), "修改编辑内容");
+    assert.equal(messageText(describeHistoryChange("[]", "null")), "修改编辑内容");
+    assert.equal(messageText(describeHistoryChange("{}", "{}")), "修改编辑内容");
     assert.equal(change((state) => { state.nodes[1].properties.futureField = 1; }), "修改「Text」的控件属性");
     const state = original();
     state.nodes[1].parentId = "Image";
@@ -145,7 +147,7 @@ try {
     const script = compileScript(descriptor, { id: "history-panel" });
     const template = compileTemplate({ source: descriptor.template.content, filename, id: "history-panel", compilerOptions: { bindingMetadata: script.bindings } });
     assert.deepEqual(template.errors, []);
-    assert.match(descriptor.template.content, /role="dialog" aria-label="操作记录"/);
+    assert.match(descriptor.template.content, /role="dialog" :aria-label="t\('clientUIAnimationEditor\.ui\.history\.actionHistory'\)"/);
     assert.doesNotMatch(descriptor.template.content, /@click="[^\"]*(?:entry|position|jump)/);
     assert.match(descriptor.template.content, /pointerdown\.stop/);
   });

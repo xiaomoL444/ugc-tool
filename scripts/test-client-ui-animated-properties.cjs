@@ -12,7 +12,7 @@ const oldVue = Module._extensions[".vue"];
 const editor = path.resolve(__dirname, "../src/views/ClientUIAnimationEditor");
 function transpile(source, filename) {
   return ts.transpileModule(source, { fileName: filename,
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText;
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
 }
 Module._extensions[".ts"] = (module, filename) => module._compile(transpile(fs.readFileSync(filename, "utf8"), filename), filename);
 Module._extensions[".vue"] = (module, filename) => {

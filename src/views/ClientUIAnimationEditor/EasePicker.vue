@@ -1,26 +1,27 @@
 <template>
-  <button ref="trigger" type="button" class="ease-trigger" aria-label="关键帧缓动" aria-haspopup="dialog" :aria-expanded="opened" :disabled="disabled" @click.stop="open">
+  <button ref="trigger" type="button" class="ease-trigger" :aria-label="t('clientUIAnimationEditor.ui.easing.keyframeTitle')" aria-haspopup="dialog" :aria-expanded="opened" :disabled="disabled" @click.stop="open">
     <svg viewBox="0 0 160 128" aria-hidden="true"><path :d="easeCurvePath(modelValue)" /></svg>
     <span>{{ selectedLabel }}<small>{{ modelValue }}</small></span><span aria-hidden="true">▦</span>
   </button>
   <Teleport to="body">
-    <dialog ref="panel" class="ease-panel" role="dialog" aria-label="选择缓动效果" @close="closed" @click.self="close" @keydown.stop @pointerdown.stop>
-      <header><div><strong>选择缓动效果</strong><p>作用于当前关键帧 → 下一帧 · 横轴时间 / 纵轴进度</p></div><button type="button" aria-label="关闭缓动面板" @click="close">✕</button></header>
-      <div class="ease-search"><input v-model="query" type="search" placeholder="搜索名称，例如 回弹 / Out / Sine" aria-label="搜索缓动效果" /><span>{{ filtered.length }} / {{ tweenEaseOptions.length }}</span></div>
+    <dialog ref="panel" class="ease-panel" role="dialog" :aria-label="t('clientUIAnimationEditor.ui.easing.chooseEffect')" @close="closed" @click.self="close" @keydown.stop @pointerdown.stop>
+      <header><div><strong>{{ t('clientUIAnimationEditor.ui.easing.chooseEffect') }}</strong><p>{{ t('clientUIAnimationEditor.ui.tweenPicker.keyframeCurveAxesHint') }}</p></div><button type="button" :aria-label="t('clientUIAnimationEditor.ui.easing.closePanel')" @click="close">✕</button></header>
+      <div class="ease-search"><input v-model="query" type="search" :placeholder="t('clientUIAnimationEditor.ui.easing.searchPlaceholder')" :aria-label="t('clientUIAnimationEditor.ui.easing.searchLabel')" /><span>{{ filtered.length }} / {{ tweenEaseOptions.length }}</span></div>
       <div class="ease-grid">
-        <button v-for="ease in filtered" :key="ease.value" type="button" class="ease-card" :class="{ selected: modelValue === ease.value }" :aria-pressed="modelValue === ease.value" :aria-label="`${ease.label} ${ease.value}`" @click="choose(ease.value)">
-          <span class="ease-card-title">{{ ease.label }}<span v-if="modelValue === ease.value" aria-hidden="true">✓</span></span>
+        <button v-for="ease in filtered" :key="ease.value" type="button" class="ease-card" :class="{ selected: modelValue === ease.value }" :aria-pressed="modelValue === ease.value" :aria-label="`${t(ease.label)} ${ease.value}`" @click="choose(ease.value)">
+          <span class="ease-card-title">{{ t(ease.label) }}<span v-if="modelValue === ease.value" aria-hidden="true">✓</span></span>
           <svg viewBox="0 0 160 128" aria-hidden="true"><path class="ease-gridlines" d="M16 28H144 M16 64H144 M16 100H144 M16 28V100 M80 28V100 M144 28V100" /><path class="ease-diagonal" d="M16 100L144 28" /><path class="ease-curve" :d="easeCurvePath(ease.value)" /><circle cx="16" cy="100" r="2.5" /><circle cx="144" cy="28" r="2.5" /></svg>
           <small>{{ ease.value }}</small>
         </button>
-        <p v-if="!filtered.length" class="ease-empty">没有匹配的缓动效果，请更换关键词。</p>
+        <p v-if="!filtered.length" class="ease-empty">{{ t('clientUIAnimationEditor.ui.easing.noMatches') }}</p>
       </div>
-      <footer>点击曲线立即应用 · Esc 关闭 · 回弹和弹性曲线允许超出 0–1</footer>
+      <footer>{{ t('clientUIAnimationEditor.ui.tweenPicker.curveApplicationHint') }}</footer>
     </dialog>
   </Teleport>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { tweenEaseOptions } from "./tweenRegistry";
 import { easeCurvePath } from "./easeCurve";
@@ -29,8 +30,11 @@ const props = defineProps<{ modelValue: TweenEaseType; disabled?: boolean }>();
 const emit = defineEmits<{ (event: "update:modelValue", value: TweenEaseType): void }>();
 const panel = ref<HTMLDialogElement | null>(null), trigger = ref<HTMLButtonElement | null>(null);
 const opened = ref(false), query = ref("");
-const selectedLabel = computed(() => tweenEaseOptions.find(e => e.value === props.modelValue)?.label ?? props.modelValue);
-const filtered = computed(() => tweenEaseOptions.filter(e => `${e.label} ${e.value}`.toLowerCase().includes(query.value.trim().toLowerCase())));
+const selectedLabel = computed(() => {
+  const option = tweenEaseOptions.find(e => e.value === props.modelValue);
+  return option ? t(option.label) : props.modelValue;
+});
+const filtered = computed(() => tweenEaseOptions.filter(e => `${e.label} ${t(e.label)} ${e.value}`.toLowerCase().includes(query.value.trim().toLowerCase())));
 function open() { if (props.disabled) return; query.value = ""; panel.value?.showModal(); opened.value = true; }
 function close() { panel.value?.close(); }
 function closed() { opened.value = false; trigger.value?.focus(); }

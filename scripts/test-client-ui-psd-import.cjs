@@ -1,10 +1,11 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
 const ts = require('typescript');
 const previous = Module._extensions['.ts'];
 Module._extensions['.ts'] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true },
 }).outputText, file);
 async function main() {
   const { convertPsdDocument, validatePsdHeader } = require('../src/views/ClientUIAnimationEditor/psdImportData.ts');
@@ -39,10 +40,31 @@ async function main() {
   const maskDoc={width:8,height:8,children:[{name:'蒙版',left:2,top:3,imageData:solid(2,1),mask:{left:2,top:3,defaultColor:0,imageData:solid(1,1,128)}}]};
   const masked=await convertPsdDocument(maskDoc,'蒙版',encode);
   const mp=raster.get(masked.resources[0].imageUrl).data; assert.deepEqual([mp[3],mp[7]],[128,0]);
-  await assert.rejects(convertPsdDocument({width:2,height:2,children:[]},'空',encode),/没有可导入/);
-  await assert.rejects(convertPsdDocument({width:2,height:2,children:[{imageData:{width:2,height:2,data:new Uint8Array(4)}}]},'坏',encode),/像素数据无效/);
+  await assert.rejects(convertPsdDocument({width:2,height:2,children:[]},'空',encode),errorMatches(/没有可导入/));
+  await assert.rejects(convertPsdDocument({width:2,height:2,children:[{imageData:{width:2,height:2,data:new Uint8Array(4)}}]},'坏',encode),errorMatches(/像素数据无效/));
   const header=new ArrayBuffer(26),v=new DataView(header); v.setUint32(0,0x38425053); v.setUint16(4,1); v.setUint32(14,80); v.setUint32(18,100); v.setUint16(22,8); v.setUint16(24,3);
-  validatePsdHeader(header); v.setUint16(22,16); assert.throws(()=>validatePsdHeader(header),/8 位/); assert.throws(()=>validatePsdHeader(new ArrayBuffer(1)),/不完整/);
+  validatePsdHeader(header); v.setUint16(22,16); assert.throws(()=>validatePsdHeader(header),errorMatches(/8 位/)); assert.throws(()=>validatePsdHeader(new ArrayBuffer(1)),errorMatches(/不完整/));
+  const { i18n, t, supportedLocales } = require('../src/i18n/index.ts');
+  const originalLocale = i18n.global.locale.value;
+  const completedErrors = [];
+  const layerName = '用户图层 @ {name}';
+  try {
+    for (const { value: selectedLocale } of supportedLocales) {
+      i18n.global.locale.value = selectedLocale;
+      await assert.rejects(convertPsdDocument({ width: 2, height: 2, children: [
+        { name: layerName, imageData: { width: 2, height: 2, data: new Uint8Array(4) } },
+      ] }, 'bad pixels', encode), error => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, t('clientUIAnimationEditor.ui.psdImport.invalidLayerPixels', { name: layerName }), 'Actual PSD conversion errors use the language selected for the Worker request');
+        assert.equal(Object.hasOwn(error, 'messageDescriptor'), false);
+        completedErrors.push(structuredClone({ type: 'error', message: error.message }).message);
+        return true;
+      });
+    }
+    assert.equal(new Set(completedErrors).size, 5, 'Real PSD validation produces all five locale strings');
+    i18n.global.locale.value = 'en-US';
+    assert.equal(completedErrors[0], '图层「用户图层 @ {name}」的像素数据无效。', 'Completed Worker messages retain the creation language and literal user names');
+  } finally { i18n.global.locale.value = originalLocale; }
   console.log('PASS nested folders, top-first tree, local positions, hidden/empty layers, resource links, opacity, raster masks, persistence and malformed files');
   if (process.argv[2]) {
     const ag=require('ag-psd'); ag.initializeCanvas(()=>{throw Error('Unexpected canvas');},(width,height)=>({width,height,data:new Uint8ClampedArray(width*height*4)}));

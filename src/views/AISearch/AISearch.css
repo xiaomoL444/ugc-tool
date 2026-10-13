@@ -343,4 +343,3 @@
 @media (prefers-reduced-motion: reduce) {
   .ai-search-workspace *, .ai-search-dialog * { animation: none !important; transition: none !important; }
 }
-.message-output-constraint { display: block; margin: 8px 0; color: #65758e; font-size: 11px; }

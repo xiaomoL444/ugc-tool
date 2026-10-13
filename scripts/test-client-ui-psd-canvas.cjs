@@ -19,6 +19,7 @@ async function check(width, height) {
   ] };
   const originalLeaf = { ...imported.nodes[2] };
   const context = {
+    ...require('./i18n-test-helpers.cjs').publicI18n(),
     deviceMode: { value: 'mobile' }, previewPresetId: { value: 'mobile-custom' },
     canvasWidth: { value: 1600 }, canvasHeight: { value: 900 },
     psdImportProgress: { value: '' }, TIMELINE_MODEL_VERSION: 1,

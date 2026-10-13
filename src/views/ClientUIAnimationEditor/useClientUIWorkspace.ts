@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { computed, ref } from "vue";
 import { createWorkspaceSaveQueue } from "../DSFGStudio/components/QuestEditor/workspaceSaveQueue";
 import {
@@ -28,7 +29,7 @@ interface LoadedSelection extends DocumentTarget { documents: string[]; serializ
 /** File names are authoritative; a stale title inside imported JSON is not. */
 function withDocumentName(serialized: string, name: string): string {
   const data = JSON.parse(serialized);
-  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("编辑文件必须是 JSON 对象");
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error(t("clientUIAnimationEditor.ui.workspace.documentMustBeObject"));
   data.name = name;
   return JSON.stringify(data);
 }
@@ -42,8 +43,8 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
   const ready = ref(false);
   const loading = ref(false);
   const dirty = ref(false);
-  const status = ref("正在读取存档…");
-  const error = ref("");
+  const status = ref<string>(t("clientUIAnimationEditor.ui.workspace.loadingArchives"));
+  const error = ref<string>("");
   const recycledItem = ref<RecycledItem | null>(null);
   const canUndoDelete = computed(() => recycledItem.value !== null);
   const targets = new Map<string, DocumentTarget>();
@@ -57,18 +58,18 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
   }
 
   function report(cause: unknown) {
-    error.value = cause instanceof Error ? cause.message : String(cause);
-    status.value = dirty.value ? "保存失败，请重试" : "操作失败";
+    error.value = (cause instanceof Error ? cause.message : String(cause));
+    status.value = t(dirty.value ? "clientUIAnimationEditor.ui.workspace.saveFailed" : "clientUIAnimationEditor.ui.workspace.operationFailed");
   }
 
   const saveQueue = createWorkspaceSaveQueue(async (path, serialized) => {
     const target = targets.get(path);
-    if (!target) throw new Error("无法确定编辑文件的保存位置");
+    if (!target) throw new Error(t("clientUIAnimationEditor.ui.workspace.saveLocationUnknown"));
     await repository.writeDocument(target.workspace, target.document, serialized);
     saved.set(path, serialized);
     if (path === currentPath()) {
       dirty.value = latest.get(path) !== serialized;
-      if (!dirty.value) { status.value = "已自动保存"; error.value = ""; }
+      if (!dirty.value) { status.value = t("clientUIAnimationEditor.ui.workspace.autosaved"); error.value = ""; }
     }
   }, report);
 
@@ -82,7 +83,7 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
     // Reverting an edit must replace an older pending/in-flight snapshot too.
     dirty.value = saved.get(path) !== snapshot || previous !== snapshot;
     if (!dirty.value) return;
-    status.value = "待保存…";
+    status.value = t("clientUIAnimationEditor.ui.workspace.pendingSave");
     saveQueue.schedule(path, snapshot);
   }
 
@@ -138,7 +139,7 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
         latest.set(path, snapshot);
         saved.set(path, snapshot);
       }
-      status.value = selection.document ? "已加载 · 自动保存" : "未打开编辑文件";
+      status.value = t(selection.document ? "clientUIAnimationEditor.ui.workspace.loadedAutoSave" : "clientUIAnimationEditor.ui.workspace.noOpenFile");
     } finally { loading.value = false; }
   }
 
@@ -149,8 +150,8 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
     } catch (cause) {
       // The actual file operation already succeeded; do not discard that state
       // merely because the optional last-opened-file marker could not be saved.
-      error.value = `编辑内容已保留，但最近打开记录保存失败：${cause instanceof Error ? cause.message : String(cause)}`;
-      status.value = "最近打开记录保存失败";
+      error.value = t("clientUIAnimationEditor.ui.workspace.recentFilesSaveFailed", { value: (cause instanceof Error ? cause.message : String(cause)) });
+      status.value = t("clientUIAnimationEditor.ui.workspace.recentSelectionSaveFailed");
     }
   }
 
@@ -233,7 +234,7 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
     await exclusive(async () => {
       const requested = validateDocumentName(name);
       const workspace = selectedWorkspace.value;
-      if (!workspace) throw new Error("请先创建或选择工作区");
+      if (!workspace) throw new Error(t("clientUIAnimationEditor.ui.workspace.createOrSelectRequired"));
       await flushCurrent();
       if (disposed) return;
       const raw = typeof serializedOrFactory === "function" ? await serializedOrFactory()
@@ -262,7 +263,7 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
     await exclusive(async () => {
       const workspace = validateWorkspaceName(name);
       const oldWorkspace = selectedWorkspace.value;
-      if (!oldWorkspace) throw new Error("请先选择工作区");
+      if (!oldWorkspace) throw new Error(t("clientUIAnimationEditor.ui.workspace.selectionRequired"));
       await flushCurrent();
       if (disposed) return;
       await repository.renameWorkspace(oldWorkspace, workspace);
@@ -288,7 +289,7 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
       const document = validateDocumentName(name);
       const workspace = selectedWorkspace.value;
       const oldDocument = selectedDocument.value;
-      if (!oldDocument) throw new Error("请先选择编辑文件");
+      if (!oldDocument) throw new Error(t("clientUIAnimationEditor.ui.workspace.selectDocumentFirst"));
       await flushCurrent();
       if (disposed) return;
       const oldSerialized = callbacks.capture();
@@ -312,7 +313,7 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
     await exclusive(async () => {
       const workspace = selectedWorkspace.value;
       const document = selectedDocument.value;
-      if (!document) throw new Error("请先选择编辑文件");
+      if (!document) throw new Error(t("clientUIAnimationEditor.ui.workspace.selectDocumentFirst"));
       await flushCurrent();
       const documents = (await repository.listDocuments(workspace)).filter(item => item !== document);
       const nextDocument = documents[0] || "";
@@ -333,7 +334,7 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
     await exclusive(async () => {
       const workspace = selectedWorkspace.value;
       const document = selectedDocument.value;
-      if (!workspace) throw new Error("请先选择工作区");
+      if (!workspace) throw new Error(t("clientUIAnimationEditor.ui.workspace.selectionRequired"));
       await flushCurrent();
       const workspaces = (await repository.listWorkspaces()).filter(item => item !== workspace);
       const selection = await loadSelection(workspaces[0] || "");
@@ -367,7 +368,7 @@ export function useClientUIWorkspace(repository: WorkspaceRepository, callbacks:
   }
 
   async function prepareToLeave() {
-    if (busy.value) throw new Error("编辑文件正在读写，请稍后切换页面");
+    if (busy.value) throw new Error(t("clientUIAnimationEditor.ui.workspace.documentBusyNavigation"));
     await save();
   }
 

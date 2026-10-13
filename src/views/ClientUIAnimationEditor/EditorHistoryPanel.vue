@@ -1,27 +1,28 @@
 <template>
-  <section ref="panel" class="editor-history-panel" role="dialog" aria-label="操作记录" tabindex="-1" @pointerdown.stop @click.stop @keydown.stop="handleKeydown">
+  <section ref="panel" class="editor-history-panel" role="dialog" :aria-label="t('clientUIAnimationEditor.ui.history.actionHistory')" tabindex="-1" @pointerdown.stop @click.stop @keydown.stop="handleKeydown">
     <header class="history-heading">
-      <h3>操作记录</h3>
-      <button type="button" class="history-close" aria-label="关闭操作记录" title="关闭" @click="emit('close')">×</button>
+      <h3>{{ t('clientUIAnimationEditor.ui.history.actionHistory') }}</h3>
+      <button type="button" class="history-close" :aria-label="t('clientUIAnimationEditor.ui.history.closePanel')" :title="t('clientUIAnimationEditor.ui.actions.close')" @click="emit('close')">×</button>
     </header>
     <div class="history-actions">
-      <button type="button" :disabled="busy || !canUndo" @click="emit('undo')">↶ 撤销 <kbd>Ctrl Z</kbd></button>
-      <button type="button" :disabled="busy || !canRedo" @click="emit('redo')">↷ 重做 <kbd>Ctrl Y</kbd></button>
+      <button type="button" :disabled="busy || !canUndo" @click="emit('undo')">{{ t('clientUIAnimationEditor.ui.history.undoButton') }}<kbd>Ctrl Z</kbd></button>
+      <button type="button" :disabled="busy || !canRedo" @click="emit('redo')">{{ t('clientUIAnimationEditor.ui.history.redoSymbol') }}<kbd>Ctrl Y</kbd></button>
     </div>
-    <p class="history-hint">当前文件最近 100 步；刷新或切换文件后清空。一次拖动记一步。</p>
-    <ol v-if="entries.length" class="history-list" aria-label="编辑行为列表" reversed>
+    <p class="history-hint">{{ t('clientUIAnimationEditor.ui.history.gestureGroupingHint') }}</p>
+    <ol v-if="entries.length" class="history-list" :aria-label="t('clientUIAnimationEditor.ui.history.actionListLabel')" reversed>
       <li v-for="item in visibleEntries" :key="item.entry.id" :class="{ 'is-undone': item.position > index, 'is-current': item.position === index }" :aria-current="item.position === index ? 'step' : undefined">
         <span class="history-number" aria-hidden="true">{{ item.position + 1 }}</span>
         <span class="history-label" :title="item.entry.label">{{ item.entry.label }}</span>
-        <span class="history-status">{{ item.position === index ? '当前步骤' : item.position > index ? '已撤销' : '已执行' }}</span>
+        <span class="history-status">{{ item.position === index ? t('clientUIAnimationEditor.ui.history.currentStep') : item.position > index ? t('clientUIAnimationEditor.ui.history.undoneState') : t('clientUIAnimationEditor.ui.history.appliedState') }}</span>
       </li>
     </ol>
-    <p v-else class="history-empty">暂无操作记录<br /><span>修改控件或 Clip 后，可在这里撤销和重做。</span></p>
-    <p v-if="entries.length && index < 0" class="history-initial">已回到本次记录的初始状态</p>
+    <p v-else class="history-empty">{{ t('clientUIAnimationEditor.ui.history.emptyTitle') }}<br /><span>{{ t('clientUIAnimationEditor.ui.history.emptyDescription') }}</span></p>
+    <p v-if="entries.length && index < 0" class="history-initial">{{ t('clientUIAnimationEditor.ui.history.initialStateRestored') }}</p>
   </section>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 const props = defineProps<{

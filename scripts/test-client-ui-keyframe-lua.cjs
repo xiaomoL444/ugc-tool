@@ -1,3 +1,4 @@
+const { errorMatches, messageTexts } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-keyframe-lua.cjs
  * Set LUA_BIN, or PYTHON_BIN + LUPA_PATH (lupa.lua53), to execute API mocks.
  */
@@ -9,7 +10,7 @@ const { spawnSync } = require("node:child_process");
 const ts = require("typescript");
 const previousTs = Module._extensions[".ts"];
 Module._extensions[".ts"] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, "utf8"), {
-  fileName: filename, compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+  fileName: filename, compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true },
 }).outputText, filename);
 
 try {
@@ -134,16 +135,16 @@ try {
   });
   test("Export refuses ambiguous paths even when only one of the same-named siblings is animated", () => {
     const duplicate = [...nodes, node("duplicate", "text", "group", "文本")];
-    assert.throws(() => exportData([track("a")], { nodes: duplicate }), /同名/);
+    assert.throws(() => exportData([track("a")], { nodes: duplicate }), errorMatches(/同名/));
     const unsafe = nodes.map((item) => item.id === "group" ? { ...item, name: "不/安全" } : item);
-    assert.throws(() => exportData([track("a")], { nodes: unsafe }), /FindChild/);
+    assert.throws(() => exportData([track("a")], { nodes: unsafe }), errorMatches(/FindChild/));
   });
   test("Incomplete or unsupported export data is rejected, not silently dropped", () => {
-    assert.throws(() => exportData([track("a", "text", "unknown")]), /不支持/);
-    assert.throws(() => exportData([track("a", "missing")]), /找不到/);
-    assert.throws(() => exportData([track("a", "text", "fontSize", [key("null", 0, null)])]), /有效值/);
-    assert.throws(() => exportData([track("a", "text", "fontSize", [])]), /尚未设置/);
-    assert.throws(() => exportData([track("a", "text", "fontSize", [key("a", 0, 1), key("b", 0, 2)])]), /重复关键帧/);
+    assert.throws(() => exportData([track("a", "text", "unknown")]), errorMatches(/不支持/));
+    assert.throws(() => exportData([track("a", "missing")]), errorMatches(/找不到/));
+    assert.throws(() => exportData([track("a", "text", "fontSize", [key("null", 0, null)])]), errorMatches(/有效值/));
+    assert.throws(() => exportData([track("a", "text", "fontSize", [])]), errorMatches(/尚未设置/));
+    assert.throws(() => exportData([track("a", "text", "fontSize", [key("a", 0, 1), key("b", 0, 2)])]), errorMatches(/重复关键帧/));
   });
   test("Export duration expands to retain the last key and keeps longer requested duration", () => {
     const tracks = [track("a", "text", "fontSize", [key("late", 20, 30)])];
@@ -169,7 +170,7 @@ try {
       assert.equal(result.tracks, existingTracks);
       assert.equal(result.importedTracks.length, 0);
       assert.equal(result.replacedCount, 0);
-      assert.match(result.errors.join(), /已有关键帧/);
+      assert.match(messageTexts(result.errors).join(), /已有关键帧/);
     }
   });
   test("Replace deletes only the selected root subtree and retains other animation duration", () => {
@@ -196,7 +197,7 @@ try {
       assert.equal(result.tracks, existingTracks);
       assert.equal(result.importedTracks.length, 0);
       assert.equal(result.duration, 5);
-      assert.match(result.errors.join(), /找不到路径/);
+      assert.match(messageTexts(result.errors).join(), /找不到路径/);
     }
   });
   test("Malformed frame shape, time, values, easing, interpolation and relative fields are rejected", () => {
@@ -221,9 +222,9 @@ try {
   });
   test("Unknown controls and duplicate child names block import without inventing nodes", () => {
     const source = dataSource([row()]);
-    assert.match(importData(source, { rootNodeId: "missing" }).errors.join(), /根控件/);
-    assert.match(importData(source, { nodes: [...nodes, node("duplicate", "text", "group", "文本")] }).errors.join(), /同名/);
-    assert.match(importData(dataSource([row("容器/文本", "alive")])).errors.join(), /不支持/);
+    assert.match(messageTexts(importData(source, { rootNodeId: "missing" }).errors).join(), /根控件/);
+    assert.match(messageTexts(importData(source, { nodes: [...nodes, node("duplicate", "text", "group", "文本")] }).errors).join(), /同名/);
+    assert.match(messageTexts(importData(dataSource([row("容器/文本", "alive")])).errors).join(), /不支持/);
   });
   test("Group alpha cannot overlap another writer, including retained outside-scope ancestors", () => {
     const conflict = dataSource([row("容器", "groupAlpha", [[0, 255, false, "Linear", "step"]]), row("容器/文本", "fontColor", [[1, [255, 255, 255, 255], false, "Linear", "step"]])]);
@@ -296,7 +297,7 @@ try {
       [2, false, false, "Linear", "tween"], [2, false, false, "Linear", "step", true]]) {
       assert.ok(importData(dataSource([row("容器", "visible", [values])])).errors.length);
     }
-    assert.throws(() => exportData([{ ...visibility, keyframes: [key("bad", 2, false)] }]), /显隐/);
+    assert.throws(() => exportData([{ ...visibility, keyframes: [key("bad", 2, false)] }]), errorMatches(/显隐/));
   });
 
   const library = buildTweenTimelineLibLua().code;

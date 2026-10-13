@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
@@ -69,10 +70,10 @@ try {
     '<polygon points="0 0 20 10 11 80"/>', '<rect width="0" height="1"/>',
     '<rect width="1" height="1" style="filter:blur(2px)"/>',
   ]) assert.throws(() => read(wrap(rect+unsupported)), Error, unsupported);
-  assert.throws(() => read('<!DOCTYPE svg>'+wrap(rect)), /实体/);
-  assert.throws(() => read(wrap(rect.repeat(1002))), /1001/);
-  assert.throws(() => read(' '.repeat(2*1024*1024+1)), /2 MiB/);
-  assert.throws(() => read(wrap('')), /没有/);
+  assert.throws(() => read('<!DOCTYPE svg>'+wrap(rect)), errorMatches(/实体/));
+  assert.throws(() => read(wrap(rect.repeat(1002))), errorMatches(/1001/));
+  assert.throws(() => read(' '.repeat(2*1024*1024+1)), errorMatches(/2 MiB/));
+  assert.throws(() => read(wrap('')), errorMatches(/没有/));
   const asset = {id:'keep-id',name:'Keep',imageUrl:'data:image/png;base64,ORIGINAL',fitData:fit};
   const saved = normalizePrimitiveResources([{...asset,fitData:restored,previewMode:'primitives'}])[0];
   assert.equal(saved.id,asset.id); assert.equal(saved.name,asset.name); assert.equal(saved.imageUrl,asset.imageUrl);

@@ -1,3 +1,4 @@
+const { messageText, messageTexts } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-text-alignment.cjs [sample.gia ...] [--write-project absolute/path.json]
  * --write-project writes the first sample's unmodified createGiaProject result.
  * Uses the real GIA codec/importer and the editor's Vue setup declarations.
@@ -46,14 +47,15 @@ async function main() {
   const plain = (value) => JSON.parse(JSON.stringify(value));
   const arrayBuffer = (bytes) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   let passed = 0;
+  const setupScopes = [];
   async function test(name, check) { await check(); passed += 1; console.log(`PASS ${name}`); }
   try {
     const imports = {};
     for (const statement of ast.statements) {
       if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue;
       const source = statement.moduleSpecifier.text;
-      if (!source.startsWith("./") || source.endsWith(".vue") || source === "./imageAssets") continue;
-      const sourcePath = path.resolve(editor, `${source}.ts`);
+      if ((!source.startsWith("./") && source !== "../../i18n") || source.endsWith(".vue")) continue;
+      const sourcePath = path.resolve(editor, source === "../../i18n" ? `${source}/index.ts` : `${source}.ts`);
       if (fs.existsSync(sourcePath)) Object.assign(imports, require(sourcePath));
     }
     const registry = require(path.join(editor, "controlRegistry.ts"));
@@ -78,7 +80,9 @@ async function main() {
         Blob: class { constructor(parts) { this.text = parts.join(""); } },
         URL: { createObjectURL(blob) { savedProject = JSON.parse(blob.text); return "blob:test"; }, revokeObjectURL() {} },
       });
-      vm.runInContext(script, context, { filename, timeout: 2000 });
+      const scope = vue.effectScope();
+      setupScopes.push(scope);
+      scope.run(() => vm.runInContext(script, context, { filename, timeout: 2000 }));
       return Object.assign(context.editorApi, { getSavedProject: () => savedProject });
     }
     function syntheticGia(texts = [{ sourceNodeIndex: 2, body: {} }], rotations) {
@@ -124,7 +128,7 @@ async function main() {
       const file = { name, arrayBuffer: async () => bytes };
       const imported = importer.importGiaControls(bytes, ["pc", "mobile", "controllerDesktop", "controllerMobile"].indexOf(mode));
       const hasUnknownAlignment = expected.some((alignment) => alignment.horizontalAlignment === null || alignment.verticalAlignment === null);
-      const alignmentWarnings = imported.warnings.filter((warning) => warning.includes("对齐")).join("\n");
+      const alignmentWarnings = messageTexts(imported.warnings).filter((warning) => messageText(warning).includes("对齐")).join("\n");
       assert.equal(Boolean(alignmentWarnings), hasUnknownAlignment, "Only unknown alignment values produce alignment warnings");
       for (const alignment of expected) {
         assert.equal(alignmentWarnings.includes(`#${alignment.sourceNodeIndex}`), alignment.horizontalAlignment === null || alignment.verticalAlignment === null, `Alignment warnings identify unknown source ${alignment.sourceNodeIndex} without confusing duplicate names`);
@@ -326,6 +330,7 @@ async function main() {
       console.log("SKIP actual GIA samples (pass the task-tracking and/or alignment-confirmation GIA paths to enable).");
     }
   } finally {
+    setupScopes.forEach((scope) => scope.stop());
     Module._load = originalLoad;
     if (originalTsExtension) Module._extensions[".ts"] = originalTsExtension;
     else delete Module._extensions[".ts"];

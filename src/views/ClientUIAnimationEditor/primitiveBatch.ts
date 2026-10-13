@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { normalizePrimitiveOptions } from "./primitiveData";
 import type { fitPrimitiveImage, FitProgress } from "./primitiveFitter";
 import type { PrimitiveImageResource } from "./primitiveResources";
@@ -40,7 +41,7 @@ export async function fitMissingPrimitiveResources(
       result.generated++;
     } catch (error) {
       if (signal.aborted) break;
-      result.failures.push({ name: asset.name, message: error instanceof Error ? error.message : "生成失败" });
+      result.failures.push({ name: asset.name, message: error instanceof Error ? error.message : t("clientUIAnimationEditor.ui.primitiveResources.generationFailed") });
     }
   }
   result.cancelled = signal.aborted;

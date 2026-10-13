@@ -11,7 +11,7 @@ const props = defineProps<{ workspace: string; state: WorkspaceStructIdState; lo
 const emit = defineEmits<{ close: []; retry: [] }>();
 const draft = ref({ ...props.state.ids });
 const candidates = ref<Record<string, StructIdCandidate[]>>({ ...props.state.candidates });
-const busy = ref(false), error = ref(""), importMessage = ref("");
+const busy = ref(false), error = ref<string>(""), importMessage = ref("");
 const fileInput = ref<HTMLInputElement>(), dialog = ref<HTMLElement>();
 const history = useStudioHistory({
   session: false,
@@ -22,7 +22,7 @@ const history = useStudioHistory({
     draft.value = state.ids; candidates.value = state.candidates; importMessage.value = state.importMessage;
     error.value = "";
   },
-  onError: reason => { error.value = reason instanceof Error ? reason.message : String(reason); },
+  onError: reason => { error.value = (reason instanceof Error ? reason.message : String(reason)); },
 });
 const previousFocus = document.activeElement as HTMLElement | null;
 const errors = computed(() => validateWorkspaceStructIds(draft.value));

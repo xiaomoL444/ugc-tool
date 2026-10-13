@@ -1,54 +1,56 @@
 <template>
-  <section ref="panel" class="image-library" role="dialog" aria-label="图片资源库" tabindex="-1" @keydown.esc.stop.prevent="$emit('close')" @pointerdown.stop>
-    <header><strong>图片资源库</strong><span>{{ filteredAssets.length }} 项</span><button class="refresh-library" :disabled="imageCatalogLoading" @click="loadImageCatalog(true)">刷新</button><button aria-label="关闭图片资源库" @click="$emit('close')">×</button></header>
-    <div class="library-search"><EditorIcon name="search" :size="18" /><input ref="searchInput" v-model="search" aria-label="搜索图片资源" placeholder="搜索图片 ID / 分类" /><button v-if="search" aria-label="清空图片搜索" @click="search = ''">×</button></div>
-    <div v-if="imageCatalogError" class="library-status" role="status">{{ imageCatalogError }} <button @click="loadImageCatalog(true)">重试</button></div>
+  <section ref="panel" class="image-library" role="dialog" :aria-label="t('clientUIAnimationEditor.ui.imageLibrary.title')" tabindex="-1" @keydown.esc.stop.prevent="$emit('close')" @pointerdown.stop>
+    <header><strong>{{ t('clientUIAnimationEditor.ui.imageLibrary.title') }}</strong><span>{{ t('clientUIAnimationEditor.ui.common.itemCount', { count: filteredAssets.length }) }}</span><button class="refresh-library" :disabled="imageCatalogLoading" @click="loadImageCatalog(true, locale)">{{ t('clientUIAnimationEditor.ui.actions.refresh') }}</button><button :aria-label="t('clientUIAnimationEditor.ui.images.closeLibrary')" @click="$emit('close')">×</button></header>
+    <div class="library-search"><EditorIcon name="search" :size="18" /><input ref="searchInput" v-model="search" :aria-label="t('clientUIAnimationEditor.ui.images.searchResourceLabel')" :placeholder="t('clientUIAnimationEditor.ui.imageLibrary.searchPlaceholder')" /><button v-if="search" :aria-label="t('clientUIAnimationEditor.ui.imageLibrary.clearSearch')" @click="search = ''">×</button></div>
+    <div v-if="imageCatalogError" class="library-status" role="status">{{ imageCatalogError }} <button @click="loadImageCatalog(true, locale)">{{ t('clientUIAnimationEditor.ui.common.retry') }}</button></div>
     <div v-if="selectionError" class="library-status" role="status">{{ selectionError }}</div>
     <div class="library-body">
-      <nav aria-label="图片分类"><button :class="{ active: !category }" @click="category = ''">全部图片</button><button v-for="key in imageCategories" :key="key" :class="{ active: category === key }" @click="category = key">{{ imageCategoryLabel(key, locale) }}</button></nav>
+      <nav :aria-label="t('clientUIAnimationEditor.ui.imageLibrary.categories.label')"><button :class="{ active: !category }" @click="category = ''">{{ t('clientUIAnimationEditor.ui.imageLibrary.allImages') }}</button><button v-for="key in imageCategories" :key="key" :class="{ active: category === key }" @click="category = key">{{ imageCategoryLabel(key, locale) }}</button></nav>
       <div class="library-results">
-        <p v-if="imageCatalogLoading" role="status">正在加载图片资源库…</p>
+        <p v-if="imageCatalogLoading" role="status">{{ t('clientUIAnimationEditor.ui.images.loadingLibrary') }}</p>
         <div class="library-grid">
-          <button class="asset-tile empty-asset" :class="{ selected: selectedId === null }" aria-label="不使用图片" @click="clearSelection"><span class="thumbnail"></span><b>无图片</b><i v-if="selectedId === null">✓</i></button>
-          <button v-for="asset in filteredAssets" :key="asset.id" class="asset-tile" :class="{ selected: selectedId === asset.id }" :aria-label="`选择图片 ${asset.id}`" :aria-pressed="selectedId === asset.id" :title="`${asset.categories.map(key => imageCategoryLabel(key, locale)).join(' / ')} · ${asset.id}`" @click="selectAsset(asset)">
+          <button class="asset-tile empty-asset" :class="{ selected: selectedId === null }" :aria-label="t('clientUIAnimationEditor.ui.images.none')" @click="clearSelection"><span class="thumbnail"></span><b>{{ t('clientUIAnimationEditor.ui.imageLibrary.noImage') }}</b><i v-if="selectedId === null">✓</i></button>
+          <button v-for="asset in filteredAssets" :key="asset.id" class="asset-tile" :class="{ selected: selectedId === asset.id }" :aria-label="t('clientUIAnimationEditor.ui.imageLibrary.selectImageLabel', { value: asset.id })" :aria-pressed="selectedId === asset.id" :title="`${asset.categories.map(key => imageCategoryLabel(key, locale)).join(' / ')} · ${asset.id}`" @click="selectAsset(asset)">
             <span class="thumbnail"><img v-if="asset.src && !asset.missing" :src="asset.src" alt="" loading="lazy" @error="asset.missing = true" /></span><b>{{ asset.id }}</b><i v-if="selectedId === asset.id">✓</i>
           </button>
         </div>
-        <p v-if="!imageCatalogLoading && !filteredAssets.length">没有匹配的图片</p>
+        <p v-if="!imageCatalogLoading && !filteredAssets.length">{{ t('clientUIAnimationEditor.ui.images.noMatches') }}</p>
       </div>
     </div>
   </section>
 </template>
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import EditorIcon from "./EditorIcon.vue";
 import { clientImageCatalog, type createImageCatalog, type UIImageAsset } from "./imageAssets";
 const props = withDefaults(defineProps<{ selectedId: number | null; catalog?: ReturnType<typeof createImageCatalog>; loadMetadata?: boolean }>(), { loadMetadata: true });
-const { imageAssets, imageAssetById, imageCategories, imageCategoryLabel, imageCategoryNames, imageCatalogLoading, imageCatalogError, loadImageCatalog, loadSpriteMetadata } = props.catalog ?? clientImageCatalog;
+const { imageAssets, imageAssetById, imageCategories, imageCategoryLabel, imageCatalogLoading, imageCatalogError, loadImageCatalog, useImageCatalogTranslations, loadSpriteMetadata } = props.catalog ?? clientImageCatalog;
+const loadTranslations = useImageCatalogTranslations();
 const emit = defineEmits<{ (event: "close"): void; (event: "select", id: number | null): void }>();
 const { locale } = useI18n();
 const search = ref("");
 const category = ref(imageAssetById.get(props.selectedId ?? -1)?.categories[0] ?? "");
 const panel = ref<HTMLElement>();
 const searchInput = ref<HTMLInputElement>();
-const selectionError = ref("");
+const selectionError = ref<string>('');
 let selectionVersion = 0;
 let previousFocus: HTMLElement | null = null;
 const filteredAssets = computed(() => {
   const query = search.value.trim().toLowerCase();
-  return imageAssets.filter(asset => (!category.value || asset.categories.includes(category.value)) && (!query || `${asset.id} ${asset.categories.flatMap(key => Object.values(imageCategoryNames).map(names => names[key] ?? key)).join(' ')}`.toLowerCase().includes(query)));
+  return imageAssets.filter(asset => (!category.value || asset.categories.includes(category.value)) && (!query || `${asset.id} ${asset.categories.map(key => imageCategoryLabel(key, locale.value)).join(' ')}`.toLowerCase().includes(query)));
 });
 async function selectAsset(asset: UIImageAsset) {
   const version = ++selectionVersion;
   selectionError.value = "";
   const metadata = props.loadMetadata ? await loadSpriteMetadata(asset) : undefined;
   if (version !== selectionVersion) return;
-  if (props.loadMetadata && asset.borderPath && !metadata) selectionError.value = "拉伸参数暂未加载，已选择图片；再次点击可重试。";
+  if (props.loadMetadata && asset.borderPath && !metadata) selectionError.value = t('clientUIAnimationEditor.ui.imageLibrary.stretchMetadataUnavailable');
   emit("select", asset.id);
 }
 function clearSelection() { selectionVersion++; selectionError.value = ""; emit("select", null); }
-onMounted(() => { previousFocus = document.activeElement as HTMLElement; searchInput.value?.focus(); void loadImageCatalog(true); });
+onMounted(() => { previousFocus = document.activeElement as HTMLElement; searchInput.value?.focus(); void loadTranslations(); void loadImageCatalog(false, locale.value); });
 onBeforeUnmount(() => { selectionVersion++; if (previousFocus?.isConnected) previousFocus.focus(); });
 </script>
 <style scoped>

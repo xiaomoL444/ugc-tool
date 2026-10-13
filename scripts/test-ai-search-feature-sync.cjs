@@ -8,7 +8,8 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
 const { createRenderer, nextTick } = require('vue');
 const { createI18n } = require('vue-i18n');
 const { createFeatureSidecar } = require('./ai-search-feature-fixtures.cjs');
-const { loadResourceCatalog, buildSearchResources, retrieveResources } = require('../src/views/AISearch/resourceCatalog.ts');
+const { buildSearchResources, retrieveResources } = require('../src/views/AISearch/resourceCatalog.ts');
+const { loadResourceCatalog } = require('./ai-search-offline-catalog.ts');
 const { parseFeatureSync, parseServerCatalog, featureHashesChanged, requestServerAssets } = require('../src/views/AISearch/aiSearchService.ts');
 const { useAISearch } = require('../src/views/AISearch/useAISearch.ts');
 const { buildAssetFeatureCollection, assetFeaturePath, assetFeatureUrl } = require('../src/utils/assetFeatures.ts');

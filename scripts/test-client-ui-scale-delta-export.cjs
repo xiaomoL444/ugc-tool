@@ -1,3 +1,4 @@
+const { messageText } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-scale-delta-export.cjs
  * Optional: set LUA_BIN to execute the generated Lib against native-API mocks.
  */
@@ -91,7 +92,7 @@ try {
     const result = exportData([track("localRotationZ", 150, 300)]);
     assert.match(result.code, /TweenTimeline@3/);
     assert.deepEqual(rows(result.code)[0], ["", "localRotationZ", 0, 1, "Linear", 150, 300]);
-    assert.match(result.warnings[0], /不支持位置\/大小\/缩放增量/);
+    assert.match(messageText(result.warnings[0]), /不支持位置\/大小\/缩放增量/);
   });
   test("Invalid values do not activate @5 or prevent a later valid scale row", () => {
     const result = exportData([track("localScaleX", null, 2), track("localScaleX", 2, 4, false), track("localScaleY", 0, Infinity)]);

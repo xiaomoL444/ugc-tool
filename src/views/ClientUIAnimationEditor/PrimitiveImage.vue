@@ -6,13 +6,14 @@
           <SpriteImage :asset="imageAssetById.get(element.imageId) ?? null" :width="element.width" :height="element.height" image-type="basic" :color="element.color" />
         </div>
       </div>
-      <span v-if="missingAssets" class="asset-warning">游戏图元素材加载中或不可用</span>
+      <span v-if="missingAssets" class="asset-warning">{{ t('clientUIAnimationEditor.ui.primitivePreview.assetsUnavailable') }}</span>
     </template>
     <img v-else-if="source && !failed" :src="source" alt="" draggable="false" @error="failed = true" />
-    <span v-else class="primitive-placeholder">{{ failed || imageUrl && !source ? '图片无法加载' : '图元控件 · 选择图片' }}</span>
+    <span v-else class="primitive-placeholder">{{ failed || imageUrl && !source ? t('clientUIAnimationEditor.ui.primitives.imageLoadFailed') : t('clientUIAnimationEditor.ui.imageControls.selectPrimitiveImageHint') }}</span>
   </div>
 </template>
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, ref, watch, type CSSProperties } from "vue";
 import { primitiveImageSource } from "./primitiveControl";
 import { primitiveContentScale, type PrimitiveElement, type PrimitiveFitData } from "./primitiveData";

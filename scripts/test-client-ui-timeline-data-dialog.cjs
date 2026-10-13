@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
+const { messageText } = require('./i18n-test-helpers.cjs');
 const vue = require("vue");
 const { parse } = require("@vue/compiler-sfc");
 
@@ -37,7 +38,7 @@ function fixture() {
   const events = [];
   const unmountCallbacks = [];
   const scope = vue.effectScope();
-  const context = vm.createContext({ ...vue,
+  const context = vm.createContext({ ...vue, ...require('./i18n-test-helpers.cjs').publicI18n(),
     defineProps: () => props,
     defineEmits: () => (event, ...args) => {
       events.push([event, ...args]);
@@ -107,7 +108,7 @@ async function main() {
     for (const item of cases) {
       const dialog = fixture();
       await selectFile(dialog, item.read, item.options);
-      assert.match(dialog.api.fileError.value, item.error);
+      assert.match(messageText(dialog.api.fileError.value), item.error);
       assert.equal(dialog.api.readingFile.value, false);
       assert.equal(dialog.api.canConfirm.value, false);
       dialog.api.confirm();

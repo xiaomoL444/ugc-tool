@@ -1,6 +1,7 @@
+const { errorMatches, messageText } = require('./i18n-test-helpers.cjs');
 const assert = require('node:assert/strict'), fs = require('node:fs'), Module = require('node:module'), ts = require('typescript');
 const oldTs = Module._extensions['.ts'];
-Module._extensions['.ts'] = (m, f) => m._compile(ts.transpileModule(fs.readFileSync(f, 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, f);
+Module._extensions['.ts'] = (m, f) => m._compile(ts.transpileModule(fs.readFileSync(f, 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true } }).outputText, f);
 async function main() {
   const { convertSpineDocument, importSpineFiles } = require('../src/views/ClientUIAnimationEditor/spineImporter.ts');
   const { buildKeyframeTimelineDataLua } = require('../src/views/ClientUIAnimationEditor/keyframeLua.ts');
@@ -19,14 +20,14 @@ async function main() {
   assert.deepEqual(result.nodes.filter(n => n.type === 'primitive').map(n => n.name), ['front', 'back']);
   assert.equal(result.nodes.find(n => n.name === 'arm').scaleX, 2);
   assert.equal(result.animations.length, 2);
-  assert.ok(!result.warnings.some(w => w.includes('缩放动画')));
+  assert.ok(!result.warnings.some(w => messageText(w).includes('缩放动画')));
   const scaleX = result.animations[0].keyframeTracks.find(t => t.fieldKey === 'localScaleX');
   const scaleY = result.animations[0].keyframeTracks.find(t => t.fieldKey === 'localScaleY');
   assert.equal(evaluateKeyframeTrack(scaleX, 0, 2), 2);
   assert.equal(evaluateKeyframeTrack(scaleX, .5, 2), 3);
   assert.equal(evaluateKeyframeTrack(scaleX, 1, 2), 4);
   assert.equal(evaluateKeyframeTrack(scaleY, 1, 1), 2);
-  assert.ok(result.warnings.some(w => w.includes('30 Hz')));
+  assert.ok(result.warnings.some(w => messageText(w).includes('30 Hz')));
   const x = result.animations[0].keyframeTracks.find(t => t.fieldKey === 'anchoredPositionX');
   assert.equal(evaluateKeyframeTrack(x, 0, 20), 20);
   assert.equal(evaluateKeyframeTrack(x, .75, 20), 20);
@@ -37,12 +38,12 @@ async function main() {
   assert.ok(result.animations.every(a => a.keyframeTracks.every(t => t.fieldKey !== 'localScaleZ')));
   const exported = buildKeyframeTimelineDataLua({ projectName: 'Spine', rootNodeId: result.nodes[0].id, nodes: result.nodes, tracks: result.animations[0].keyframeTracks, sequenceDuration: 1 });
   assert.equal(exported.trackCount, 5);
-  await assert.rejects(() => convertSpineDocument({ ...source, skeleton: { spine: '4.2' } }, 'x', 100, 100, async () => ''), /3.8/);
+  await assert.rejects(() => convertSpineDocument({ ...source, skeleton: { spine: '4.2' } }, 'x', 100, 100, async () => ''), errorMatches(/3.8/));
   const broken = JSON.parse(before); broken.bones[1].parent = 'missing';
-  await assert.rejects(() => convertSpineDocument(broken, 'x', 100, 100, async () => ''), /父骨骼/);
-  await assert.rejects(() => importSpineFiles([new File(['binary'], 'a.spine')], 100, 100), /JSON/);
-  await assert.rejects(() => importSpineFiles([new File([before], 'skeleton.json')], 100, 100), /图片.*缺失/);
-  await assert.rejects(() => importSpineFiles([new File([before], 'a.json'), new File([before], 'b.json')], 100, 100), /多个 JSON/);
+  await assert.rejects(() => convertSpineDocument(broken, 'x', 100, 100, async () => ''), errorMatches(/父骨骼/));
+  await assert.rejects(() => importSpineFiles([new File(['binary'], 'a.spine')], 100, 100), errorMatches(/JSON/));
+  await assert.rejects(() => importSpineFiles([new File([before], 'skeleton.json')], 100, 100), errorMatches(/图片.*缺失/));
+  await assert.rejects(() => importSpineFiles([new File([before], 'a.json'), new File([before], 'b.json')], 100, 100), errorMatches(/多个 JSON/));
   console.log('PASS hierarchy, static scale, slot order, embedded resource reuse, multiple animations, curves, stepped/delayed keys, Lua export and invalid inputs');
   const originalReader = global.FileReader;
   global.FileReader = class {
@@ -62,8 +63,8 @@ async function main() {
     assert.equal(imported.resources[0].imageUrl, 'data:image/png;base64,' + Buffer.from('correct').toString('base64'));
     const withBinary = await importSpineFiles([...folder, folderFile('ignored', 'Demo/other.spine')], 1600, 900);
     assert.deepEqual(withBinary, imported);
-    await assert.rejects(() => importSpineFiles([...folder, folderFile(before, 'Demo/other/skeleton.json')], 100, 100), /多个 JSON/);
-    await assert.rejects(() => importSpineFiles([folder[0], folderFile('a', 'Demo/a/body.png'), folderFile('b', 'Demo/b/body.png')], 100, 100), /同名冲突/);
+    await assert.rejects(() => importSpineFiles([...folder, folderFile(before, 'Demo/other/skeleton.json')], 100, 100), errorMatches(/多个 JSON/));
+    await assert.rejects(() => importSpineFiles([folder[0], folderFile('a', 'Demo/a/body.png'), folderFile('b', 'Demo/b/body.png')], 100, 100), errorMatches(/同名冲突/));
     if (process.argv[2]) {
       const path = require('path'); const directory = path.dirname(process.argv[2]);
       const realFiles = fs.readdirSync(directory).filter(n => /\.(json|png)$/i.test(n)).map(n => folderFile(fs.readFileSync(path.join(directory, n)), `spinetoastra/${n}`));
@@ -93,7 +94,8 @@ async function main() {
   const { descriptor, errors } = parse(fs.readFileSync(filename, 'utf8'), { filename }); assert.deepEqual(errors, []);
   const script = compileScript(descriptor, { id: 'spine-import-test' });
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'spine-import-test', compilerOptions: { bindingMetadata: script.bindings } }).errors, []);
-  assert.match(descriptor.template.content, /导入 Spine 动画文件夹/);
+  assert.match(descriptor.template.content, /t\('clientUIAnimationEditor\.ui\.importMenu\.spineFolder'\)/);
+  assert.equal(require('../src/i18n/index.ts').t('clientUIAnimationEditor.ui.importMenu.spineFolder'), '导入 Spine 动画文件夹');
   assert.match(descriptor.scriptSetup.content, /archive\.createDocument\(imported\.name/);
   console.log('PASS menu/folder input and editor SFC compilation');
 }

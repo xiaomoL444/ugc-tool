@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import {
   getGroupAlphaColorFields,
   getTweenableField,
@@ -440,7 +441,7 @@ export function buildTweenTimelineDataLua(
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const rootNode = nodeById.get(rootNodeId);
   if (!rootNode) {
-    throw new Error("找不到导出根控件");
+    throw new Error(t("clientUIAnimationEditor.ui.timelineExport.rootNotFound"));
   }
 
   const nodeOrder = new Map(nodes.map((node, index) => [node.id, index]));
@@ -459,14 +460,14 @@ export function buildTweenTimelineDataLua(
     const nodePath = node ? pathByNodeId.get(node.id) : undefined;
     if (!node || nodePath === undefined) continue;
     const field = getTweenableField(node.type, track.fieldKey);
-    if (field?.valueKind === "boolean") throw new Error("控件显隐须使用关键帧导出，不支持旧版 Tween Clip。");
+    if (field?.valueKind === "boolean") throw new Error(t("clientUIAnimationEditor.ui.timelineExport.visibilityRequiresKeyframes"));
     if (!field) {
-      warnings.push(`控件「${node.name}」的字段 ${track.fieldKey} 不是已知 Tweenable 字段，已跳过。`);
+      warnings.push(t("clientUIAnimationEditor.ui.timelineExport.skippedUnknownTweenField", { name: node.name, fieldKey: track.fieldKey }));
       continue;
     }
     const relative = track.relative === true && isRelativeTweenField(field.fieldKey);
     if (track.relative === true && !relative) {
-      warnings.push(`控件「${node.name}」的字段 ${field.fieldKey} 不支持位置/大小/缩放增量，已按绝对值导出。`);
+      warnings.push(t("clientUIAnimationEditor.ui.tweenExport.unsupportedDeltaFallback", { name: node.name, fieldKey: field.fieldKey }));
     }
     const uniqueFieldKey = `${node.id}\0${field.fieldKey}`;
     const numberValuesAreValid =
@@ -480,30 +481,30 @@ export function buildTweenTimelineDataLua(
       isColor(track.initialValue) &&
       isColor(track.endValue);
     if (!numberValuesAreValid && !colorValuesAreValid) {
-      warnings.push(`控件「${node.name}」的字段 ${field.fieldKey} 缺少有效的初始值或结束值，已跳过。`);
+      warnings.push(t("clientUIAnimationEditor.ui.timelineExport.skippedMissingEndpoints", { name: node.name, fieldKey: field.fieldKey }));
       continue;
     }
     if (!Number.isFinite(track.startTime) || track.startTime < 0 || !Number.isFinite(track.duration) || track.duration <= 0 || !Number.isFinite(track.startTime + track.duration)) {
-      warnings.push(`控件「${node.name}」的字段 ${field.fieldKey} 时间参数无效，已跳过。`);
+      warnings.push(t("clientUIAnimationEditor.ui.tweenExport.invalidTimingSkipped", { name: node.name, fieldKey: field.fieldKey }));
       continue;
     }
     const laneClips = clipsByNodeField.get(uniqueFieldKey) ?? [];
     if (laneClips.some((other) => tweenClipsOverlap(track, other))) {
-      warnings.push(`控件「${node.name}」的字段 ${field.fieldKey} 存在时间重叠的 Clip，已保留先出现的 Clip 并跳过冲突项。`);
+      warnings.push(t("clientUIAnimationEditor.ui.tweenExport.overlappingClips", { name: node.name, fieldKey: field.fieldKey }));
       continue;
     }
     if (hasUnsafePathSegment(node, rootNode, nodeById)) {
-      warnings.push(`控件「${node.name}」的层级名称无法组成可靠的 FindChild 路径，已跳过。`);
+      warnings.push(t("clientUIAnimationEditor.ui.tweenExport.unreliableControlPath", { name: node.name }));
       continue;
     }
     const owner = pathOwner.get(nodePath);
     if (owner && owner !== node.id) {
-      warnings.push(`相对路径「${nodePath}」对应多个控件，无法可靠查找，重复目标已跳过。`);
+      warnings.push(t("clientUIAnimationEditor.ui.timelineExport.skippedAmbiguousPath", { nodePath: nodePath }));
       continue;
     }
     const conflict = getTweenTrackConflict(node.id, field.fieldKey, nodes, acceptedTracks);
     if (conflict) {
-      warnings.push(`控件「${node.name}」的字段 ${field.fieldKey} ${conflict} 已跳过。`);
+      warnings.push(t("clientUIAnimationEditor.ui.tweenExport.skippedFieldConflict", { name: node.name, fieldKey: field.fieldKey, conflict: conflict }));
       continue;
     }
     const clampGroupAlpha = (value: UITweenValue) => field.fieldKey === GROUP_ALPHA_FIELD_KEY
@@ -550,7 +551,7 @@ export function buildTweenTimelineDataLua(
     }
     tweenCount += groupTweenCount;
     if (groupTweenCount === 0) {
-      warnings.push(`控件「${track.node.name}」及其子级当前没有可控制的颜色；已保留组透明度数据，运行时将重新扫描子级。`);
+      warnings.push(t("clientUIAnimationEditor.ui.tweenExport.groupWithoutColors", { name: track.node.name }));
     }
   }
   const targetCount = targetIds.size;

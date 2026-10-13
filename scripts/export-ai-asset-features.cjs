@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const { buildIdentityCatalog, dictionary, LOCALES, SOURCES } = require('./build-ai-asset-catalog.cjs');
 const PROJECT_ROOT = path.resolve(__dirname, '..');
+const ARTIFACT_ROOT = path.resolve(process.env.AI_SEARCH_FILE_ROOT || path.join(PROJECT_ROOT, '../ugc-ai-search-file'));
 const BASELINES = {
   SoundEffectPlayer: { root: 'H:/mihoyo Assets/GenshinAsserts/UGCAsserts/UGC_AudioSFX/reports/search-descriptions-20261008/source-snapshots', flat: true },
   EffectPlayer: { root: 'H:/mihoyo Assets/GenshinAsserts/UGCAsserts/UGC_Effect/reports/search-descriptions-20261008/merge-stages/20261007T203223-9055424bf3/backup', flat: false },
@@ -21,8 +22,12 @@ async function writeIfChanged(filename, bytes) {
   await fs.rename(temporary, filename);
 }
 function assertLocalOutput(filename) {
-  const absolute = path.resolve(filename), relative = path.relative(PROJECT_ROOT, absolute);
-  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Output must stay inside this project');
+  const absolute = path.resolve(filename);
+  const inside = root => {
+    const relative = path.relative(root, absolute);
+    return relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  };
+  if (![PROJECT_ROOT, ARTIFACT_ROOT].some(inside)) throw new Error('Output must stay inside this project or its AI search artifact directory');
   return absolute;
 }
 function stripMetadata(data, kind) {

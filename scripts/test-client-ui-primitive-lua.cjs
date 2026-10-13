@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -50,15 +51,15 @@ try {
   assert.deepEqual(parseLuaData(buildPrimitiveProjectLua({ ...options, rootNodeId: 'hair', nodes: nestedNodes }).code).groups.map(group => group.path), ['', 'nested']);
   const nonContainerNodes = nodes.map(item => item.id === 'group' ? { ...item, type: 'image' } : item);
   assert.equal(parseLuaData(buildPrimitiveProjectLua({ ...options, rootNodeId: 'group', nodes: nonContainerNodes }).code).groups[0].path, '中"刘海');
-  assert.throws(() => buildPrimitiveProjectLua({ ...options, rootNodeId: 'unknown' }), /选择一个控件/);
-  assert.throws(() => buildPrimitiveProjectLua({ ...options, rootNodeId: 'missing' }), /没有可导出/);
+  assert.throws(() => buildPrimitiveProjectLua({ ...options, rootNodeId: 'unknown' }), errorMatches(/选择一个控件/));
+  assert.throws(() => buildPrimitiveProjectLua({ ...options, rootNodeId: 'missing' }), errorMatches(/没有可导出/));
   assert.equal(JSON.stringify(options), original, 'selected-root exports never mutate document');
-  assert.throws(() => buildPrimitiveProjectLua({ ...options, resources: [] }), /没有可导出/);
+  assert.throws(() => buildPrimitiveProjectLua({ ...options, resources: [] }), errorMatches(/没有可导出/));
   const duplicate = [...nodes, node('duplicate', 'container', 'root', { name: '头部' })];
-  assert.throws(() => buildPrimitiveProjectLua({ ...options, nodes: duplicate }), /同级重名/);
-  assert.throws(() => buildPrimitiveProjectLua({ ...options, nodes: nodes.map(n => n.id === 'hair' ? { ...n, name: 'bad/path' } : n) }), /不能用于路径/);
-  assert.throws(() => buildPrimitiveProjectLua({ ...options, nodes: nodes.map(n => n.id === 'hair' ? { ...n, width: 0 } : n) }), /尺寸/);
-  assert.throws(() => buildPrimitiveProjectLua({ ...options, resources: [{ ...resources[0], fitData: { ...fitData, elements: [] } }] }), /有效的图元/);
+  assert.throws(() => buildPrimitiveProjectLua({ ...options, nodes: duplicate }), errorMatches(/同级重名/));
+  assert.throws(() => buildPrimitiveProjectLua({ ...options, nodes: nodes.map(n => n.id === 'hair' ? { ...n, name: 'bad/path' } : n) }), errorMatches(/不能用于路径/));
+  assert.throws(() => buildPrimitiveProjectLua({ ...options, nodes: nodes.map(n => n.id === 'hair' ? { ...n, width: 0 } : n) }), errorMatches(/尺寸/));
+  assert.throws(() => buildPrimitiveProjectLua({ ...options, resources: [{ ...resources[0], fitData: { ...fitData, elements: [] } }] }), errorMatches(/有效的图元/));
   console.log('PASS scoped paths, ambiguity, shared-image sizing, rotation, image IDs, byte alpha, hidden targets, missing results and immutable exports');
 
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ugc-primitive-lua-'));

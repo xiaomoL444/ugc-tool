@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const ts = require('typescript'), vue = require('vue');
 const { parse, compileScript, compileTemplate, compileStyle } = require('@vue/compiler-sfc');
@@ -13,7 +14,7 @@ async function main() {
   assert.deepEqual(restored[0].events.map(e => e.params), ['', '', '{}', '{"text":"你好","id":12}', '["a","b"]', '12', 'false', '原样\\n文本', '长'.repeat(4097)]);
   assert.equal(JSON.stringify(saved), original);
   assert.deepEqual(normalizeAnimationCollection(JSON.parse(JSON.stringify(restored)), []), restored);
-  assert.throws(() => helpers.normalizeTimelineEvents([restored[0].events.at(-1)], []), /超过 4096/);
+  assert.throws(() => helpers.normalizeTimelineEvents([restored[0].events.at(-1)], []), errorMatches(/超过 4096/));
   assert.deepEqual(normalizeAnimationCollection([{id:'old',name:'无事件旧存档',duration:5,keyframeTracks:[]}], []), [{id:'old',name:'无事件旧存档',duration:5,keyframeTracks:[]}]);
   const filename = path.join(root,'EventTimeline.vue');
   const {descriptor,errors} = parse(fs.readFileSync(filename,'utf8'),{filename}); assert.deepEqual(errors,[]);
@@ -22,7 +23,7 @@ async function main() {
   assert.deepEqual(compileStyle({source:descriptor.styles[0].content,filename,id:'event-test',scoped:true}).errors,[]);
   const props = vue.reactive({events:[],nodes:[{id:'root',name:'Root'}],duration:5,currentTime:0,snapEnabled:true,snapTimes:[2],logs:[]});
   const dispatched=[], listeners=new Map(), unmounts=[];
-  const context = vm.createContext({...vue,...helpers,defineProps:()=>props,defineEmits:()=> (name,value)=>{dispatched.push([name,value]);if(name==='change')props.events=value;},
+  const context = vm.createContext({...vue,...helpers,...require('../src/i18n/index.ts'),defineProps:()=>props,defineEmits:()=> (name,value)=>{dispatched.push([name,value]);if(name==='change')props.events=value;},
     onBeforeUnmount:fn=>unmounts.push(fn),window:{addEventListener:(name,fn)=>{if(!listeners.has(name))listeners.set(name,new Set());listeners.get(name).add(fn);},removeEventListener:(name,fn)=>listeners.get(name)?.delete(fn)}});
   const ast = ts.createSourceFile('event.ts',descriptor.scriptSetup.content,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
   const source = ast.statements.filter(s=>!ts.isImportDeclaration(s)).map(s=>s.getText(ast)).join('\n');
@@ -46,8 +47,8 @@ async function main() {
   await vue.nextTick(); a.draft.value.name=' '; a.save(); assert.ok(a.error.value); assert.equal(props.events[1].name,'Start');
   let prevented=0; a.keyboard({target:{closest:()=>true},key:'Delete'}); assert.equal(props.events.length,3);
   a.keyboard({target:{closest:()=>false},key:'Delete',preventDefault(){prevented++;},stopPropagation(){}}); assert.equal(props.events.length,2); assert.equal(prevented,1);
-  assert.throws(()=>helpers.normalizeTimelineEvents([{id:'bad',time:0,name:'Event',nodeId:null,params:{}}],props.nodes),/字符串/);
-  assert.throws(()=>helpers.normalizeTimelineEvents([{id:'bad',time:-1,name:'Event',nodeId:null,params:''}],props.nodes),/时间/);
+  assert.throws(()=>helpers.normalizeTimelineEvents([{id:'bad',time:0,name:'Event',nodeId:null,params:{}}],props.nodes),errorMatches(/字符串/));
+  assert.throws(()=>helpers.normalizeTimelineEvents([{id:'bad',time:-1,name:'Event',nodeId:null,params:''}],props.nodes),errorMatches(/时间/));
   unmounts.forEach(fn=>fn()); scope.stop();
   assert.ok([...listeners.values()].every(set=>set.size===0));
   console.log('PASS event component compilation, raw string editing, clipboard, same-time stacking/order, drag snapping, pointer cleanup, keyboard and validation');

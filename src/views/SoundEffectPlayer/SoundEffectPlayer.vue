@@ -515,23 +515,20 @@ import { toast } from "vue-sonner";
 import ActionButton from "@/components/button/ActionButton.vue";
 import { NEllipsis } from "naive-ui";
 import { createOss } from "@/utils/oss";
-import { loadOssTranslations } from "@/i18n";
-import { createCachedText } from "@/i18n/cachedText";
+import { useOssTranslations } from "@/i18n/useOssTranslations";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
-import { loadAssetFeatures, type AssetFeatureCollection } from "@/utils/assetFeatures";
+import { useAssetFeatures } from "@/utils/useAssetFeatures";
 import AssetFeatureSummary from "@/components/AssetFeatures/AssetFeatureSummary.vue";
 import AssetFeaturePanel from "@/components/AssetFeatures/AssetFeaturePanel.vue";
 
 const oss = createOss("SoundEffectPlayer");
 const route = useRoute();
-const composer = useI18n({ useScope: "global" });
-const { t, locale } = composer;
-const resourceText = createCachedText(composer);
-const assetFeatures = shallowRef<AssetFeatureCollection | null>(null);
+const { t, locale } = useI18n({ useScope: "global" });
+const { assetFeatures, featuresLoading, loadFeatures } = useAssetFeatures("SoundEffectPlayer", () => soundData.value.data);
+const loadTranslations = useOssTranslations("SoundEffectPlayer", "soundEffectPlayer");
 const featureSearchText = computed(() => new Map(Array.from(assetFeatures.value?.searchText ?? [])
   .map(([id, text]) => [id, text.toLocaleLowerCase()])));
-const featuresLoading = ref(true);
 const featureStatus = computed(() => featuresLoading.value ? "loading" : assetFeatures.value?.status ?? "unavailable");
 const featureParts = (id: string) => assetFeatures.value?.get(id, locale.value) ?? [];
 const featureSummary = (id: string) => featureParts(id).map(part => part.short).filter(Boolean).join(' · ');
@@ -585,7 +582,7 @@ function makeRows(category: number, ids: string[]): SoundRow[] {
 }
 
 const categoryNames = computed<Record<number, string>>(() => Object.fromEntries(
-  soundData.value.category.map((category) => [category.id, resourceText(category.nameI18nKey)]),
+  soundData.value.category.map((category) => [category.id, t(category.nameI18nKey)]),
 ));
 
 function categoryName(category: number) {
@@ -660,16 +657,14 @@ const libraryRows = computed<SoundRow[]>(() => {
 const soundData = ref<SoundEffectData>({ data: [], category: [] });
 // 播放和选择仍按稳定 ID 查询；显示及搜索名称随语言和远程词库更新。
 const dataJson = computed(() => Object.fromEntries(
-  soundData.value.data.map((item) => [item.id, { ...item, name: resourceText(item.nameI18nKey) }]),
+  soundData.value.data.map((item) => [item.id, { ...item, name: t(item.nameI18nKey) }]),
 ));
 
 onMounted(async () => {
   try {
     soundData.value = await oss.json<SoundEffectData>("data.json");
-    void loadOssTranslations("SoundEffectPlayer", "soundEffectPlayer");
-    void loadAssetFeatures("SoundEffectPlayer", soundData.value.data).then((features) => {
-      assetFeatures.value = features;
-    }).catch(() => { assetFeatures.value = null; }).finally(() => { featuresLoading.value = false; });
+    void loadTranslations();
+    void loadFeatures();
   } catch (error) {
     dataLoadError.value = true;
     console.error("音效数据加载失败", error);

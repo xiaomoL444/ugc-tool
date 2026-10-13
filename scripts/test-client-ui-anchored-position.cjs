@@ -70,7 +70,9 @@ async function main() {
     function createEditor() {
       let savedProject;
       const context = vm.createContext({
-        ...vue, ...registry, ...tweenRegistry, ...importer, ...controlTemplates, ...exporter, ...propertyActions, ...clipLayout, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua,
+        ...vue, ...registry, ...tweenRegistry, ...importer, ...controlTemplates, ...exporter, ...propertyActions, ...clipLayout, ...directionGuide, ...editorHistory, ...historyChangeLabel, ...keyframeTimeline, ...keyframeLua, ...require('../src/i18n/index.ts'),
+        ...require(path.join(editor, 'primitiveResources.ts')), ...require(path.join(editor, 'primitiveData.ts')), ...require(path.join(editor, 'timelineEvents.ts')),
+        useImageCatalogTranslations: () => () => Promise.resolve(),
         inject: () => null,
         nextTick: () => Promise.resolve(),
         window: { alert(message) { assert.fail(message); } },

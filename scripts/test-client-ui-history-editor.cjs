@@ -1,3 +1,4 @@
+const { messageText } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-history-editor.cjs
  * Exercises the real Vue setup, deferred snapshot watches, layout, Clip handlers
  * and Data import. Only browser lifecycle, DOM and archive injection are replaced.
@@ -80,11 +81,11 @@ async function main() {
     catch (error) { failures.push({ name, error }); console.error(`FAIL ${name}\n${error.stack}`); }
   }
   try {
-    const imports = {};
+    const imports = { ...require("../src/i18n/index.ts") };
     for (const statement of ast.statements) {
       if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue;
       const source = statement.moduleSpecifier.text;
-      if (!source.startsWith("./") || source.endsWith(".vue") || source === "./imageAssets") continue;
+      if (!source.startsWith("./") || source.endsWith(".vue")) continue;
       const sourcePath = path.resolve(editor, `${source}.ts`);
       if (fs.existsSync(sourcePath)) Object.assign(imports, require(sourcePath));
     }
@@ -547,7 +548,7 @@ async function main() {
       for (const modifiers of [{ ctrlKey: true, metaKey: false }, { ctrlKey: false, metaKey: true }]) {
         const api = fixture(); const before = value(api);
         await gesture(api, () => api.updateGeometry("width", 240)); const after = value(api);
-        const label = vue.unref(api.editorHistory.entries)[0].label;
+        const label = messageText(vue.unref(api.editorHistory.entries)[0].label);
         const undo = keyboard(api, "z", modifiers); api.handleEditorHistoryKeyboard(undo); await tick();
         assert.equal(undo.defaultPrevented, true); assert.equal(undo.stopped, true); assert.deepEqual(value(api), before);
         assert.deepEqual(api.toastMessages, [`撤回:【${label}】还可撤回0步`]);
@@ -563,20 +564,20 @@ async function main() {
       const [first, second] = plain(vue.unref(api.editorHistory.entries));
       assert.equal(api.toastMessages.length, 0, "Editing cannot emit a successful undo notification");
       await api.undoEditorOperation();
-      assert.deepEqual(api.toastMessages, [`撤回:【${second.label}】还可撤回1步`]);
+      assert.deepEqual(api.toastMessages, [`撤回:【${messageText(second.label)}】还可撤回1步`]);
       await api.undoEditorOperation();
-      assert.equal(api.toastMessages.at(-1), `撤回:【${first.label}】还可撤回0步`);
+      assert.equal(api.toastMessages.at(-1), `撤回:【${messageText(first.label)}】还可撤回0步`);
       await api.undoEditorOperation();
       assert.equal(api.toastMessages.length, 2, "Exhausted undo cannot report another successful action");
       await api.redoEditorOperation();
-      assert.equal(api.toastMessages.at(-1), `重做【${first.label}】还可重做1步`);
+      assert.equal(api.toastMessages.at(-1), `重做【${messageText(first.label)}】还可重做1步`);
       await api.redoEditorOperation();
-      assert.equal(api.toastMessages.at(-1), `重做【${second.label}】还可重做0步`);
+      assert.equal(api.toastMessages.at(-1), `重做【${messageText(second.label)}】还可重做0步`);
       await api.redoEditorOperation();
       assert.equal(api.toastMessages.length, 4, "Exhausted redo cannot report another successful action");
       const template = parsed.descriptor.template.content;
-      assert.match(template, /<button\b[^>]*aria-label="撤销"[^>]*@click\.stop="undoEditorOperation"/);
-      assert.match(template, /<button\b[^>]*aria-label="重做"[^>]*@click\.stop="redoEditorOperation"/);
+      assert.match(template, /<button\b[^>]*:aria-label="t\('clientUIAnimationEditor\.ui\.actions\.undo'\)"[^>]*@click\.stop="undoEditorOperation"/);
+      assert.match(template, /<button\b[^>]*:aria-label="t\('clientUIAnimationEditor\.ui\.history\.redo'\)"[^>]*@click\.stop="redoEditorOperation"/);
     });
     await test("Undo commits an active input session first, then reports the actual committed action", async () => {
       const api = fixture(); const before = value(api);
@@ -589,7 +590,7 @@ async function main() {
       const entry = vue.unref(api.editorHistory.entries)[0];
       assert.ok(entry);
       assert.deepEqual(value(api), before);
-      assert.deepEqual(api.toastMessages, [`撤回:【${entry.label}】还可撤回0步`]);
+      assert.deepEqual(api.toastMessages, [`撤回:【${messageText(entry.label)}】还可撤回0步`]);
     });
     await test("Empty history and guarded busy, modal or pointer interactions never emit a success toast", async () => {
       const empty = fixture();
@@ -627,8 +628,9 @@ async function main() {
         try {
           await api[handler]();
           assert.deepEqual(api.toastMessages, []);
-          assert.ok(api.timelineEditNotice.value.startsWith(message));
-          assert.match(api.timelineEditNotice.value, /Injected restore failure/);
+          const notice = api.timelineEditNotice.value;
+          assert.ok(notice.startsWith(message));
+          assert.match(notice, /Injected restore failure/);
         } finally { api.editorHistory[method] = original; }
       }
     });

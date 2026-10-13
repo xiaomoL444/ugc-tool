@@ -47,6 +47,7 @@ async function main() {
   const plain = (value) => JSON.parse(JSON.stringify(value));
   let passed = 0;
   const failures = [];
+  const setupScopes = [];
   async function test(name, check) {
     try { await check(); passed += 1; console.log(`PASS ${name}`); }
     catch (error) { failures.push({ name, error }); console.error(`FAIL ${name}\n${error.stack}`); }
@@ -56,8 +57,8 @@ async function main() {
     for (const statement of ast.statements) {
       if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue;
       const source = statement.moduleSpecifier.text;
-      if (!source.startsWith("./") || source.endsWith(".vue") || source === "./imageAssets") continue;
-      const sourcePath = path.resolve(editor, `${source}.ts`);
+      if ((!source.startsWith("./") && source !== "../../i18n") || source.endsWith(".vue")) continue;
+      const sourcePath = path.resolve(editor, source === "../../i18n" ? `${source}/index.ts` : `${source}.ts`);
       if (fs.existsSync(sourcePath)) Object.assign(imports, require(sourcePath));
     }
     class Element {
@@ -93,7 +94,9 @@ async function main() {
         window: { innerWidth: 1200, innerHeight: 900, addEventListener() {}, removeEventListener() {}, getSelection: () => selection },
         document: doc,
       });
-      vm.runInContext(script, context, { filename, timeout: 2000 });
+      const scope = vue.effectScope();
+      setupScopes.push(scope);
+      scope.run(() => vm.runInContext(script, context, { filename, timeout: 2000 }));
       const api = context.editorApi;
       api.nodes.value = [
         api.makeNode("container", "Root", { id: "root", scaleX: 1, scaleY: 1, anchorOffsetX: 0, anchorOffsetY: 0, sizeDeltaX: 1600, sizeDeltaY: 900 }),
@@ -358,6 +361,7 @@ async function main() {
       assert.match(source, /window\.removeEventListener\("keydown",\s*handleTimelineClipClipboardShortcut,\s*true\)/);
     });
   } finally {
+    setupScopes.forEach((scope) => scope.stop());
     Module._load = originalLoad;
     if (originalTsExtension) Module._extensions[".ts"] = originalTsExtension;
     else delete Module._extensions[".ts"];

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { StorageClass } from "../../services/storage/storage";
 
 export const CLIENT_UI_PROJECT_ID = "ClientUIAnimationEditor";
@@ -16,25 +17,25 @@ type WorkspaceStorage = Pick<
 
 function validateName(value: string, label: string): string {
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${label}名称不能为空`);
+    throw new Error(t("clientUIAnimationEditor.ui.workspace.emptyName", { label: label }));
   }
   const name = value.trim();
   if (name === "." || name === ".." || /[\u0000-\u001f\u007f<>:"/\\|?*]/.test(name) || name.endsWith(".")) {
-    throw new Error(`${label}名称不能包含路径、控制字符或系统保留字符`);
+    throw new Error(t("clientUIAnimationEditor.ui.workspace.invalidNameCharacters", { label: label }));
   }
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(name)) {
-    throw new Error(`${label}名称不能使用系统保留名称`);
+    throw new Error(t("clientUIAnimationEditor.ui.workspace.reservedName", { label: label }));
   }
   return name;
 }
 
 export function validateWorkspaceName(name: string): string {
-  return validateName(name, "工作区");
+  return validateName(name, t("clientUIAnimationEditor.ui.workspace.title"));
 }
 
 /** Document names are logical names without the storage-added .json suffix. */
 export function validateDocumentName(name: string): string {
-  return validateName(name, "编辑文件");
+  return validateName(name, t("clientUIAnimationEditor.ui.workspace.editorFile"));
 }
 
 export function documentStoragePath(workspace: string, document: string): string {
@@ -70,13 +71,13 @@ export class ClientUIWorkspaceRepository {
     // setProject is mutable on the shared singleton: reset it at every call,
     // including calls made after an await or by a delayed save.
     const folders = await this.storage.setProject(this.projectId).getFolders("/");
-    if (!folders.includes(workspace)) throw new Error(`工作区“${workspace}”不存在`);
+    if (!folders.includes(workspace)) throw new Error(t("clientUIAnimationEditor.ui.workspace.notFound", { workspace: workspace }));
   }
 
   private async requireDocument(workspace: string, document: string): Promise<void> {
     await this.requireWorkspace(workspace);
     const files = await this.storage.setProject(this.projectId).getFiles(`/${workspace}`);
-    if (!files.includes(`${document}.json`)) throw new Error(`编辑文件“${document}”不存在`);
+    if (!files.includes(`${document}.json`)) throw new Error(t("clientUIAnimationEditor.ui.workspace.documentNotFound", { document: document }));
   }
 
   async listWorkspaces(): Promise<string[]> {
@@ -89,7 +90,7 @@ export class ClientUIWorkspaceRepository {
     const name = validateWorkspaceName(requestedName);
     return this.mutate(async () => {
       if (await this.storage.setProject(this.projectId).exists(`/${name}`)) {
-        throw new Error(`已有同名工作区“${name}”`);
+        throw new Error(t("clientUIAnimationEditor.ui.workspace.duplicateWorkspaceName", { name: name }));
       }
       await this.storage.setProject(this.projectId).mkdir(`/${name}`);
     });
@@ -102,7 +103,7 @@ export class ClientUIWorkspaceRepository {
       await this.requireWorkspace(oldWorkspace);
       if (oldWorkspace === newWorkspace) return;
       if (await this.storage.setProject(this.projectId).exists(`/${newWorkspace}`)) {
-        throw new Error(`已有同名工作区“${newWorkspace}”`);
+        throw new Error(t("clientUIAnimationEditor.ui.workspace.duplicateRename", { newWorkspace: newWorkspace }));
       }
       await this.storage.setProject(this.projectId).rename(`/${oldWorkspace}`, newWorkspace);
     });
@@ -169,7 +170,7 @@ export class ClientUIWorkspaceRepository {
       await this.requireDocument(workspace, oldDocument);
       if (oldDocument === newDocument) return;
       if (await this.storage.setProject(this.projectId).exists(documentStoragePath(workspace, newDocument))) {
-        throw new Error(`已有同名编辑文件“${newDocument}”`);
+        throw new Error(t("clientUIAnimationEditor.ui.workspace.documentNameExists", { newDocument: newDocument }));
       }
       await this.storage.setProject(this.projectId).rename(documentStoragePath(workspace, oldDocument), `${newDocument}.json`);
     });
@@ -187,25 +188,25 @@ export class ClientUIWorkspaceRepository {
   /** originalRelativePath is the original full path, not its parent directory. */
   async restore(trashPath: string, originalRelativePath: string): Promise<void> {
     if (typeof trashPath !== "string" || !/^\/RecyleBin\/[A-Za-z0-9_-]+\/?$/.test(trashPath)) {
-      throw new Error("无效的回收站路径");
+      throw new Error(t("clientUIAnimationEditor.ui.workspace.invalidRecyclePath"));
     }
     if (typeof originalRelativePath !== "string" || !originalRelativePath.startsWith("/")) {
-      throw new Error("无效的恢复目标路径");
+      throw new Error(t("clientUIAnimationEditor.ui.workspace.invalidRestorePath"));
     }
     const segments = originalRelativePath.slice(1).split("/");
-    if (segments.length < 1 || segments.length > 2) throw new Error("无效的恢复目标路径");
+    if (segments.length < 1 || segments.length > 2) throw new Error(t("clientUIAnimationEditor.ui.workspace.invalidRestorePath"));
     const workspace = validateWorkspaceName(segments[0]);
     let target = `/${workspace}`;
     let parent = "/";
     if (segments.length === 2) {
-      if (!segments[1].endsWith(".json")) throw new Error("只能恢复 JSON 编辑文件");
+      if (!segments[1].endsWith(".json")) throw new Error(t("clientUIAnimationEditor.ui.workspace.restoreRequiresJson"));
       target = documentStoragePath(workspace, segments[1].slice(0, -5));
       parent = `/${workspace}`;
     }
     return this.mutate(async () => {
       if (segments.length === 2) await this.requireWorkspace(workspace);
       if (await this.storage.setProject(this.projectId).exists(target)) {
-        throw new Error("恢复目标已存在，请先重命名同名项目");
+        throw new Error(t("clientUIAnimationEditor.ui.workspace.restoreTargetExists"));
       }
       // StorageClass.restore moves each recycled item's basename into parent.
       await this.storage.setProject(this.projectId).restore(trashPath, parent);

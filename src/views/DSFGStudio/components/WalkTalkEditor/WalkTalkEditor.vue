@@ -1,4 +1,5 @@
 <script setup lang="ts">
+
 import { inject, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 import { toast } from "vue-sonner";
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
@@ -44,7 +45,7 @@ let revision = 0;
 const historyElement = ref<HTMLElement>();
 const history = useStudioDocumentHistory({
   project, element: historyElement, blocked: () => busy.value, label: "修改边走边说",
-  onError: error => { showError(error); },
+  onError: error => { console.error(error); toast.error((error instanceof Error ? error.message : String(error))); },
 });
 
 function showError(error: unknown) {

@@ -162,7 +162,8 @@ import JSZip from "jszip";
 import ImageAssetLibrary from "../ClientUIAnimationEditor/ImageAssetLibrary.vue";
 import SpriteImage from "../ClientUIAnimationEditor/SpriteImage.vue";
 import ColorRGBAField from "../ClientUIAnimationEditor/ColorRGBAField.vue";
-import { imageAssetById, loadImageCatalog, imageCatalogError } from "../ClientUIAnimationEditor/imageAssets";
+import { imageAssetById, loadImageCatalog, imageCatalogError, useImageCatalogTranslations } from "../ClientUIAnimationEditor/imageAssets";
+const loadImageTranslations = useImageCatalogTranslations();
 import type { ColorRGBA } from "../ClientUIAnimationEditor/types";
 import ParticleNumber from "./ParticleNumber.vue";
 import ParticleCurve from "./ParticleCurve.vue";
@@ -359,7 +360,7 @@ function stopDocumentInteraction() {
 async function runArchiveAction(action: () => Promise<unknown>) {
   try { await action(); return true; }
   catch (cause) {
-    if (archive) archive.error.value = (cause as Error).message || String(cause);
+    if (archive) archive.error.value = (cause instanceof Error ? cause.message : String(cause));
     workspacePanelOpen.value = true; return false;
   }
 }
@@ -372,7 +373,7 @@ async function initializeOrSave() {
     await archive.initialize();
     if (archive.selectedDocument.value) playing.value = true;
   } catch (cause) {
-    archive.error.value = (cause as Error).message || String(cause);
+    archive.error.value = (cause instanceof Error ? cause.message : String(cause));
     archive.status.value = "读取存档失败"; workspacePanelOpen.value = true;
   } finally { initializingArchive.value = false; }
 }
@@ -460,7 +461,7 @@ function keyboard(event: KeyboardEvent) {
   if (event.code === "Space") { event.preventDefault(); togglePlay(); }
 }
 onMounted(() => {
-  void loadImageCatalog(); void initializeOrSave(); frameId = requestAnimationFrame(animate);
+  void loadImageCatalog(); void loadImageTranslations(); void initializeOrSave(); frameId = requestAnimationFrame(animate);
   window.addEventListener("keydown", keyboard); window.addEventListener("beforeunload", handleBeforeUnload);
 });
 onBeforeRouteLeave(async () => {

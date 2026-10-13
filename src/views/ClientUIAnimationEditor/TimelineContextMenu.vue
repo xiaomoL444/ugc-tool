@@ -5,7 +5,7 @@
       ref="menu"
       class="timeline-context-menu"
       role="menu"
-      :aria-label="`${target.label}轨道操作`"
+      :aria-label="t('clientUIAnimationEditor.ui.timeline.trackActions', { label: target.label })"
       :style="menuStyle"
       @pointerdown.stop
       @click.stop
@@ -15,22 +15,23 @@
     >
       <button type="button" role="menuitem" tabindex="-1" :disabled="!target.canCreate" :title="target.createHint" @click="createClip">
         <EditorIcon name="plus" :size="16" />
-        <span>在此位置创建 Tweenable Clip<small>{{ target.time.toFixed(3) }} 秒</small></span>
+        <span>{{ t('clientUIAnimationEditor.ui.timeline.createClipHere') }}<small>{{ t('clientUIAnimationEditor.ui.timeline.timeInSeconds', { time: target.time.toFixed(3) }) }}</small></span>
       </button>
       <p v-if="!target.canCreate" class="creation-hint">{{ target.createHint }}</p>
       <button v-if="target.clipId" type="button" role="menuitem" tabindex="-1" @click="deleteClip">
         <EditorIcon name="trash" :size="16" />
-        <span>删除当前 Clip</span>
+        <span>{{ t('clientUIAnimationEditor.ui.timeline.deleteCurrentClip') }}</span>
       </button>
       <button type="button" role="menuitem" tabindex="-1" @click="deleteTrack">
         <EditorIcon name="trash" :size="16" />
-        <span>删除整条属性轨道</span>
+        <span>{{ t('clientUIAnimationEditor.ui.timeline.deletePropertyTrack') }}</span>
       </button>
     </div>
   </Teleport>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { CSSProperties } from "vue";
 import EditorIcon from "./EditorIcon.vue";

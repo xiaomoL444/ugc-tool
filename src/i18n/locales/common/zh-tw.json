@@ -14,5 +14,15 @@
   "common.copyFailed": "複製失敗：{error}",
   "common.storageUnderDevelopment": "儲存設定功能尚在開發中。",
   "app.bgmPlayerTitle": "BGM播放器",
-  "app.bgmPlayerDescription": "可線上播放千星奇域 7.1 版本之前的 BGM。"
+  "app.bgmPlayerDescription": "可線上播放千星奇域 7.1 版本之前的 BGM。",
+  "app.clientUIAnimationEditorTitle": "客戶端 UI 動畫編輯器",
+  "app.clientUIAnimationEditorDescription": "客戶端 UI 動畫編輯器\n這會成為一個偉大的專案嗎？",
+  "app.clientUIAnimationEditorCardDescription": "製作客戶端介面動畫",
+  "assetFeatures.ui.description": "資產描述",
+  "assetFeatures.ui.audio": "音效",
+  "assetFeatures.ui.standVisual": "主特效",
+  "assetFeatures.ui.tailVisual": "尾跡特效",
+  "assetFeatures.ui.keywords": "關鍵詞",
+  "assetFeatures.ui.suggestedUses": "用途建議",
+  "assetFeatures.ui.expand": "查看完整資產描述"
 }

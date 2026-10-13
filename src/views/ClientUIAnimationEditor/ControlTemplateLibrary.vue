@@ -1,41 +1,42 @@
 <template>
-  <section ref="panel" class="control-template-library" role="dialog" aria-label="控件模板库" tabindex="-1" @pointerdown.stop @keydown.esc.stop.prevent="emit('close')">
+  <section ref="panel" class="control-template-library" role="dialog" :aria-label="t('clientUIAnimationEditor.ui.templates.libraryTitle')" tabindex="-1" @pointerdown.stop @keydown.esc.stop.prevent="emit('close')">
     <header>
-      <strong>控件模板 <small>{{ assets.length }}</small></strong>
-      <input v-model="search" type="search" placeholder="搜索名称或索引" aria-label="搜索控件模板" />
-      <button :disabled="loading" @click="fileInput?.click()">{{ loading ? '正在解析…' : '导入控件模板 GIA' }}</button>
-      <button v-if="selectable" @click="emit('select', null)">清除引用</button>
-      <button aria-label="关闭控件模板库" @click="emit('close')">×</button>
+      <strong>{{ t('clientUIAnimationEditor.ui.templates.title') }}<small>{{ assets.length }}</small></strong>
+      <input v-model="search" type="search" :placeholder="t('clientUIAnimationEditor.ui.templates.searchPlaceholder')" :aria-label="t('clientUIAnimationEditor.ui.templates.searchLabel')" />
+      <button :disabled="loading" @click="fileInput?.click()">{{ loading ? t('clientUIAnimationEditor.ui.templates.parsing') : t('clientUIAnimationEditor.ui.templates.importGia') }}</button>
+      <button v-if="selectable" @click="emit('select', null)">{{ t('clientUIAnimationEditor.ui.templates.clearReference') }}</button>
+      <button :aria-label="t('clientUIAnimationEditor.ui.templates.closeLibrary')" @click="emit('close')">×</button>
       <input ref="fileInput" class="file-input" type="file" accept=".gia,application/octet-stream" @change="readFile" />
     </header>
-    <p class="library-note">{{ selectable ? '点击模板即可引用。' : '选择模板可修改名称和索引。' }}模板随当前编辑文件保存，索引需与游戏中的配置一致。</p>
+    <p class="library-note">{{ t('clientUIAnimationEditor.ui.templates.saveWithDocumentHint', { value: selectable ? t('clientUIAnimationEditor.ui.templates.clickToReferenceHint') : t('clientUIAnimationEditor.ui.templates.editNameAndIndexHint') }) }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <div class="library-body">
       <div class="template-grid">
         <article v-for="asset in filteredAssets" :key="asset.id" class="template-card" :class="{ selected: asset.index === selectedIndex }">
-          <button class="template-select" :aria-label="`引用模板 ${asset.name}，索引 ${asset.index}`" @click="selectable ? emit('select', asset.index) : editAsset(asset)">
+          <button class="template-select" :aria-label="t('clientUIAnimationEditor.ui.templates.referenceSummary', { name: asset.name, index: asset.index })" @click="selectable ? emit('select', asset.index) : editAsset(asset)">
             <div class="thumbnail"><ControlTemplatePreview :asset="asset" :width="120" :height="88" :device-index="deviceIndex" fit /></div>
-            <b :title="asset.name">{{ asset.name }}</b><small>#{{ asset.index }} · {{ asset.devices[deviceIndex]?.length ?? 0 }} 个控件</small>
+            <b :title="asset.name">{{ asset.name }}</b><small>{{ t('clientUIAnimationEditor.ui.templates.indexAndControlCount', { index: asset.index, count: asset.devices[deviceIndex]?.length ?? 0 }) }}</small>
           </button>
-          <button class="edit-template" :aria-label="`设置模板 ${asset.name}`" @click="editAsset(asset)">设置索引</button>
+          <button class="edit-template" :aria-label="t('clientUIAnimationEditor.ui.templates.configureNamed', { name: asset.name })" @click="editAsset(asset)">{{ t('clientUIAnimationEditor.ui.templates.setIndex') }}</button>
         </article>
-        <p v-if="!filteredAssets.length" class="empty-state">{{ assets.length ? '没有匹配的模板' : '还没有控件模板，点击右上方导入 GIA。' }}</p>
+        <p v-if="!filteredAssets.length" class="empty-state">{{ assets.length ? t('clientUIAnimationEditor.ui.templates.noMatchingTemplates') : t('clientUIAnimationEditor.ui.templates.emptyLibraryHint') }}</p>
       </div>
       <form v-if="draft" class="template-draft" @submit.prevent="saveDraft">
-        <strong>{{ editing ? '设置控件模板' : '导入控件模板' }}</strong>
+        <strong>{{ editing ? t('clientUIAnimationEditor.ui.templates.settingsTitle') : t('clientUIAnimationEditor.ui.templates.import') }}</strong>
         <div class="draft-preview"><ControlTemplatePreview :asset="draft" :width="200" :height="112" :device-index="deviceIndex" fit /></div>
-        <label>名称<input v-model="draftName" aria-label="模板名称" required /></label>
-        <label>索引<input v-model="draftIndex" aria-label="模板索引" type="number" min="0" max="2147483647" step="1" required /></label>
-        <small>{{ draft.sourceName }} · {{ draft.devices[deviceIndex]?.length }} 个控件</small>
+        <label>{{ t('clientUIAnimationEditor.ui.properties.name') }}<input v-model="draftName" :aria-label="t('clientUIAnimationEditor.ui.templates.name')" required /></label>
+        <label>{{ t('clientUIAnimationEditor.ui.templates.index') }}<input v-model="draftIndex" :aria-label="t('clientUIAnimationEditor.ui.templates.templateIndex')" type="number" min="0" max="2147483647" step="1" required /></label>
+        <small>{{ t('clientUIAnimationEditor.ui.templates.controlCount', { value: draft.sourceName, count: draft.devices[deviceIndex]?.length }) }}</small>
         <p v-if="draftError" class="error" role="alert">{{ draftError }}</p>
-        <details v-if="draft.warnings.length"><summary>导入提示（{{ draft.warnings.length }}）</summary><p v-for="warning in draft.warnings" :key="warning">{{ warning }}</p></details>
-        <div class="draft-actions"><button type="button" @click="draft = null">取消</button><button type="submit" class="primary" :disabled="!!draftError">{{ editing ? '保存设置' : '确认导入' }}</button></div>
+        <details v-if="draftWarnings.length"><summary>{{ t('clientUIAnimationEditor.ui.templates.importNotes', { count: draftWarnings.length }) }}</summary><p v-for="(warning, index) in draftWarnings" :key="index">{{ warning }}</p></details>
+        <div class="draft-actions"><button type="button" @click="draft = null">{{ t('clientUIAnimationEditor.ui.actions.cancel') }}</button><button type="submit" class="primary" :disabled="!!draftError">{{ editing ? t('clientUIAnimationEditor.ui.templates.saveSettings') : t('clientUIAnimationEditor.ui.actions.confirmImport') }}</button></div>
       </form>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import ControlTemplatePreview from "./ControlTemplatePreview.vue";
 import { nextTemplateIndex, readControlTemplate, templateIndexError, type ControlTemplateAsset } from "./controlTemplates";
@@ -43,10 +44,11 @@ import { nextTemplateIndex, readControlTemplate, templateIndexError, type Contro
 const props = withDefaults(defineProps<{ assets: ControlTemplateAsset[]; selectedIndex?: number | null; selectable: boolean; deviceIndex: number }>(), { selectedIndex: null });
 const emit = defineEmits<{ (event: "close"): void; (event: "select", index: number | null): void; (event: "save", asset: ControlTemplateAsset): void }>();
 const panel = ref<HTMLElement | null>(null), fileInput = ref<HTMLInputElement | null>(null);
-const search = ref(""), error = ref(""), loading = ref(false);
+const search = ref(""), error = ref<string>(''), loading = ref(false);
 const draft = ref<ControlTemplateAsset | null>(null), draftName = ref(""), draftIndex = ref<number | string>(1), editing = ref(false);
 const filteredAssets = computed(() => props.assets.filter(asset => `${asset.name} ${asset.index} ${asset.sourceName}`.toLowerCase().includes(search.value.trim().toLowerCase())).slice().sort((a, b) => a.index - b.index));
-const draftError = computed(() => !draftName.value.trim() ? "请填写模板名称" : String(draftIndex.value).trim() === "" ? "请填写模板索引"
+const draftWarnings = computed(() => draft.value?.warnings ?? []);
+const draftError = computed(() => !draftName.value.trim() ? t('clientUIAnimationEditor.ui.templates.nameRequired') : String(draftIndex.value).trim() === "" ? t('clientUIAnimationEditor.ui.templates.indexRequired')
   : templateIndexError(Number(draftIndex.value), props.assets, editing.value ? draft.value?.id : undefined));
 let disposed = false;
 let previousFocus: HTMLElement | null = null;
@@ -65,7 +67,7 @@ async function readFile(event: Event) {
     if (disposed) return;
     const asset = readControlTemplate(bytes, file.name, nextTemplateIndex(props.assets));
     editAsset(asset); editing.value = false;
-  } catch (cause) { if (!disposed) error.value = cause instanceof Error ? cause.message : "无法读取控件模板"; }
+  } catch (cause) { if (!disposed) error.value = cause instanceof Error ? cause.message : t('clientUIAnimationEditor.ui.templates.readFailed'); }
   finally { if (!disposed) loading.value = false; }
 }
 function saveDraft() {

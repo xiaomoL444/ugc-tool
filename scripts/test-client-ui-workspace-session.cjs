@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Run with: node scripts/test-client-ui-workspace-session.cjs */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -7,7 +8,7 @@ const { ref, watch } = require("vue");
 const previousExtension = Module._extensions[".ts"];
 Module._extensions[".ts"] = (module, filename) => {
   const result = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }, fileName: filename,
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true, resolveJsonModule: true }, fileName: filename,
   });
   module._compile(result.outputText, filename);
 };
@@ -89,7 +90,7 @@ test("保存失败保留脏快照和当前文件；重试成功再切换", async
   const { session, repository, state } = fixture(); await session.initialize(); await session.createDocument("B");
   state.value.value = 42;
   repository.hook = async method => { if (method === "writeDocument") throw new Error("Disk full"); };
-  await assert.rejects(session.switchDocument("新建动画"), /Disk full/);
+  await assert.rejects(session.switchDocument("新建动画"), errorMatches(/Disk full/));
   assert.equal(session.selectedDocument.value, "B"); assert.equal(state.value.value, 42); assert.equal(session.dirty.value, true);
   repository.hook = null; await session.switchDocument("新建动画");
   assert.equal(JSON.parse(repository.file("默认工作区", "B")).value, 42); assert.equal(session.dirty.value, false);
@@ -103,9 +104,9 @@ test("撤回到原值会替换旧待存快照，不会被延迟保存覆盖", as
 
 test("GIA factory 失败、业务 JSON 校验失败均保留旧编辑内容", async () => {
   const { session, repository, state } = fixture(); await session.initialize(); state.value.value = 12;
-  await assert.rejects(session.createDocument("Import", async () => { throw new Error("Bad GIA"); }), /Bad GIA/);
+  await assert.rejects(session.createDocument("Import", async () => { throw new Error("Bad GIA"); }), errorMatches(/Bad GIA/));
   assert.equal(session.selectedDocument.value, "新建动画"); assert.equal(state.value.value, 12);
-  await assert.rejects(session.createDocument("Invalid", '{"name":"x","invalid":true}'), /Invalid editor payload/);
+  await assert.rejects(session.createDocument("Invalid", '{"name":"x","invalid":true}'), errorMatches(/Invalid editor payload/));
   assert.equal(state.value.value, 12); assert.equal(repository.directory("默认工作区").size, 1);
   assert.equal(session.loading.value, false);
 });
@@ -127,7 +128,7 @@ test("GIA 异步导入期间忽略并发操作，同名导入创建独立新文�
 test("读取坏文件时事务回滚 editor 和 selection", async () => {
   const { session, repository, state } = fixture(); await session.initialize(); state.value.value = 9; await session.save();
   repository.directory("默认工作区").set("Bad", '{"invalid":true}');
-  await assert.rejects(session.switchDocument("Bad"), /Invalid editor payload/);
+  await assert.rejects(session.switchDocument("Bad"), errorMatches(/Invalid editor payload/));
   assert.equal(session.selectedDocument.value, "新建动画"); assert.equal(state.value.value, 9);
 });
 
@@ -145,7 +146,7 @@ test("重命名标题写入失败会恢复原文件名与选择", async () => {
   let fail = true; repository.hook = async (method, workspace, document) => {
     if (method === "writeDocument" && document === "Renamed" && fail) { fail = false; throw new Error("Rename title failure"); }
   };
-  await assert.rejects(session.renameDocument("Renamed"), /Rename title failure/);
+  await assert.rejects(session.renameDocument("Renamed"), errorMatches(/Rename title failure/));
   assert.equal(session.selectedDocument.value, "新建动画"); assert.equal(state.value.name, "新建动画");
   assert.equal(repository.directory("默认工作区").has("Renamed"), false);
 });
@@ -182,7 +183,7 @@ test("卸载保留最终快照，异步 factory 完成后不会再创建/加载�
   const started = deferred(); const finish = deferred();
   const importing = session.createDocument("Late", async () => { started.resolve(); await finish.promise; return data("Late"); });
   await started.promise;
-  await assert.rejects(session.prepareToLeave(), /正在读写/);
+  await assert.rejects(session.prepareToLeave(), errorMatches(/正在读写/));
   await session.dispose(); const applyCount = calls.length; finish.resolve(); await importing;
   assert.equal(calls.length, applyCount); assert.equal(repository.directory("默认工作区").has("Late"), false);
   assert.equal(JSON.parse(repository.file("默认工作区", "新建动画")).value, 99);

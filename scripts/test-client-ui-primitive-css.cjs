@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
@@ -37,9 +38,9 @@ try {
   assert.match(rounded,/width: 1560.43px/); assert.match(rounded,/left: 790.34px/); assert.match(rounded,/top: 488.44px/);
   assert.match(rounded,/background: #00010f/); assert.match(rounded,/opacity: 0.1235/); assert.match(rounded,/rotate\(-23.46deg\)/);
   for (const alpha of [0,1]) assert.ok(write({...fit,elements:[{...fit.elements[0],color:{r:0,g:0,b:0,a:alpha}}]}).includes(`opacity: ${alpha.toFixed(4)};`));
-  assert.throws(()=>write({...fit,elements:[]}),/有效/);
-  assert.throws(()=>write({...fit,elements:[{...fit.elements[0],x:Infinity}]}),/有效/);
-  assert.throws(()=>write({...fit,elements:[{...fit.elements[0],width:.0001}]}),/过小/);
+  assert.throws(()=>write({...fit,elements:[]}),errorMatches(/有效/));
+  assert.throws(()=>write({...fit,elements:[{...fit.elements[0],x:Infinity}]}),errorMatches(/有效/));
+  assert.throws(()=>write({...fit,elements:[{...fit.elements[0],width:.0001}]}),errorMatches(/过小/));
   const plain = css.replace('background: #ffffff;', 'background: transparent;');
   const parsed = read(plain);
   assert.deepEqual(JSON.parse(JSON.stringify(parsed)),normalizePrimitiveData(fit),'transparent container roundtrips all shapes');
@@ -82,10 +83,10 @@ try {
     css+'}', '', '/* unterminated', css.replace('width: 300px;', 'width: 40000px;'),
     `@media screen {${css}}`, css.replace('opacity: 0.9500;','opacity: 0.5 !important;'),
   ]) assert.throws(()=>read(bad),Error,bad.slice(-120));
-  assert.throws(()=>read(css,{width:0,height:100}),/尺寸/);
-  assert.throws(()=>read(' '.repeat(2*1024*1024+1)),/2 MiB/);
+  assert.throws(()=>read(css,{width:0,height:100}),errorMatches(/尺寸/));
+  assert.throws(()=>read(' '.repeat(2*1024*1024+1)),errorMatches(/2 MiB/));
   const many = {...fit,elements:Array.from({length:1001},()=>fit.elements[0])};
-  assert.throws(()=>read(write(many)),/1001/,'container background counts toward element budget');
+  assert.throws(()=>read(write(many)),errorMatches(/1001/),'container background counts toward element budget');
   assert.equal(read(write(many).replace('background: #ffffff;','background: transparent;')).elements.length,1001);
   console.log('PASS primitive CSS: format, import/export roundtrip, background, fit, stacking, alpha, security, limits, immutable data');
 } finally { Module._extensions['.ts'] = previous; }

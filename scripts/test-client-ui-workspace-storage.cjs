@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Run with: node scripts/test-client-ui-workspace-storage.cjs */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -8,7 +9,7 @@ const ts = require("typescript");
 const previousExtension = Module._extensions[".ts"];
 Module._extensions[".ts"] = (module, filename) => {
   const result = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true, resolveJsonModule: true },
     fileName: filename,
   });
   module._compile(result.outputText, filename);
@@ -195,7 +196,7 @@ async function main() {
     storage.beforeOperation = async (method, target) => {
       if (method === "writeFile" && target.endsWith("/.selection.json")) throw new Error("Injected migration failure");
     };
-    await assert.rejects(migrateParticleLegacy(storage, repository, raw), /Injected/);
+    await assert.rejects(migrateParticleLegacy(storage, repository, raw), errorMatches(/Injected/));
     assert.deepEqual(await repository.listDocuments(DEFAULT_UI_WORKSPACE), ["轻雪飘落"]);
     storage.beforeOperation = null;
     assert.equal(await migrateParticleLegacy(storage, repository, raw), true);
@@ -230,11 +231,11 @@ async function main() {
   await test("Workspace and document renaming reject collisions and keep old data intact", async () => {
     const { repository } = await setup();
     await repository.createWorkspace("其他工作区");
-    await assert.rejects(repository.createWorkspace(DEFAULT_UI_WORKSPACE), /同名/);
-    await assert.rejects(repository.renameWorkspace(DEFAULT_UI_WORKSPACE, "其他工作区"), /同名/);
+    await assert.rejects(repository.createWorkspace(DEFAULT_UI_WORKSPACE), errorMatches(/同名/));
+    await assert.rejects(repository.renameWorkspace(DEFAULT_UI_WORKSPACE, "其他工作区"), errorMatches(/同名/));
     await repository.createDocument(DEFAULT_UI_WORKSPACE, "first", "one");
     await repository.createDocument(DEFAULT_UI_WORKSPACE, "second", "two");
-    await assert.rejects(repository.renameDocument(DEFAULT_UI_WORKSPACE, "first", "second"), /同名/);
+    await assert.rejects(repository.renameDocument(DEFAULT_UI_WORKSPACE, "first", "second"), errorMatches(/同名/));
     await repository.renameDocument(DEFAULT_UI_WORKSPACE, "first", "renamed");
     await repository.renameWorkspace(DEFAULT_UI_WORKSPACE, "重命名工作区");
     assert.equal(await repository.readDocument("重命名工作区", "renamed"), "one");
@@ -261,13 +262,13 @@ async function main() {
 
   await test("Late saves refuse missing documents or workspaces instead of recreating them", async () => {
     const { storage, repository } = await setup();
-    await assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "missing", "late"), /不存在/);
+    await assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "missing", "late"), errorMatches(/不存在/));
     await repository.createDocument(DEFAULT_UI_WORKSPACE, "View", "saved");
     await repository.trashDocument(DEFAULT_UI_WORKSPACE, "View");
-    await assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "View", "late"), /不存在/);
+    await assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "View", "late"), errorMatches(/不存在/));
     await repository.trashWorkspace(DEFAULT_UI_WORKSPACE);
-    await assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "View", "late"), /不存在/);
-    await assert.rejects(repository.createDocument(DEFAULT_UI_WORKSPACE, "View", "late"), /不存在/);
+    await assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "View", "late"), errorMatches(/不存在/));
+    await assert.rejects(repository.createDocument(DEFAULT_UI_WORKSPACE, "View", "late"), errorMatches(/不存在/));
     assert.equal(storage.folders.has(`/${CLIENT_UI_PROJECT_ID}/${DEFAULT_UI_WORKSPACE}`), false);
     assert.deepEqual(await repository.listWorkspaces(), []);
   });
@@ -283,7 +284,7 @@ async function main() {
     const saving = repository.writeDocument(DEFAULT_UI_WORKSPACE, "View", "latest");
     await started.promise;
     const deleting = repository.trashDocument(DEFAULT_UI_WORKSPACE, "View");
-    const lateSave = assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "View", "too late"), /不存在/);
+    const lateSave = assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "View", "too late"), errorMatches(/不存在/));
     release.resolve();
     await saving;
     const recycled = await deleting;
@@ -313,9 +314,9 @@ async function main() {
     await repository.createDocument(DEFAULT_UI_WORKSPACE, "View", "old");
     const recycled = await repository.trashDocument(DEFAULT_UI_WORKSPACE, "View");
     await repository.createDocument(DEFAULT_UI_WORKSPACE, "View", "new");
-    await assert.rejects(repository.restore(recycled, documentStoragePath(DEFAULT_UI_WORKSPACE, "View")), /已存在/);
+    await assert.rejects(repository.restore(recycled, documentStoragePath(DEFAULT_UI_WORKSPACE, "View")), errorMatches(/已存在/));
     assert.equal(await repository.readDocument(DEFAULT_UI_WORKSPACE, "View"), "new");
-    await assert.rejects(repository.restore(recycled, "/missing/View.json"), /不存在/);
+    await assert.rejects(repository.restore(recycled, "/missing/View.json"), errorMatches(/不存在/));
     await assert.rejects(repository.restore(recycled, "/../View.json"));
     await assert.rejects(repository.restore(recycled, "/workspace/nested/View.json"));
     await assert.rejects(repository.restore(recycled, "/workspace/View.gia"));
@@ -331,7 +332,7 @@ async function main() {
     assert.deepEqual(await repository.listDocuments(DEFAULT_UI_WORKSPACE), ["View"]);
     await repository.trashDocument(DEFAULT_UI_WORKSPACE, "View");
     assert.equal(await repository.readSelection(), null);
-    await assert.rejects(repository.writeSelection({ workspace: DEFAULT_UI_WORKSPACE, document: "missing" }), /不存在/);
+    await assert.rejects(repository.writeSelection({ workspace: DEFAULT_UI_WORKSPACE, document: "missing" }), errorMatches(/不存在/));
     const selectionPath = `/${CLIENT_UI_PROJECT_ID}/.selection.json`;
     for (const invalid of ["not JSON", "null", JSON.stringify({ workspace: "../other", document: "secret" })]) {
       storage.files.set(selectionPath, invalid);
@@ -349,7 +350,7 @@ async function main() {
     storage.folders.add(`${directory}/folder.json`);
     assert.deepEqual(await repository.listWorkspaces(), [DEFAULT_UI_WORKSPACE]);
     assert.deepEqual(await repository.listDocuments(DEFAULT_UI_WORKSPACE), ["View"]);
-    await assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "folder", "not a file"), /不存在/);
+    await assert.rejects(repository.writeDocument(DEFAULT_UI_WORKSPACE, "folder", "not a file"), errorMatches(/不存在/));
   });
 
   await test("Selection remembers an empty workspace without inventing a document", async () => {
@@ -363,7 +364,7 @@ async function main() {
     assert.equal(metadata[0][0], `/${CLIENT_UI_PROJECT_ID}/.selection.json`);
     await repository.trashWorkspace(DEFAULT_UI_WORKSPACE);
     assert.equal(await repository.readSelection(), null);
-    await assert.rejects(repository.writeSelection(selection), /不存在/);
+    await assert.rejects(repository.writeSelection(selection), errorMatches(/不存在/));
   });
 
   console.log(`\n${passed} Client UI workspace storage tests passed.`);

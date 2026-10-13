@@ -14,5 +14,15 @@
   "common.copyFailed": "コピーに失敗しました：{error}",
   "common.storageUnderDevelopment": "ストレージ設定は開発中です。",
   "app.bgmPlayerTitle": "BGMプレーヤー",
-  "app.bgmPlayerDescription": "バージョン7.1より前の千星奇域のBGMをオンラインで再生できます。"
+  "app.bgmPlayerDescription": "バージョン7.1より前の千星奇域のBGMをオンラインで再生できます。",
+  "app.clientUIAnimationEditorTitle": "クライアント UI アニメーションエディター",
+  "app.clientUIAnimationEditorDescription": "クライアント UI アニメーションエディター\nこれは素晴らしいプロジェクトになるでしょうか？",
+  "app.clientUIAnimationEditorCardDescription": "クライアントUIアニメーションを作成",
+  "assetFeatures.ui.description": "アセットの説明",
+  "assetFeatures.ui.audio": "効果音",
+  "assetFeatures.ui.standVisual": "メインエフェクト",
+  "assetFeatures.ui.tailVisual": "軌跡エフェクト",
+  "assetFeatures.ui.keywords": "キーワード",
+  "assetFeatures.ui.suggestedUses": "用途の提案",
+  "assetFeatures.ui.expand": "アセットの説明を詳しく見る"
 }

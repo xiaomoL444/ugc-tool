@@ -9,7 +9,7 @@ const originalTsExtension = Module._extensions[".ts"];
 Module._extensions[".ts"] = (module, filename) => {
   const compiled = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
     fileName: filename,
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true },
   });
   module._compile(compiled.outputText, filename);
 };

@@ -14,5 +14,15 @@
   "common.copyFailed": "Copy failed: {error}",
   "common.storageUnderDevelopment": "Storage settings are still under development.",
   "app.bgmPlayerTitle": "BGM Player",
-  "app.bgmPlayerDescription": "Play Miliastra Wonderland BGM from before version 7.1 online."
+  "app.bgmPlayerDescription": "Play Miliastra Wonderland BGM from before version 7.1 online.",
+  "app.clientUIAnimationEditorTitle": "Client UI Animation Editor",
+  "app.clientUIAnimationEditorDescription": "Client UI Animation Editor\nWill this become a great project?",
+  "app.clientUIAnimationEditorCardDescription": "Create client UI animations",
+  "assetFeatures.ui.description": "Asset description",
+  "assetFeatures.ui.audio": "Sound",
+  "assetFeatures.ui.standVisual": "Main effect",
+  "assetFeatures.ui.tailVisual": "Trail effect",
+  "assetFeatures.ui.keywords": "Keywords",
+  "assetFeatures.ui.suggestedUses": "Suggested uses",
+  "assetFeatures.ui.expand": "Show the full asset description"
 }

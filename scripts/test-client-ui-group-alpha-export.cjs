@@ -1,3 +1,4 @@
+const { messageText } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-group-alpha-export.cjs
  * Optional: set LUA_BIN to a Lua 5.3 executable to run the emitted library
  * against documented-API mocks as well as the always-on exporter checks.
@@ -87,7 +88,7 @@ try {
       track("caption", "bgColor", { r: 0, g: 0, b: 0, a: 0 }, { r: 0, g: 0, b: 0, a: 1 })]);
     assert.equal(result.trackCount, 1);
     assert.equal(result.warnings.length, 2);
-    assert.ok(result.warnings.every((warning) => warning.includes("控制同一颜色")));
+    assert.ok(result.warnings.every((warning) => messageText(warning).includes("控制同一颜色")));
   });
   test("Conflict priority is input order, not Timeline sorting", () => {
     const result = exportData(fixture(), [track("icon", "imageColor", { r: 1, g: 2, b: 3, a: 1 }, { r: 4, g: 5, b: 6, a: 0 }, 2), track("root")]);
@@ -108,7 +109,7 @@ try {
     assert.equal(result.trackCount, 1);
     assert.equal(result.tweenCount, 0);
     assert.equal(result.targetCount, 0);
-    assert.match(result.warnings[0], /没有可控制的颜色/);
+    assert.match(messageText(result.warnings[0]), /没有可控制的颜色/);
   });
   test("Group endpoints are clamped, and self-containing malformed hierarchies terminate", () => {
     const nodes = fixture();

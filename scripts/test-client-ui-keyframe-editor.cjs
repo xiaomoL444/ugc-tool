@@ -1,3 +1,4 @@
+const { errorMatches, messageText } = require('./i18n-test-helpers.cjs');
 /* Real editor Vue setup + property computed setter + deferred undo watch. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -52,11 +53,11 @@ async function main() {
   const instances = []; let passed = 0; const failures = [];
   async function test(name, run) { try { await run(); passed++; console.log(`PASS ${name}`); } catch (error) { failures.push(error); console.error(`FAIL ${name}\n${error.stack}`); } }
   try {
-    const imports = {};
+    const imports = { ...require("../src/i18n/index.ts") };
     for (const statement of ast.statements) {
       if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue;
       const source = statement.moduleSpecifier.text;
-      if (!source.startsWith("./") || source.endsWith(".vue") || source === "./imageAssets") continue;
+      if (!source.startsWith("./") || source.endsWith(".vue")) continue;
       const file = path.resolve(editor, `${source}.ts`); if (fs.existsSync(file)) Object.assign(imports, require(file));
     }
     function fixture() {
@@ -276,7 +277,7 @@ async function main() {
       const snapshot = api.captureUndoState();
       api.advanceTimelinePlayback(0); assert.equal(api.eventPreviewLog.value.length,1);
       api.advanceTimelinePlayback(2.5); assert.equal(api.eventPreviewLog.value.length,3);
-      assert.ok(api.eventPreviewLog.value[1].includes('E1')); assert.ok(api.eventPreviewLog.value[2].includes('E2'));
+      assert.ok(imports.t(api.eventPreviewLog.value[1]).includes('E1')); assert.ok(imports.t(api.eventPreviewLog.value[2]).includes('E2'));
       api.seekKeyframeTime(4); assert.equal(api.eventPreviewLog.value.length,3);
       api.advanceTimelinePlayback(1); assert.equal(api.eventPreviewLog.value.length,5); assert.equal(api.currentTime.value,0);
       api.advanceTimelinePlayback(0); assert.equal(api.eventPreviewLog.value.length,5);
@@ -487,7 +488,7 @@ async function main() {
       const api = fixture(); api.saveControlTemplate(templateAsset());
       const before = api.serializeProject(), invalid = JSON.parse(before);
       invalid.controlTemplates[0].devices[0][0].parentSourceNodeIndex = 1;
-      assert.throws(() => api.applyProjectData(JSON.stringify(invalid)), /循环/);
+      assert.throws(() => api.applyProjectData(JSON.stringify(invalid)), errorMatches(/循环/));
       assert.equal(api.serializeProject(), before);
       const legacy = JSON.parse(before); delete legacy.controlTemplates;
       api.applyProjectData(JSON.stringify(legacy)); assert.equal(api.controlTemplates.value.length, 0);
@@ -593,7 +594,7 @@ async function main() {
       await gesture(api, () => { api.selectedProperties.value = {...api.selectedProperties.value, imageColor:{r:1,g:2,b:3,a:0.5}}; });
       assert.equal(track.keyframes.length, 1); assert.equal(track.keyframes[0].time, 2.25);
       assert.deepEqual(plain(node(api, 'image').properties.imageColor), setup);
-      assert.match(api.timelineEditNotice.value, /2.25.*自动添加关键帧/);
+      assert.match(imports.t(api.timelineEditNotice.value), /2.25.*自动添加关键帧/);
       await api.editorHistory.undo(); assert.equal(api.keyframeTracks.value[0].keyframes.length, 0);
       await api.editorHistory.redo(); assert.equal(api.keyframeTracks.value[0].keyframes.length, 1);
     });
@@ -1291,13 +1292,13 @@ async function main() {
     });
     await test("Animation create, rename, and delete are undoable and the final animation cannot be removed", async () => {
       const api = fixture(); const original = api.captureUndoState();
-      await gesture(api, () => api.createAnimation()); assert.equal(history(api).length, 1); assert.match(history(api)[0].label, /新增动画/);
+      await gesture(api, () => api.createAnimation()); assert.equal(history(api).length, 1); assert.match(messageText(history(api)[0].label), /新增动画/);
       const created = api.captureUndoState(); await api.undoEditorOperation(); assert.equal(api.captureUndoState(), original);
       await api.redoEditorOperation(); assert.equal(api.captureUndoState(), created);
       const added = api.animations.value[1]; api.selectAnimation(added.id);
-      await gesture(api, () => api.renameAnimation("人物 · 入场")); assert.match(history(api).at(-1).label, /重命名动画/);
+      await gesture(api, () => api.renameAnimation("人物 · 入场")); assert.match(messageText(history(api).at(-1).label), /重命名动画/);
       const beforeRemove = api.captureUndoState(); await gesture(api, () => api.removeAnimation(added.id));
-      assert.equal(api.animations.value.length, 1); assert.match(history(api).at(-1).label, /删除动画/);
+      assert.equal(api.animations.value.length, 1); assert.match(messageText(history(api).at(-1).label), /删除动画/);
       await api.undoEditorOperation(); assert.equal(api.captureUndoState(), beforeRemove);
       await api.redoEditorOperation(); const only = api.captureUndoState(); api.removeAnimation(api.activeAnimationId.value); assert.equal(api.captureUndoState(), only);
     });

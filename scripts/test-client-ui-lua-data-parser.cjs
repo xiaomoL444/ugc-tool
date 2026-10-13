@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-lua-data-parser.cjs */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -9,7 +10,7 @@ const originalTsExtension = Module._extensions[".ts"];
 Module._extensions[".ts"] = (module, filename) => {
   const compiled = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
     fileName: filename,
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true },
   });
   module._compile(compiled.outputText, filename);
 };
@@ -21,7 +22,7 @@ try {
   const { createControlProperties } = require(path.join(editor, "controlRegistry.ts"));
   let passed = 0;
   function test(name, check) { check(); passed += 1; console.log(`PASS ${name}`); }
-  function rejects(source) { assert.throws(() => parseLuaData(source), /第 \d+ 行，第 \d+ 列/); }
+  function rejects(source) { assert.throws(() => parseLuaData(source), errorMatches(/第 \d+ 行，第 \d+ 列/)); }
 
   test("All three static module forms preserve the exported schema", () => {
     for (const source of [
@@ -100,7 +101,7 @@ try {
     for (const source of ['{1e999}', '{1e}', '{0x10}', '{"unterminated}', '{"a\nb"}',
       '{"\\q"}', '{"\\256"}', '{"\\x0"}', '{"\\u{D800}"}', '{"\\u{110000}"}',
       '{"\\255"}', '{[=[unclosed}', '--[=[unclosed', '{1', '']) rejects(source);
-    assert.throws(() => parseLuaData('return {\r\n  value = game\r\n}'), /第 2 行，第 11 列/);
+    assert.throws(() => parseLuaData('return {\r\n  value = game\r\n}'), errorMatches(/第 2 行，第 11 列/));
   });
 
   test("Depth, input size, entry count and total sparse-array slots are bounded", () => {

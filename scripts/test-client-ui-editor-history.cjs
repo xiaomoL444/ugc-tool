@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-editor-history.cjs */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -296,7 +297,7 @@ async function test(name, check) {
     let shouldFail = true;
     const f = fixture({ restore(snapshot) { if (snapshot === "0" && shouldFail) throw new Error("bad restore"); } });
     f.commit(1);
-    await assert.rejects(f.history.undo(), /bad restore/);
+    await assert.rejects(f.history.undo(), errorMatches(/bad restore/));
     assert.equal(f.state, "1");
     assert.equal(f.history.index.value, 0);
     assert.equal(f.history.busy.value, false);
@@ -317,7 +318,7 @@ async function test(name, check) {
     f.commit(1);
     await f.history.undo();
     shouldFail = true;
-    await assert.rejects(f.history.redo(), /bad redo/);
+    await assert.rejects(f.history.redo(), errorMatches(/bad redo/));
     assert.equal(f.state, "0");
     assert.equal(f.history.index.value, -1);
     assert.equal(f.history.canRedo.value, true);
@@ -329,7 +330,7 @@ async function test(name, check) {
   await test("If restoration and rollback both fail, unsafe history is discarded", async () => {
     const f = fixture({ restore() { throw new Error("restore unavailable"); } });
     f.commit(1);
-    await assert.rejects(f.history.undo(), /回滚也失败/);
+    await assert.rejects(f.history.undo(), errorMatches(/回滚也失败/));
     assert.deepEqual(f.history.entries.value, []);
     assert.equal(f.history.busy.value, false);
     assert.equal(f.history.canUndo.value, false);

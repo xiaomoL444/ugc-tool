@@ -4,9 +4,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
 const ts = require("typescript");
+const { messageText } = require('./i18n-test-helpers.cjs');
 const oldTs = Module._extensions[".ts"];
 Module._extensions[".ts"] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, "utf8"), {
-  fileName: filename, compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+  fileName: filename, compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true },
 }).outputText, filename);
 
 try {
@@ -20,7 +21,8 @@ try {
     mutator(after);
     const label = describeHistoryChange(before, JSON.stringify(after));
     assert.equal(JSON.stringify(source), before);
-    return label;
+    assert.equal(typeof label, 'string', 'History stores the translated label');
+    return messageText(label);
   }
   let passed = 0;
   function test(name, check) { check(); passed++; console.log(`PASS ${name}`); }

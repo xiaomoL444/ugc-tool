@@ -1,6 +1,8 @@
 import { parseAssetFeatureSidecar, FEATURE_LOCALES } from '../../tools/ai-search-service/asset-features.mjs';
 import type { FeatureSidecar } from '../../tools/ai-search-service/asset-features.mjs';
 import { OSS_BASE_URL, createOss } from './oss';
+import { i18n, isAppLocale, loadOssTranslationDictionary } from '../i18n';
+import type { AppLocale } from '../i18n';
 
 export type AssetFeatureProject = 'SoundEffectPlayer' | 'EffectPlayer' | 'BgmPlayer';
 export type AssetFeaturePart = 'audio' | 'standVisual' | 'tailVisual';
@@ -18,12 +20,14 @@ export interface AssetFeatureCollection {
   errorCode?: string;
   checkedAt: number;
   get(id: string | number, locale: string): AssetFeatureDescription[];
-  /** Observed descriptions and keywords in all five languages, without guessed sources. */
+  /** Observed descriptions and keywords in loaded languages, without guessed sources. */
   searchText: ReadonlyMap<string, string>;
   /** Use suggestions are kept separate from observed properties. */
   suggestionSearchText: ReadonlyMap<string, string>;
 }
 export interface AssetFeatureLoadOptions {
+  /** Defaults to the current language; dictionaries always use the shared i18n entry. */
+  locale?: string;
   baseUrl?: string;
   fetcher?: typeof fetch;
   cached?: boolean;
@@ -33,13 +37,27 @@ export interface AssetFeatureLoadOptions {
 }
 
 const CACHE_TTL = 60_000;
-const cache = new Map<string, CachedFeatures>();
-const pending = new Map<string, Promise<CachedFeatures>>();
+const metadataCache = new Map<string, CachedMetadata>();
+const metadataPending = new Map<string, Promise<CachedMetadata>>();
+const snapshots = new Map<string, CachedFeatures>();
+const NAMESPACES: Record<AssetFeatureProject, string> = {
+  SoundEffectPlayer: 'soundEffectPlayer', EffectPlayer: 'effectPlayer', BgmPlayer: 'bgmPlayer',
+};
+interface CachedMetadata {
+  raw?: unknown;
+  revision?: string;
+  status: AssetFeatureCollection['status'];
+  checkedAt: number;
+  bytes: number;
+  errorCode?: string;
+}
 interface CachedFeatures {
   status: AssetFeatureCollection['status'];
   sidecar?: FeatureSidecar;
   errorCode?: string;
   checkedAt: number;
+  locales?: string[];
+  metadataRevision?: string;
 }
 const PARTS: AssetFeaturePart[] = ['standVisual', 'tailVisual', 'audio'];
 const unique = (values: string[]) => Array.from(new Set(values.map(value => value.trim()).filter(Boolean)));
@@ -65,8 +83,8 @@ function availableParts(project: AssetFeatureProject, identity: AssetFeatureIden
 /** Bind sidecar records to the current asset list; a sidecar cannot add assets or media. */
 export function buildAssetFeatureCollection(project: AssetFeatureProject, raw: unknown,
   identities: readonly AssetFeatureIdentity[], state: { status?: 'ready' | 'stale'; errorCode?: string; checkedAt?: number;
-    dictionaries?: Record<string, unknown> } = {}): AssetFeatureCollection {
-  const sidecar = parseAssetFeatureSidecar(raw, { project, dictionaries: state.dictionaries, requireCompiled: false });
+    dictionaries?: Record<string, unknown>; locales?: string[] } = {}): AssetFeatureCollection {
+  const sidecar = parseAssetFeatureSidecar(raw, { project, dictionaries: state.dictionaries, requireCompiled: false, locales: state.locales });
   const known = new Map<string, AssetFeatureIdentity>();
   for (const identity of identities) {
     const id = String(identity.id);
@@ -76,6 +94,7 @@ export function buildAssetFeatureCollection(project: AssetFeatureProject, raw: u
     const identity = known.get(id), normalizedLocale = normalizeAssetFeatureLocale(locale);
     if (!identity || !normalizedLocale) return [];
     const dictionary = sidecar.i18n[normalizedLocale];
+    if (!dictionary) return [];
     const metadata = sidecar.resources[id]?.searchMetadata;
     if (!metadata) return [];
     return availableParts(project, identity).flatMap(part => {
@@ -153,18 +172,20 @@ async function readBody(response: Response, maxBytes: number, signal: AbortSigna
   }
 }
 
-async function fetchFeatures(project: AssetFeatureProject, url: string, options: AssetFeatureLoadOptions,
-  previous?: CachedFeatures): Promise<CachedFeatures> {
+const bounded = (value: number | undefined, fallback: number, limit: number) =>
+  value !== undefined && Number.isFinite(value) ? Math.min(limit, Math.max(1, value)) : fallback;
+
+/** Only metadata is fetched here. Translation files are owned by the i18n loader. */
+async function fetchMetadata(project: AssetFeatureProject, url: string, options: AssetFeatureLoadOptions,
+  previous?: CachedMetadata): Promise<CachedMetadata> {
   const controller = new AbortController();
-  const bounded = (value: number | undefined, fallback: number, limit: number) =>
-    value !== undefined && Number.isFinite(value) ? Math.min(limit, Math.max(1, value)) : fallback;
   const timeoutMs = bounded(options.timeoutMs, 10_000, 60_000);
   const maxBytes = bounded(options.maxBytes, project === 'SoundEffectPlayer' ? 40_000_000 : 70_000_000, 90_000_000);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const budget = { used: 0 };
-    const json = async (path: string): Promise<unknown> => {
-      const response = await (options.fetcher || fetch)(`${path}${path.includes('?') ? '&' : '?'}_t=${Date.now()}`, {
+    const work = async () => {
+      const response = await (options.fetcher || fetch)(`${url}${url.includes('?') ? '&' : '?'}_t=${Date.now()}`, {
         cache: 'no-store', credentials: 'omit', signal: controller.signal,
       });
       if (!response.ok) throw new FeatureLoadError('ASSET_FEATURES_UNAVAILABLE');
@@ -173,59 +194,124 @@ async function fetchFeatures(project: AssetFeatureProject, url: string, options:
         await response.body?.cancel().catch(() => undefined);
         throw new FeatureLoadError('ASSET_FEATURES_INVALID');
       }
-      return JSON.parse((await readBody(response, maxBytes, controller.signal, budget)).replace(/^\uFEFF/, '')) as unknown;
-    };
-    const work = async () => {
-      const raw = await json(url);
-      let dictionaries: Record<string, unknown> | undefined;
-      if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as Record<string, unknown>).i18nSource === 'project-i18n-v1') {
-        const oss = createOss(project, options.baseUrl);
-        const locales = await Promise.all(FEATURE_LOCALES.map(async locale =>
-          [locale, await json(oss.path('i18n', `${locale}.json`))] as const));
-        dictionaries = Object.fromEntries(locales);
-      }
-      const parsed = parseAssetFeatureSidecar(raw, { project, dictionaries, requireCompiled: false });
-      // The browser does not use the Worker postings index; release it after validation.
-      const sidecar: FeatureSidecar = { schemaVersion: parsed.schemaVersion, project: parsed.project, kind: parsed.kind,
-        baseIndexVersion: parsed.baseIndexVersion, resources: parsed.resources, i18n: parsed.i18n };
-      return sidecar;
+      const text = await readBody(response, maxBytes, controller.signal, budget);
+      // Keep only a small content stamp after parsing, without retaining another JSON body.
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      const revision = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+      return { raw: JSON.parse(text.replace(/^\uFEFF/, '')) as unknown, revision };
     };
     const timedOut = new Promise<never>((_, reject) => {
       timer = setTimeout(() => { controller.abort(); reject(new FeatureLoadError('ASSET_FEATURES_TIMEOUT')); }, timeoutMs);
     });
-    const sidecar = await Promise.race([work(), timedOut]);
-    return { status: 'ready', sidecar, checkedAt: Date.now() };
+    const { raw, revision } = await Promise.race([work(), timedOut]);
+    return { status: 'ready', raw, revision, bytes: budget.used, checkedAt: Date.now() };
   } catch (error) {
     controller.abort();
     const errorCode = error instanceof FeatureLoadError ? error.code : 'ASSET_FEATURES_INVALID';
-    return { status: previous?.sidecar ? 'stale' : 'unavailable', sidecar: previous?.sidecar, errorCode, checkedAt: Date.now() };
+    return { status: previous?.raw ? 'stale' : 'unavailable', raw: previous?.raw,
+      revision: previous?.revision, bytes: previous?.bytes ?? 0, errorCode, checkedAt: Date.now() };
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
 }
 
-/** A per-project, 60-second parsed cache shared by asset player pages. Failures never replace last-good data. */
+function translationErrorCode(error: Error): string {
+  if (error.name === 'AbortError' || /timeout|timed out|abort/i.test(error.message)) return 'ASSET_FEATURES_TIMEOUT';
+  if (/too large|size limit|byte limit|maximum.*bytes/i.test(error.message)) return 'ASSET_FEATURES_TOO_LARGE';
+  if (/request failed|fetch|network/i.test(error.message)) return 'ASSET_FEATURES_UNAVAILABLE';
+  return 'ASSET_FEATURES_INVALID';
+}
+
+/** Metadata has its own TTL; shared i18n owns language downloads, refreshes and caching. */
 export async function loadAssetFeatures(project: AssetFeatureProject, identities: readonly AssetFeatureIdentity[],
   options: AssetFeatureLoadOptions = {}): Promise<AssetFeatureCollection> {
-  const url = assetFeatureUrl(project, options.baseUrl), key = `${project}:${url}`;
+  const url = assetFeatureUrl(project, options.baseUrl);
+  const locale = normalizeAssetFeatureLocale(options.locale ?? i18n.global.locale.value);
+  const appLocale = locale.replace(/^([a-z]+)-([a-z]+)$/, (_, language: string, region: string) => `${language}-${region.toUpperCase()}`);
+  const key = `${project}:${url}:${locale}`;
   // Synthetic/custom fetchers are isolated unless their caller explicitly asks for caching.
   const useCache = options.cached ?? !options.fetcher;
-  let source = useCache ? cache.get(key) : undefined;
-  if (!source || options.force || Date.now() - source.checkedAt >= CACHE_TTL) {
-    if (useCache) {
-      let work = pending.get(key);
-      if (!work) {
-        work = fetchFeatures(project, url, options, source);
-        pending.set(key, work);
-        void work.finally(() => { if (pending.get(key) === work) pending.delete(key); });
-      }
-      source = await work;
-      cache.set(key, source);
-    } else source = await fetchFeatures(project, url, options);
+  const previous = useCache ? snapshots.get(key) : undefined;
+  let source: CachedFeatures;
+  try {
+    if (!isAppLocale(appLocale)) throw new FeatureLoadError('ASSET_FEATURES_INVALID');
+    let metadata = useCache ? metadataCache.get(url) : undefined;
+    if (!metadata?.raw || options.force || Date.now() - metadata.checkedAt >= CACHE_TTL) {
+      if (useCache) {
+        let work = metadataPending.get(url);
+        if (!work) {
+          work = fetchMetadata(project, url, options, metadata);
+          metadataPending.set(url, work);
+          void work.finally(() => { if (metadataPending.get(url) === work) metadataPending.delete(url); });
+        }
+        metadata = await work;
+        metadataCache.set(url, metadata);
+      } else metadata = await fetchMetadata(project, url, options);
+    }
+    if (!metadata.raw) throw new FeatureLoadError(metadata.errorCode ?? 'ASSET_FEATURES_UNAVAILABLE');
+    const raw = metadata.raw;
+    let dictionaries: Record<string, unknown> | undefined, locales: string[] | undefined;
+    let status = metadata.status, errorCode = metadata.errorCode;
+    let readDictionary: ((refresh: boolean) => Promise<void>) | undefined;
+    const refreshDictionary = options.force === true || Boolean(previous?.metadataRevision
+      && previous.metadataRevision !== metadata.revision);
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as Record<string, unknown>).i18nSource === 'project-i18n-v1') {
+      const maxBytes = bounded(options.maxBytes, project === 'SoundEffectPlayer' ? 40_000_000 : 70_000_000, 90_000_000);
+      if (metadata.bytes >= maxBytes) throw new FeatureLoadError('ASSET_FEATURES_TOO_LARGE');
+      locales = [locale];
+      readDictionary = async refresh => {
+        const { result, dictionary } = await loadOssTranslationDictionary(project, NAMESPACES[project], 'i18n', {
+          locale: appLocale as AppLocale, refresh, baseUrl: options.baseUrl,
+          fetcher: options.fetcher, timeoutMs: options.timeoutMs, maxBytes: maxBytes - metadata.bytes,
+        });
+        if (result.status === 'missing') {
+          // A missing dictionary removes its public i18n snapshot; descriptions follow it.
+          if (useCache) snapshots.delete(key);
+          throw new FeatureLoadError('ASSET_FEATURES_DICTIONARY_MISSING');
+        }
+        status = metadata.status;
+        errorCode = metadata.errorCode;
+        if (result.status === 'failed') {
+          errorCode = translationErrorCode(result.error);
+          if (!dictionary) throw new FeatureLoadError(errorCode);
+          status = 'stale';
+        }
+        if (!dictionary) throw new FeatureLoadError('ASSET_FEATURES_INVALID');
+        dictionaries = { [locale]: dictionary };
+      };
+      await readDictionary(refreshDictionary);
+    }
+    const parse = () => parseAssetFeatureSidecar(raw, { project, dictionaries, requireCompiled: false, locales });
+    let parsed: FeatureSidecar;
+    try {
+      parsed = parse();
+    } catch (error) {
+      // A dictionary loaded by a name-only consumer may predate this metadata even on
+      // the first description load. Retry its shared source once for reference changes.
+      if (!readDictionary || refreshDictionary || !(error instanceof Error)
+        || !/Dangling feature translation reference|Unowned or oversized feature translation/.test(error.message)) throw error;
+      await readDictionary(true);
+      parsed = parse();
+    }
+    // The browser does not use the Worker postings index; release it after validation.
+    const sidecar: FeatureSidecar = { schemaVersion: parsed.schemaVersion, project: parsed.project, kind: parsed.kind,
+      baseIndexVersion: parsed.baseIndexVersion, resources: parsed.resources, i18n: parsed.i18n };
+    source = { status, sidecar, locales, errorCode, metadataRevision: metadata.revision, checkedAt: Date.now() };
+    if (useCache) snapshots.set(key, source);
+  } catch (error) {
+    const missingDictionary = error instanceof FeatureLoadError && error.code === 'ASSET_FEATURES_DICTIONARY_MISSING';
+    const errorCode = missingDictionary ? 'ASSET_FEATURES_UNAVAILABLE'
+      : error instanceof FeatureLoadError ? error.code : 'ASSET_FEATURES_INVALID';
+    // Invalid metadata must remain retryable, just like a failed translation download.
+    if (errorCode === 'ASSET_FEATURES_INVALID') metadataCache.delete(url);
+    const lastGood = missingDictionary ? undefined : previous;
+    source = { status: lastGood?.sidecar ? 'stale' : 'unavailable', sidecar: lastGood?.sidecar,
+      metadataRevision: lastGood?.metadataRevision, locales: lastGood?.locales, errorCode, checkedAt: Date.now() };
   }
   if (!source.sidecar) return { status: 'unavailable', errorCode: source.errorCode, checkedAt: source.checkedAt,
     get: () => [], searchText: new Map(), suggestionSearchText: new Map() };
   return buildAssetFeatureCollection(project, source.sidecar, identities, {
     status: source.status === 'unavailable' ? 'stale' : source.status, errorCode: source.errorCode, checkedAt: source.checkedAt,
+    locales: source.locales,
   });
 }

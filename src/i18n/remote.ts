@@ -20,6 +20,8 @@ export interface RemoteTranslationSource {
   namespace: string;
   locale: string;
   url: string;
+  /** Adapt historic numeric category keys at the shared boundary. */
+  keyPrefix?: string;
 }
 
 export type RemoteTranslationResult =
@@ -30,6 +32,14 @@ export type RemoteTranslationResult =
 export interface RemoteTranslationOptions {
   fetch?: typeof fetch;
   timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface RemoteTranslationLoadOptions {
+  /** Successful snapshots are reused unless refresh is explicitly requested. */
+  refresh?: boolean;
+  timeoutMs?: number;
+  maxBytes?: number;
 }
 
 const unsafeKeys = new Set(["__proto__", "prototype", "constructor"]);
@@ -66,19 +76,24 @@ function mergeTree(base: MessageTree, override: MessageTree): MessageTree {
 }
 
 /** Validate the entire single-language file before updating its locale. */
-export function parseTranslationTable(input: unknown, namespace: string, locale: string) {
+export function parseTranslationTable(input: unknown, namespace: string, locale: string, keyPrefix?: string) {
   assertSegment(namespace);
   assertLocale(locale);
+  if (keyPrefix !== undefined) keyPrefix.split(".").forEach(assertSegment);
   // Resource exports may contain a flat dictionary of fully qualified keys.
   // Normalize it before using the same validation and literal-text handling.
   const prefix = `${namespace}.`;
-  if (isRecord(input) && Object.keys(input).every((key) => key.startsWith(prefix))) {
+  if (isRecord(input) && Object.keys(input).every((key) => key.startsWith(prefix) || keyPrefix !== undefined && /^\d+$/.test(key))) {
+    const paths = Object.keys(input).map(key => key.startsWith(prefix) ? key.slice(prefix.length) : `${keyPrefix}.${key}`);
+    if (new Set(paths).size !== paths.length) throw new Error("Conflicting normalized translation keys");
     input = {
       version: 1,
       namespace,
       locale,
       format: "text",
-      translations: Object.fromEntries(Object.entries(input).map(([key, value]) => [key.slice(prefix.length), value])),
+      translations: Object.fromEntries(Object.entries(input).map(([key, value]) => [
+        key.startsWith(prefix) ? key.slice(prefix.length) : `${keyPrefix}.${key}`, value,
+      ])),
     };
   }
   if (!isRecord(input) || input.version !== 1 || input.namespace !== namespace || !isRecord(input.translations)) {
@@ -91,7 +106,12 @@ export function parseTranslationTable(input: unknown, namespace: string, locale:
     throw new Error(`Expected translation locale ${locale}`);
   }
   const messages: MessageTree = {};
-  const paths = Object.keys(input.translations);
+  const dictionary: Record<string, string> = {};
+  const translations = Object.fromEntries(Object.entries(input.translations).map(([key, value]) => [
+    keyPrefix !== undefined && /^\d+$/.test(key) ? `${keyPrefix}.${key}` : key, value,
+  ]));
+  const paths = Object.keys(translations);
+  if (paths.length !== Object.keys(input.translations).length) throw new Error("Conflicting normalized translation keys");
   const pathSet = new Set(paths);
   let entries = 0;
   for (const path of paths) {
@@ -100,7 +120,7 @@ export function parseTranslationTable(input: unknown, namespace: string, locale:
     for (let index = 1; index < segments.length; index++) {
       if (pathSet.has(segments.slice(0, index).join("."))) throw new Error(`Conflicting translation paths: ${path}`);
     }
-    const text = input.translations[path];
+    const text = translations[path];
     if (text !== null && typeof text !== "string") throw new Error(`Expected text or null for ${path}/${locale}`);
     // Empty spreadsheet cells mean missing translations, never a blank label.
     if (text === null || !text.trim()) continue;
@@ -109,38 +129,62 @@ export function parseTranslationTable(input: unknown, namespace: string, locale:
       node = (Object.hasOwn(node, segment) ? node[segment] : (node[segment] = {})) as MessageTree;
     }
     node[segments[segments.length - 1]] = input.format === "message" ? text : escapeMessageText(text);
+    dictionary[`${namespace}.${path}`] = text;
     entries++;
   }
-  return { messages, entries };
+  return { messages, entries, dictionary: Object.freeze(dictionary) };
 }
 
 /** One OSS file owns one namespace/locale pair. Concurrent calls share a request. */
 export class RemoteI18nLoader {
   private readonly sources = new Map<string, string>();
   private readonly pending = new Map<string, Promise<RemoteTranslationResult>>();
+  private readonly completed = new Map<string, RemoteTranslationResult>();
+  private readonly dictionaries = new Map<string, Readonly<Record<string, string>>>();
+  private readonly dictionaryBytes = new Map<string, number>();
+  private readonly failed = new Set<string>();
   private readonly bases = new Map<string, MessageTree>();
   private readonly request: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly maxBytes: number;
 
   constructor(private readonly store: TranslationMessageStore, options: RemoteTranslationOptions = {}) {
     this.request = options.fetch ?? ((...args) => fetch(...args));
     this.timeoutMs = options.timeoutMs ?? 8000;
+    this.maxBytes = options.maxBytes ?? 90_000_000;
   }
 
-  load(source: RemoteTranslationSource): Promise<RemoteTranslationResult> {
+  /** Unescaped, full-key text shared by display, descriptions and search. */
+  getDictionary(namespace: string, locale: string) {
+    return this.dictionaries.get(`${namespace}:${locale}`);
+  }
+
+  getDictionaryBytes(namespace: string, locale: string) {
+    return this.dictionaryBytes.get(`${namespace}:${locale}`) ?? 0;
+  }
+
+  load(source: RemoteTranslationSource, options: RemoteTranslationLoadOptions = {}): Promise<RemoteTranslationResult> {
     const key = `${source.namespace}:${source.locale}`;
     try {
       assertSegment(source.namespace);
       assertLocale(source.locale);
+      if (source.keyPrefix !== undefined) source.keyPrefix.split(".").forEach(assertSegment);
+      const identity = JSON.stringify([source.url, source.keyPrefix]);
       const registered = this.sources.get(key);
-      if (registered && registered !== source.url) throw new Error(`Namespace/locale ${key} already has another translation source`);
-      this.sources.set(key, source.url);
+      if (registered && registered !== identity) throw new Error(`Namespace/locale ${key} already has another translation source`);
+      this.sources.set(key, identity);
     } catch (error) {
       return Promise.resolve({ status: "failed", namespace: source.namespace, locale: source.locale, error: error as Error });
     }
     const current = this.pending.get(key);
     if (current) return current;
-    const promise = this.fetchAndApply(source).finally(() => this.pending.delete(key));
+    const cached = this.completed.get(key);
+    if (options.refresh !== true && cached && !this.failed.has(key)) return Promise.resolve(cached);
+    const promise = this.fetchAndApply(source, options).then((result) => {
+      if (result.status === "loaded") { this.completed.set(key, result); this.failed.delete(key); }
+      else { this.failed.add(key); if (result.status === "missing") this.completed.delete(key); }
+      return result;
+    }).finally(() => this.pending.delete(key));
     this.pending.set(key, promise);
     return promise;
   }
@@ -159,26 +203,80 @@ export class RemoteI18nLoader {
     });
   }
 
-  private async fetchAndApply(source: RemoteTranslationSource): Promise<RemoteTranslationResult> {
+  private async fetchAndApply(source: RemoteTranslationSource, options: RemoteTranslationLoadOptions): Promise<RemoteTranslationResult> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const bounded = (value: number | undefined, fallback: number, limit: number) =>
+      value !== undefined && Number.isFinite(value) ? Math.min(limit, Math.max(1, value)) : fallback;
+    const timeout = setTimeout(() => controller.abort(), bounded(options.timeoutMs, this.timeoutMs, 60_000));
+    const maxBytes = bounded(options.maxBytes, this.maxBytes, 90_000_000);
     try {
       const separator = source.url.includes("?") ? "&" : "?";
       const response = await this.request(`${source.url}${separator}_t=${Date.now()}`, {
-        cache: "no-store", signal: controller.signal,
+        cache: "no-store", credentials: "omit", signal: controller.signal,
       });
       if (response.status === 404) {
         this.apply(source, {});
+        this.dictionaries.delete(`${source.namespace}:${source.locale}`);
+        this.dictionaryBytes.delete(`${source.namespace}:${source.locale}`);
         return { status: "missing", namespace: source.namespace, locale: source.locale };
       }
       if (!response.ok) throw new Error(`Translation request failed (${response.status}): ${source.url}`);
-      const table = parseTranslationTable(await response.json(), source.namespace, source.locale);
+      const contentType = response.headers?.get("Content-Type") || "";
+      if (contentType && !/application\/(?:[\w.+-]+\+)?json(?:;|$)/i.test(contentType)) throw new Error("Expected a JSON translation response");
+      const body = await this.readJson(response, controller.signal, maxBytes);
+      const table = parseTranslationTable(body.input, source.namespace, source.locale, source.keyPrefix);
       this.apply(source, table.messages);
+      this.dictionaries.set(`${source.namespace}:${source.locale}`, table.dictionary);
+      this.dictionaryBytes.set(`${source.namespace}:${source.locale}`, body.bytes);
       return { status: "loaded", namespace: source.namespace, locale: source.locale, entries: table.entries };
     } catch (error) {
+      controller.abort();
       return { status: "failed", namespace: source.namespace, locale: source.locale, error: error instanceof Error ? error : new Error(String(error)) };
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  private async readJson(response: Response, signal: AbortSignal, maxBytes: number): Promise<{ input: unknown; bytes: number }> {
+    const length = Number(response.headers?.get("Content-Length"));
+    if (Number.isFinite(length) && length > maxBytes) {
+      await response.body?.cancel();
+      throw new Error("Translation file exceeds the size limit");
+    }
+    // Lightweight response doubles still exercise the same table validation.
+    if (!response.body) {
+      if (typeof response.text !== "function") {
+        const input: unknown = await response.json();
+        const bytes = new TextEncoder().encode(JSON.stringify(input)).byteLength;
+        if (bytes > maxBytes) throw new Error("Translation file exceeds the size limit");
+        return { input, bytes };
+      }
+      const text = await response.text();
+      const bytes = new TextEncoder().encode(text).byteLength;
+      if (bytes > maxBytes) throw new Error("Translation file exceeds the size limit");
+      return { input: JSON.parse(text.replace(/^\uFEFF/, "")), bytes };
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    const chunks: string[] = [];
+    let total = 0;
+    const abort = () => { void reader.cancel().catch(() => undefined); };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      while (true) {
+        if (signal.aborted) throw new Error("Translation request timed out");
+        const item = await reader.read();
+        if (signal.aborted) throw new Error("Translation request timed out");
+        if (item.done) break;
+        total += item.value.byteLength;
+        if (total > maxBytes) { await reader.cancel(); throw new Error("Translation file exceeds the size limit"); }
+        chunks.push(decoder.decode(item.value, { stream: true }));
+      }
+      chunks.push(decoder.decode());
+      return { input: JSON.parse(chunks.join("").replace(/^\uFEFF/, "")), bytes: total };
+    } finally {
+      signal.removeEventListener("abort", abort);
+      reader.releaseLock();
     }
   }
 }

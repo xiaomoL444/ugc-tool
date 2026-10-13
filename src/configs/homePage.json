@@ -79,7 +79,9 @@
           "id": "animation",
           "href": "/ClientUIAnimationEditor",
           "title": "客户端UI动画编辑器",
+          "titleKey": "app.clientUIAnimationEditorTitle",
           "description": "制作客户端界面动画",
+          "descriptionKey": "app.clientUIAnimationEditorCardDescription",
           "icon": "▷"
         },
         {

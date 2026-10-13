@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import {
   applyTweenEase, getGroupAlphaColorFields, getTweenableField, getTweenGroupNodes,
   GROUP_ALPHA_FIELD_KEY, GROUP_ALPHA_MAX, VISIBILITY_FIELD_KEY, isRelativeTweenField, isTweenEaseType,
@@ -96,11 +97,11 @@ export function evaluateKeyframeTrack(track: UIKeyframeTrack, time: number, base
 
 /** Insert/update one time position while preserving an existing key's stable ID and left limit. */
 export function upsertKeyframe(track: UIKeyframeTrack, keyframe: UIKeyframe): UIKeyframeTrack {
-  if (!Number.isFinite(keyframe.time) || keyframe.time < 0) throw new Error("关键帧时间必须是大于等于 0 的有限数字。");
+  if (!Number.isFinite(keyframe.time) || keyframe.time < 0) throw new Error(t("clientUIAnimationEditor.ui.keyframes.invalidTime"));
   const atTime = track.keyframes.filter((key) => Math.abs(key.time - keyframe.time) <= KEYFRAME_TIME_EPSILON);
-  if (atTime.length > 1) throw new Error("轨道在该时间存在重复关键帧，无法确定更新目标。");
+  if (atTime.length > 1) throw new Error(t("clientUIAnimationEditor.ui.keyframes.ambiguousDuplicateTime"));
   const byId = track.keyframes.find((key) => key.id === keyframe.id);
-  if (byId && atTime[0] && byId !== atTime[0]) throw new Error("目标时间已有另一个关键帧。");
+  if (byId && atTime[0] && byId !== atTime[0]) throw new Error(t("clientUIAnimationEditor.ui.keyframes.targetTimeOccupied"));
   const existing = atTime[0] ?? byId;
   const replacement = cloneKeyframe({ ...existing, ...keyframe,
     id: existing?.id ?? keyframe.id, time: atTime[0]?.time ?? keyframe.time });
@@ -111,8 +112,8 @@ export function upsertKeyframe(track: UIKeyframeTrack, keyframe: UIKeyframe): UI
 
 /** Strict loading for the keyframe format: invalid data never silently drops a lane or key. */
 export function normalizeKeyframeTracks(raw: unknown, nodes: readonly UINode[]): UIKeyframeTrack[] {
-  if (!Array.isArray(raw)) throw new Error("关键帧轨道必须是数组。");
-  if (raw.length > 10000) throw new Error("关键帧轨道数量超过 10000。");
+  if (!Array.isArray(raw)) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.tracksMustBeArray"));
+  if (raw.length > 10000) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.trackLimit"));
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const trackIds = new Set<string>();
   const keyIds = new Set<string>();
@@ -120,60 +121,60 @@ export function normalizeKeyframeTracks(raw: unknown, nodes: readonly UINode[]):
   const colorOwners = new Map<string, string>();
   let keyCount = 0;
   const requiredId = (value: unknown, label: string) => {
-    if (typeof value !== "string" || !value.trim()) throw new Error(`${label}必须是非空字符串。`);
+    if (typeof value !== "string" || !value.trim()) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.requiredString", { label: label }));
     return value;
   };
   return raw.map((entry, trackIndex) => {
-    const label = `第 ${trackIndex + 1} 条关键帧轨道`;
-    if (!isRecord(entry)) throw new Error(`${label}格式无效。`);
-    const id = requiredId(entry.id, `${label} ID`);
-    if (trackIds.has(id)) throw new Error(`${label} ID「${id}」重复。`);
+    const label = t("clientUIAnimationEditor.ui.keyframes.trackLabel", { trackIndex: trackIndex + 1 });
+    if (!isRecord(entry)) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.invalidTrackFormat", { label: label }));
+    const id = requiredId(entry.id, t("clientUIAnimationEditor.ui.keyframeValidation.trackIdLabel", { label }));
+    if (trackIds.has(id)) throw new Error(t("clientUIAnimationEditor.ui.keyframes.duplicateId", { label: label, id: id }));
     trackIds.add(id);
-    const nodeId = requiredId(entry.nodeId, `${label}控件 ID`);
-    const fieldKey = requiredId(entry.fieldKey, `${label}字段`);
+    const nodeId = requiredId(entry.nodeId, t("clientUIAnimationEditor.ui.keyframeValidation.trackControlIdLabel", { label: label }));
+    const fieldKey = requiredId(entry.fieldKey, t("clientUIAnimationEditor.ui.keyframeValidation.trackFieldLabel", { label: label }));
     const node = byId.get(nodeId);
-    if (!node) throw new Error(`${label}找不到控件「${nodeId}」。`);
+    if (!node) throw new Error(t("clientUIAnimationEditor.ui.keyframes.controlNotFound", { label: label, nodeId: nodeId }));
     const field = getTweenableField(node.type, fieldKey);
-    if (!field) throw new Error(`控件「${node.name}」不支持 Tween 字段 ${fieldKey}。`);
+    if (!field) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.unsupportedTweenField", { name: node.name, fieldKey: fieldKey }));
     const laneId = `${nodeId}\0${fieldKey}`;
-    if (lanes.has(laneId)) throw new Error(`控件「${node.name}」的 ${fieldKey} 关键帧轨道重复。`);
+    if (lanes.has(laneId)) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.duplicateControlFieldTrack", { name: node.name, fieldKey: fieldKey }));
     lanes.add(laneId);
-    if (!Array.isArray(entry.keyframes)) throw new Error(`${label}的 keyframes 必须是数组。`);
+    if (!Array.isArray(entry.keyframes)) throw new Error(t("clientUIAnimationEditor.ui.keyframes.keyframesMustBeArray", { label: label }));
     keyCount += entry.keyframes.length;
-    if (keyCount > 100000) throw new Error("关键帧总数超过 100000。");
+    if (keyCount > 100000) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.keyframeLimit"));
     const validateValue = (value: unknown, valueLabel: string): UITweenValue => {
       if (value === null) return null;
       if (field.valueKind === "boolean" ? typeof value !== "boolean" : field.valueKind === "number" ? typeof value !== "number" || !Number.isFinite(value) : !isColor(value)) {
-        throw new Error(`${valueLabel}必须是有效${field.valueKind === "boolean" ? "布尔值" : field.valueKind === "number" ? "数字" : "ColorRGBA 颜色"}。`);
+        throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.invalidTypedValue", { valueLabel: valueLabel, value: field.valueKind === "boolean" ? t("clientUIAnimationEditor.ui.keyframeValidation.booleanValueType") : field.valueKind === "number" ? t("clientUIAnimationEditor.ui.keyframes.numericValueLabel") : t("clientUIAnimationEditor.ui.keyframeValidation.rgbaValueType") }));
       }
-      if (fieldKey === GROUP_ALPHA_FIELD_KEY && (Number(value) < 0 || Number(value) > GROUP_ALPHA_MAX)) throw new Error(`${valueLabel}透明度必须位于 0–255。`);
+      if (fieldKey === GROUP_ALPHA_FIELD_KEY && (Number(value) < 0 || Number(value) > GROUP_ALPHA_MAX)) throw new Error(t("clientUIAnimationEditor.ui.keyframes.opacityOutOfRange", { valueLabel: valueLabel }));
       return cloneValue(value as UITweenValue);
     };
     const keyframes = sortKeyframes(entry.keyframes.map((item, keyIndex): UIKeyframe => {
-      const keyLabel = `「${node.name} / ${fieldKey}」第 ${keyIndex + 1} 个关键帧`;
-      if (!isRecord(item)) throw new Error(`${keyLabel}格式无效。`);
-      const keyId = requiredId(item.id, `${keyLabel} ID`);
-      if (keyIds.has(keyId)) throw new Error(`${keyLabel} ID「${keyId}」重复。`);
+      const keyLabel = t("clientUIAnimationEditor.ui.keyframeValidation.keyframeTarget", { name: node.name, fieldKey: fieldKey, keyIndex: keyIndex + 1 });
+      if (!isRecord(item)) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.invalidKeyframeFormat", { keyLabel: keyLabel }));
+      const keyId = requiredId(item.id, t("clientUIAnimationEditor.ui.keyframeValidation.keyframeIdLabel", { keyLabel }));
+      if (keyIds.has(keyId)) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.duplicateKeyframeId", { keyLabel: keyLabel, keyId: keyId }));
       keyIds.add(keyId);
-      if (typeof item.time !== "number" || !Number.isFinite(item.time) || item.time < 0) throw new Error(`${keyLabel}时间必须是大于等于 0 的有限数字。`);
-      if (!isTweenEaseType(item.easeType)) throw new Error(`${keyLabel}缓动类型无效。`);
-      if (item.interpolation !== "tween" && item.interpolation !== "step") throw new Error(`${keyLabel}插值必须是 tween 或 step。`);
-      if (field.valueKind === "boolean" && (item.interpolation !== "step" || item.incomingValue !== undefined)) throw new Error(`${keyLabel}显隐仅支持阶跃切换，不支持补间或左极限值。`);
+      if (typeof item.time !== "number" || !Number.isFinite(item.time) || item.time < 0) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.invalidKeyframeTime", { keyLabel: keyLabel }));
+      if (!isTweenEaseType(item.easeType)) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.invalidEasing", { keyLabel: keyLabel }));
+      if (item.interpolation !== "tween" && item.interpolation !== "step") throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.invalidInterpolation", { keyLabel: keyLabel }));
+      if (field.valueKind === "boolean" && (item.interpolation !== "step" || item.incomingValue !== undefined)) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.visibilityRequiresStep", { keyLabel: keyLabel }));
       for (const flag of ["relative", "incomingRelative"]) {
-        if (item[flag] !== undefined && typeof item[flag] !== "boolean") throw new Error(`${keyLabel}的 ${flag} 必须是布尔值。`);
-        if (item[flag] === true && !isRelativeTweenField(fieldKey)) throw new Error(`${keyLabel}字段不支持增量。`);
+        if (item[flag] !== undefined && typeof item[flag] !== "boolean") throw new Error(t("clientUIAnimationEditor.ui.keyframes.flagMustBeBoolean", { keyLabel: keyLabel, flag: flag }));
+        if (item[flag] === true && !isRelativeTweenField(fieldKey)) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.fieldDeltaUnsupported", { keyLabel: keyLabel }));
       }
-      const value = validateValue(item.value, `${keyLabel}值`);
+      const value = validateValue(item.value, t("clientUIAnimationEditor.ui.keyframes.valueLabel", { keyLabel: keyLabel }));
       const hasIncoming = item.incomingValue !== undefined;
-      if (item.incomingRelative === true && !hasIncoming) throw new Error(`${keyLabel}缺少 incomingValue。`);
+      if (item.incomingRelative === true && !hasIncoming) throw new Error(t("clientUIAnimationEditor.ui.keyframes.missingIncomingValue", { keyLabel: keyLabel }));
       return { id: keyId, time: item.time, value, easeType: item.easeType, interpolation: item.interpolation,
         ...(item.relative === true ? { relative: true } : {}),
-        ...(hasIncoming ? { incomingValue: validateValue(item.incomingValue, `${keyLabel}左极限值`),
+        ...(hasIncoming ? { incomingValue: validateValue(item.incomingValue, t("clientUIAnimationEditor.ui.keyframeValidation.incomingValueLabel", { keyLabel: keyLabel })),
           ...(item.incomingRelative === true ? { incomingRelative: true } : {}) } : {}) };
     }));
     for (let index = 1; index < keyframes.length; index += 1) {
       if (keyframes[index].time - keyframes[index - 1].time <= KEYFRAME_TIME_EPSILON) {
-        throw new Error(`「${node.name} / ${fieldKey}」在 ${keyframes[index].time} 秒存在重复关键帧。`);
+        throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.duplicateTime", { name: node.name, fieldKey: fieldKey, time: keyframes[index].time }));
       }
     }
     if (field.source === "group" || field.valueKind === "color") {
@@ -182,7 +183,7 @@ export function normalizeKeyframeTracks(raw: unknown, nodes: readonly UINode[]):
         for (const color of field.source === "group" ? getGroupAlphaColorFields(target.type) : [fieldKey]) {
           const targetId = `${target.id}\0${color}`;
           const owner = colorOwners.get(targetId);
-          if (owner) throw new Error(`「${node.name} / ${fieldKey}」与 ${owner} 同时控制同一颜色。`);
+          if (owner) throw new Error(t("clientUIAnimationEditor.ui.keyframes.colorControlConflict", { name: node.name, fieldKey: fieldKey, owner: owner }));
           colorOwners.set(targetId, `「${node.name} / ${fieldKey}」`);
         }
       }
@@ -215,19 +216,19 @@ export function migrateTweenClipsToKeyframes(tracks: readonly UITweenTrack[]): U
     const result: UIKeyframeTrack = { id: uniqueId(`keytrack_${first.id}`), nodeId: first.nodeId, fieldKey: first.fieldKey, keyframes: [] };
     for (const clip of clips) {
       if (!Number.isFinite(clip.startTime) || clip.startTime < 0 || !Number.isFinite(clip.duration)
-        || clip.duration <= KEYFRAME_TIME_EPSILON || !Number.isFinite(clip.startTime + clip.duration)) throw new Error(`Clip「${clip.id}」时间无效，无法迁移关键帧。`);
+        || clip.duration <= KEYFRAME_TIME_EPSILON || !Number.isFinite(clip.startTime + clip.duration)) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.legacyClipInvalidTime", { id: clip.id }));
       if (clip.initialValue !== null && !isFiniteValue(clip.initialValue)
         || clip.endValue !== null && !isFiniteValue(clip.endValue)
         || clip.initialValue !== null && clip.endValue !== null && typeof clip.initialValue !== typeof clip.endValue) {
-        throw new Error(`Clip「${clip.id}」首尾值类型无效，无法迁移关键帧。`);
+        throw new Error(t("clientUIAnimationEditor.ui.clipMigration.invalidEndpointTypes", { id: clip.id }));
       }
       const relative = clip.relative === true;
       if (relative && (!isRelativeTweenField(clip.fieldKey)
         || clip.initialValue !== null && typeof clip.initialValue !== "number"
-        || clip.endValue !== null && typeof clip.endValue !== "number")) throw new Error(`Clip「${clip.id}」字段不支持增量。`);
-      if (!isTweenEaseType(clip.easeType)) throw new Error(`Clip「${clip.id}」缓动类型无效。`);
+        || clip.endValue !== null && typeof clip.endValue !== "number")) throw new Error(t("clientUIAnimationEditor.ui.clipConversion.deltaUnsupportedForField", { id: clip.id }));
+      if (!isTweenEaseType(clip.easeType)) throw new Error(t("clientUIAnimationEditor.ui.clipConversion.invalidEasing", { id: clip.id }));
       const last = result.keyframes[result.keyframes.length - 1];
-      if (last && clip.startTime < last.time - KEYFRAME_TIME_EPSILON) throw new Error(`Clip「${clip.id}」与同轨道其他 Clip 重叠，无法迁移关键帧。`);
+      if (last && clip.startTime < last.time - KEYFRAME_TIME_EPSILON) throw new Error(t("clientUIAnimationEditor.ui.keyframeValidation.legacyClipOverlap", { id: clip.id }));
       const start: UIKeyframe = { id: uniqueId(`key_${clip.id}_start`), time: clip.startTime,
         value: cloneValue(clip.initialValue), ...(relative ? { relative: true } : {}), easeType: clip.easeType, interpolation: "tween" };
       if (last && Math.abs(last.time - clip.startTime) <= KEYFRAME_TIME_EPSILON) {
@@ -242,9 +243,9 @@ export function migrateTweenClipsToKeyframes(tracks: readonly UITweenTrack[]): U
             last.value = cloneValue(clip.initialValue);
             last.relative = true;
           } else {
-            if (typeof last.value !== "number") throw new Error(`Clip「${clip.id}」无法相对颜色计算增量。`);
+            if (typeof last.value !== "number") throw new Error(t("clientUIAnimationEditor.ui.clipConversion.colorDeltaUnsupported", { id: clip.id }));
             last.value += clip.initialValue as number;
-            if (!Number.isFinite(last.value)) throw new Error(`Clip「${clip.id}」增量计算溢出。`);
+            if (!Number.isFinite(last.value)) throw new Error(t("clientUIAnimationEditor.ui.clipMigration.relativeDeltaOverflow", { id: clip.id }));
           }
         } else {
           last.value = cloneValue(clip.initialValue);
@@ -260,7 +261,7 @@ export function migrateTweenClipsToKeyframes(tracks: readonly UITweenTrack[]): U
       }
       const endValue = relative && clip.initialValue !== null && clip.endValue !== null
         ? (clip.endValue as number) - (clip.initialValue as number) : cloneValue(clip.endValue);
-      if (typeof endValue === "number" && !Number.isFinite(endValue)) throw new Error(`Clip「${clip.id}」端点增量计算溢出。`);
+      if (typeof endValue === "number" && !Number.isFinite(endValue)) throw new Error(t("clientUIAnimationEditor.ui.clipMigration.endpointDeltaOverflow", { id: clip.id }));
       result.keyframes.push({ id: uniqueId(`key_${clip.id}_end`), time: clip.startTime + clip.duration,
         value: endValue, ...(relative ? { relative: true } : {}), easeType: "Linear", interpolation: "step" });
     }

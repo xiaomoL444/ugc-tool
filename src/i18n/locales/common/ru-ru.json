@@ -14,5 +14,15 @@
   "common.copyFailed": "Не удалось скопировать: {error}",
   "common.storageUnderDevelopment": "Настройки хранилища ещё в разработке.",
   "app.bgmPlayerTitle": "BGM-плеер",
-  "app.bgmPlayerDescription": "Слушайте онлайн BGM «Мириад миров», добавленную до версии 7.1."
+  "app.bgmPlayerDescription": "Слушайте онлайн BGM «Мириад миров», добавленную до версии 7.1.",
+  "app.clientUIAnimationEditorTitle": "Редактор анимации UI клиента",
+  "app.clientUIAnimationEditorDescription": "Редактор анимации UI клиента\nСтанет ли это отличным проектом?",
+  "app.clientUIAnimationEditorCardDescription": "Создавайте анимации клиентского интерфейса",
+  "assetFeatures.ui.description": "Описание ресурса",
+  "assetFeatures.ui.audio": "Звук",
+  "assetFeatures.ui.standVisual": "Основной эффект",
+  "assetFeatures.ui.tailVisual": "След эффекта",
+  "assetFeatures.ui.keywords": "Ключевые слова",
+  "assetFeatures.ui.suggestedUses": "Возможное применение",
+  "assetFeatures.ui.expand": "Показать полное описание ресурса"
 }

@@ -3,8 +3,8 @@
     ref="trigger"
     class="property-actions-trigger"
     type="button"
-    :aria-label="`${label}属性操作`"
-    :title="`${label}属性操作`"
+    :aria-label="t('clientUIAnimationEditor.ui.properties.actionMenuLabel', { label })"
+    :title="t('clientUIAnimationEditor.ui.properties.actionMenuLabel', { label })"
     aria-haspopup="menu"
     :aria-expanded="isOpen"
     @pointerdown.stop
@@ -18,7 +18,7 @@
       ref="menu"
       class="property-actions-menu"
       role="menu"
-      :aria-label="`${label}属性操作`"
+      :aria-label="t('clientUIAnimationEditor.ui.properties.actionMenuLabel', { label })"
       :style="menuStyle"
       @pointerdown.stop
       @click.stop
@@ -26,8 +26,8 @@
       @keydown.stop="handleMenuKeydown"
       @focusout="handleFocusOut"
     >
-      <button type="button" role="menuitem" tabindex="-1" @click="choose('reset')">重置</button>
-      <button type="button" role="menuitem" tabindex="-1" @click="choose('copy')">复制</button>
+      <button type="button" role="menuitem" tabindex="-1" @click="choose('reset')">{{ t('clientUIAnimationEditor.ui.actions.reset') }}</button>
+      <button type="button" role="menuitem" tabindex="-1" @click="choose('copy')">{{ t('clientUIAnimationEditor.ui.actions.copy') }}</button>
       <button
         type="button"
         role="menuitem"
@@ -36,12 +36,13 @@
         :aria-disabled="!canPaste"
         :title="pasteHint || undefined"
         @click="choose('paste')"
-      >粘贴</button>
+      >{{ t('clientUIAnimationEditor.ui.properties.paste') }}</button>
     </div>
   </Teleport>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { CSSProperties } from "vue";
 

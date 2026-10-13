@@ -58,11 +58,11 @@
         <SplitterPanel :size="30">
             <SectionLayout :title="t('bgmPlayer.ui.metadata')">
                 <div class="metadata-panel">
-                    <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.songName')" :info="resourceText(selectedItem.nameI18nKey)" />
+                    <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.songName')" :info="t(selectedItem.nameI18nKey)" />
                     <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.songId')" :info="String(selectedItem.id)" />
                     <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.duration')"
                         :info="t('bgmPlayer.ui.durationValue', { minute: selectedItem.minute, second: selectedItem.second })" />
-                    <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.album')" :info="resourceText(selectedItem.albumI18nKey)" />
+                    <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.album')" :info="t(selectedItem.albumI18nKey)" />
                     <BgmMetadata v-if="selectedItem" :title="t('bgmPlayer.ui.category')" :info="categoryName(selectedItem.category)" />
                     <div v-if="selectedItem?.song_id" class="ne-link-row">
                         <div class="ne-link-label">
@@ -382,8 +382,7 @@ import BgmInfoViewer from "./components/BgmInfoViewer.vue";
 import BgmMetadata from "./components/BgmMetadata.vue";
 import { createOss } from "@/utils/oss";
 import { useI18n } from "vue-i18n";
-import { createCachedText } from "@/i18n/cachedText";
-import { loadOssTranslations } from "@/i18n";
+import { useOssTranslations } from "@/i18n/useOssTranslations";
 import { normalizeBgmData } from "./utils/bgmData";
 import { useRoute } from "vue-router";
 import { toast } from "vue-sonner";
@@ -392,10 +391,9 @@ function neteaseSongUrl(songId: number) {
     return `https://music.163.com/song?id=${songId}`;
 }
 
-const composer = useI18n({ useScope: "global" });
 const route = useRoute();
-const { t } = composer;
-const resourceText = createCachedText(composer);
+const { t } = useI18n({ useScope: "global" });
+const loadTranslations = useOssTranslations("BgmPlayer", "bgmPlayer");
 
 const oss = createOss("BgmPlayer");
 
@@ -411,7 +409,7 @@ async function loadData() {
         const data = normalizeBgmData(await oss.json("data.json"));
         dataJson.value = data.data;
         categoryData.value = Object.fromEntries(data.category.map((item) => [String(item.id), item.nameI18nKey]));
-        void loadOssTranslations("BgmPlayer", "bgmPlayer");
+        void loadTranslations();
     } catch (error) {
         loadError.value = true;
         console.error("音乐数据加载失败", error);
@@ -469,7 +467,7 @@ watch([() => route.query.id, loading], async ([id, isLoading], _previous, onClea
 
 function categoryName(categoryId: number) {
     const key = categoryData.value[String(categoryId)];
-    return key ? resourceText(key) : categoryId === 0
+    return key ? t(key) : categoryId === 0
         ? t('bgmPlayer.ui.uncategorized')
         : t('bgmPlayer.ui.categoryFallback', { id: categoryId });
 }
@@ -481,7 +479,7 @@ const filteredSongs = computed(() => {
         if (!q) return true;
         if (String(item.id).includes(q)) return true;
         if (String(item.song_id).includes(q)) return true;
-        return [resourceText(item.nameI18nKey), resourceText(item.albumI18nKey), categoryName(item.category)]
+        return [t(item.nameI18nKey), t(item.albumI18nKey), categoryName(item.category)]
             .some((value) => (value ?? "").toLowerCase().includes(q));
     });
 });

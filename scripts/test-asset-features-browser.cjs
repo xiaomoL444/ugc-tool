@@ -5,7 +5,7 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 const { createFeatureSidecar } = require('./ai-search-feature-fixtures.cjs');
 const base = process.argv[2] || 'http://127.0.0.1:8090';
-const output = path.join(__dirname, '../exports/asset-features-preview');
+const output = path.resolve(process.argv[3] || path.join(__dirname, '../../ugc-ai-search-file/verification/browser/asset-features-i18n'));
 const soundRows = Array.from({ length: 100 }, (_, i) => ({ id: String(i + 1), nameI18nKey: `soundEffectPlayer.data.${i + 1}`, duration: '1', category: 1, order: i }));
 const effectRows = Object.fromEntries(Array.from({ length: 100 }, (_, i) => {
   const id = String(i + 1);
@@ -13,7 +13,7 @@ const effectRows = Object.fromEntries(Array.from({ length: 100 }, (_, i) => {
 }));
 const features = {
   SoundEffectPlayer: createFeatureSidecar('SoundEffectPlayer', {
-    1: { audio: { short: { 'zh-cn': '短促的木质敲击', 'en-us': 'A brief wooden knock' }, description: '空心敲击后迅速衰减', keywords: ['空心木响'], uses: ['机关触发'], possibleSources: ['猜测钟塔'], uncertainDetails: ['未知齿轮'] } },
+    1: { audio: { short: { 'zh-cn': '短促的木质敲击', 'en-us': 'A brief wooden knock' }, description: { 'zh-cn': '空心敲击后迅速衰减', 'en-us': 'A hollow knock fades quickly' }, keywords: ['空心木响'], uses: ['机关触发'], possibleSources: ['猜测钟塔'], uncertainDetails: ['未知齿轮'] } },
     2: { audio: { status: 'not_generated' } },
     999: { audio: { short: '不应显示的孤立资产' } },
   }),
@@ -47,6 +47,7 @@ async function install(context, state) {
         return route.fulfill({ json: { ...metadata, i18nSource: 'project-i18n-v1' } });
       }
       if (asset.includes('/i18n/')) {
+        state.i18nRequests?.push(asset);
         const project = asset.split('/')[0], namespace = project === 'EffectPlayer' ? 'effectPlayer' : 'soundEffectPlayer';
         const locale = asset.match(/\/i18n\/([^/]+)\.json$/u)?.[1];
         return route.fulfill({ json: { ...Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`${namespace}.data.${i + 1}`, `测试资产 ${i + 1}`])), ...(project === 'SoundEffectPlayer' ? { 'soundEffectPlayer.category.1': '测试类别' } : {}), ...features[project]?.i18n[locale] } });
@@ -61,12 +62,17 @@ async function install(context, state) {
 async function main() {
   const browser = await chromium.launch({ headless: true, channel: 'msedge' });
   const errors = [];
+  const consoleErrors = [];
+  const state = { featureRequests: [], i18nRequests: [] };
+  let currentPage;
   try {
     await fs.mkdir(output, { recursive: true });
-    const state = { featureRequests: [] }, context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
     await install(context, state);
     const page = await context.newPage();
+    currentPage = page;
     page.on('pageerror', e => { if (!e.message.includes('ResizeObserver')) errors.push(e.message); });
+    page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     await page.goto(`${base}/SoundEffectPlayer?id=1`);
     await page.locator('.sound-feature-details .asset-feature-panel').waitFor();
     assert.match(await page.locator('.sound-feature-details').innerText(), /空心敲击后迅速衰减/u);
@@ -74,8 +80,22 @@ async function main() {
     await soundSearch.fill('空心木响');
     await page.locator('.sound-card[data-sound-id="1"]').waitFor();
     assert.equal(await page.locator('.sound-card').count(), 1);
+    assert.deepEqual(state.i18nRequests, ['SoundEffectPlayer/i18n/zh-cn.json'], 'Names and descriptions share one selected-language download');
     await soundSearch.fill('wooden knock');
-    assert.equal(await page.locator('.sound-card').count(), 1, 'Other-language descriptions are searchable');
+    await page.locator('.empty-result').waitFor();
+    await soundSearch.fill('');
+    await page.locator('.language-trigger').click();
+    await page.getByRole('menuitemradio', { name: 'English', exact: true }).click();
+    await page.locator('.sound-feature-details').getByText('A hollow knock fades quickly', { exact: true }).waitFor();
+    await soundSearch.fill('wooden knock');
+    await page.locator('.sound-card[data-sound-id="1"]').waitFor();
+    assert.equal(await page.locator('.sound-card').count(), 1, 'Switching language loads its descriptions and updates search');
+    assert.deepEqual(state.i18nRequests, ['SoundEffectPlayer/i18n/zh-cn.json', 'SoundEffectPlayer/i18n/en-us.json']);
+    await page.locator('.language-trigger').click();
+    await page.getByRole('menuitemradio', { name: '简体中文', exact: true }).click();
+    await page.locator('.sound-feature-details').getByText('空心敲击后迅速衰减', { exact: true }).waitFor();
+    assert.equal(state.i18nRequests.length, 2, 'Returning to a loaded language reuses its dictionary');
+    assert.deepEqual(state.featureRequests, ['SoundEffectPlayer/features.json'], 'Changing languages reuses the shared feature metadata');
     await soundSearch.fill('猜测钟塔');
     await page.locator('.empty-result').waitFor();
     await soundSearch.fill('空心木响');
@@ -97,6 +117,8 @@ async function main() {
     const panel = await page.locator('.effect-feature-details').innerText();
     for (const text of ['光环缓慢扩大', '金色线条', '低沉金属', '魔法启动']) assert.ok(panel.includes(text));
     assert.equal(await page.locator('.effect-feature-details [data-feature-part]').count(), 3);
+    assert.deepEqual(state.i18nRequests.filter(asset => asset.startsWith('EffectPlayer/')),
+      ['EffectPlayer/i18n/zh-cn.json'], 'Effect names and descriptions share one selected-language download');
     await page.locator('.close-button').click();
     const effectSearch = page.locator('#effect-search');
     for (const term of ['水纹脉冲', '金线轨迹', '钟声共鸣']) {
@@ -116,6 +138,7 @@ async function main() {
     const touchContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     await install(touchContext, { featureRequests: [] });
     const touchPage = await touchContext.newPage();
+    currentPage = touchPage;
     await touchPage.goto(`${base}/EffectPlayer`);
     const touchSummary = touchPage.locator('[data-effect-id="1"] .asset-feature-summary');
     await touchSummary.waitFor();
@@ -130,12 +153,20 @@ async function main() {
     const missingContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     await install(missingContext, { featureRequests: [], missing: true });
     const missingPage = await missingContext.newPage();
+    currentPage = missingPage;
     await missingPage.goto(`${base}/EffectPlayer?id=1`);
     await missingPage.locator('.feature-status').waitFor();
     assert.match(await missingPage.locator('.feature-status').innerText(), /暂不可用/u);
     assert.ok(await missingPage.locator('.modal-title').innerText());
     await missingContext.close();
-    console.log('PASS asset descriptions: project features + i18n paths, ordinary five-language search, separated visual/tail/audio, truthful audio gate, playback-stable hover dismissal, touch, missing-file fallback');
+    console.log('PASS asset descriptions: current-language requests, live language switching and search, separated visual/tail/audio, truthful audio gate, playback-stable hover dismissal, touch, missing-file fallback');
+  } catch (error) {
+    console.error(JSON.stringify({ errors, consoleErrors, requests: state }, null, 2));
+    if (currentPage && !currentPage.isClosed()) {
+      await currentPage.screenshot({ path: path.join(output, 'failure.png') });
+      console.error((await currentPage.locator('body').innerText()).slice(0, 2000));
+    }
+    throw error;
   } finally { await browser.close(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

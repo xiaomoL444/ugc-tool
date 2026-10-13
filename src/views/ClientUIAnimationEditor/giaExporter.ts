@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { decode, encode, type ConverterDocument, type UgcValue } from "genshin-impact-ugc-file-converter-web";
 import { controlRegistry, createControlProperties } from "./controlRegistry";
 import { detectGiaAssetKind, giaAssetLabels, readGiaControls, type GiaAssetKind } from "./giaImporter";
@@ -18,7 +19,7 @@ const components = (node: Obj) => list(metadata(node)["505"]).map(obj);
 const component = (node: Obj, tag: number) => components(node).find(c => String(tag) in c);
 function body(node: Obj, tag: number): Obj {
   const c = component(node, tag);
-  if (!c) throw new Error(`控件缺少组件 ${tag}，无法安全写回`);
+  if (!c) throw new Error(t("clientUIAnimationEditor.ui.giaExport.missingComponent", { tag: tag }));
   const envelope = obj(c["503"]); c["503"] = envelope;
   const result = obj(envelope[String(tag + 1)]); envelope[String(tag + 1)] = result;
   return result;
@@ -47,7 +48,7 @@ function transformComponent(id: number): Obj {
 }
 function createNativeControl(node: UINode, id: number): Obj {
   const tag = TYPE_TAGS[node.type];
-  if (!tag) throw new Error(`「${node.name}」：${controlRegistry[node.type].label} 尚无已验证的 GIA 写入结构，请提供该类型的原生导出样例`);
+  if (!tag) throw new Error(t("clientUIAnimationEditor.ui.giaExport.unverifiedControlType", { name: node.name, label: t(controlRegistry[node.type].label) }));
   const cs: Obj[] = [
     { "12": { "501": `string:${node.name}` }, "501": 2, "502": 15 },
     { "14": { "17": "base64:", "501": 7 }, "501": 4, "502": 86,
@@ -114,7 +115,7 @@ function reindexNativeControl(raw: Obj, id: number, ids: Map<number, number>) {
 }
 function writeLayout(raw: Obj, node: UINode, baseline: UINode | undefined, deviceIndex: number) {
   const c = component(raw, 11);
-  if (!c) throw new Error(`「${node.name}」缺少原始布局，无法导出`);
+  if (!c) throw new Error(t("clientUIAnimationEditor.ui.giaExport.missingOriginalLayout", { name: node.name }));
   const transform = obj(obj(c["503"])["13"]), envelope = obj(transform["12"]);
   transform["12"] = envelope;
   if (!baseline || node.active !== baseline.active) envelope["504"] = node.active ? 1 : 0;
@@ -128,7 +129,7 @@ function writeLayout(raw: Obj, node: UINode, baseline: UINode | undefined, devic
     const layout = obj(entry["502"]); entry["502"] = layout;
     for (const key of changes as Array<keyof typeof layoutFields>) {
       const value = node[key];
-      if (!Number.isFinite(value)) throw new Error(`「${node.name}」的 ${key} 不是有效数字`);
+      if (!Number.isFinite(value)) throw new Error(t("clientUIAnimationEditor.ui.giaExport.invalidNumericProperty", { name: node.name, key: key }));
       const [vectorKey, axis] = layoutFields[key], vector = obj(layout[vectorKey]);
       layout[vectorKey] = vector; vector[axis] = value;
     }
@@ -137,7 +138,7 @@ function writeLayout(raw: Obj, node: UINode, baseline: UINode | undefined, devic
 }
 function packedColor(value: unknown): number {
   const c = value as ColorRGBA;
-  if (!c || ![c.r, c.g, c.b, c.a].every(Number.isFinite) || [c.r, c.g, c.b].some(v => v < 0 || v > 255) || c.a < 0 || c.a > 1) throw new Error("颜色必须是有效的 RGBA 值");
+  if (!c || ![c.r, c.g, c.b, c.a].every(Number.isFinite) || [c.r, c.g, c.b].some(v => v < 0 || v > 255) || c.a < 0 || c.a > 1) throw new Error(t("clientUIAnimationEditor.ui.giaExport.invalidRgba"));
   return (Math.round(c.a * 255) << 24) | (Math.round(c.r) << 16) | (Math.round(c.g) << 8) | Math.round(c.b);
 }
 type PropertyWriter = (raw: Obj, value: unknown) => void;
@@ -150,23 +151,23 @@ const featherWidth = (axis: string): PropertyWriter => (raw, value) => {
   if ((value === null || value === undefined) && !component(raw, 84)) return;
   const mask = body(raw, 84), vector = obj(mask["511"]);
   if (value === null || value === undefined) { delete vector[axis]; if ("511" in mask) mask["511"] = vector; return; }
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error("羽化宽度必须是非负有限数值");
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(t("clientUIAnimationEditor.ui.giaExport.invalidFeatherWidth"));
   vector[axis] = value; mask["511"] = vector;
 };
 const fillAmount: PropertyWriter = (raw, value) => {
   if ((value === null || value === undefined) && !component(raw, 84)) return;
   scalar(84, "508", item => {
-    if (typeof item !== "number" || !Number.isFinite(item) || item < 0 || item > 1) throw new Error("填充量必须在 0～1 之间");
+    if (typeof item !== "number" || !Number.isFinite(item) || item < 0 || item > 1) throw new Error(t("clientUIAnimationEditor.ui.giaExport.fillAmountOutOfRange"));
     const percent = item * 100;
-    if (Math.abs(percent - Math.round(percent)) > 1e-6) throw new Error("GIA 填充进度只支持整数百分比，请使用 0.01 的步长");
+    if (Math.abs(percent - Math.round(percent)) > 1e-6) throw new Error(t("clientUIAnimationEditor.ui.giaExport.integerFillPercentRequired"));
     return Math.round(percent);
   })(raw, value);
 };
 const enumeration = (values: string[]) => (value: unknown) => {
-  const index = values.indexOf(String(value)); if (index < 0) throw new Error(`未知枚举值 ${String(value)}`); return index;
+  const index = values.indexOf(String(value)); if (index < 0) throw new Error(t("clientUIAnimationEditor.ui.giaExport.unknownEnum", { value: String(value) })); return index;
 };
 const softRange = (value: unknown): number => {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) throw new Error("羽化范围必须在 0～100 之间");
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) throw new Error(t("clientUIAnimationEditor.ui.giaExport.featherRangeOutOfBounds"));
   return value;
 };
 const PROPERTY_WRITERS: Partial<Record<ControlType, Record<string, PropertyWriter>>> = {
@@ -189,11 +190,11 @@ const PROPERTY_WRITERS: Partial<Record<ControlType, Record<string, PropertyWrite
   gridScroller: { itemCount: scalar(79, "511"), itemPrefabIndex: scalar(79, "506"), raycastTarget: scalar(79, "507", flag), showScrollBar: scalar(79, "508", flag), interactable: scalar(79, "509", flag) },
   keyHint: { keyboardKeyCode: scalar(82, "501", value => {
     if (value === "None") return 0;
-    const match = /^CraftspersonKey(\d+)$/.exec(String(value)); if (!match || Number(match[1]) < 1 || Number(match[1]) > 43) throw new Error(`尚未验证此键鼠按键的 GIA 编码：${String(value)}`); return Number(match[1]);
+    const match = /^CraftspersonKey(\d+)$/.exec(String(value)); if (!match || Number(match[1]) < 1 || Number(match[1]) > 43) throw new Error(t("clientUIAnimationEditor.ui.giaExport.unverifiedKeyboardEncoding", { value: String(value) })); return Number(match[1]);
   }), controllerKeyCode: scalar(82, "502", value => {
     if (value === "None") return 0;
     const keys = [...Array.from({ length: 14 }, (_, i) => `CraftspersonKey${i + 1}`), "SprintKey", "JumpKey", "InteractKey", "NormalAttackKey", "CharacterSkill1Key", "CharacterSkill2Key", "CharacterSkill3Key", "CharacterSkill4Key", "MenuConfirmKey", "MenuBackKey"];
-    const index = keys.indexOf(String(value)); if (index < 0) throw new Error(`未知手柄按键 ${String(value)}`); return index + 1;
+    const index = keys.indexOf(String(value)); if (index < 0) throw new Error(t("clientUIAnimationEditor.ui.giaExport.unknownGamepadKey", { value: String(value) })); return index + 1;
   }) },
 };
 function writeProperties(raw: Obj, node: UINode, baseline?: UINode) {
@@ -203,11 +204,11 @@ function writeProperties(raw: Obj, node: UINode, baseline?: UINode) {
   for (const [key, value] of Object.entries(node.properties)) {
     if (baseline && equal(value, previous[key])) continue;
     const writer = writers[key];
-    if (writer) { try { writer(raw, value); } catch (error) { throw new Error(`「${node.name}」${key}：${(error as Error).message}`); } }
-    else if (!equal(value, previous[key])) throw new Error(`「${node.name}」的「${controlRegistry[node.type].fields.find(field => field.key === key)?.label ?? key}」尚未验证 GIA 字段，已停止导出以避免数据丢失`);
+    if (writer) { try { writer(raw, value); } catch (error) { throw new Error(t("clientUIAnimationEditor.ui.giaExport.propertyWriteError", { name: node.name, key, message: (error instanceof Error ? error.message : String(error)) })); } }
+    else if (!equal(value, previous[key])) throw new Error(t("clientUIAnimationEditor.ui.giaExport.unverifiedPropertyField", { name: node.name, value: t(controlRegistry[node.type].fields.find(field => field.key === key)?.label ?? key) }));
   }
   if (node.canControllerFocus !== (baseline?.canControllerFocus ?? false) || node.visible !== (baseline?.visible ?? true)) {
-    throw new Error(`「${node.name}」的可见性或手柄聚焦尚未验证 GIA 字段，无法保持数据一致；请提供相应原生导出样例`);
+    throw new Error(t("clientUIAnimationEditor.ui.giaExport.unverifiedVisibilityOrFocus", { name: node.name }));
   }
 }
 
@@ -233,7 +234,7 @@ function prepareEncoding(document: ConverterDocument): void {
       if (/\/503\/13\/12\/501\/502\/(501|502|503|504|505|506|508)\/(1|2|3|501|502)$/.test(path)) type = "float32";
       else if (/\/503\/85\/(511\/(501|502)|512|513)$/.test(path)) type = "float32";
       else if (!["int", "int32", "int64", "float32"].includes(type ?? "")) type = "int";
-      if (type !== "float32" && record.values.some(value => typeof value === "number" && !Number.isSafeInteger(value))) throw new Error(`GIA 整数字段 ${path} 包含小数或越界值，不能无损写入`);
+      if (type !== "float32" && record.values.some(value => typeof value === "number" && !Number.isSafeInteger(value))) throw new Error(t("clientUIAnimationEditor.ui.giaExport.integerFieldOutOfRange", { path: path }));
     } else if (record.values.some(value => typeof value === "string" && value.startsWith("string:"))) type = "string";
     else if (!type || type === "object") type = "data";
     const multiple = record.multiple || old?.multiple === true;
@@ -257,7 +258,7 @@ export function normalizeGiaExportSource(value: unknown): GiaExportSource | null
   const source = value as GiaExportSource;
   if (!source.document || source.document.filetype !== "gia" || !source.document.json || typeof source.document.dtype_csv !== "string"
     || !Number.isInteger(source.deviceIndex) || source.deviceIndex < 0 || source.deviceIndex > 3
-    || source.baseline !== undefined && !Array.isArray(source.baseline)) throw new Error("原始 GIA 数据无效");
+    || source.baseline !== undefined && !Array.isArray(source.baseline)) throw new Error(t("clientUIAnimationEditor.ui.giaExport.invalidOriginalData"));
   return clone(source);
 }
 
@@ -300,27 +301,27 @@ export function createGiaExportBaseline(nodes: UINode[], canvasWidth: number, ca
 /** Export setup nodes only. Never bake the current animation preview into a native UI. */
 export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
   const assetKind = options.assetKind ?? "containerUI";
-  if (assetKind !== "containerUI" && assetKind !== "controlTemplate") throw new Error("未知的 GIA 导出类型");
-  if (!Number.isSafeInteger(options.uiIndex) || options.uiIndex < 0 || options.uiIndex > 2147483647) throw new Error(`${giaAssetLabels[assetKind]}索引必须是 0～2147483647 的整数`);
-  if (!options.nodes.length) throw new Error("控件树为空");
+  if (assetKind !== "containerUI" && assetKind !== "controlTemplate") throw new Error(t("clientUIAnimationEditor.ui.giaExport.unknownAssetKind"));
+  if (!Number.isSafeInteger(options.uiIndex) || options.uiIndex < 0 || options.uiIndex > 2147483647) throw new Error(t("clientUIAnimationEditor.ui.giaExport.invalidAssetIndex", { value: t(giaAssetLabels[assetKind]) }));
+  if (!options.nodes.length) throw new Error(t("clientUIAnimationEditor.ui.giaExport.emptyControlTree"));
   const nodes = clone(options.nodes).map(toNativeExportNode), source = normalizeGiaExportSource(options.source);
   if (source?.baseline) source.baseline = source.baseline.map(toNativeExportNode);
-  if (!source && nodes.some(node => /^gia_node_\d+$/.test(node.id))) throw new Error("此工程未保留原始 GIA，无法保证未识别参数一致。请先补充原始 GIA 文件，再导出当前控件树。");
+  if (!source && nodes.some(node => /^gia_node_\d+$/.test(node.id))) throw new Error(t("clientUIAnimationEditor.ui.giaExport.originalSourceRequired"));
   const map = new Map(nodes.map(node => [node.id, node]));
-  if (map.size !== nodes.length || nodes.some(node => node.parentId !== null && !map.has(node.parentId))) throw new Error("控件树有重复 ID 或缺失父控件");
+  if (map.size !== nodes.length || nodes.some(node => node.parentId !== null && !map.has(node.parentId))) throw new Error(t("clientUIAnimationEditor.ui.giaExport.invalidControlTree"));
   const roots = nodes.filter(node => !node.parentId);
-  if (roots.length !== 1) throw new Error(`${giaAssetLabels[assetKind]}必须有且仅有一个根控件`);
-  if (assetKind === "containerUI" && roots[0].type !== "container") throw new Error("客户端容器 UI 的根控件必须是容器；其他根控件请选择导出客户端控件模板");
+  if (roots.length !== 1) throw new Error(t("clientUIAnimationEditor.ui.giaExport.singleRootRequired", { value: t(giaAssetLabels[assetKind]) }));
+  if (assetKind === "containerUI" && roots[0].type !== "container") throw new Error(t("clientUIAnimationEditor.ui.giaExport.containerRootRequired"));
   const visiting = new Set<string>(), visited = new Set<string>();
-  function visit(node: UINode) { if (visiting.has(node.id)) throw new Error("控件层级存在循环"); if (visited.has(node.id)) return; visiting.add(node.id); if (node.parentId) visit(map.get(node.parentId)!); visiting.delete(node.id); visited.add(node.id); }
+  function visit(node: UINode) { if (visiting.has(node.id)) throw new Error(t("clientUIAnimationEditor.ui.giaExport.hierarchyCycle")); if (visited.has(node.id)) return; visiting.add(node.id); if (node.parentId) visit(map.get(node.parentId)!); visiting.delete(node.id); visited.add(node.id); }
   nodes.forEach(visit);
   const original = obj(source?.document.json), originalPrimary = obj(list(original["1"])[0]);
   const sourceKind = detectGiaAssetKind(source?.document.json);
-  if (source && !sourceKind) throw new Error("原始 GIA 是资产包或其他资产，仅支持客户端容器 UI 和客户端控件模板。");
+  if (source && !sourceKind) throw new Error(t("clientUIAnimationEditor.ui.giaExport.unsupportedOriginalAsset"));
   const rawNodes = [...list(original["2"]).map(obj), ...(sourceKind === "controlTemplate" ? [originalPrimary] : [])];
   const rawMap = new Map(rawNodes.map(raw => [Number(obj(raw["1"])["4"]), raw]));
   const baseline = new Map((source?.baseline ?? []).map(node => [node.id, node]));
-  if (source && !source.baseline) throw new Error("缺少原始 GIA 的编辑基准，请重新导入原始 GIA");
+  if (source && !source.baseline) throw new Error(t("clientUIAnimationEditor.ui.giaExport.missingGiaBaseline"));
   const oldIds = new Set((source?.baseline ?? []).map(node => Number(/^gia_node_(\d+)$/.exec(node.id)?.[1])));
   const dependencies = clone(list(original["2"]).map(obj).filter(raw => !oldIds.has(Number(obj(raw["1"])["4"]))));
   // Reserve a contiguous block for controls and, for a UI, its wrapper. External
@@ -329,7 +330,7 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
   const reserved = dependencies.map(raw => Number(obj(raw["1"])["4"])).filter(Number.isFinite).sort((a, b) => a - b);
   const lastOffset = nodes.length - (assetKind === "controlTemplate" ? 1 : 0);
   for (const id of reserved) if (id >= nextId && id <= nextId + lastOffset) nextId = id + 1;
-  if (!Number.isSafeInteger(nextId + lastOffset) || nextId + lastOffset > 2147483647) throw new Error("没有足够的连续控件 ID 可用于导出");
+  if (!Number.isSafeInteger(nextId + lastOffset) || nextId + lastOffset > 2147483647) throw new Error(t("clientUIAnimationEditor.ui.giaExport.insufficientControlIds"));
   const ids = new Map(nodes.map(node => [node.id, nextId++] as const));
   const rootId = ids.get(roots[0].id)!;
   const primaryId = assetKind === "controlTemplate" ? rootId : nextId;
@@ -343,8 +344,8 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
   for (const node of nodes) {
     try {
       const id = ids.get(node.id)!, oldId = /^gia_node_(\d+)$/.exec(node.id), old = oldId ? rawMap.get(Number(oldId[1])) : undefined, before = baseline.get(node.id);
-      if (old && !before) throw new Error(`「${node.name}」缺少原始编辑基准`);
-      if (before && node.type !== before.type) throw new Error(`「${node.name}」已更改控件类型，无法保留原始组件`);
+      if (old && !before) throw new Error(t("clientUIAnimationEditor.ui.giaExport.missingEditBaseline", { name: node.name }));
+      if (before && node.type !== before.type) throw new Error(t("clientUIAnimationEditor.ui.giaExport.changedControlType", { name: node.name }));
       const raw = old ? clone(old) : createNativeControl(node, id);
       if (old) reindexNativeControl(raw, id, remappedIds);
       raw["5"] = 15;
@@ -355,9 +356,9 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
       const children = nodes.filter(child => child.parentId === node.id).slice().reverse().map(child => ids.get(child.id)!);
       setHierarchy(raw, node.parentId ? ids.get(node.parentId)! : null, children);
       writeLayout(raw, node, old ? before : undefined, options.deviceIndex); writeProperties(raw, node, old ? before : undefined); output.push(raw);
-    } catch (error) { errors.push((error as Error).message); }
+    } catch (error) { errors.push((error instanceof Error ? error.message : String(error))); }
   }
-  if (errors.length) throw new Error(errors.join("\n"));
+  if (errors.length) throw new Error((errors).join("\n"));
   let primary: Obj;
   if (assetKind === "controlTemplate") {
     primary = output.find(raw => Number(obj(raw["1"])["4"]) === rootId)!;
@@ -391,21 +392,21 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
   // Decode the actual bytes and verify topology and mapped values, not just JSON.
   const decoded = decode(bytes, { type: "gia" });
   const imported = readGiaControls(decoded.json, options.deviceIndex);
-  if (imported.assetKind !== assetKind || originalGiaUIIndex({ document: decoded, deviceIndex: options.deviceIndex }) !== options.uiIndex) throw new Error("导出校验失败：GIA 类型或索引不一致");
+  if (imported.assetKind !== assetKind || originalGiaUIIndex({ document: decoded, deviceIndex: options.deviceIndex }) !== options.uiIndex) throw new Error(t("clientUIAnimationEditor.ui.giaExport.assetIdentityMismatch"));
   const resultMap = new Map(imported.controls.map(control => [control.sourceNodeIndex, control]));
   for (const node of nodes) {
     const actual = resultMap.get(ids.get(node.id)!);
-    if (!actual || actual.parentSourceNodeIndex !== (node.parentId ? ids.get(node.parentId)! : null)) throw new Error(`导出校验失败：${node.name} 的父子关系不一致`);
-    if (actual.name !== node.name) throw new Error(`导出校验失败：${node.name} 的名称不一致`);
+    if (!actual || actual.parentSourceNodeIndex !== (node.parentId ? ids.get(node.parentId)! : null)) throw new Error(t("clientUIAnimationEditor.ui.giaExport.parentChildMismatch", { name: node.name }));
+    if (actual.name !== node.name) throw new Error(t("clientUIAnimationEditor.ui.giaExport.nameMismatch", { name: node.name }));
     const expectedChildren = nodes.filter(child => child.parentId === node.id).slice().reverse().map(child => ids.get(child.id)!);
-    if (!equal(actual.childSourceNodeIndices, expectedChildren)) throw new Error(`导出校验失败：${node.name} 的子控件顺序不一致`);
+    if (!equal(actual.childSourceNodeIndices, expectedChildren)) throw new Error(t("clientUIAnimationEditor.ui.giaExport.childOrderMismatch", { name: node.name }));
     const before = baseline.get(node.id);
-    if ((!before || node.active !== before.active) && actual.layout.active !== node.active) throw new Error(`导出校验失败：${node.name} 的激活状态不一致`);
+    if ((!before || node.active !== before.active) && actual.layout.active !== node.active) throw new Error(t("clientUIAnimationEditor.ui.giaExport.activationRoundtripMismatch", { name: node.name }));
     for (const key of Object.keys(layoutFields) as Array<keyof typeof layoutFields>) {
       if (before && node[key] === before[key]) continue;
       const target = ({ anchorOffsetX: "anchoredPositionX", anchorOffsetY: "anchoredPositionY", rotation: "rotationZ" } as Record<string, string>)[key] ?? key;
       const value = actual.layout[target as keyof typeof actual.layout];
-      if (typeof value !== "number" || Math.abs(value - node[key]) > Math.max(.001, Math.abs(node[key]) * 1e-6)) throw new Error(`导出校验失败：${node.name} 的 ${key} 不一致`);
+      if (typeof value !== "number" || Math.abs(value - node[key]) > Math.max(.001, Math.abs(node[key]) * 1e-6)) throw new Error(t("clientUIAnimationEditor.ui.giaExport.propertyMismatch", { name: node.name, key: key }));
     }
     for (const key of Object.keys(PROPERTY_WRITERS[node.type] ?? {})) {
       const expected = (node.properties as unknown as Record<string, unknown>)[key], actualValue = actual.properties[key];
@@ -415,7 +416,7 @@ export function exportGiaUI(options: GiaExportOptions): GiaExportResult {
         const c = expected as ColorRGBA;
         if (equal(actualValue, { r: Math.round(c.r), g: Math.round(c.g), b: Math.round(c.b), a: Math.round(c.a * 255) / 255 })) continue;
       } else if (equal(expected, actualValue)) continue;
-      throw new Error(`导出校验失败：${node.name} 的 ${key} 不能在 GIA 中保持一致`);
+      throw new Error(t("clientUIAnimationEditor.ui.giaExport.fieldRoundtripMismatch", { name: node.name, key: key }));
     }
   }
   return { bytes, document, controlCount: nodes.length, assetKind };

@@ -14,17 +14,17 @@
       <header class="dialog-heading">
         <span class="heading-icon"><EditorIcon name="folder" :size="22" /></span>
         <div class="heading-copy">
-          <span class="eyebrow">{{ kind === 'particles' ? '客户端 UI 特效' : '客户端 UI 动画' }}</span>
-          <h2 id="client-ui-workspace-title">工作区与编辑文件</h2>
+          <span class="eyebrow">{{ kind === 'particles' ? t('clientUIAnimationEditor.ui.workspace.clientUiEffects') : t('clientUIAnimationEditor.ui.workspace.uiAnimationCategory') }}</span>
+          <h2 id="client-ui-workspace-title">{{ t('clientUIAnimationEditor.ui.workspace.documentsHeading') }}</h2>
         </div>
-        <button class="close-button" type="button" :disabled="busy" aria-label="关闭工作区面板" title="关闭" @click="requestClose">×</button>
+        <button class="close-button" type="button" :disabled="busy" :aria-label="t('clientUIAnimationEditor.ui.workspace.closePanel')" :title="t('clientUIAnimationEditor.ui.actions.close')" @click="requestClose">×</button>
       </header>
 
       <div class="workspace-content">
-        <aside class="workspace-sidebar" aria-label="工作区管理">
-          <div class="section-heading"><h3>工作区 <span>{{ workspaces.length }}</span></h3></div>
-          <button class="action-button new-workspace" type="button" :disabled="busy" @click="emit('create-workspace')"><EditorIcon name="plus" :size="15" />新建工作区</button>
-          <div class="name-list workspace-list" role="group" aria-label="工作区列表">
+        <aside class="workspace-sidebar" :aria-label="t('clientUIAnimationEditor.ui.workspace.managementTitle')">
+          <div class="section-heading"><h3>{{ t('clientUIAnimationEditor.ui.workspace.title') }}<span>{{ workspaces.length }}</span></h3></div>
+          <button class="action-button new-workspace" type="button" :disabled="busy" @click="emit('create-workspace')"><EditorIcon name="plus" :size="15" />{{ t('clientUIAnimationEditor.ui.workspace.create') }}</button>
+          <div class="name-list workspace-list" role="group" :aria-label="t('clientUIAnimationEditor.ui.workspace.list')">
             <button
               v-for="name in workspaces"
               :key="name"
@@ -38,24 +38,24 @@
             >
               <EditorIcon name="folder" :size="17" /><span class="row-name">{{ name }}</span><span v-if="name === workspace" class="selected-dot" aria-hidden="true"></span>
             </button>
-            <div v-if="!workspaces.length" class="empty-list"><EditorIcon name="folder" :size="26" /><p>还没有工作区</p><small>{{ kind === 'particles' ? '新建一个工作区，集中管理你的 UI 特效。' : '新建一个工作区，集中管理你的 UI 动画。' }}</small></div>
+            <div v-if="!workspaces.length" class="empty-list"><EditorIcon name="folder" :size="26" /><p>{{ t('clientUIAnimationEditor.ui.workspace.empty') }}</p><small>{{ kind === 'particles' ? t('clientUIAnimationEditor.ui.workspace.createUiEffectsHint') : t('clientUIAnimationEditor.ui.workspace.newWorkspaceHint') }}</small></div>
           </div>
           <div class="list-actions">
-            <button type="button" :disabled="busy || !workspace" @click="emit('rename-workspace')">重命名</button>
-            <button class="danger-action" type="button" :disabled="busy || !workspace" @click="emit('delete-workspace')"><EditorIcon name="trash" :size="14" />删除工作区</button>
+            <button type="button" :disabled="busy || !workspace" @click="emit('rename-workspace')">{{ t('clientUIAnimationEditor.ui.workspace.rename') }}</button>
+            <button class="danger-action" type="button" :disabled="busy || !workspace" @click="emit('delete-workspace')"><EditorIcon name="trash" :size="14" />{{ t('clientUIAnimationEditor.ui.workspace.deleteWorkspace') }}</button>
           </div>
         </aside>
 
-        <main class="document-pane" aria-label="编辑文件管理">
+        <main class="document-pane" :aria-label="t('clientUIAnimationEditor.ui.workspace.manageEditorFiles')">
           <div class="section-heading document-heading">
-            <div><h3>编辑文件 <span>{{ documents.length }}</span></h3><p :title="workspace">{{ workspace || '请先创建或选择工作区' }}</p></div>
+            <div><h3>{{ t('clientUIAnimationEditor.ui.workspace.editorFile') }}<span>{{ documents.length }}</span></h3><p :title="workspace">{{ workspace || t('clientUIAnimationEditor.ui.workspace.createOrSelectRequired') }}</p></div>
           </div>
-          <div class="document-tools" role="group" aria-label="新建与导入编辑文件">
-            <button class="action-button primary-action" type="button" :disabled="busy || !workspace" @click="emit('create-document')"><EditorIcon name="plus" :size="15" />新建文件</button>
-            <button v-if="kind !== 'particles'" class="action-button" type="button" :disabled="busy || !workspace" @click="emit('import-gia')"><EditorIcon name="import" :size="15" />导入 GIA</button>
-            <button class="action-button" type="button" :disabled="busy || !workspace" @click="emit('import-json')">导入 JSON</button>
+          <div class="document-tools" role="group" :aria-label="t('clientUIAnimationEditor.ui.workspace.createAndImportFiles')">
+            <button class="action-button primary-action" type="button" :disabled="busy || !workspace" @click="emit('create-document')"><EditorIcon name="plus" :size="15" />{{ t('clientUIAnimationEditor.ui.workspace.createDocument') }}</button>
+            <button v-if="kind !== 'particles'" class="action-button" type="button" :disabled="busy || !workspace" @click="emit('import-gia')"><EditorIcon name="import" :size="15" />{{ t('clientUIAnimationEditor.ui.importMenu.gia') }}</button>
+            <button class="action-button" type="button" :disabled="busy || !workspace" @click="emit('import-json')">{{ t('clientUIAnimationEditor.ui.importMenu.json') }}</button>
           </div>
-          <div class="name-list document-list" role="group" aria-label="编辑文件列表">
+          <div class="name-list document-list" role="group" :aria-label="t('clientUIAnimationEditor.ui.workspace.documentList')">
             <button
               v-for="name in documents"
               :key="name"
@@ -68,29 +68,30 @@
               @click="emit('select-document', name)"
             >
               <span class="document-icon"><EditorIcon name="timeline" :size="20" /></span>
-              <span class="document-copy"><span class="row-name">{{ name }}</span><small>{{ kind === 'particles' ? '客户端 UI 粒子特效文件' : '客户端 UI 动画文件' }}</small></span>
-              <span v-if="name === document" class="current-label">当前编辑</span>
+              <span class="document-copy"><span class="row-name">{{ name }}</span><small>{{ kind === 'particles' ? t('clientUIAnimationEditor.ui.workspace.uiParticleFileType') : t('clientUIAnimationEditor.ui.workspace.animationFileType') }}</small></span>
+              <span v-if="name === document" class="current-label">{{ t('clientUIAnimationEditor.ui.workspace.currentEditorFile') }}</span>
             </button>
-            <div v-if="!documents.length" class="empty-list document-empty"><EditorIcon name="timeline" :size="32" /><p>{{ workspace ? '工作区内还没有编辑文件' : '选择工作区以查看编辑文件' }}</p><small>{{ kind === 'particles' ? (workspace ? '新建一个特效文件，或导入已有的粒子 JSON。' : '每个工作区可以保存多个独立的粒子特效。') : (workspace ? '从空白画布开始，或导入已有的 GIA / JSON。' : '每个工作区可以保存多个独立的控件布局与时间轴。') }}</small></div>
+            <div v-if="!documents.length" class="empty-list document-empty"><EditorIcon name="timeline" :size="32" /><p>{{ workspace ? t('clientUIAnimationEditor.ui.workspace.noEditorFiles') : t('clientUIAnimationEditor.ui.workspace.selectWorkspaceHint') }}</p><small>{{ kind === 'particles' ? (workspace ? t('clientUIAnimationEditor.ui.workspace.createEffectHint') : t('clientUIAnimationEditor.ui.workspace.multipleParticleFilesHint')) : (workspace ? t('clientUIAnimationEditor.ui.workspace.blankCanvasOrImportHint') : t('clientUIAnimationEditor.ui.workspace.multiDocumentHint')) }}</small></div>
           </div>
           <div class="list-actions document-actions">
-            <span class="selected-document" :title="document">{{ document || '未选择编辑文件' }}</span>
-            <button type="button" :disabled="busy || !document" @click="emit('rename-document')">重命名</button>
-            <button class="danger-action" type="button" :disabled="busy || !document" @click="emit('delete-document')"><EditorIcon name="trash" :size="14" />删除文件</button>
+            <span class="selected-document" :title="document">{{ document || t('clientUIAnimationEditor.ui.workspace.documentNotSelected') }}</span>
+            <button type="button" :disabled="busy || !document" @click="emit('rename-document')">{{ t('clientUIAnimationEditor.ui.workspace.rename') }}</button>
+            <button class="danger-action" type="button" :disabled="busy || !document" @click="emit('delete-document')"><EditorIcon name="trash" :size="14" />{{ t('clientUIAnimationEditor.ui.workspace.deleteFile') }}</button>
           </div>
         </main>
       </div>
 
-      <div v-if="error" class="error-message" role="alert"><span>{{ error }}</span><button type="button" :disabled="busy" @click="emit('retry')">重试保存</button></div>
+      <div v-if="error" class="error-message" role="alert"><span>{{ error }}</span><button type="button" :disabled="busy" @click="emit('retry')">{{ t('clientUIAnimationEditor.ui.workspace.retrySave') }}</button></div>
       <footer class="dialog-footer">
-        <span class="save-status" :class="{ saving: busy, failed: !!error }" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span>{{ status || (busy ? '正在处理…' : '存档就绪') }}</span>
-        <span class="import-hint">{{ kind === 'particles' ? '导入 JSON 会创建新的特效文件，不覆盖当前文件。' : '导入 GIA 会创建新的编辑文件，不覆盖当前文件。' }}</span>
+        <span class="save-status" :class="{ saving: busy, failed: !!error }" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span>{{ status || (busy ? t('clientUIAnimationEditor.ui.common.processing') : t('clientUIAnimationEditor.ui.workspace.archiveReady')) }}</span>
+        <span class="import-hint">{{ kind === 'particles' ? t('clientUIAnimationEditor.ui.workspace.effectJsonImportHint') : t('clientUIAnimationEditor.ui.workspace.giaCreatesNewFileHint') }}</span>
       </footer>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import EditorIcon from './EditorIcon.vue'
 

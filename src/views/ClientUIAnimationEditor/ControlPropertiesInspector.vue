@@ -1,27 +1,27 @@
 <template>
   <details class="property-section control-properties-section" :class="{ 'image-mask-section': definition.type === 'image' }" open>
-    <summary><h3><span>{{ definition.icon }}</span>{{ definition.type === 'image' ? '遮罩设置' : definition.label + '参数' }}<i v-if="definition.type !== 'image'">{{ definition.editorOnly ? '自定义控件' : definition.runtimeClass }}</i></h3><slot name="actions"></slot></summary>
+    <summary><h3><span>{{ definition.icon }}</span>{{ definition.type === 'image' ? t('clientUIAnimationEditor.ui.imageMask.settings') : t('clientUIAnimationEditor.ui.properties.controlParameters', { label: t(definition.label) }) }}<i v-if="definition.type !== 'image'">{{ definition.editorOnly ? t('clientUIAnimationEditor.ui.controls.customType') : definition.runtimeClass }}</i></h3><slot name="actions"></slot></summary>
     <div class="property-content">
-    <p v-if="definition.editorOnly" class="source-note">在图片资源面板统一管理原图、拟合与参数导出，此控件引用资源并选择显示方式。当前 GIA 导出仍为容器节点。</p>
-    <p v-else-if="definition.type !== 'image'" class="source-note">字段来自当前客户端 UI API；“运行时只读”仅表示 Lua 访问权限，编辑器中仍可填写。</p>
+    <p v-if="definition.editorOnly" class="source-note">{{ t('clientUIAnimationEditor.ui.primitives.controlResourceManagementHint') }}</p>
+    <p v-else-if="definition.type !== 'image'" class="source-note">{{ t('clientUIAnimationEditor.ui.properties.runtimeReadOnlyHint') }}</p>
 
     <div v-for="field in visibleFields" :key="field.key" class="control-field" :class="[`kind-${field.kind}`, { 'is-animated-field': isAnimated(field) }]" :data-field="field.key" :data-animated="isAnimated(field) ? 'true' : undefined" :title="fieldTitle(field)">
       <div class="field-heading">
-        <span>{{ field.label }}</span>
-        <small v-if="field.tweenable" :class="{ 'animated-badge': isAnimated(field) }">{{ isAnimated(field) ? '◆ 已加入动画' : 'Tween' }}</small>
-        <small v-if="field.runtimeReadOnly" class="readonly-badge">运行时只读</small>
+        <span>{{ t(field.label) }}</span>
+        <small v-if="field.tweenable" :class="{ 'animated-badge': isAnimated(field) }">{{ isAnimated(field) ? t('clientUIAnimationEditor.ui.properties.animatedBadge') : 'Tween' }}</small>
+        <small v-if="field.runtimeReadOnly" class="readonly-badge">{{ t('clientUIAnimationEditor.ui.properties.runtimeReadOnly') }}</small>
       </div>
 
       <slot :name="`field-${field.key}`" :field="field">
-      <ColorRGBAField v-if="field.kind === 'color'" :label="field.label" :model-value="asColor(modelValue[field.key])" :animated="isAnimated(field)" @update:model-value="updateField(field.key, $event)" />
-      <textarea v-else-if="field.kind === 'textarea'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" rows="4" @input="updateField(field.key, ($event.target as HTMLTextAreaElement).value)"></textarea>
-      <input v-else-if="field.kind === 'text'" :aria-label="field.label" :value="stringValue(modelValue[field.key])" @input="updateField(field.key, ($event.target as HTMLInputElement).value)" />
-      <div v-else-if="definition.type === 'image' && field.key === 'fillAmount'" class="mask-range"><input type="range" min="0" max="100" step="1" aria-label="填充进度滑块" :value="Number(modelValue.fillAmount ?? 1) * 100" @input="updateNumber('fillAmount', Number(($event.target as HTMLInputElement).value) / 100)" /><ScrubbableNumberInput :model-value="typeof modelValue.fillAmount === 'number' ? modelValue.fillAmount * 100 : null" :min="0" :max="100" :step="1" :animated="isAnimated(field)" aria-label="填充进度百分比" placeholder="未设置" @update:model-value="$event !== null && updateNumber('fillAmount', $event / 100)" /></div>
-      <div v-else-if="definition.type === 'image' && ['horizontalSoftRange', 'verticalSoftRange'].includes(field.key)" class="mask-range"><input type="range" min="0" max="100" step="0.01" :aria-label="`${field.label}滑块`" :value="modelValue[field.key] ?? 85" @input="updateNumber(field.key, Number(($event.target as HTMLInputElement).value))" /><ScrubbableNumberInput :model-value="numberValue(modelValue[field.key])" :min="0" :max="100" :step="0.01" :animated="isAnimated(field)" :allow-empty="!isAnimated(field)" :aria-label="field.label" placeholder="未设置" @update:model-value="updateNumber(field.key, $event)" /></div>
-      <ScrubbableNumberInput v-else-if="field.kind === 'number'" :aria-label="field.label" :model-value="numberValue(modelValue[field.key])" :animated="isAnimated(field)" :min="field.min" :max="field.max" :step="field.step ?? 1" :allow-empty="!isAnimated(field)" placeholder="未设置" @update:model-value="updateNumber(field.key, $event)" />
-      <label v-else-if="field.kind === 'boolean'" class="boolean-control"><input :aria-label="field.label" :checked="booleanValue(field.key)" type="checkbox" role="switch" @change="updateField(field.key, ($event.target as HTMLInputElement).checked)" /><i></i><span>{{ booleanValue(field.key) ? '开启' : '关闭' }}</span></label>
-      <select v-else-if="field.kind === 'nullableBoolean'" :aria-label="field.label" :value="nullableBooleanValue(modelValue[field.key])" @change="updateNullableBoolean(field.key, $event)"><option value="">未设置</option><option value="true">true</option><option value="false">false</option></select>
-      <select v-else-if="field.kind === 'select'" :aria-label="field.label" :value="selectValue(field)" @change="updateSelect(field.key, $event)"><option v-if="definition.type !== 'image' || modelValue[field.key] === null" value="">未设置</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
+      <ColorRGBAField v-if="field.kind === 'color'" :label="t(field.label)" :model-value="asColor(modelValue[field.key])" :animated="isAnimated(field)" @update:model-value="updateField(field.key, $event)" />
+      <textarea v-else-if="field.kind === 'textarea'" :aria-label="t(field.label)" :value="stringValue(modelValue[field.key])" rows="4" @input="updateField(field.key, ($event.target as HTMLTextAreaElement).value)"></textarea>
+      <input v-else-if="field.kind === 'text'" :aria-label="t(field.label)" :value="stringValue(modelValue[field.key])" @input="updateField(field.key, ($event.target as HTMLInputElement).value)" />
+      <div v-else-if="definition.type === 'image' && field.key === 'fillAmount'" class="mask-range"><input type="range" min="0" max="100" step="1" :aria-label="t('clientUIAnimationEditor.ui.imageControls.fillProgressSlider')" :value="Number(modelValue.fillAmount ?? 1) * 100" @input="updateNumber('fillAmount', Number(($event.target as HTMLInputElement).value) / 100)" /><ScrubbableNumberInput :model-value="typeof modelValue.fillAmount === 'number' ? modelValue.fillAmount * 100 : null" :min="0" :max="100" :step="1" :animated="isAnimated(field)" :aria-label="t('clientUIAnimationEditor.ui.controls.fillProgressPercentage')" :placeholder="t('clientUIAnimationEditor.ui.properties.unset')" @update:model-value="$event !== null && updateNumber('fillAmount', $event / 100)" /></div>
+      <div v-else-if="definition.type === 'image' && ['horizontalSoftRange', 'verticalSoftRange'].includes(field.key)" class="mask-range"><input type="range" min="0" max="100" step="0.01" :aria-label="t('clientUIAnimationEditor.ui.properties.sliderLabel', { label: t(field.label) })" :value="modelValue[field.key] ?? 85" @input="updateNumber(field.key, Number(($event.target as HTMLInputElement).value))" /><ScrubbableNumberInput :model-value="numberValue(modelValue[field.key])" :min="0" :max="100" :step="0.01" :animated="isAnimated(field)" :allow-empty="!isAnimated(field)" :aria-label="t(field.label)" :placeholder="t('clientUIAnimationEditor.ui.properties.unset')" @update:model-value="updateNumber(field.key, $event)" /></div>
+      <ScrubbableNumberInput v-else-if="field.kind === 'number'" :aria-label="t(field.label)" :model-value="numberValue(modelValue[field.key])" :animated="isAnimated(field)" :min="field.min" :max="field.max" :step="field.step ?? 1" :allow-empty="!isAnimated(field)" :placeholder="t('clientUIAnimationEditor.ui.properties.unset')" @update:model-value="updateNumber(field.key, $event)" />
+      <label v-else-if="field.kind === 'boolean'" class="boolean-control"><input :aria-label="t(field.label)" :checked="booleanValue(field.key)" type="checkbox" role="switch" @change="updateField(field.key, ($event.target as HTMLInputElement).checked)" /><i></i><span>{{ booleanValue(field.key) ? t('clientUIAnimationEditor.ui.controls.enabledState') : t('clientUIAnimationEditor.ui.controls.disabled') }}</span></label>
+      <select v-else-if="field.kind === 'nullableBoolean'" :aria-label="t(field.label)" :value="nullableBooleanValue(modelValue[field.key])" @change="updateNullableBoolean(field.key, $event)"><option value="">{{ t('clientUIAnimationEditor.ui.properties.unset') }}</option><option value="true">true</option><option value="false">false</option></select>
+      <select v-else-if="field.kind === 'select'" :aria-label="t(field.label)" :value="selectValue(field)" @change="updateSelect(field.key, $event)"><option v-if="definition.type !== 'image' || modelValue[field.key] === null" value="">{{ t('clientUIAnimationEditor.ui.properties.unset') }}</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
       </slot>
     </div>
     </div>
@@ -29,6 +29,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, ref, watch } from 'vue';
 import { imageMaskFields } from './imageMaskFields';
 import ColorRGBAField from "./ColorRGBAField.vue";
@@ -40,7 +41,7 @@ const props = withDefaults(defineProps<{ definition: ControlDefinition<ControlTy
 const emit = defineEmits<{ (event: "update:modelValue", value: Record<string, unknown>): void }>();
 
 function isAnimated(field: ControlPropertyField) { return Boolean(field.tweenable) && (field.kind === "number" || field.kind === "color") && props.animatedFields.includes(field.key); }
-function fieldTitle(field: ControlPropertyField) { return isAnimated(field) ? [field.description, "此属性已加入动画；修改会在当前时间记帧"].filter(Boolean).join("\n") : field.description; }
+function fieldTitle(field: ControlPropertyField) { return isAnimated(field) ? [field.description ? t(field.description) : undefined, t('clientUIAnimationEditor.ui.properties.autoKeyframeHint')].filter(Boolean).join("\n") : field.description ? t(field.description) : undefined; }
 const visibleFields = computed(() => props.definition.type === 'image' ? imageMaskFields(props.definition.fields, props.modelValue) : props.definition.fields);
 const previousFill = ref('horizontal');
 watch(() => props.modelValue.fillType, value => { if (typeof value === 'string' && value !== 'unused') previousFill.value = value; }, {immediate:true});

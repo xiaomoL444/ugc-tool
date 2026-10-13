@@ -1,33 +1,34 @@
 <template>
   <details class="property-section text-control-section" open>
-    <summary><h3><span>T</span>文本框设置<i>ClientUITextBoxControl</i></h3></summary>
+    <summary><h3><span>T</span>{{ t('clientUIAnimationEditor.ui.controls.text.settings') }}<i>ClientUITextBoxControl</i></h3></summary>
     <div class="property-content">
 
-    <label class="number-row"><span>字号</span><ScrubbableNumberInput :model-value="modelValue.fontSize" :min="1" :step="1" @update:model-value="setNumber('fontSize', $event)" /></label>
-    <label class="switch-row"><span><b>?</b>字号自适应</span><input :checked="modelValue.adaptiveFontSize" type="checkbox" @change="setBoolean('adaptiveFontSize', $event)" /><i></i></label>
-    <label v-if="modelValue.adaptiveFontSize" class="number-row compact"><span>最小字号</span><ScrubbableNumberInput :model-value="modelValue.minimumFontSize ?? ''" :min="1" :max="modelValue.fontSize ?? undefined" :step="1" @update:model-value="setNumber('minimumFontSize', $event)" /></label>
+    <label class="number-row"><span>{{ t('clientUIAnimationEditor.ui.controls.fontSize') }}</span><ScrubbableNumberInput :model-value="modelValue.fontSize" :min="1" :step="1" @update:model-value="setNumber('fontSize', $event)" /></label>
+    <label class="switch-row"><span><b>?</b>{{ t('clientUIAnimationEditor.ui.controls.text.adaptiveFontSize') }}</span><input :checked="modelValue.adaptiveFontSize" type="checkbox" @change="setBoolean('adaptiveFontSize', $event)" /><i></i></label>
+    <label v-if="modelValue.adaptiveFontSize" class="number-row compact"><span>{{ t('clientUIAnimationEditor.ui.controls.text.minimumFontSize') }}</span><ScrubbableNumberInput :model-value="modelValue.minimumFontSize ?? ''" :min="1" :max="modelValue.fontSize ?? undefined" :step="1" @update:model-value="setNumber('minimumFontSize', $event)" /></label>
 
-    <ColorRGBAField label="文本颜色" :model-value="modelValue.fontColor" @update:model-value="setField('fontColor', $event)" />
-    <ColorRGBAField label="背景颜色" :model-value="modelValue.bgColor" @update:model-value="setField('bgColor', $event)" />
+    <ColorRGBAField :label="t('clientUIAnimationEditor.ui.controls.text.color')" :model-value="modelValue.fontColor" @update:model-value="setField('fontColor', $event)" />
+    <ColorRGBAField :label="t('clientUIAnimationEditor.ui.controls.backgroundColor')" :model-value="modelValue.bgColor" @update:model-value="setField('bgColor', $event)" />
 
-    <label class="switch-row outline-switch"><span>启用文字描边</span><input :checked="modelValue.enableOutline" type="checkbox" @change="setBoolean('enableOutline', $event)" /><i></i></label>
-    <ColorRGBAField v-if="modelValue.enableOutline" label="描边颜色" :model-value="modelValue.outlineColor" @update:model-value="setField('outlineColor', $event)" />
+    <label class="switch-row outline-switch"><span>{{ t('clientUIAnimationEditor.ui.controls.enableTextOutline') }}</span><input :checked="modelValue.enableOutline" type="checkbox" @change="setBoolean('enableOutline', $event)" /><i></i></label>
+    <ColorRGBAField v-if="modelValue.enableOutline" :label="t('clientUIAnimationEditor.ui.controls.outlineColor')" :model-value="modelValue.outlineColor" @update:model-value="setField('outlineColor', $event)" />
 
     <div class="alignment-block">
-      <span>对齐</span>
+      <span>{{ t('clientUIAnimationEditor.ui.controls.alignment') }}</span>
       <div class="alignment-row">
-        <button v-for="option in horizontalOptions" :key="option.value" :class="{ active: modelValue.horizontalAlignment === option.value }" :title="option.label" :aria-label="option.label" :aria-pressed="modelValue.horizontalAlignment === option.value" @click="setField('horizontalAlignment', option.value)">{{ option.icon }}</button>
+        <button v-for="option in horizontalOptions" :key="option.value" :class="{ active: modelValue.horizontalAlignment === option.value }" :title="t(option.label)" :aria-label="t(option.label)" :aria-pressed="modelValue.horizontalAlignment === option.value" @click="setField('horizontalAlignment', option.value)">{{ option.icon }}</button>
         <em></em>
-        <button v-for="option in verticalOptions" :key="option.value" :class="{ active: modelValue.verticalAlignment === option.value }" :title="option.label" :aria-label="option.label" :aria-pressed="modelValue.verticalAlignment === option.value" @click="setField('verticalAlignment', option.value)">{{ option.icon }}</button>
+        <button v-for="option in verticalOptions" :key="option.value" :class="{ active: modelValue.verticalAlignment === option.value }" :title="t(option.label)" :aria-label="t(option.label)" :aria-pressed="modelValue.verticalAlignment === option.value" @click="setField('verticalAlignment', option.value)">{{ option.icon }}</button>
       </div>
     </div>
 
-    <label class="text-content"><span>文本内容</span><textarea :value="modelValue.text" rows="5" @input="setText"></textarea></label>
+    <label class="text-content"><span>{{ t('clientUIAnimationEditor.ui.controls.textContent') }}</span><textarea :value="modelValue.text" rows="5" @input="setText"></textarea></label>
     </div>
   </details>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import ColorRGBAField from "./ColorRGBAField.vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import type { ClientUITextBoxControlProperties, TextHorizontalAlignment, TextVerticalAlignment } from "./types";
@@ -36,14 +37,14 @@ const props = defineProps<{ modelValue: ClientUITextBoxControlProperties }>();
 const emit = defineEmits<{ (event: "update:modelValue", value: ClientUITextBoxControlProperties): void }>();
 
 const horizontalOptions: Array<{ value: TextHorizontalAlignment; label: string; icon: string }> = [
-  { value: "left", label: "左对齐", icon: "↤" },
-  { value: "middle", label: "水平居中", icon: "↔" },
-  { value: "right", label: "右对齐", icon: "↦" },
+  { value: "left", label: 'clientUIAnimationEditor.ui.controls.alignLeft', icon: "↤" },
+  { value: "middle", label: 'clientUIAnimationEditor.ui.controls.text.alignHorizontalCenter', icon: "↔" },
+  { value: "right", label: 'clientUIAnimationEditor.ui.controls.alignRight', icon: "↦" },
 ];
 const verticalOptions: Array<{ value: TextVerticalAlignment; label: string; icon: string }> = [
-  { value: "top", label: "顶部对齐", icon: "↥" },
-  { value: "middle", label: "垂直居中", icon: "↕" },
-  { value: "bottom", label: "底部对齐", icon: "↧" },
+  { value: "top", label: 'clientUIAnimationEditor.ui.controls.text.alignTop', icon: "↥" },
+  { value: "middle", label: 'clientUIAnimationEditor.ui.controls.alignCenterVertically', icon: "↕" },
+  { value: "bottom", label: 'clientUIAnimationEditor.ui.controls.alignBottom', icon: "↧" },
 ];
 
 function setField<K extends keyof ClientUITextBoxControlProperties>(key: K, value: ClientUITextBoxControlProperties[K]) {

@@ -6,7 +6,8 @@ const ts = require('typescript');
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
   fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
-const { buildSearchResources, retrieveResources, resolveSearchScope, resolveSearchIntent, normalizeSearchText, resourceHref, loadResourceCatalog } = require('../src/views/AISearch/resourceCatalog.ts');
+const { buildSearchResources, retrieveResources, resolveSearchScope, resolveSearchIntent, normalizeSearchText, resourceHref } = require('../src/views/AISearch/resourceCatalog.ts');
+const { loadResourceCatalog } = require('./ai-search-offline-catalog.ts');
 const { buildSearchContext, isSearchRefinement, buildSearchPayload, buildServerChatPayload, validateSearchAnswer, modelResponsesUrl, requestSearch: requestSearchActual, parseServerCatalog, parseServerResources, requestServerSearch, requestServerAssets } = require('../src/views/AISearch/aiSearchService.ts');
 const promptFixture = '# External prompt fixture\nReturn at most RESULT\\_LIMIT resources.\n';
 async function requestSearch(payload, candidates, options) {

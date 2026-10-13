@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { ColorRGBA } from "./types";
 
 export type PrimitiveShape = "ellipse" | "rectangle" | "triangle";
@@ -81,7 +82,7 @@ export function primitiveContentScale(data: PrimitiveFitData, width: number, hei
 
 export function buildPrimitiveParameters(data: PrimitiveFitData, name: string, width: number, height: number) {
   const normalized = normalizePrimitiveData(data);
-  if (!normalized || !finite(width) || !finite(height) || width <= 0 || height <= 0) throw new Error("没有有效的图元数据或控件尺寸。");
+  if (!normalized || !finite(width) || !finite(height) || width <= 0 || height <= 0) throw new Error(t("clientUIAnimationEditor.ui.primitives.missingDataOrSize"));
   const scale = primitiveContentScale(normalized, width, height);
   return {
     schema: "UGCTools.PrimitiveImage@1", name,
@@ -101,10 +102,10 @@ export function buildPrimitiveResourceParameters(data: PrimitiveFitData, name: s
 
 /** Convert the upstream Go result once; all previews/exports consume this representation. */
 export function convertPrimitiveFit(result: unknown, width: number, height: number, whiteBackground: boolean): PrimitiveFitData {
-  if (!record(result) || !Array.isArray(result.shapes)) throw new Error("拟合引擎未返回图元数据。");
+  if (!record(result) || !Array.isArray(result.shapes)) throw new Error(t("clientUIAnimationEditor.ui.primitiveFit.noPrimitiveData"));
   const elements: PrimitiveElement[] = result.shapes.map((raw: unknown) => {
     if (!record(raw) || !["circle", "rect", "triangle"].includes(String(raw.type)) || typeof raw.color !== "string" || !/^#[0-9a-f]{6}$/i.test(raw.color)
-      || ![raw.cx, raw.cy, raw.angle, raw.alpha].every(finite)) throw new Error("拟合引擎返回了无效图元。");
+      || ![raw.cx, raw.cy, raw.angle, raw.alpha].every(finite)) throw new Error(t("clientUIAnimationEditor.ui.primitives.invalidFitResult"));
     const type: PrimitiveShape = raw.type === "circle" ? "ellipse" : raw.type === "rect" ? "rectangle" : "triangle";
     return { type, imageId: PRIMITIVE_IMAGE_IDS[type], x: round(Number(raw.cx) - width / 2), y: round(height / 2 - Number(raw.cy)),
       width: type === "ellipse" ? 2 * Number(raw.rx) : type === "rectangle" ? 2 * Number(raw.hw) : Number(raw.width),
@@ -113,6 +114,6 @@ export function convertPrimitiveFit(result: unknown, width: number, height: numb
   });
   if (whiteBackground) elements.unshift({ type: "rectangle", imageId: 100001, x: 0, y: 0, width, height, rotation: 0, color: { r: 255, g: 255, b: 255, a: 1 } });
   const data = normalizePrimitiveData({ version: 1, width, height, elements });
-  if (!data) throw new Error("拟合结果为空或尺寸无效，请调整图片和参数后重试。");
+  if (!data) throw new Error(t("clientUIAnimationEditor.ui.primitiveFit.emptyOrInvalidResult"));
   return data;
 }

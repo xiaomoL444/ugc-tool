@@ -1,36 +1,37 @@
 <template>
-  <section ref="panel" class="primitive-resource-library" role="dialog" aria-label="文件图片资源" tabindex="-1" @pointerdown.stop @keydown.esc.stop.prevent="emit('close')">
-    <header><strong>图片资源 <small>{{ assets.length }}</small></strong><input v-model="search" type="search" aria-label="搜索图片资源" placeholder="搜索本文件图片" /><button :disabled="reading || batchBusy" @click="fileInput?.click()">{{ reading ? '正在导入…' : '导入图片' }}</button><button :disabled="batchBusy" @click="addEmpty">添加图片网址</button><button aria-label="关闭图片资源面板" @click="emit('close')">×</button></header>
-    <p class="library-note">当前文件的原图与拟合结果统一保存在这里。多个图元控件可共用同一资源。批量生成按各图片参数依次处理全部未拟合图片，不受搜索筛选影响。关闭面板会取消生成，已完成的结果保留。</p>
-    <div class="batch-actions"><button class="primary" :disabled="batchBusy || reading || singleBusy || !missingCount" @click="generateMissing">一键生成缺失图元（{{ missingCount }}）</button><button v-if="batchBusy" :disabled="batchCancelling" @click="cancelBatch">{{ batchCancelling ? '正在取消…' : '取消批量生成' }}</button><span v-if="batchStatus" role="status" aria-live="polite">{{ batchStatus }}</span></div>
-    <progress v-if="batchBusy" class="batch-progress" aria-label="批量生成进度" :value="batchProgress" :max="batchTotal" />
-    <details v-if="batchFailures.length" class="batch-failures"><summary>{{ batchFailures.length }} 张图片生成失败（可再次点击重试）</summary><ul><li v-for="(failure, index) in batchFailures" :key="index">{{ failure.name }}：{{ failure.message }}</li></ul></details>
+  <section ref="panel" class="primitive-resource-library" role="dialog" :aria-label="t('clientUIAnimationEditor.ui.primitives.fileResources')" tabindex="-1" @pointerdown.stop @keydown.esc.stop.prevent="emit('close')">
+    <header><strong>{{ t('clientUIAnimationEditor.ui.primitiveResources.title') }}<small>{{ assets.length }}</small></strong><input v-model="search" type="search" :aria-label="t('clientUIAnimationEditor.ui.images.searchResourceLabel')" :placeholder="t('clientUIAnimationEditor.ui.primitives.searchCurrentFileImages')" /><button :disabled="reading || batchBusy" @click="fileInput?.click()">{{ reading ? t('clientUIAnimationEditor.ui.primitiveResources.importing') : t('clientUIAnimationEditor.ui.primitives.importImage') }}</button><button :disabled="batchBusy" @click="addEmpty">{{ t('clientUIAnimationEditor.ui.primitiveResources.addImageUrl') }}</button><button :aria-label="t('clientUIAnimationEditor.ui.primitiveResources.closePanel')" @click="emit('close')">×</button></header>
+    <p class="library-note">{{ t('clientUIAnimationEditor.ui.primitives.libraryStorageHint') }}</p>
+    <div class="batch-actions"><button class="primary" :disabled="batchBusy || reading || singleBusy || !missingCount" @click="generateMissing">{{ t('clientUIAnimationEditor.ui.primitives.generateMissing', { missingCount: missingCount }) }}</button><button v-if="batchBusy" :disabled="batchCancelling" @click="cancelBatch">{{ batchCancelling ? t('clientUIAnimationEditor.ui.primitives.cancelling') : t('clientUIAnimationEditor.ui.primitives.cancelBatch') }}</button><span v-if="batchStatus" role="status" aria-live="polite">{{ batchStatus }}</span></div>
+    <progress v-if="batchBusy" class="batch-progress" :aria-label="t('clientUIAnimationEditor.ui.primitiveResources.batchProgress')" :value="batchProgress" :max="batchTotal" />
+    <details v-if="batchFailures.length" class="batch-failures"><summary>{{ t('clientUIAnimationEditor.ui.primitiveResources.failedImageGenerationRetry', { count: batchFailures.length }) }}</summary><ul><li v-for="(failure, index) in batchFailures" :key="index">{{ failure.name }}：{{ failure.message }}</li></ul></details>
     <input ref="fileInput" class="file-input" type="file" accept="image/*" multiple @change="importFiles" />
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <div class="library-body">
       <div class="resource-list">
-        <button v-for="asset in filteredAssets" :key="asset.id" class="resource-card" :class="{ selected: asset.id === activeId }" :aria-label="`设置图片资源 ${asset.name}`" @click="activeId = asset.id">
+        <button v-for="asset in filteredAssets" :key="asset.id" class="resource-card" :class="{ selected: asset.id === activeId }" :aria-label="t('clientUIAnimationEditor.ui.primitiveResources.configureImage', { name: asset.name })" @click="activeId = asset.id">
           <img v-if="primitiveImageSource(asset.imageUrl)" :src="primitiveImageSource(asset.imageUrl)" alt="" /><span v-else class="empty-thumbnail">▧</span>
-          <b>{{ asset.name }}</b><small>{{ asset.fitData ? `${asset.fitData.elements.length} 个图元` : '尚未拟合' }} · {{ usage[asset.id] || 0 }} 处引用</small>
+          <b>{{ asset.name }}</b><small>{{ t('clientUIAnimationEditor.ui.primitives.resourceReferences', { count: asset.fitData ? t('clientUIAnimationEditor.ui.primitiveResources.primitiveCount', { count: asset.fitData.elements.length }) : t('clientUIAnimationEditor.ui.primitives.notFitted'), value: usage[asset.id] || 0 }) }}</small>
         </button>
-        <p v-if="!filteredAssets.length" class="empty-state">{{ assets.length ? '没有匹配的图片。' : '导入图片后，在这里设置拟合参数并生成图元。' }}</p>
+        <p v-if="!filteredAssets.length" class="empty-state">{{ assets.length ? t('clientUIAnimationEditor.ui.primitiveResources.noMatchingImages') : t('clientUIAnimationEditor.ui.primitiveResources.configureFittingHint') }}</p>
       </div>
       <template v-if="activeAsset">
         <div class="resource-preview-column">
-          <label>资源名称<input :key="activeAsset.id" :value="activeAsset.name" aria-label="图片资源名称" @change="rename(($event.target as HTMLInputElement).value)" /></label>
+          <label>{{ t('clientUIAnimationEditor.ui.primitiveResources.name') }}<input :key="activeAsset.id" :value="activeAsset.name" :aria-label="t('clientUIAnimationEditor.ui.primitiveResources.imageName')" @change="rename(($event.target as HTMLInputElement).value)" /></label>
           <div ref="preview" class="resource-preview"><PrimitiveImage :image-url="activeAsset.imageUrl" :preview-mode="activeAsset.previewMode" :fit-data="activeAsset.fitData" :width="previewSize.width" :height="previewSize.height" /></div>
-          <p>{{ activeAsset.fitData ? `${activeAsset.fitData.width} × ${activeAsset.fitData.height}` : '选择右侧参数并生成图元' }}</p>
-          <div class="resource-actions"><button v-if="selectable" class="primary" :disabled="batchBusy || (!activeAsset.imageUrl && !activeAsset.fitData)" @click="emit('select', activeAsset.id)">用于当前图元控件</button><button :disabled="batchBusy || !!usage[activeAsset.id]" :title="usage[activeAsset.id] ? '先解除控件引用再移除资源' : '从当前文件移除，可撤销'" @click="emit('remove', activeAsset.id)">移除资源</button></div>
-          <small>参数 JSON 使用资源原始尺寸，坐标相对图片中心；图元控件按自身尺寸等比显示。</small>
+          <p>{{ activeAsset.fitData ? `${activeAsset.fitData.width} × ${activeAsset.fitData.height}` : t('clientUIAnimationEditor.ui.primitives.selectParametersHint') }}</p>
+          <div class="resource-actions"><button v-if="selectable" class="primary" :disabled="batchBusy || (!activeAsset.imageUrl && !activeAsset.fitData)" @click="emit('select', activeAsset.id)">{{ t('clientUIAnimationEditor.ui.primitiveResources.useForCurrent') }}</button><button :disabled="batchBusy || !!usage[activeAsset.id]" :title="usage[activeAsset.id] ? t('clientUIAnimationEditor.ui.primitives.resourceInUse') : t('clientUIAnimationEditor.ui.primitiveResources.removeFromFileHint')" @click="emit('remove', activeAsset.id)">{{ t('clientUIAnimationEditor.ui.primitiveResources.remove') }}</button></div>
+          <small>{{ t('clientUIAnimationEditor.ui.primitiveResources.parameterCoordinatesHint') }}</small>
         </div>
-        <div class="resource-settings"><p v-if="batchBusy" class="library-note">正在批量生成，可切换图片查看已完成的结果。完成或取消后可继续调整参数。</p><PrimitiveImageSettings v-else :key="activeAsset.id" :model-value="activeAsset" :name="activeAsset.name" @busy="singleBusy = $event" @update:model-value="updateActive" /></div>
+        <div class="resource-settings"><p v-if="batchBusy" class="library-note">{{ t('clientUIAnimationEditor.ui.primitiveResources.batchRunningHint') }}</p><PrimitiveImageSettings v-else :key="activeAsset.id" :model-value="activeAsset" :name="activeAsset.name" @busy="singleBusy = $event" @update:model-value="updateActive" /></div>
       </template>
-      <div v-else class="empty-selection">选择一张图片，预览原图、设置拟合并导出图元参数。</div>
+      <div v-else class="empty-selection">{{ t('clientUIAnimationEditor.ui.primitiveResources.selectionHint') }}</div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import PrimitiveImage from "./PrimitiveImage.vue";
 import PrimitiveImageSettings from "./PrimitiveImageSettings.vue";
@@ -41,13 +42,13 @@ import { fitMissingPrimitiveResources } from "./primitiveBatch";
 
 const props = defineProps<{ assets: PrimitiveImageResource[]; selectedId: string | null; selectable: boolean; usage: Record<string, number> }>();
 const emit = defineEmits<{ (event: "close"): void; (event: "save", asset: PrimitiveImageResource): void; (event: "remove", id: string): void; (event: "select", id: string): void }>();
-const search = ref(""), error = ref(""), reading = ref(false), activeId = ref(props.selectedId ?? props.assets[0]?.id ?? "");
+const search = ref(""), error = ref<string>(''), reading = ref(false), activeId = ref(props.selectedId ?? props.assets[0]?.id ?? "");
 const panel = ref<HTMLElement | null>(null), preview = ref<HTMLElement | null>(null), fileInput = ref<HTMLInputElement | null>(null);
 const previewSize = ref({width: 280, height: 220});
 const filteredAssets = computed(() => props.assets.filter(a => a.name.toLowerCase().includes(search.value.trim().toLowerCase())));
 const activeAsset = computed(() => props.assets.find(a => a.id === activeId.value) ?? null);
 const missingCount = computed(() => props.assets.filter(asset => asset.imageUrl && !asset.fitData).length);
-const singleBusy = ref(false), batchBusy = ref(false), batchCancelling = ref(false), batchStatus = ref("");
+const singleBusy = ref(false), batchBusy = ref(false), batchCancelling = ref(false), batchStatus = ref<string>('');
 const batchProgress = ref(0), batchTotal = ref(1);
 const batchFailures = ref<{ name: string; message: string }[]>([]);
 let batchController: AbortController | null = null;
@@ -56,7 +57,7 @@ async function generateMissing() {
   if (batchBusy.value || singleBusy.value || reading.value || !missingCount.value) return;
   const job = new AbortController(); batchController = job;
   batchBusy.value = true; batchCancelling.value = false; batchFailures.value = [];
-  batchProgress.value = 0; batchTotal.value = missingCount.value; batchStatus.value = "正在准备批量生成…";
+  batchProgress.value = 0; batchTotal.value = missingCount.value; batchStatus.value = t('clientUIAnimationEditor.ui.primitiveResources.batchPreparing');
   try {
     const { fitPrimitiveImage } = await import("./primitiveFitter");
     const result = await fitMissingPrimitiveResources(() => props.assets, fitPrimitiveImage, async asset => {
@@ -65,14 +66,14 @@ async function generateMissing() {
     }, job.signal, ({ index, total, name, progress }) => {
       batchTotal.value = total;
       batchProgress.value = index - 1 + (progress?.phase === "fit" ? progress.done / Math.max(1, progress.total) : 0);
-      const phase = !progress || progress.phase === "image" ? "读取图片" : progress.phase === "engine" ? "加载引擎" : `${progress.done} / ${progress.total} 图元`;
-      batchStatus.value = `${index} / ${total} 张 · ${name} · ${phase}`;
+      const phase = !progress || progress.phase === "image" ? t('clientUIAnimationEditor.ui.primitiveResources.readImage') : progress.phase === "engine" ? t('clientUIAnimationEditor.ui.primitiveResources.loadEngine') : t('clientUIAnimationEditor.ui.primitiveFit.primitiveProgress', { done: progress.done, total: progress.total });
+      batchStatus.value = t('clientUIAnimationEditor.ui.primitiveResources.batchImageProgress', { index: index, total: total, name: name, phase: phase });
     });
     if (disposed) return;
     batchFailures.value = result.failures;
-    batchStatus.value = `${result.cancelled ? '已取消' : '批量生成完成'}：成功 ${result.generated} 张，失败 ${result.failures.length} 张${result.skipped ? `，跳过 ${result.skipped} 张` : ''}。已完成结果已保留。`;
+    batchStatus.value = t('clientUIAnimationEditor.ui.primitives.batchResult', { value: result.cancelled ? t('clientUIAnimationEditor.ui.primitives.cancelled') : t('clientUIAnimationEditor.ui.primitiveResources.batchGenerationComplete'), generated: result.generated, count: result.failures.length, skipped: result.skipped ? t('clientUIAnimationEditor.ui.primitiveResources.skippedImagesSuffix', { skipped: result.skipped }) : '' });
   } catch (reason) {
-    if (!disposed) batchStatus.value = job.signal.aborted ? "已取消批量生成，已完成结果已保留。" : `批量生成失败：${reason instanceof Error ? reason.message : '引擎加载失败'}`;
+    if (!disposed) batchStatus.value = job.signal.aborted ? t('clientUIAnimationEditor.ui.primitives.batchCancelled') : t('clientUIAnimationEditor.ui.primitives.batchFailed', { error: reason instanceof Error ? reason.message : t('clientUIAnimationEditor.ui.primitives.engineLoadFailedSummary') });
   } finally {
     batchController = null; batchBusy.value = false; batchCancelling.value = false;
   }
@@ -85,7 +86,7 @@ watch(() => props.assets.map(a => a.id), ids => { if (!ids.includes(activeId.val
 function updateActive(value: PrimitiveProperties) { if (activeAsset.value) emit("save", { ...value, id: activeAsset.value.id, name: activeAsset.value.name }); }
 function rename(name: string) { if (activeAsset.value && name.trim()) emit("save", { ...activeAsset.value, name: name.trim() }); }
 function addEmpty() {
-  const asset: PrimitiveImageResource = { id: crypto.randomUUID(), name: `图片 ${props.assets.length + 1}`, imageUrl: "", previewMode: "image", fitData: null };
+  const asset: PrimitiveImageResource = { id: crypto.randomUUID(), name: t('clientUIAnimationEditor.ui.primitives.defaultImageName', { count: props.assets.length + 1 }), imageUrl: "", previewMode: "image", fitData: null };
   emit("save", asset); activeId.value = asset.id; search.value = "";
 }
 async function importFiles(event: Event) {
@@ -94,12 +95,12 @@ async function importFiles(event: Event) {
   reading.value = true; error.value = "";
   try {
     for (const file of files) {
-      if (file.size > 32 * 1024 * 1024) throw new Error(`${file.name} 超过 32 MiB，请先缩小图片。`);
+      if (file.size > 32 * 1024 * 1024) throw new Error(t('clientUIAnimationEditor.ui.primitives.imageTooLarge', { name: file.name }));
       const source = await new Promise<string>((resolve, reject) => {
-        reader = new FileReader(); reader.onload = () => resolve(primitiveImageSource(reader?.result)); reader.onerror = () => reject(new Error(`${file.name} 读取失败`)); reader.onabort = () => reject(new Error("已取消导入")); reader.readAsDataURL(file);
+        reader = new FileReader(); reader.onload = () => resolve(primitiveImageSource(reader?.result)); reader.onerror = () => reject(new Error(t('clientUIAnimationEditor.ui.primitiveResources.imageReadFailed', { name: file.name }))); reader.onabort = () => reject(new Error(t('clientUIAnimationEditor.ui.primitiveImport.cancelled'))); reader.readAsDataURL(file);
       });
       if (disposed) return;
-      if (!source) throw new Error(`${file.name} 不是支持的图片格式。`);
+      if (!source) throw new Error(t('clientUIAnimationEditor.ui.primitiveResources.unsupportedImageFormat', { name: file.name }));
       const existing = props.assets.find(a => a.imageUrl === source);
       if (existing) activeId.value = existing.id;
       else {
@@ -108,7 +109,7 @@ async function importFiles(event: Event) {
       }
     }
     search.value = "";
-  } catch (reason) { if (!disposed) error.value = reason instanceof Error ? reason.message : "图片导入失败。"; }
+  } catch (reason) { if (!disposed) error.value = reason instanceof Error ? reason.message : t('clientUIAnimationEditor.ui.primitiveResources.imageImportFailed'); }
   finally { reader = null; if (!disposed) reading.value = false; }
 }
 </script>

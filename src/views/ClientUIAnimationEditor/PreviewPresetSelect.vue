@@ -6,13 +6,13 @@
     aria-haspopup="listbox"
     :aria-expanded="open"
     :aria-controls="menuId"
-    :aria-label="`预览设备与画布比例：${currentGroup?.label ?? ''} ${customLabel || currentPreset?.ratio || ''}`"
-    :title="customLabel ? `自定义画布 · ${customLabel}` : currentPreset ? `${currentGroup?.label} · ${currentPreset.width} × ${currentPreset.height}` : '预览设备与画布比例'"
+    :aria-label="t('clientUIAnimationEditor.ui.preview.deviceAndAspectRatioLabel', { label: currentGroup ? t(currentGroup.label) : '', value: customLabel || currentPreset?.ratio || '' })"
+    :title="customLabel ? t('clientUIAnimationEditor.ui.previewDevices.customCanvasSummary', { customLabel: customLabel }) : currentPreset ? `${currentGroup ? t(currentGroup.label) : ''} · ${currentPreset.width} × ${currentPreset.height}` : t('clientUIAnimationEditor.ui.previewDevices.canvasAspectRatio')"
     @click="toggleMenu"
     @keydown="handleTriggerKeydown"
   >
     <DevicePreviewIcon :mode="deviceId" :size="21" />
-    <span>{{ customLabel || currentPreset?.ratio || '选择比例' }}</span>
+    <span>{{ customLabel || currentPreset?.ratio || t('clientUIAnimationEditor.ui.previewDevices.selectAspectRatio') }}</span>
     <svg class="preview-preset-chevron" viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5Z" fill="currentColor" /></svg>
   </button>
 
@@ -24,13 +24,13 @@
       class="preview-preset-menu"
       :style="menuStyle"
       role="listbox"
-      aria-label="预览设备与画布比例"
+      :aria-label="t('clientUIAnimationEditor.ui.previewDevices.canvasAspectRatio')"
       :aria-activedescendant="activeIndex >= 0 ? optionId(activeIndex) : undefined"
       tabindex="-1"
       @contextmenu.prevent
       @keydown.stop="handleMenuKeydown"
     >
-      <div v-for="group in menuGroups" :key="group.id" class="preview-preset-group" role="group" :aria-label="group.label">
+      <div v-for="group in menuGroups" :key="group.id" class="preview-preset-group" role="group" :aria-label="t(group.label)">
         <div
           v-for="option in group.options"
           :id="optionId(option.index)"
@@ -39,8 +39,8 @@
           :class="{ selected: !customLabel && presetId === option.id, highlighted: activeIndex === option.index }"
           role="option"
           :aria-selected="!customLabel && presetId === option.id"
-          :aria-label="`${group.label} ${option.ratio}`"
-          :title="`${group.label} · ${option.width} × ${option.height}`"
+          :aria-label="`${t(group.label)} ${option.ratio}`"
+          :title="`${t(group.label)} · ${option.width} × ${option.height}`"
           @pointermove="activeIndex = option.index"
           @click="selectOption(option.id)"
         >
@@ -54,6 +54,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue';
 import DevicePreviewIcon from './DevicePreviewIcon.vue';
 

@@ -1,10 +1,11 @@
+const { errorMatches, messageText } = require('./i18n-test-helpers.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
 const ts = require('typescript');
 const previous = Module._extensions['.ts'];
 Module._extensions['.ts'] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true },
 }).outputText, file);
 try {
   const { convertPrimitiveFit, normalizePrimitiveData, normalizePrimitiveProperties, normalizePrimitiveOptions, primitiveWorkerLimit, buildPrimitiveParameters, buildPrimitiveResourceParameters } = require('../src/views/ClientUIAnimationEditor/primitiveData.ts');
@@ -37,8 +38,8 @@ try {
   assert.equal(convertPrimitiveFit(result,200,100,false).elements.length,3,'transparent output has no white rectangle');
   assert.equal(normalizePrimitiveData({ ...fit, width: 0 }), null);
   assert.equal(normalizePrimitiveData({ ...fit, elements: [{ ...fit.elements[0], rotation: Infinity }] }), null);
-  assert.throws(() => convertPrimitiveFit({ shapes: [{...result.shapes[0], rx:NaN}] },200,100,false), /无效/);
-  assert.throws(() => buildPrimitiveParameters(fit,'x',0,100), /尺寸/);
+  assert.throws(() => convertPrimitiveFit({ shapes: [{...result.shapes[0], rx:NaN}] },200,100,false), errorMatches(/无效/));
+  assert.throws(() => buildPrimitiveParameters(fit,'x',0,100), errorMatches(/尺寸/));
   assert.equal(normalizePrimitiveOptions({ count: Infinity, resolution: 10000, workers: 20 }).resolution,512);
   assert.equal(normalizePrimitiveOptions({ workers: 20 }).workers,16);
   const upgraded = normalizePrimitiveOptions({ count:80, resolution:128, workers:2, shapes:['triangle'], transparent:false });
@@ -70,9 +71,9 @@ try {
   assert.deepEqual(migratePrimitiveResources(saved.nodes,saved.resources),migrated,'resource migration is idempotent across save/reopen');
   assert.equal(migratePrimitiveResources([],migrated.resources).resources.length,1,'unused resources remain in the document');
   assert.equal(normalizePrimitiveResources([migrated.resources[0],migrated.resources[0],null,{}]).length,1);
-  assert.match(describeHistoryChange(JSON.stringify({primitiveResources:[]}),JSON.stringify({primitiveResources:migrated.resources})),/导入图片资源/);
+  assert.match(messageText(describeHistoryChange(JSON.stringify({primitiveResources:[]}),JSON.stringify({primitiveResources:migrated.resources}))),/导入图片资源/);
   const before = JSON.stringify({nodes:[{...source,properties:createControlProperties('primitive')}]});
   const after = JSON.stringify({nodes:[source]});
-  assert.match(describeHistoryChange(before,after),/图元原图/);
+  assert.match(messageText(describeHistoryChange(before,after)),/图元原图/);
   console.log('PASS geometry, Y-up rotation, contain scaling, colors, layer order, background, JSON persistence, legacy defaults, property copy/reset and malformed data');
 } finally { Module._extensions['.ts'] = previous; }

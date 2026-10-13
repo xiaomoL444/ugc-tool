@@ -14,90 +14,91 @@
       @keydown.tab="trapFocus"
     >
       <header>
-        <h2 id="timeline-data-import-title">导入 Timeline Data</h2>
-        <p id="timeline-data-import-description">按所选根控件的相对路径匹配现有控件。Data 不包含完整控件；导入不会创建控件，也不会执行 Lua。</p>
+        <h2 id="timeline-data-import-title">{{ t('clientUIAnimationEditor.ui.timelineImport.importData') }}</h2>
+        <p id="timeline-data-import-description">{{ t('clientUIAnimationEditor.ui.timelineImport.relativePathMatchingHint') }}</p>
       </header>
 
       <div class="source-heading">
-        <label for="timeline-data-import-source">Timeline Data 源码</label>
-        <button type="button" @click="fileInput?.click()">选择 Data 文件</button>
-        <input ref="fileInput" hidden type="file" accept=".lua,.txt" aria-label="选择 Timeline Data 文件" @change="readFile" />
+        <label for="timeline-data-import-source">{{ t('clientUIAnimationEditor.ui.timelineImport.sourceCode') }}</label>
+        <button type="button" @click="fileInput?.click()">{{ t('clientUIAnimationEditor.ui.timelineImport.selectDataFile') }}</button>
+        <input ref="fileInput" hidden type="file" accept=".lua,.txt" :aria-label="t('clientUIAnimationEditor.ui.timelineImport.selectFile')" @change="readFile" />
       </div>
       <textarea
         id="timeline-data-import-source"
         ref="sourceInput"
         :value="sourceText"
         :maxlength="MAX_SOURCE_BYTES"
-        aria-label="Timeline Data 源码"
+        :aria-label="t('clientUIAnimationEditor.ui.timelineImport.sourceCode')"
         aria-describedby="timeline-data-import-source-help"
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
-        placeholder="在此粘贴 Timeline Data，或选择 .lua / .txt 文件"
+        :placeholder="t('clientUIAnimationEditor.ui.timelineImport.dataPlaceholder')"
         @input="updateSource"
       />
-      <p id="timeline-data-import-source-help" class="field-help">支持 .lua / .txt 文件，最大 2 MiB。所有内容仅作为数据解析。</p>
-      <p v-if="readingFile" class="read-status" role="status">正在读取文件…</p>
+      <p id="timeline-data-import-source-help" class="field-help">{{ t('clientUIAnimationEditor.ui.timelineImport.fileFormatHint') }}</p>
+      <p v-if="readingFile" class="read-status" role="status">{{ t('clientUIAnimationEditor.ui.timelineImport.readingFile') }}</p>
       <p v-if="fileError" class="notice error-notice" role="alert">{{ fileError }}</p>
 
       <label class="root-field">
-        <span>导入根控件</span>
-        <select :value="rootId" aria-label="导入根控件" @change="updateRoot">
-          <option disabled value="">请选择根控件</option>
+        <span>{{ t('clientUIAnimationEditor.ui.timelineImport.rootControl') }}</span>
+        <select :value="rootId" :aria-label="t('clientUIAnimationEditor.ui.timelineImport.rootControl')" @change="updateRoot">
+          <option disabled value="">{{ t('clientUIAnimationEditor.ui.timelineImport.selectRoot') }}</option>
           <option v-for="root in roots" :key="root.id" :value="root.id">{{ root.label }}</option>
         </select>
       </label>
 
       <fieldset class="mode-field">
-        <legend>导入方式</legend>
+        <legend>{{ t('clientUIAnimationEditor.ui.timelineImport.mode') }}</legend>
         <label>
           <input type="radio" name="timeline-data-import-mode" value="append" :checked="mode === 'append'" @change="emit('update:mode', 'append')" />
-          <span>追加</span>
+          <span>{{ t('clientUIAnimationEditor.ui.timelineImport.appendMode') }}</span>
         </label>
         <label>
           <input type="radio" name="timeline-data-import-mode" value="replace" :checked="mode === 'replace'" @change="emit('update:mode', 'replace')" />
-          <span>替换所选根及其子级动画</span>
+          <span>{{ t('clientUIAnimationEditor.ui.timelineImport.replaceRootScope') }}</span>
         </label>
       </fieldset>
       <div v-if="mode === 'replace'" class="notice replace-notice" role="status">
-        <strong>替换动画</strong>
-        <p v-if="preview">将替换所选根控件及其子级的 {{ preview.replacedCount }} 条关键帧轨道，不影响其他控件的动画。</p>
-        <p v-else>将替换所选根控件及其子级的动画，不影响其他控件。输入 Data 后可查看待替换的轨道数量。</p>
+        <strong>{{ t('clientUIAnimationEditor.ui.timelineImport.replaceAnimation') }}</strong>
+        <p v-if="preview">{{ t('clientUIAnimationEditor.ui.timelineImport.replaceTrackCountHint', { count: preview.replacedCount }) }}</p>
+        <p v-else>{{ t('clientUIAnimationEditor.ui.timelineImport.replaceScopeHint') }}</p>
       </div>
 
-      <section class="preview-section" aria-label="导入预览" aria-live="polite">
-        <h3>导入预览</h3>
-        <p v-if="!preview" class="preview-empty">请粘贴 Timeline Data 或选择 Data 文件以查看预览。</p>
+      <section class="preview-section" :aria-label="t('clientUIAnimationEditor.ui.timelineImport.preview')" aria-live="polite">
+        <h3>{{ t('clientUIAnimationEditor.ui.timelineImport.preview') }}</h3>
+        <p v-if="!preview" class="preview-empty">{{ t('clientUIAnimationEditor.ui.timelineImport.dataRequiredHint') }}</p>
         <template v-else>
           <div v-if="preview.errors.length" class="notice error-notice">
-            <strong>无法导入，请修正以下问题</strong>
+            <strong>{{ t('clientUIAnimationEditor.ui.timelineImport.validationFailed') }}</strong>
             <ul><li v-for="(error, index) in preview.errors" :key="index">{{ error }}</li></ul>
-            <p>所有问题修正后才能导入，不会跳过错误内容进行部分导入。</p>
+            <p>{{ t('clientUIAnimationEditor.ui.timelineImport.fixAllErrorsHint') }}</p>
           </div>
           <template v-else>
             <dl class="preview-summary">
-              <div><dt>待导入</dt><dd>{{ preview.importedCount }} 条关键帧轨道 · {{ preview.eventCount ?? 0 }} 个事件</dd></div>
-              <div><dt>Schema</dt><dd>{{ preview.schema || '未识别' }}</dd></div>
-              <div><dt>导入后总时长</dt><dd>{{ formatDuration(preview.duration) }} 秒</dd></div>
+              <div><dt>{{ t('clientUIAnimationEditor.ui.timelineImport.pending') }}</dt><dd>{{ t('clientUIAnimationEditor.ui.timelineImport.trackEventSummary', { tracks: preview.importedCount, events: preview.eventCount ?? 0 }) }}</dd></div>
+              <div><dt>Schema</dt><dd>{{ preview.schema || t('clientUIAnimationEditor.ui.timelineImport.unrecognizedFormat') }}</dd></div>
+              <div><dt>{{ t('clientUIAnimationEditor.ui.timelineImport.resultDuration') }}</dt><dd>{{ t('clientUIAnimationEditor.ui.timelineImport.duration', { duration: formatDuration(preview.duration) }) }}</dd></div>
             </dl>
-            <p v-if="preview.importedCount === 0 && !preview.eventCount" class="notice error-notice">Data 中没有可导入的关键帧轨道或事件，不能使用空数据清空动画。</p>
+            <p v-if="preview.importedCount === 0 && !preview.eventCount" class="notice error-notice">{{ t('clientUIAnimationEditor.ui.timelineImport.emptyDataCannotClear') }}</p>
           </template>
           <div v-if="preview.warnings.length" class="notice warning-notice">
-            <strong>请留意</strong>
+            <strong>{{ t('clientUIAnimationEditor.ui.timelineImport.notesTitle') }}</strong>
             <ul><li v-for="(warning, index) in preview.warnings" :key="index">{{ warning }}</li></ul>
           </div>
         </template>
       </section>
 
       <footer>
-        <button type="button" @click="close">取消</button>
-        <button class="primary-action" :class="{ 'replace-action': mode === 'replace' }" type="submit" :disabled="!canConfirm">确认导入</button>
+        <button type="button" @click="close">{{ t('clientUIAnimationEditor.ui.actions.cancel') }}</button>
+        <button class="primary-action" :class="{ 'replace-action': mode === 'replace' }" type="submit" :disabled="!canConfirm">{{ t('clientUIAnimationEditor.ui.actions.confirmImport') }}</button>
       </footer>
     </form>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps<{
@@ -111,8 +112,8 @@ const props = defineProps<{
     eventCount?: number
     replacedCount: number
     duration: number
-    errors: string[]
-    warnings: string[]
+    errors: Array<string>
+    warnings: Array<string>
   } | null
 }>()
 const emit = defineEmits<{
@@ -128,7 +129,7 @@ const dialogElement = ref<HTMLFormElement | null>(null)
 const sourceInput = ref<HTMLTextAreaElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const readingFile = ref(false)
-const fileError = ref('')
+const fileError = ref<string>('')
 let readToken = 0
 let unmounted = false
 let submissionPending = false
@@ -166,11 +167,11 @@ async function readFile(event: Event) {
   invalidateFileRead()
   fileError.value = ''
   if (!/\.(lua|txt)$/i.test(file.name)) {
-    fileError.value = '请选择 .lua 或 .txt 格式的 Data 文件。'
+    fileError.value = t('clientUIAnimationEditor.ui.timelineImport.dataFileExtensionRequired')
     return
   }
   if (file.size > MAX_SOURCE_BYTES) {
-    fileError.value = '文件超过 2 MiB，请选择更小的 Data 文件。'
+    fileError.value = t('clientUIAnimationEditor.ui.timelineImport.fileTooLarge')
     return
   }
   const token = readToken
@@ -183,7 +184,7 @@ async function readFile(event: Event) {
     emit('update:sourceText', source)
   } catch {
     if (unmounted || token !== readToken) return
-    fileError.value = '无法读取文件，请重试或直接粘贴 Timeline Data 源码。'
+    fileError.value = t('clientUIAnimationEditor.ui.timelineImport.fileReadFailedHint')
   } finally {
     if (!unmounted && token === readToken) readingFile.value = false
   }

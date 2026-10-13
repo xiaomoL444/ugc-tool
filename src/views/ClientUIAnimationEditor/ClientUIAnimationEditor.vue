@@ -1,46 +1,46 @@
 <template>
   <div ref="editorElement" class="animation-editor" :class="{ 'is-timeline-resizing': timelineResizing, 'is-timeline-scrubbing': timelineScrubbing }" :inert="archive?.busy.value || editorHistory.busy.value" :style="editorStyle" @pointerdown.capture="beginEditorHistoryPointer" @focusin.capture="beginEditorHistoryInput" @input.capture="beginEditorHistoryInput" @focusout.capture="endEditorHistoryInput" @pointerdown="closeMenus" @contextmenu.prevent>
     <header class="editor-toolbar">
-      <button class="tool-button workspace-button" aria-label="管理工作区和编辑文件" @click.stop="workspacePanelOpen = true"><EditorIcon name="folder" :size="15" />工作区</button>
-      <div class="project-copy"><strong :title="archive?.selectedWorkspace.value">{{ archive?.selectedWorkspace.value || '客户端控件动画' }}</strong><span :title="projectName">{{ hasOpenDocument ? projectName : '未打开编辑文件' }}</span></div>
+      <button class="tool-button workspace-button" :aria-label="t('clientUIAnimationEditor.ui.workspace.manageWorkspacesAndFiles')" @click.stop="workspacePanelOpen = true"><EditorIcon name="folder" :size="15" />{{ t('clientUIAnimationEditor.ui.workspace.title') }}</button>
+      <div class="project-copy"><strong :title="archive?.selectedWorkspace.value">{{ archive?.selectedWorkspace.value || t('clientUIAnimationEditor.ui.editor.clientControlAnimationTitle') }}</strong><span :title="projectName">{{ hasOpenDocument ? projectName : t('clientUIAnimationEditor.ui.workspace.noOpenFile') }}</span></div>
       <div class="toolbar-divider"></div>
-      <button class="tool-button" @click.stop="resetProject"><EditorIcon name="plus" :size="15" />新建文件</button>
-      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="saveProject"><EditorIcon name="save" :size="15" />保存</button>
+      <button class="tool-button" @click.stop="resetProject"><EditorIcon name="plus" :size="15" />{{ t('clientUIAnimationEditor.ui.workspace.createDocument') }}</button>
+      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="saveProject"><EditorIcon name="save" :size="15" />{{ t('clientUIAnimationEditor.ui.actions.save') }}</button>
       <div class="history-tools" @pointerdown.stop>
-        <button class="history-icon-button" aria-label="撤销" title="撤销 · Ctrl+Z" :disabled="!hasOpenDocument || !editorHistory.canUndo.value || editorHistory.busy.value" @click.stop="undoEditorOperation"><EditorIcon name="undo" :size="16" /></button>
-        <button class="history-icon-button" aria-label="重做" title="重做 · Ctrl+Shift+Z / Ctrl+Y" :disabled="!hasOpenDocument || !editorHistory.canRedo.value || editorHistory.busy.value" @click.stop="redoEditorOperation"><EditorIcon name="redo" :size="16" /></button>
-        <button class="history-icon-button" aria-label="操作记录" title="操作记录 · 最近 100 个行为" :aria-expanded="historyPanelOpen" @click.stop="historyPanelOpen = !historyPanelOpen"><EditorIcon name="history" :size="16" /></button>
+        <button class="history-icon-button" :aria-label="t('clientUIAnimationEditor.ui.actions.undo')" :title="t('clientUIAnimationEditor.ui.history.undoShortcut')" :disabled="!hasOpenDocument || !editorHistory.canUndo.value || editorHistory.busy.value" @click.stop="undoEditorOperation"><EditorIcon name="undo" :size="16" /></button>
+        <button class="history-icon-button" :aria-label="t('clientUIAnimationEditor.ui.history.redo')" :title="t('clientUIAnimationEditor.ui.history.redoShortcut')" :disabled="!hasOpenDocument || !editorHistory.canRedo.value || editorHistory.busy.value" @click.stop="redoEditorOperation"><EditorIcon name="redo" :size="16" /></button>
+        <button class="history-icon-button" :aria-label="t('clientUIAnimationEditor.ui.history.actionHistory')" :title="t('clientUIAnimationEditor.ui.history.recentActionsTitle')" :aria-expanded="historyPanelOpen" @click.stop="historyPanelOpen = !historyPanelOpen"><EditorIcon name="history" :size="16" /></button>
         <EditorHistoryPanel v-if="historyPanelOpen" :entries="editorHistory.entries.value" :index="editorHistory.index.value" :busy="editorHistory.busy.value" :can-undo="editorHistory.canUndo.value" :can-redo="editorHistory.canRedo.value" @undo="undoEditorOperation" @redo="redoEditorOperation" @close="historyPanelOpen = false" />
       </div>
       <div class="import-wrap" @pointerdown.stop @keydown.esc.stop.prevent="importMenuOpen = false" @focusout="onImportMenuFocusOut">
-        <button class="tool-button" aria-label="导入文件" :aria-expanded="importMenuOpen" aria-controls="client-ui-import-menu" @click.stop="toggleImportMenu">{{ psdImportBusy ? psdImportProgress : '导入' }} <span aria-hidden="true">⌄</span></button>
+        <button class="tool-button" :aria-label="t('clientUIAnimationEditor.ui.workspace.importFile')" :aria-expanded="importMenuOpen" aria-controls="client-ui-import-menu" @click.stop="toggleImportMenu">{{ psdImportBusy ? psdImportProgress : t('clientUIAnimationEditor.ui.common.import') }} <span aria-hidden="true">⌄</span></button>
         <div v-if="importMenuOpen" id="client-ui-import-menu" class="import-menu">
-          <button @click.stop="openProject"><b>导入 JSON</b><small>工程文件</small></button>
-          <button @click.stop="openGiaFile"><b>导入 GIA</b><small>自动识别容器 UI / 控件模板</small></button>
-          <button :disabled="psdImportBusy" @click.stop="openPsdFile"><b>导入 PSD</b><small>{{ psdImportBusy ? psdImportProgress : 'Photoshop 图层文件' }}</small></button>
-          <button :disabled="spineImportBusy" @click.stop="openSpineFolder"><b>导入 Spine 动画文件夹</b><small>{{ spineImportBusy ? '正在读取 Spine…' : 'skeleton.json + 原始图片 · 无需 .spine · Spine 3.8' }}</small></button>
+          <button @click.stop="openProject"><b>{{ t('clientUIAnimationEditor.ui.importMenu.json') }}</b><small>{{ t('clientUIAnimationEditor.ui.workspace.projectFile') }}</small></button>
+          <button @click.stop="openGiaFile"><b>{{ t('clientUIAnimationEditor.ui.importMenu.gia') }}</b><small>{{ t('clientUIAnimationEditor.ui.importMenu.autoDetectGia') }}</small></button>
+          <button :disabled="psdImportBusy" @click.stop="openPsdFile"><b>{{ t('clientUIAnimationEditor.ui.psdImport.importPsd') }}</b><small>{{ psdImportBusy ? psdImportProgress : t('clientUIAnimationEditor.ui.psdImport.fileTypeDescription') }}</small></button>
+          <button :disabled="spineImportBusy" @click.stop="openSpineFolder"><b>{{ t('clientUIAnimationEditor.ui.importMenu.spineFolder') }}</b><small>{{ spineImportBusy ? t('clientUIAnimationEditor.ui.spineImport.reading') : t('clientUIAnimationEditor.ui.importMenu.spineRequirementsHint') }}</small></button>
         </div>
       </div>
       <div class="export-wrap" @pointerdown.stop @keydown.esc.stop.prevent="exportMenuOpen = false" @focusout="onExportMenuFocusOut">
-        <button class="tool-button" :disabled="!hasOpenDocument" aria-label="导出文件" :aria-expanded="exportMenuOpen" aria-controls="client-ui-export-menu" @click.stop="toggleExportMenu">导出 <span aria-hidden="true">⌄</span></button>
+        <button class="tool-button" :disabled="!hasOpenDocument" :aria-label="t('clientUIAnimationEditor.ui.workspace.exportFile')" :aria-expanded="exportMenuOpen" aria-controls="client-ui-export-menu" @click.stop="toggleExportMenu">{{ t('clientUIAnimationEditor.ui.common.export') }} <span aria-hidden="true">⌄</span></button>
         <div v-if="exportMenuOpen" id="client-ui-export-menu" class="export-menu">
-          <button :disabled="!hasOpenDocument" @click.stop="downloadProject"><b>导出 JSON</b><small>工程文件</small></button>
-          <button :disabled="!hasOpenDocument" title="选择导出客户端容器 UI 或控件模板 GIA" @click.stop="openGiaExport"><b>导出 GIA</b><small>容器 UI / 控件模板</small></button>
+          <button :disabled="!hasOpenDocument" @click.stop="downloadProject"><b>{{ t('clientUIAnimationEditor.ui.exportMenu.json') }}</b><small>{{ t('clientUIAnimationEditor.ui.workspace.projectFile') }}</small></button>
+          <button :disabled="!hasOpenDocument" :title="t('clientUIAnimationEditor.ui.giaExport.selectAssetType')" @click.stop="openGiaExport"><b>{{ t('clientUIAnimationEditor.ui.exportMenu.gia') }}</b><small>{{ t('clientUIAnimationEditor.ui.exportMenu.giaAssetKinds') }}</small></button>
         </div>
       </div>
-      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openControlTemplateLibrary">控件模板</button>
-      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openPrimitiveResourceLibrary">图片资源</button>
-      <button class="tool-button" :disabled="!hasOpenDocument || !fittedPrimitiveNodes.length" :aria-pressed="allPrimitivesFitted" title="一键切换所有图元控件的显示；尚未拟合的图片继续显示原图" @click.stop="toggleAllPrimitivePreviews">{{ allPrimitivesFitted ? '全部显示原图' : '全部显示拟合' }}</button>
-      <button class="archive-status" :class="{ 'has-error': archive?.error.value }" :title="archive?.error.value || archive?.status.value" @click.stop="workspacePanelOpen = true">{{ archive?.status.value || 'JSON 文件模式' }}</button>
+      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openControlTemplateLibrary">{{ t('clientUIAnimationEditor.ui.templates.title') }}</button>
+      <button class="tool-button" :disabled="!hasOpenDocument" @click.stop="openPrimitiveResourceLibrary">{{ t('clientUIAnimationEditor.ui.primitiveResources.title') }}</button>
+      <button class="tool-button" :disabled="!hasOpenDocument || !fittedPrimitiveNodes.length" :aria-pressed="allPrimitivesFitted" :title="t('clientUIAnimationEditor.ui.canvas.primitiveDisplayHint')" @click.stop="toggleAllPrimitivePreviews">{{ allPrimitivesFitted ? t('clientUIAnimationEditor.ui.preview.showAllSourceImages') : t('clientUIAnimationEditor.ui.canvas.showAllFitted') }}</button>
+      <button class="archive-status" :class="{ 'has-error': archive?.error.value }" :title="archive?.error.value || archive?.status.value || ''" @click.stop="workspacePanelOpen = true">{{ archive?.status.value || t('clientUIAnimationEditor.ui.importMenu.jsonFileMode') }}</button>
       <div class="lua-export-wrap" @pointerdown.stop>
-        <button class="tool-button lua-export-button" aria-label="Lua 导入与导出" title="导入动画数据，或导出动画、图元数据及独立运行库" @click.stop="importMenuOpen = false; exportMenuOpen = false; luaExportMenuOpen = !luaExportMenuOpen">Lua 工具 <span>⌄</span></button>
-        <span class="lua-lib-version" :title="`当前可导出的 TweenTimelineLib 版本：@${TWEEN_TIMELINE_LIB_VERSION}。不代表游戏项目中已安装的版本；更新时请重新导出运行库。`">Lib:v{{ TWEEN_TIMELINE_LIB_VERSION }}</span>
+        <button class="tool-button lua-export-button" :aria-label="t('clientUIAnimationEditor.ui.exportMenu.lua')" :title="t('clientUIAnimationEditor.ui.exportMenu.description')" @click.stop="importMenuOpen = false; exportMenuOpen = false; luaExportMenuOpen = !luaExportMenuOpen">{{ t('clientUIAnimationEditor.ui.luaTools.title') }} <span>⌄</span></button>
+        <span class="lua-lib-version" :title="t('clientUIAnimationEditor.ui.exportMenu.runtimeVersionHint', { version: TWEEN_TIMELINE_LIB_VERSION })">Lib:v{{ TWEEN_TIMELINE_LIB_VERSION }}</span>
         <div v-if="luaExportMenuOpen" class="lua-export-menu">
-          <button :disabled="!hasOpenDocument" @click.stop="openTimelineDataImport"><b>导入 Timeline Data</b><small>从 Data 还原控件的动画时间轴</small></button>
-          <button @click.stop="exportTweenTimelineLib"><b>导出TweenTimeline运行库</b><small>TweenTimelineLib.lua · v{{ TWEEN_TIMELINE_LIB_VERSION }} · 放入 Lib</small></button>
-          <button :disabled="!selectedNode" @click.stop="exportSelectedNodeTweenData"><b>导出 Timeline Data</b><small>{{ selectedNode ? `${activeAnimation.name} · 以 ${selectedNode.name} 为根控件` : '请先选择根控件' }}</small></button>
-          <button :disabled="!selectedNode" @click.stop="exportSelectedPrimitiveProject"><b>导出图元项目 Lua</b><small>{{ selectedNode ? `以 ${selectedNode.name} 为根控件 · 导出自身及子级图元` : '请先选择根控件' }}</small></button>
-          <button @click.stop="exportPrimitiveImageLib"><b>导出图元运行库</b><small>PrimitiveImageLib.lua · 独立生成图片集合</small></button>
+          <button :disabled="!hasOpenDocument" @click.stop="openTimelineDataImport"><b>{{ t('clientUIAnimationEditor.ui.timelineImport.importData') }}</b><small>{{ t('clientUIAnimationEditor.ui.timelineImport.restoreAnimationTimelines') }}</small></button>
+          <button @click.stop="exportTweenTimelineLib"><b>{{ t('clientUIAnimationEditor.ui.exportMenu.tweenRuntime') }}</b><small>{{ t('clientUIAnimationEditor.ui.timelineExport.runtimeVersionHint', { version: TWEEN_TIMELINE_LIB_VERSION }) }}</small></button>
+          <button :disabled="!selectedNode" @click.stop="exportSelectedNodeTweenData"><b>{{ t('clientUIAnimationEditor.ui.timelineExport.exportData') }}</b><small>{{ selectedNode ? t('clientUIAnimationEditor.ui.exportMenu.animationRootSummary', { animationName: activeAnimation.name, nodeName: selectedNode.name }) : t('clientUIAnimationEditor.ui.exportMenu.rootRequired') }}</small></button>
+          <button :disabled="!selectedNode" @click.stop="exportSelectedPrimitiveProject"><b>{{ t('clientUIAnimationEditor.ui.primitiveExport.projectLua') }}</b><small>{{ selectedNode ? t('clientUIAnimationEditor.ui.primitiveExport.rootSummary', { nodeName: selectedNode.name }) : t('clientUIAnimationEditor.ui.exportMenu.rootRequired') }}</small></button>
+          <button @click.stop="exportPrimitiveImageLib"><b>{{ t('clientUIAnimationEditor.ui.primitiveExport.exportRuntime') }}</b><small>{{ t('clientUIAnimationEditor.ui.exportMenu.primitiveRuntimeHint') }}</small></button>
         </div>
       </div>
       <input ref="fileInput" class="file-input" type="file" accept="application/json,.json" @change="loadProject" />
@@ -50,8 +50,8 @@
       <span v-if="giaImportStatus" class="gia-import-status" :title="giaImportStatus">{{ giaImportStatus }}</span>
       <div class="toolbar-spacer"></div>
       <PreviewPresetSelect :groups="previewPresetGroups" :device-id="deviceMode" :preset-id="previewPresetId" :custom-label="customCanvasLabel" @select="selectPreviewPreset" />
-      <div class="zoom-control"><button aria-label="缩小画布" @click.stop="zoom = Math.max(0.01, zoom - 0.1)">−</button><span>{{ Math.round(zoom * 100) }}%</span><button aria-label="放大画布" @click.stop="zoom = Math.min(1.5, zoom + 0.1)">＋</button></div>
-      <button class="icon-button" title="适应画布" aria-label="适应画布" @click.stop="fitCanvas"><EditorIcon name="fit" /></button>
+      <div class="zoom-control"><button :aria-label="t('clientUIAnimationEditor.ui.canvas.zoomOut')" @click.stop="zoom = Math.max(0.01, zoom - 0.1)">−</button><span>{{ Math.round(zoom * 100) }}%</span><button :aria-label="t('clientUIAnimationEditor.ui.canvas.zoomIn')" @click.stop="zoom = Math.min(1.5, zoom + 0.1)">＋</button></div>
+      <button class="icon-button" :title="t('clientUIAnimationEditor.ui.canvas.fitToView')" :aria-label="t('clientUIAnimationEditor.ui.canvas.fitToView')" @click.stop="fitCanvas"><EditorIcon name="fit" /></button>
     </header>
 
     <ImageAssetLibrary v-if="imageLibraryOpen && selectedNode?.type === 'image'" :key="selectedId ?? ''" :selected-id="selectedNode.properties.imageId" @select="selectImageAsset" @close="imageLibraryOpen = false" />
@@ -61,30 +61,30 @@
     <div class="editor-body" :class="{ 'is-animations-collapsed': animationsPanelCollapsed }">
       <aside class="hierarchy-panel panel">
         <div class="panel-heading">
-          <div><h2>控件层级 <span class="heading-count">{{ nodes.length }}</span></h2></div>
-          <button class="square-button" title="添加控件" aria-label="添加控件" :aria-expanded="addMenuOpen" @click.stop="addMenuOpen = !addMenuOpen"><EditorIcon name="plus" /></button>
+          <div><h2>{{ t('clientUIAnimationEditor.ui.hierarchy.title') }} <span class="heading-count">{{ nodes.length }}</span></h2></div>
+          <button class="square-button" :title="t('clientUIAnimationEditor.ui.controls.addControl')" :aria-label="t('clientUIAnimationEditor.ui.controls.addControl')" :aria-expanded="addMenuOpen" @click.stop="addMenuOpen = !addMenuOpen"><EditorIcon name="plus" /></button>
           <div v-if="addMenuOpen" class="add-menu" @pointerdown.stop>
-            <button v-for="control in addControlDefinitions" :key="control.type" @click="addNode(control.type)"><span>{{ control.icon }}</span><div><b>{{ control.label }}</b><small>{{ control.description }}</small></div></button>
+            <button v-for="control in addControlDefinitions" :key="control.type" @click="addNode(control.type)"><span>{{ control.icon }}</span><div><b>{{ t(control.label) }}</b><small>{{ t(control.description) }}</small></div></button>
           </div>
         </div>
-        <div class="search-box"><EditorIcon name="search" :size="17" /><input v-model="search" placeholder="搜索控件" aria-label="搜索控件" /><button v-if="search" class="search-clear" aria-label="清空搜索" @click="search = ''">×</button></div>
+        <div class="search-box"><EditorIcon name="search" :size="17" /><input v-model="search" :placeholder="t('clientUIAnimationEditor.ui.hierarchy.searchControls')" :aria-label="t('clientUIAnimationEditor.ui.hierarchy.searchControls')" /><button v-if="search" class="search-clear" :aria-label="t('clientUIAnimationEditor.ui.hierarchy.clearSearch')" @click="search = ''">×</button></div>
         <div ref="hierarchyTree" class="tree" :class="{ 'is-hierarchy-dragging': hierarchyDrag.active }" @pointerdown.stop>
-          <div v-if="hierarchyDrag.active" class="root-drop-hint" :class="{ active: hierarchyDrag.dropMode === 'inside' && hierarchyDrag.dropTargetId === rootContainer?.id }">拖到空白处 · 放到根层级</div>
-          <button v-for="item in visibleTree" :key="item.node.id" class="tree-row" :class="{ selected: item.node.id === selectedId, muted: !item.node.visible, 'root-node': item.node.id === rootContainer?.id, dragging: hierarchyDrag.active && hierarchyDrag.nodeId === item.node.id, 'drop-inside': hierarchyDrag.active && hierarchyDrag.dropMode === 'inside' && hierarchyDrag.dropTargetId === item.node.id, 'drop-before': hierarchyDrag.active && hierarchyDrag.dropMode === 'before' && hierarchyDrag.dropTargetId === item.node.id, 'drop-after': hierarchyDrag.active && hierarchyDrag.dropMode === 'after' && hierarchyDrag.dropTargetId === item.node.id }" :data-node-id="item.node.id" :style="{ paddingLeft: `${12 + item.depth * 18}px` }" :title="item.node.id === rootContainer?.id ? '唯一根容器' : '长按并拖动；边缘调整顺序，中间设为子级'" @pointerdown="startHierarchyPress($event, item.node)" @click="selectHierarchyNode(item.node, $event)">
+          <div v-if="hierarchyDrag.active" class="root-drop-hint" :class="{ active: hierarchyDrag.dropMode === 'inside' && hierarchyDrag.dropTargetId === rootContainer?.id }">{{ t('clientUIAnimationEditor.ui.hierarchy.dropToRootHint') }}</div>
+          <button v-for="item in visibleTree" :key="item.node.id" class="tree-row" :class="{ selected: item.node.id === selectedId, muted: !item.node.visible, 'root-node': item.node.id === rootContainer?.id, dragging: hierarchyDrag.active && hierarchyDrag.nodeId === item.node.id, 'drop-inside': hierarchyDrag.active && hierarchyDrag.dropMode === 'inside' && hierarchyDrag.dropTargetId === item.node.id, 'drop-before': hierarchyDrag.active && hierarchyDrag.dropMode === 'before' && hierarchyDrag.dropTargetId === item.node.id, 'drop-after': hierarchyDrag.active && hierarchyDrag.dropMode === 'after' && hierarchyDrag.dropTargetId === item.node.id }" :data-node-id="item.node.id" :style="{ paddingLeft: `${12 + item.depth * 18}px` }" :title="item.node.id === rootContainer?.id ? t('clientUIAnimationEditor.ui.hierarchy.soleRootContainer') : t('clientUIAnimationEditor.ui.hierarchy.dragPlacementHint')" @pointerdown="startHierarchyPress($event, item.node)" @click="selectHierarchyNode(item.node, $event)">
             <span class="chevron" @pointerdown.stop @click.stop="toggleCollapsed(item.node.id)">{{ hasChildren(item.node.id) ? (collapsed.has(item.node.id) ? '›' : '⌄') : '' }}</span>
-            <EditorIcon class="node-icon" :name="controlIconName(item.node.type)" :size="17" /><span class="node-name">{{ item.node.name }}</span><span class="visibility" :title="item.node.visible ? '隐藏控件' : '显示控件'" @pointerdown.stop @click.stop="item.node.visible = !item.node.visible"><EditorIcon :name="item.node.visible ? 'eye' : 'eye-off'" :size="15" /></span>
+            <EditorIcon class="node-icon" :name="controlIconName(item.node.type)" :size="17" /><span class="node-name">{{ item.node.name }}</span><span class="visibility" :title="item.node.visible ? t('clientUIAnimationEditor.ui.controls.hideControl') : t('clientUIAnimationEditor.ui.hierarchy.showControl')" @pointerdown.stop @click.stop="item.node.visible = !item.node.visible"><EditorIcon :name="item.node.visible ? 'eye' : 'eye-off'" :size="15" /></span>
           </button>
-          <div v-if="visibleTree.length === 0" class="empty-state">没有匹配的控件</div>
+          <div v-if="visibleTree.length === 0" class="empty-state">{{ t('clientUIAnimationEditor.ui.hierarchy.noMatchingControls') }}</div>
         </div>
         <div v-if="hierarchyDrag.active" class="hierarchy-drag-ghost" :style="hierarchyDragGhostStyle"><span>{{ nodeIcon(draggedHierarchyNode?.type ?? 'container') }}</span><b>{{ draggedHierarchyNode?.name }}</b><small>{{ hierarchyDrag.dropLabel }}</small></div>
-        <div class="hierarchy-actions"><button v-if="boneToolsEnabled" class="bone-create-toggle" :class="{ active: boneCreateMode }" :aria-pressed="boneCreateMode" :disabled="!hasOpenDocument" title="拖拽创建骨骼 · 单击骨骼切换父级 · Ctrl 点击控件归入当前骨骼 · Esc 退出" @click.stop="toggleBoneCreateMode">以骨骼模式添加</button><button class="add-control-button" @click.stop="addMenuOpen = true"><EditorIcon name="plus" :size="16" />添加控件</button><button aria-label="删除选中控件" :disabled="!selectedNode || selectedNode.id === rootContainer?.id" :title="selectedNode?.id === rootContainer?.id ? '根容器不可删除' : '删除选中控件'" @click="removeSelected"><EditorIcon name="trash" :size="16" /></button></div>
+        <div class="hierarchy-actions"><button v-if="boneToolsEnabled" class="bone-create-toggle" :class="{ active: boneCreateMode }" :aria-pressed="boneCreateMode" :disabled="!hasOpenDocument" :title="t('clientUIAnimationEditor.ui.canvas.boneCreateToolHint')" @click.stop="toggleBoneCreateMode">{{ t('clientUIAnimationEditor.ui.bones.addInBoneMode') }}</button><button class="add-control-button" @click.stop="addMenuOpen = true"><EditorIcon name="plus" :size="16" />{{ t('clientUIAnimationEditor.ui.controls.addControl') }}</button><button :aria-label="t('clientUIAnimationEditor.ui.hierarchy.deleteSelected')" :disabled="!selectedNode || selectedNode.id === rootContainer?.id" :title="selectedNode?.id === rootContainer?.id ? t('clientUIAnimationEditor.ui.hierarchy.rootCannotBeDeleted') : t('clientUIAnimationEditor.ui.hierarchy.deleteSelected')" @click="removeSelected"><EditorIcon name="trash" :size="16" /></button></div>
       </aside>
 
       <main class="workspace-panel">
-        <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />场景画布</span><button class="bone-mode-toggle" :class="{ active: boneToolsEnabled }" :aria-pressed="boneToolsEnabled" :disabled="!hasOpenDocument" title="展开骨骼编辑工具" @click.stop="toggleBoneTools">以骨骼模式使用</button><button v-if="boneToolsEnabled" class="bone-visibility-toggle" :class="{ active: showContainerBones }" :aria-pressed="showContainerBones" :disabled="!hasOpenDocument" aria-label="显示骨骼" title="显示或隐藏所有容器的方向骨骼，不改变箭头长度" @click.stop="showContainerBones = !showContainerBones"><EditorIcon :name="showContainerBones ? 'eye' : 'eye-off'" :size="14" />显示骨骼</button><span class="workspace-hint">拖动控件 · 滚轮缩放 · 中键平移</span><span class="canvas-ratio">{{ customCanvasLabel || currentPreset.ratio }}</span></div>
+        <div class="workspace-tabs"><span class="workspace-label"><EditorIcon name="scene" :size="16" />{{ t('clientUIAnimationEditor.ui.canvas.scene') }}</span><button class="bone-mode-toggle" :class="{ active: boneToolsEnabled }" :aria-pressed="boneToolsEnabled" :disabled="!hasOpenDocument" :title="t('clientUIAnimationEditor.ui.canvas.openBoneTools')" @click.stop="toggleBoneTools">{{ t('clientUIAnimationEditor.ui.bones.useBoneMode') }}</button><button v-if="boneToolsEnabled" class="bone-visibility-toggle" :class="{ active: showContainerBones }" :aria-pressed="showContainerBones" :disabled="!hasOpenDocument" :aria-label="t('clientUIAnimationEditor.ui.preview.showBones')" :title="t('clientUIAnimationEditor.ui.canvas.boneVisibilityHint')" @click.stop="showContainerBones = !showContainerBones"><EditorIcon :name="showContainerBones ? 'eye' : 'eye-off'" :size="14" />{{ t('clientUIAnimationEditor.ui.preview.showBones') }}</button><span class="workspace-hint">{{ t('clientUIAnimationEditor.ui.canvas.navigationHint') }}</span><span class="canvas-ratio">{{ customCanvasLabel || currentPreset.ratio }}</span></div>
         <div ref="viewportElement" class="viewport" :class="[{ 'is-panning': isPanning, 'is-creating-bones': boneCreateMode }, `tool-${canvasTool}`]" @pointermove="updateBoneHover" @pointerleave="clearBoneHover" @pointercancel="clearBoneHover" @wheel.prevent="handleCanvasWheel" @pointerdown.capture="captureBonePointer" @pointerdown="handleViewportPointerDown" @auxclick.prevent>
           <div class="canvas-stage" :class="{ 'mobile-frame': isMobilePreview }" :style="stageStyle">
-            <div class="device-preview-label">{{ currentDevice.label }} · {{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</div>
+            <div class="device-preview-label">{{ t(currentDevice.label) }} · {{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</div>
             <div class="safe-area"></div>
             <svg class="canvas-image-mask-defs" :width="canvasWidth" :height="canvasHeight" aria-hidden="true">
               <defs>
@@ -106,7 +106,7 @@
               <PrimitiveImage v-else-if="node.type === 'primitive'" :image-url="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.imageUrl ?? ''" :preview-mode="node.properties.previewMode" :fit-data="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.fitData" :width="previewNode(node).width" :height="previewNode(node).height" />
               <ControlTemplatePreview v-else-if="node.type === 'reference'" :asset="controlTemplateByIndex.get(node.properties.referencedPrefabIndex ?? -1) ?? null" :missing-index="node.properties.referencedPrefabIndex" :device-index="templateDeviceIndex" :width="previewNode(node).width" :height="previewNode(node).height" :alpha="previewNode(node).previewTemplateAlpha ?? 1" />
               <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
-              <span v-else-if="node.type !== 'container'" class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ controlLabels[node.type] }}</small></span>
+              <span v-else-if="node.type !== 'container'" class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ t(controlLabels[node.type]) }}</small></span>
             </div>
             </CanvasMaskLayers>
             <template v-if="boneToolsEnabled">
@@ -119,21 +119,21 @@
               <i class="selection-pivot" :style="{ left: `${previewNode(selectedCanvasNode).pivotX * 100}%`, bottom: `${previewNode(selectedCanvasNode).pivotY * 100}%` }"></i>
             </div>
           </div>
-          <span v-if="boneRootPoint" class="bone-root-point" :style="boneRootPoint" title="根容器 Pivot" aria-label="根容器中心点"></span>
-          <div v-if="boneCreateMode" class="bone-create-hint" role="status">父级：{{ boneParent?.name }} · {{ boneHoverTarget ? `待归入：${boneHoverTarget.name} · Ctrl 点击确认` : '拖拽创建 · 单击骨骼换父级 · Ctrl 点击控件归入' }} · Esc 退出</div>
+          <span v-if="boneRootPoint" class="bone-root-point" :style="boneRootPoint" :title="t('clientUIAnimationEditor.ui.bones.rootPivot')" :aria-label="t('clientUIAnimationEditor.ui.preview.rootCenter')"></span>
+          <div v-if="boneCreateMode" class="bone-create-hint" role="status">{{ t('clientUIAnimationEditor.ui.canvas.boneCreationHint', { parentName: boneParent?.name ?? '', hint: boneHoverTarget ? t('clientUIAnimationEditor.ui.hierarchy.boneAssignHover', { nodeName: boneHoverTarget.name }) : t('clientUIAnimationEditor.ui.bones.editingGestureHint') }) }}</div>
           <div v-if="transformGizmo && selectedNode" class="transform-gizmo" :style="transformGizmo.style">
             <template v-if="canvasTool === 'combined'">
               <svg class="transform-gizmo-lines" width="1" height="1" aria-hidden="true"><line :x1="transformGizmo.top.x" :y1="transformGizmo.top.y" :x2="transformGizmo.rotationHandle.x" :y2="transformGizmo.rotationHandle.y" /></svg>
-              <button class="rotation-handle" :style="{ left: `${transformGizmo.rotationHandle.x}px`, top: `${transformGizmo.rotationHandle.y}px` }" aria-label="旋转选中控件" title="拖动旋转控件" @pointerdown.stop="startCanvasRotation($event, selectedNode)"><EditorIcon name="rotate" :size="17" /></button>
+              <button class="rotation-handle" :style="{ left: `${transformGizmo.rotationHandle.x}px`, top: `${transformGizmo.rotationHandle.y}px` }" :aria-label="t('clientUIAnimationEditor.ui.preview.rotateSelectedControl')" :title="t('clientUIAnimationEditor.ui.preview.dragRotationControl')" @pointerdown.stop="startCanvasRotation($event, selectedNode)"><EditorIcon name="rotate" :size="17" /></button>
             </template>
-            <svg v-else-if="canvasTool === 'rotate'" class="rotation-gizmo" width="116" height="116" viewBox="-58 -58 116 116" aria-label="旋转圆环：拖动圆环或控件旋转">
+            <svg v-else-if="canvasTool === 'rotate'" class="rotation-gizmo" width="116" height="116" viewBox="-58 -58 116 116" :aria-label="t('clientUIAnimationEditor.ui.canvas.rotationRingHint')">
               <circle class="rotation-ring-hit" r="44" @pointerdown.stop="startCanvasRotation($event, selectedNode)" />
               <circle class="rotation-ring" r="44" />
               <path class="rotation-ticks" d="M0 -49v10M49 0H39M0 49V39M-49 0h10" />
               <line class="rotation-radius" x1="0" y1="0" :x2="transformGizmo.xAxis.x * 44 / 58" :y2="transformGizmo.xAxis.y * 44 / 58" />
               <circle class="rotation-center" r="4" />
             </svg>
-            <svg v-else-if="canvasTool === 'scale'" class="scale-gizmo" width="1" height="1" aria-label="缩放手柄：中心等比缩放，红色 X 轴和绿色 Y 轴单独缩放">
+            <svg v-else-if="canvasTool === 'scale'" class="scale-gizmo" width="1" height="1" :aria-label="t('clientUIAnimationEditor.ui.preview.scaleHandleHint')">
               <g v-for="axis in transformGizmo.scaleAxes" :key="axis.id" :class="`scale-axis axis-${axis.id}`" @pointerdown.stop="startCanvasScale($event, selectedNode, axis.id)">
                 <line class="scale-axis-hit" x1="0" y1="0" :x2="axis.x" :y2="axis.y" />
                 <line x1="0" y1="0" :x2="axis.x" :y2="axis.y" />
@@ -143,12 +143,12 @@
               <rect class="scale-uniform" x="-6" y="-6" width="12" height="12" rx="2" @pointerdown.stop="startCanvasScale($event, selectedNode)" />
             </svg>
           </div>
-          <button v-if="boneToolsEnabled && boneLengthHandle" class="bone-length-handle" :style="boneLengthHandle" aria-label="调整骨骼长度" :title="`拖动尖端调整骨骼长度 · ${selectedDirectionArrowLength} px`" @pointerdown.stop="startBoneLengthDrag"></button>
-          <div class="viewport-status"><span>{{ currentDevice.label }}</span><span>{{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</span><span>X {{ cursorPosition.x }} &nbsp; Y {{ cursorPosition.y }}</span></div>
+          <button v-if="boneToolsEnabled && boneLengthHandle" class="bone-length-handle" :style="boneLengthHandle" :aria-label="t('clientUIAnimationEditor.ui.canvas.adjustBoneLength')" :title="t('clientUIAnimationEditor.ui.bones.resizeTipHint', { selectedDirectionArrowLength: selectedDirectionArrowLength })" @pointerdown.stop="startBoneLengthDrag"></button>
+          <div class="viewport-status"><span>{{ t(currentDevice.label) }}</span><span>{{ formatDimension(canvasWidth) }} × {{ formatDimension(canvasHeight) }}</span><span>X {{ cursorPosition.x }} &nbsp; Y {{ cursorPosition.y }}</span></div>
         </div>
-        <div class="canvas-transform-toolbar" role="toolbar" aria-label="画布变换工具" @pointerdown.stop>
-          <button v-for="tool in canvasTools" :key="tool.id" :class="{ active: canvasTool === tool.id }" :aria-pressed="canvasTool === tool.id" :title="tool.hint" @click="selectCanvasTool(tool.id)"><EditorIcon :name="tool.icon" :size="16" />{{ tool.label }}</button>
-          <span class="canvas-transform-hint">{{ activeCanvasTool.hint }}</span>
+        <div class="canvas-transform-toolbar" role="toolbar" :aria-label="t('clientUIAnimationEditor.ui.preview.transformTools')" @pointerdown.stop>
+          <button v-for="tool in canvasTools" :key="tool.id" :class="{ active: canvasTool === tool.id }" :aria-pressed="canvasTool === tool.id" :title="t(tool.hint)" @click="selectCanvasTool(tool.id)"><EditorIcon :name="tool.icon" :size="16" />{{ t(tool.label) }}</button>
+          <span class="canvas-transform-hint">{{ t(activeCanvasTool.hint) }}</span>
         </div>
       </main>
 
@@ -156,83 +156,83 @@
         @select="selectAnimation" @create="createAnimation" @duplicate="duplicateAnimation" @rename="renameAnimation" @remove="removeAnimation" />
       <aside class="inspector-panel panel">
         <div class="panel-heading inspector-heading">
-          <div v-if="selectedNode" class="inspector-identity"><input v-model="selectedNode.name" class="inspector-name" aria-label="控件名称" /><span>{{ controlLabels[selectedNode.type] }}<span class="identity-separator">·</span>控件详情</span></div>
-          <h2 v-else>控件详情</h2>
+          <div v-if="selectedNode" class="inspector-identity"><input v-model="selectedNode.name" class="inspector-name" :aria-label="t('clientUIAnimationEditor.ui.controls.name')" /><span>{{ t(controlLabels[selectedNode.type]) }}<span class="identity-separator">·</span>{{ t('clientUIAnimationEditor.ui.properties.controlDetails') }}</span></div>
+          <h2 v-else>{{ t('clientUIAnimationEditor.ui.properties.controlDetails') }}</h2>
           <EditorIcon name="sliders" :size="20" />
         </div>
-        <div v-if="selectedNode" class="inspector-tabs" role="tablist" aria-label="控件属性页签"><button id="inspector-basic-tab" role="tab" :aria-selected="inspectorTab === 'basic'" aria-controls="inspector-basic" :class="{ active: inspectorTab === 'basic' }" @click="inspectorTab = 'basic'" @keydown.right.prevent="switchInspectorTab('runtime')">基础</button><button id="inspector-runtime-tab" role="tab" :aria-selected="inspectorTab === 'runtime'" aria-controls="inspector-runtime" :class="{ active: inspectorTab === 'runtime' }" @click="inspectorTab = 'runtime'" @keydown.left.prevent="switchInspectorTab('basic')">运行时</button></div>
+        <div v-if="selectedNode" class="inspector-tabs" role="tablist" :aria-label="t('clientUIAnimationEditor.ui.properties.tabs')"><button id="inspector-basic-tab" role="tab" :aria-selected="inspectorTab === 'basic'" aria-controls="inspector-basic" :class="{ active: inspectorTab === 'basic' }" @click="inspectorTab = 'basic'" @keydown.right.prevent="switchInspectorTab('runtime')">{{ t('clientUIAnimationEditor.ui.properties.basicTab') }}</button><button id="inspector-runtime-tab" role="tab" :aria-selected="inspectorTab === 'runtime'" aria-controls="inspector-runtime" :class="{ active: inspectorTab === 'runtime' }" @click="inspectorTab = 'runtime'" @keydown.left.prevent="switchInspectorTab('basic')">{{ t('clientUIAnimationEditor.ui.controls.runtimeTab') }}</button></div>
         <div v-if="selectedNode" class="inspector-scroll">
           <div v-if="propertyActionFeedback?.nodeId === selectedId" class="property-action-feedback" role="status">{{ propertyActionFeedback.message }}</div>
           <div v-show="inspectorTab === 'basic'" id="inspector-basic" role="tabpanel" aria-labelledby="inspector-basic-tab">
-          <PropertySection title="变换" icon="⌖" group="transform">
-            <div class="device-field"><span>设备</span><div class="device-mode-switch" role="group" aria-label="预览设备"><button v-for="device in deviceModes" :key="device.id" :class="{ active: deviceMode === device.id }" :title="device.label" :aria-label="device.label" :aria-pressed="deviceMode === device.id" @click.stop="switchDevice(device.id)"><DevicePreviewIcon :mode="device.id" :size="22" /></button></div></div>
-            <div class="coordinate-note"><span title="坐标以画布左下角为原点">世界坐标 · 左下原点</span></div>
+          <PropertySection :title="t('clientUIAnimationEditor.ui.properties.transform')" icon="⌖" group="transform">
+            <div class="device-field"><span>{{ t('clientUIAnimationEditor.ui.controls.device') }}</span><div class="device-mode-switch" role="group" :aria-label="t('clientUIAnimationEditor.ui.canvas.previewDevice')"><button v-for="device in deviceModes" :key="device.id" :class="{ active: deviceMode === device.id }" :title="t(device.label)" :aria-label="t(device.label)" :aria-pressed="deviceMode === device.id" @click.stop="switchDevice(device.id)"><DevicePreviewIcon :mode="device.id" :size="22" /></button></div></div>
+            <div class="coordinate-note"><span :title="t('clientUIAnimationEditor.ui.canvas.coordinateOriginHint')">{{ t('clientUIAnimationEditor.ui.properties.worldCoordinatesHint') }}</span></div>
             <div class="property-grid">
-              <NumberField :model-value="selectedWorldPosition.x" :animated="hasAnimatedField('anchoredPositionX')" axis="X" label="预览位置" @update:model-value="updateGeometry('x', $event)" />
+              <NumberField :model-value="selectedWorldPosition.x" :animated="hasAnimatedField('anchoredPositionX')" axis="X" :label="t('clientUIAnimationEditor.ui.properties.previewPosition')" @update:model-value="updateGeometry('x', $event)" />
               <NumberField :model-value="selectedWorldPosition.y" :animated="hasAnimatedField('anchoredPositionY')" axis="Y" @update:model-value="updateGeometry('y', $event)" />
-              <NumberField :model-value="inspectorNode!.width" :animated="hasAnimatedField('sizeDeltaX')" axis="W" label="大小" :min="1" @update:model-value="updateGeometry('width', $event)" />
+              <NumberField :model-value="inspectorNode!.width" :animated="hasAnimatedField('sizeDeltaX')" axis="W" :label="t('clientUIAnimationEditor.ui.controls.size')" :min="1" @update:model-value="updateGeometry('width', $event)" />
               <NumberField :model-value="inspectorNode!.height" :animated="hasAnimatedField('sizeDeltaY')" axis="H" :min="1" @update:model-value="updateGeometry('height', $event)" />
-              <NumberField :model-value="inspectorNode!.scaleX" :animated="hasAnimatedField('localScaleX')" @update:model-value="updateAnimatedBaseValue('localScaleX', $event)" axis="X" label="缩放比例" :step="0.01" :scrub-speed="0.01" />
+              <NumberField :model-value="inspectorNode!.scaleX" :animated="hasAnimatedField('localScaleX')" @update:model-value="updateAnimatedBaseValue('localScaleX', $event)" axis="X" :label="t('clientUIAnimationEditor.ui.properties.scaleFactor')" :step="0.01" :scrub-speed="0.01" />
               <NumberField :model-value="inspectorNode!.scaleY" :animated="hasAnimatedField('localScaleY')" @update:model-value="updateAnimatedBaseValue('localScaleY', $event)" axis="Y" :step="0.01" :scrub-speed="0.01" />
-              <NumberField :model-value="normalizeRotationAngle(inspectorNode!.rotation)" :min="-180" :max="180" :animated="hasAnimatedField('localRotationZ')" @update:model-value="updateAnimatedBaseValue('localRotationZ', $event)" class="full-width-number" axis="Z" label="旋转" />
+              <NumberField :model-value="normalizeRotationAngle(inspectorNode!.rotation)" :min="-180" :max="180" :animated="hasAnimatedField('localRotationZ')" @update:model-value="updateAnimatedBaseValue('localRotationZ', $event)" class="full-width-number" axis="Z" :label="t('clientUIAnimationEditor.ui.controls.rotation')" />
             </div>
-            <details class="secondary-transform"><summary>更多变换（3D）</summary><div class="property-grid">
-              <NumberField :model-value="inspectorNode!.scaleZ" :animated="hasAnimatedField('localScaleZ')" @update:model-value="updateAnimatedBaseValue('localScaleZ', $event)" axis="Z" label="缩放 Z" :step="0.01" :scrub-speed="0.01" /><span></span>
-              <NumberField :model-value="normalizeRotationAngle(inspectorNode!.rotationX)" :min="-180" :max="180" :animated="hasAnimatedField('localRotationX')" @update:model-value="updateAnimatedBaseValue('localRotationX', $event)" axis="X" label="旋转 XY" />
+            <details class="secondary-transform"><summary>{{ t('clientUIAnimationEditor.ui.properties.moreTransforms') }}</summary><div class="property-grid">
+              <NumberField :model-value="inspectorNode!.scaleZ" :animated="hasAnimatedField('localScaleZ')" @update:model-value="updateAnimatedBaseValue('localScaleZ', $event)" axis="Z" :label="t('clientUIAnimationEditor.ui.controls.transform.scaleDepth')" :step="0.01" :scrub-speed="0.01" /><span></span>
+              <NumberField :model-value="normalizeRotationAngle(inspectorNode!.rotationX)" :min="-180" :max="180" :animated="hasAnimatedField('localRotationX')" @update:model-value="updateAnimatedBaseValue('localRotationX', $event)" axis="X" :label="t('clientUIAnimationEditor.ui.controls.transform.rotationAxes')" />
               <NumberField :model-value="normalizeRotationAngle(inspectorNode!.rotationY)" :min="-180" :max="180" :animated="hasAnimatedField('localRotationY')" @update:model-value="updateAnimatedBaseValue('localRotationY', $event)" axis="Y" />
             </div></details>
             <div class="anchor-type-row">
-              <label><span>锚点类型</span><select :value="currentAnchorPresetId" @change="onAnchorPresetSelect"><option value="custom">自定义</option><option v-for="preset in anchorPresets" :key="preset.id" :value="preset.id">{{ preset.label }}</option></select></label>
+              <label><span>{{ t('clientUIAnimationEditor.ui.controls.anchor.type') }}</span><select :value="currentAnchorPresetId" @change="onAnchorPresetSelect"><option value="custom">{{ t('clientUIAnimationEditor.ui.preview.customSize') }}</option><option v-for="preset in anchorPresets" :key="preset.id" :value="preset.id">{{ t(preset.label) }}</option></select></label>
               <div class="anchor-picker-wrap">
-                <button class="anchor-preview-button" title="选择锚点预设" :aria-expanded="anchorMenuOpen" @pointerdown.stop @click.stop="toggleAnchorPopover($event)"><AnchorVisual :values="inspectorNode!" /></button>
+                <button class="anchor-preview-button" :title="t('clientUIAnimationEditor.ui.canvas.selectAnchorPreset')" :aria-expanded="anchorMenuOpen" @pointerdown.stop @click.stop="toggleAnchorPopover($event)"><AnchorVisual :values="inspectorNode!" /></button>
                 <Teleport to="body">
                   <div v-if="anchorMenuOpen" class="anchor-popover-overlay" @pointerdown.self.stop="anchorMenuOpen = false" @click.stop @keydown.esc.stop="anchorMenuOpen = false">
-                    <div class="anchor-preset-popover" :style="anchorPopoverStyle" role="dialog" aria-label="锚点预设" @pointerdown.stop>
-                      <button v-for="preset in anchorPresets" :key="preset.id" :title="preset.label" :aria-label="preset.label" :class="{ active: preset.id === currentAnchorPresetId }" @click="applyAnchorPreset(preset.id)"><AnchorVisual :values="preset" /></button>
+                    <div class="anchor-preset-popover" :style="anchorPopoverStyle" role="dialog" :aria-label="t('clientUIAnimationEditor.ui.canvas.anchorPresets')" @pointerdown.stop>
+                      <button v-for="preset in anchorPresets" :key="preset.id" :title="t(preset.label)" :aria-label="t(preset.label)" :class="{ active: preset.id === currentAnchorPresetId }" @click="applyAnchorPreset(preset.id)"><AnchorVisual :values="preset" /></button>
                     </div>
                   </div>
                 </Teleport>
               </div>
             </div>
             <div class="anchor-values">
-              <div class="anchor-values-title"><span>锚点设置</span><small>左下 0,0 · 右上 1,1</small></div>
-              <div class="property-grid"><NumberField :model-value="inspectorNode!.anchorMinX" :animated="hasAnimatedField('anchorMinX')" axis="X" label="Min" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'x', $event)" /><NumberField :model-value="inspectorNode!.anchorMinY" :animated="hasAnimatedField('anchorMinY')" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'y', $event)" /><NumberField :model-value="inspectorNode!.anchorMaxX" :animated="hasAnimatedField('anchorMaxX')" axis="X" label="Max" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'x', $event)" /><NumberField :model-value="inspectorNode!.anchorMaxY" :animated="hasAnimatedField('anchorMaxY')" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'y', $event)" /><NumberField :model-value="inspectorNode!.pivotX" :animated="hasAnimatedField('pivotX')" axis="X" label="中心" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('x', $event)" /><NumberField :model-value="inspectorNode!.pivotY" :animated="hasAnimatedField('pivotY')" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('y', $event)" /></div>
+              <div class="anchor-values-title"><span>{{ t('clientUIAnimationEditor.ui.anchors.settings') }}</span><small>{{ t('clientUIAnimationEditor.ui.anchors.normalizedCoordinateHint') }}</small></div>
+              <div class="property-grid"><NumberField :model-value="inspectorNode!.anchorMinX" :animated="hasAnimatedField('anchorMinX')" axis="X" label="Min" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'x', $event)" /><NumberField :model-value="inspectorNode!.anchorMinY" :animated="hasAnimatedField('anchorMinY')" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('min', 'y', $event)" /><NumberField :model-value="inspectorNode!.anchorMaxX" :animated="hasAnimatedField('anchorMaxX')" axis="X" label="Max" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'x', $event)" /><NumberField :model-value="inspectorNode!.anchorMaxY" :animated="hasAnimatedField('anchorMaxY')" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updateAnchor('max', 'y', $event)" /><NumberField :model-value="inspectorNode!.pivotX" :animated="hasAnimatedField('pivotX')" axis="X" :label="t('clientUIAnimationEditor.ui.controls.anchor.centerPreset')" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('x', $event)" /><NumberField :model-value="inspectorNode!.pivotY" :animated="hasAnimatedField('pivotY')" axis="Y" :step="0.01" :min="0" :max="1" @update:model-value="updatePivot('y', $event)" /></div>
             </div>
           </PropertySection>
-          <PropertySection v-if="selectedNode.type === 'image'" title="图片设置" icon="▧" group="image">
+          <PropertySection v-if="selectedNode.type === 'image'" :title="t('clientUIAnimationEditor.ui.images.settings')" icon="▧" group="image">
             <ImageControlSettings :model-value="(inspectorNode as UINodeOf<'image'>).properties" :asset="selectedImageAsset" :animated="hasAnimatedField('imageColor')" @update:model-value="selectedProperties = $event" @select="selectImageAsset" @open-library="imageLibraryOpen = true" @reset-size="resetSelectedImageSize" />
           </PropertySection>
           <ControlPropertiesInspector :key="selectedId ?? ''" v-model="selectedProperties" :definition="selectedInspectorDefinition" :animated-fields="animatedPropertyFields">
             <template #field-imageResourceId>
               <div v-if="selectedNode?.type === 'primitive'" class="primitive-resource-reference">
-                <button class="template-reference-picker" aria-label="选择图元图片资源" @click.stop="openPrimitiveResourceLibrary">{{ selectedPrimitiveResource?.name ?? '未选择图片资源' }} <span>选择资源…</span></button>
-                <div class="primitive-display-mode"><button :aria-pressed="selectedNode.properties.previewMode !== 'primitives'" @click="selectedProperties = { ...selectedProperties, previewMode: 'image' }">原图</button><button :disabled="!selectedPrimitiveResource?.fitData" :aria-pressed="selectedNode.properties.previewMode === 'primitives'" @click="selectedProperties = { ...selectedProperties, previewMode: 'primitives' }">游戏图元</button><button v-if="selectedNode.properties.imageResourceId" @click="selectedProperties = { ...selectedProperties, imageResourceId: null, previewMode: 'image' }">解除引用</button></div>
-                <small v-if="selectedPrimitiveResource">{{ selectedPrimitiveResource.fitData ? `${selectedPrimitiveResource.fitData.elements.length} 个图元 · 共用资源拟合结果` : '尚未生成图元，请在图片资源面板中设置拟合。' }}</small>
+                <button class="template-reference-picker" :aria-label="t('clientUIAnimationEditor.ui.imageControls.selectPrimitiveImage')" @click.stop="openPrimitiveResourceLibrary">{{ selectedPrimitiveResource?.name ?? t('clientUIAnimationEditor.ui.images.noResourceSelected') }} <span>{{ t('clientUIAnimationEditor.ui.imageControls.selectResource') }}</span></button>
+                <div class="primitive-display-mode"><button :aria-pressed="selectedNode.properties.previewMode !== 'primitives'" @click="selectedProperties = { ...selectedProperties, previewMode: 'image' }">{{ t('clientUIAnimationEditor.ui.imageControls.originalImage') }}</button><button :disabled="!selectedPrimitiveResource?.fitData" :aria-pressed="selectedNode.properties.previewMode === 'primitives'" @click="selectedProperties = { ...selectedProperties, previewMode: 'primitives' }">{{ t('clientUIAnimationEditor.ui.imageControls.gamePrimitives') }}</button><button v-if="selectedNode.properties.imageResourceId" @click="selectedProperties = { ...selectedProperties, imageResourceId: null, previewMode: 'image' }">{{ t('clientUIAnimationEditor.ui.primitiveResources.unlink') }}</button></div>
+                <small v-if="selectedPrimitiveResource">{{ selectedPrimitiveResource.fitData ? t('clientUIAnimationEditor.ui.imageControls.sharedPrimitiveSummary', { elementCount: selectedPrimitiveResource.fitData.elements.length }) : t('clientUIAnimationEditor.ui.imageControls.primitivesNotGeneratedHint') }}</small>
               </div>
             </template>
             <template #field-referencedPrefabIndex>
-              <button class="template-reference-picker" aria-label="引用预制索引" @click.stop="openControlTemplateLibrary">{{ selectedControlTemplateLabel }} <span>选择模板…</span></button>
-              <button v-if="selectedControlTemplate" class="template-original-size" @click="resetControlTemplateSize">恢复模板原始尺寸</button>
+              <button class="template-reference-picker" :aria-label="t('clientUIAnimationEditor.ui.imageControls.prefabIndex')" @click.stop="openControlTemplateLibrary">{{ selectedControlTemplateLabel }} <span>{{ t('clientUIAnimationEditor.ui.templates.selectAction') }}</span></button>
+              <button v-if="selectedControlTemplate" class="template-original-size" @click="resetControlTemplateSize">{{ t('clientUIAnimationEditor.ui.templates.restoreSize') }}</button>
             </template>
-            <template #actions><PropertyActionsMenu :label="`${selectedControlDefinition.label}参数`" :context-key="`${selectedId}:${inspectorTab}`" :can-paste="canPasteSelectedPropertyGroup('control')" :paste-hint="propertyPasteHint('control')" @reset="resetSelectedPropertyGroup('control')" @copy="copySelectedPropertyGroup('control')" @paste="pasteSelectedPropertyGroup('control')" /></template>
+            <template #actions><PropertyActionsMenu :label="t('clientUIAnimationEditor.ui.properties.controlParameters', { label: t(selectedControlDefinition.label) })" :context-key="`${selectedId}:${inspectorTab}`" :can-paste="canPasteSelectedPropertyGroup('control')" :paste-hint="propertyPasteHint('control')" @reset="resetSelectedPropertyGroup('control')" @copy="copySelectedPropertyGroup('control')" @paste="pasteSelectedPropertyGroup('control')" /></template>
           </ControlPropertiesInspector>
-          <PropertySection title="创建设置" group="creation">
-            <label class="setting-switch"><span>初始激活</span><input v-model="selectedNode.active" type="checkbox" role="switch" /></label>
-            <label class="setting-switch"><span>初始可见性</span><input v-model="selectedNode.visible" type="checkbox" role="switch" /></label>
+          <PropertySection :title="t('clientUIAnimationEditor.ui.controls.creationSettings')" group="creation">
+            <label class="setting-switch"><span>{{ t('clientUIAnimationEditor.ui.controls.initialActive') }}</span><input v-model="selectedNode.active" type="checkbox" role="switch" /></label>
+            <label class="setting-switch"><span>{{ t('clientUIAnimationEditor.ui.controls.initialVisibility') }}</span><input v-model="selectedNode.visible" type="checkbox" role="switch" /></label>
           </PropertySection>
-          <PropertySection title="编辑设置" group="editor">
-            <label class="setting-switch"><span>锁定控件</span><input v-model="selectedNode.locked" type="checkbox" role="switch" /></label>
-            <label class="setting-switch"><span>允许手柄聚焦</span><input v-model="selectedNode.canControllerFocus" type="checkbox" role="switch" /></label>
+          <PropertySection :title="t('clientUIAnimationEditor.ui.editor.settings')" group="editor">
+            <label class="setting-switch"><span>{{ t('clientUIAnimationEditor.ui.controls.lock') }}</span><input v-model="selectedNode.locked" type="checkbox" role="switch" /></label>
+            <label class="setting-switch"><span>{{ t('clientUIAnimationEditor.ui.controls.allowControllerFocus') }}</span><input v-model="selectedNode.canControllerFocus" type="checkbox" role="switch" /></label>
           </PropertySection>
-          <PropertySection v-if="boneToolsEnabled && selectedNode.type === 'container'" title="方向标识">
-            <label class="direction-length-field"><span>骨骼长度</span><ScrubbableNumberInput :model-value="selectedDirectionArrowLength" :min="0" :max="MAX_DIRECTION_ARROW_LENGTH" :step="1" :scrub-speed="1" aria-label="方向箭头长度" @update:model-value="updateDirectionArrowLength" /><i>px</i></label>
-            <p class="direction-guide-note">拖动骨骼尖端调整长度 · 0 隐藏<br />仅为编辑辅助，不影响控件大小或 Lua 导出。</p>
+          <PropertySection v-if="boneToolsEnabled && selectedNode.type === 'container'" :title="t('clientUIAnimationEditor.ui.canvas.directionIndicator')">
+            <label class="direction-length-field"><span>{{ t('clientUIAnimationEditor.ui.bones.length') }}</span><ScrubbableNumberInput :model-value="selectedDirectionArrowLength" :min="0" :max="MAX_DIRECTION_ARROW_LENGTH" :step="1" :scrub-speed="1" :aria-label="t('clientUIAnimationEditor.ui.controls.directionArrowLength')" @update:model-value="updateDirectionArrowLength" /><i>px</i></label>
+            <p class="direction-guide-note">{{ t('clientUIAnimationEditor.ui.canvas.boneLengthHint') }}<br />{{ t('clientUIAnimationEditor.ui.bones.lengthHint') }}</p>
           </PropertySection>
           </div>
           <div v-show="inspectorTab === 'runtime'" id="inspector-runtime" role="tabpanel" aria-labelledby="inspector-runtime-tab">
-            <div class="runtime-heading"><b>{{ selectedControlDefinition.runtimeClass }}</b><span>查看和编辑用于 Lua / Tween 的布局原值</span></div>
-            <PropertySection title="布局与锚点" group="transform">
-              <p class="api-layout-note">anchoredPosition 是控件中心点相对锚点参考位置的偏移；拉伸锚点按中心值在 Min 与 Max 间计算参考位置。无父级时锚点以画布为参照。</p>
+            <div class="runtime-heading"><b>{{ selectedControlDefinition.runtimeClass }}</b><span>{{ t('clientUIAnimationEditor.ui.properties.baseLayoutHint') }}</span></div>
+            <PropertySection :title="t('clientUIAnimationEditor.ui.properties.layoutAnchors')" group="transform">
+              <p class="api-layout-note">{{ t('clientUIAnimationEditor.ui.anchors.anchoredPositionHint') }}</p>
               <div class="api-layout-grid">
                 <label><code>anchoredPositionX</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.anchoredPositionX" :animated="hasAnimatedField('anchoredPositionX')" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('anchoredPositionX', $event)" /></label>
                 <label><code>anchoredPositionY</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.anchoredPositionY" :animated="hasAnimatedField('anchoredPositionY')" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('anchoredPositionY', $event)" /></label>
@@ -243,12 +243,12 @@
             </PropertySection>
           </div>
         </div>
-        <div v-else class="inspector-empty"><div>⌖</div><p>选择画布或层级中的控件</p><span>随后可以在这里编辑它的参数</span></div>
+        <div v-else class="inspector-empty"><div>⌖</div><p>{{ t('clientUIAnimationEditor.ui.properties.selectControlHint') }}</p><span>{{ t('clientUIAnimationEditor.ui.properties.selectTrackToEditHint') }}</span></div>
       </aside>
     </div>
 
     <section ref="timelinePanel" class="timeline-panel keyframe-panel">
-      <div class="timeline-resize-handle" role="separator" aria-label="调整时间轴高度" aria-orientation="horizontal" :aria-valuemin="MIN_TIMELINE_HEIGHT" :aria-valuemax="timelineMaximumHeight" :aria-valuenow="Math.round(resolvedTimelineHeight)" tabindex="0" title="上下拖动调整时间轴高度 · 双击恢复自动高度" @pointerdown.stop="startTimelineResize" @dblclick.stop="resetTimelineHeight" @keydown.up.prevent="nudgeTimelineHeight(16)" @keydown.down.prevent="nudgeTimelineHeight(-16)"><span></span></div>
+      <div class="timeline-resize-handle" role="separator" :aria-label="t('clientUIAnimationEditor.ui.timeline.resizeHeight')" aria-orientation="horizontal" :aria-valuemin="MIN_TIMELINE_HEIGHT" :aria-valuemax="timelineMaximumHeight" :aria-valuenow="Math.round(resolvedTimelineHeight)" tabindex="0" :title="t('clientUIAnimationEditor.ui.timeline.resizeHint')" @pointerdown.stop="startTimelineResize" @dblclick.stop="resetTimelineHeight" @keydown.up.prevent="nudgeTimelineHeight(16)" @keydown.down.prevent="nudgeTimelineHeight(-16)"><span></span></div>
       <KeyframeTimeline :key="`${keyframeDocumentEpoch}:${activeAnimationId}`" :nodes="timelineNodes" :tracks="keyframeTracks" :selected-node-id="selectedId" :selected-keyframe-id="selectedKeyframeId" :current-time="currentTime" :duration="duration" :playing="playing" :snap-enabled="timelineSnapEnabled" :animation-name="activeAnimation.name" :frame-rate="frameRate" @update-frame-rate="frameRate = $event"
         :track-values="timelineTrackValues" @edit-track-value="editTimelineTrackValue"
         @select-node="selectKeyframeNode" @select-track="selectKeyframeTrack" @add-track="openKeyframeFieldPicker" @select-keyframe="selectKeyframe"
@@ -266,9 +266,9 @@
     <TimelineDataImportDialog v-if="timelineDataImportOpen" v-model:source-text="timelineDataSource" v-model:root-id="timelineDataRootId" v-model:mode="timelineDataImportMode" :roots="timelineDataRootOptions" :preview="timelineDataImportSummary" @confirm="confirmTimelineDataImport" @close="timelineDataImportOpen = false" />
 
     <div v-if="archive && !hasOpenDocument" class="document-empty-state">
-      <h2>{{ archive.ready.value ? '选择或创建编辑文件' : '正在加载工作区' }}</h2>
-      <p>{{ archive.error.value || '工作区保存控件层级、参数和 Timeline。导入 GIA 会新建文件，不覆盖原有内容。' }}</p>
-      <button @click="workspacePanelOpen = true">打开工作区</button>
+      <h2>{{ archive.ready.value ? t('clientUIAnimationEditor.ui.workspace.selectOrCreateDocument') : t('clientUIAnimationEditor.ui.workspace.loading') }}</h2>
+      <p>{{ archive.error.value || t('clientUIAnimationEditor.ui.workspace.documentContentsHint') }}</p>
+      <button @click="workspacePanelOpen = true">{{ t('clientUIAnimationEditor.ui.workspace.open') }}</button>
     </div>
     <ClientUIWorkspacePanel v-if="archive" :open="workspacePanelOpen" :busy="archive.busy.value"
       :workspaces="archive.workspaceIds.value" :documents="archive.documentNames.value"
@@ -280,7 +280,7 @@
       @create-workspace="createWorkspace" @rename-workspace="renameWorkspace" @delete-workspace="deleteWorkspace"
       @create-document="resetProject" @rename-document="renameWorkspaceDocument" @delete-document="deleteWorkspaceDocument"
       @import-gia="openGiaFile" @import-json="openProject" @retry="retryArchive" />
-    <button v-if="archive?.canUndoDelete.value && !workspacePanelOpen" class="archive-undo" @click.stop="runArchiveAction(() => archive!.undoDelete())">已移至回收站 · 撤销删除</button>
+    <button v-if="archive?.canUndoDelete.value && !workspacePanelOpen" class="archive-undo" @click.stop="runArchiveAction(() => archive!.undoDelete())">{{ t('clientUIAnimationEditor.ui.workspace.deleteUndoNotice') }}</button>
     <ClientUIArchiveActionDialog v-if="archiveAction" :title="archiveAction.title" :message="archiveAction.message"
       :mode="archiveAction.mode" :initial-value="archiveAction.initialValue" :busy="archive?.busy.value ?? false"
       :error="archive?.error.value ?? ''" @cancel="archiveAction = null" @submit="confirmArchiveAction" />
@@ -289,37 +289,37 @@
       <section class="tween-field-picker" role="dialog" aria-modal="true" aria-labelledby="tween-field-picker-title" @pointerdown.stop>
         <header class="tween-field-picker-header">
           <div class="tween-field-picker-icon"><EditorIcon :name="controlIconName(tweenFieldPickerNode.type)" :size="21" /></div>
-          <div class="tween-field-picker-heading"><h2 id="tween-field-picker-title">添加参数</h2><p :title="`${tweenFieldPickerNode.name} · ${selectedTweenPickerDefinition.runtimeClass}`">{{ tweenFieldPickerNode.name }}<span>·</span>{{ selectedTweenPickerDefinition.label }}</p></div>
-          <button title="关闭参数选择" aria-label="关闭参数选择" @click="closeTweenFieldPicker">×</button>
+          <div class="tween-field-picker-heading"><h2 id="tween-field-picker-title">{{ t('clientUIAnimationEditor.ui.tweenPicker.title') }}</h2><p :title="`${tweenFieldPickerNode.name} · ${selectedTweenPickerDefinition.runtimeClass}`">{{ tweenFieldPickerNode.name }}<span>·</span>{{ t(selectedTweenPickerDefinition.label) }}</p></div>
+          <button :title="t('clientUIAnimationEditor.ui.tweenPicker.close')" :aria-label="t('clientUIAnimationEditor.ui.tweenPicker.close')" @click="closeTweenFieldPicker">×</button>
         </header>
-        <div class="tween-field-picker-search"><EditorIcon name="search" :size="17" /><input v-model="tweenFieldSearch" autofocus aria-label="搜索动画参数" placeholder="搜索参数名称或字段名" /><button v-if="tweenFieldSearch" type="button" aria-label="清空参数搜索" @click="tweenFieldSearch = ''">×</button></div>
+        <div class="tween-field-picker-search"><EditorIcon name="search" :size="17" /><input v-model="tweenFieldSearch" autofocus :aria-label="t('clientUIAnimationEditor.ui.tweenPicker.searchLabel')" :placeholder="t('clientUIAnimationEditor.ui.tweenPicker.searchPlaceholder')" /><button v-if="tweenFieldSearch" type="button" :aria-label="t('clientUIAnimationEditor.ui.tweenPicker.clearSearch')" @click="tweenFieldSearch = ''">×</button></div>
         <div class="tween-field-picker-content">
           <section v-if="tweenFieldPickerCombos.length" class="tween-field-picker-group">
-            <header><div><b>组合添加</b><small>一次添加 X、Y 两条独立轨道，已有轨道保持不变</small></div></header>
+            <header><div><b>{{ t('clientUIAnimationEditor.ui.tweenPicker.addGroupedFields') }}</b><small>{{ t('clientUIAnimationEditor.ui.tweenPicker.addIndependentAxesHint') }}</small></div></header>
             <div class="tween-field-picker-grid">
               <button v-for="combo in tweenFieldPickerCombos" :key="combo.label" @click="addKeyframeTrackPair(tweenFieldPickerNode, combo.fields)">
                 <span class="parameter-kind">XY</span><b>{{ combo.label }}</b>
                 <code>{{ combo.fields.join(' + ') }}</code>
                 <EditorIcon class="parameter-add" name="plus" :size="17" />
-                <small>添加缺少的轴 · 可分别编辑</small>
+                <small>{{ t('clientUIAnimationEditor.ui.tweenPicker.addMissingAxesHint') }}</small>
               </button>
             </div>
           </section>
           <section v-for="group in tweenFieldPickerGroups" :key="group.key" class="tween-field-picker-group">
-            <header><div><b>{{ group.title }}</b><small>{{ group.description }}</small></div><em>{{ group.fields.length }} 项</em></header>
+            <header><div><b>{{ group.title }}</b><small>{{ group.description }}</small></div><em>{{ t('clientUIAnimationEditor.ui.common.itemCount', { count: group.fields.length }) }}</em></header>
             <div class="tween-field-picker-grid">
-              <button v-for="field in group.fields" :key="field.fieldKey" :disabled="Boolean(tweenFieldConflict(tweenFieldPickerNode, field.fieldKey))" :title="tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) ?? field.description" @click="addKeyframeTrack(tweenFieldPickerNode, field.fieldKey)">
-                <span class="parameter-kind" :class="`kind-${field.valueKind}`">{{ field.valueKind === 'boolean' ? '显隐' : field.valueKind === 'color' ? '颜色' : '数值' }}</span>
-                <b>{{ field.label }}</b>
+              <button v-for="field in group.fields" :key="field.fieldKey" :disabled="Boolean(tweenFieldConflict(tweenFieldPickerNode, field.fieldKey))" :title="tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) || (field.description ? t(field.description) : '')" @click="addKeyframeTrack(tweenFieldPickerNode, field.fieldKey)">
+                <span class="parameter-kind" :class="`kind-${field.valueKind}`">{{ field.valueKind === 'boolean' ? t('clientUIAnimationEditor.ui.controls.visibility') : field.valueKind === 'color' ? t('clientUIAnimationEditor.ui.tweenPicker.colorValueKind') : t('clientUIAnimationEditor.ui.tweenPicker.numericValueKind') }}</span>
+                <b>{{ t(field.label) }}</b>
                 <code>{{ field.fieldKey }}</code>
                 <EditorIcon class="parameter-add" name="plus" :size="17" />
-                <small v-if="tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) || field.source === 'group'">{{ tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) ? '已有颜色轨道冲突（悬停查看）' : '组合动画 · 0–255 · 基础 Alpha 相乘' }}</small>
+                <small v-if="tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) || field.source === 'group'">{{ tweenFieldConflict(tweenFieldPickerNode, field.fieldKey) ? t('clientUIAnimationEditor.ui.timeline.colorTrackConflictHint') : t('clientUIAnimationEditor.ui.tweenPicker.groupAlphaSummary') }}</small>
               </button>
             </div>
           </section>
-          <div v-if="tweenFieldPickerGroups.length === 0 && tweenFieldPickerCombos.length === 0" class="tween-field-picker-empty"><EditorIcon :name="tweenFieldSearch ? 'search' : 'timeline'" :size="28" /><b>{{ tweenFieldSearch ? '没有匹配的参数' : '所有可用参数都已添加' }}</b><span>{{ tweenFieldSearch ? '试试其他名称，或清空搜索。' : '关闭窗口后可直接编辑已有轨道。' }}</span></div>
+          <div v-if="tweenFieldPickerGroups.length === 0 && tweenFieldPickerCombos.length === 0" class="tween-field-picker-empty"><EditorIcon :name="tweenFieldSearch ? 'search' : 'timeline'" :size="28" /><b>{{ tweenFieldSearch ? t('clientUIAnimationEditor.ui.tweenPicker.noMatchingParameters') : t('clientUIAnimationEditor.ui.tweenPicker.allParametersAdded') }}</b><span>{{ tweenFieldSearch ? t('clientUIAnimationEditor.ui.timeline.propertySearchHint') : t('clientUIAnimationEditor.ui.tweenPicker.editExistingTracksHint') }}</span></div>
         </div>
-        <footer><span>选择参数以创建动画轨道</span><button @click="closeTweenFieldPicker">完成</button></footer>
+        <footer><span>{{ t('clientUIAnimationEditor.ui.tweenPicker.createTrackHint') }}</span><button @click="closeTweenFieldPicker">{{ t('clientUIAnimationEditor.ui.actions.done') }}</button></footer>
       </section>
     </div>
   </div>
@@ -329,6 +329,7 @@
 import { computed, defineComponent, h, inject, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
 import { toast } from "vue-sonner";
+import { t } from "../../i18n";
 import type { StorageClass } from "@/services/storage/storage";
 import ClientUIWorkspacePanel from "./ClientUIWorkspacePanel.vue";
 import ClientUIArchiveActionDialog from "./ClientUIArchiveActionDialog.vue";
@@ -376,7 +377,8 @@ import { buildPrimitiveImageLibLua } from "./primitiveLuaRuntime";
 import { buildTemplateScene, normalizeControlTemplates, templateIndexError, type ControlTemplateAsset } from "./controlTemplates";
 import ControlTemplateLibrary from "./ControlTemplateLibrary.vue";
 import ControlTemplatePreview from "./ControlTemplatePreview.vue";
-import { imageAssetById, loadImageCatalog, loadSpriteMetadata } from "./imageAssets";
+import { imageAssetById, loadImageCatalog, loadSpriteMetadata, useImageCatalogTranslations } from "./imageAssets";
+const loadImageTranslations = useImageCatalogTranslations();
 import { isStretchable } from "./spriteGeometry";
 import ImageControlSettings from "./ImageControlSettings.vue";
 import ImageAssetLibrary from "./ImageAssetLibrary.vue";
@@ -411,6 +413,7 @@ const PropertySection = defineComponent({
 });
 const inspectorTab = ref<"basic" | "runtime">("basic");
 const propertyClipboard = ref<PropertyGroupSnapshot | null>(null);
+
 const propertyActionFeedback = ref<{ nodeId: string; message: string } | null>(null);
 function switchInspectorTab(tab: "basic" | "runtime") { inspectorTab.value = tab; nextTick(() => editorElement.value?.querySelector<HTMLButtonElement>(`#inspector-${tab}-tab`)?.focus()); }
 function controlIconName(type: ControlType) { return type === "text" || type === "textWindow" ? "text" : type === "image" || type === "primitive" ? "image" : type === "gridScroller" ? "grid" : type === "uiAnimation" || type === "fullscreenAnimation" ? "timeline" : "container"; }
@@ -472,22 +475,22 @@ function makeRootContainer(width = DEFAULT_CANVAS_WIDTH, height = DEFAULT_CANVAS
 }
 interface AnchorPreset extends AnchorValues { id: string; label: string }
 const anchorXModes = [
-  { id: "left", label: "左", min: 0, max: 0 },
-  { id: "center", label: "中", min: 0.5, max: 0.5 },
-  { id: "right", label: "右", min: 1, max: 1 },
-  { id: "stretch", label: "横向拉伸", min: 0, max: 1 },
+  { id: "left", label: 'clientUIAnimationEditor.ui.controls.left', min: 0, max: 0 },
+  { id: "center", label: 'clientUIAnimationEditor.ui.anchors.center', min: 0.5, max: 0.5 },
+  { id: "right", label: 'clientUIAnimationEditor.ui.controls.right', min: 1, max: 1 },
+  { id: "stretch", label: 'clientUIAnimationEditor.ui.canvas.anchorHorizontalStretch', min: 0, max: 1 },
 ] as const;
 const anchorYModes = [
-  { id: "top", label: "上", min: 1, max: 1 },
-  { id: "middle", label: "中", min: 0.5, max: 0.5 },
-  { id: "bottom", label: "下", min: 0, max: 0 },
-  { id: "stretch", label: "纵向拉伸", min: 0, max: 1 },
+  { id: "top", label: 'clientUIAnimationEditor.ui.canvas.directionUp', min: 1, max: 1 },
+  { id: "middle", label: 'clientUIAnimationEditor.ui.anchors.center', min: 0.5, max: 0.5 },
+  { id: "bottom", label: 'clientUIAnimationEditor.ui.canvas.directionDown', min: 0, max: 0 },
+  { id: "stretch", label: 'clientUIAnimationEditor.ui.canvas.anchorVerticalStretch', min: 0, max: 1 },
 ] as const;
 const anchorPresetLabels: Record<string, string> = {
-  "left-top": "左上", "center-top": "顶部", "right-top": "右上", "stretch-top": "顶部横向拉伸",
-  "left-middle": "左侧", "center-middle": "中心", "right-middle": "右侧", "stretch-middle": "中部横向拉伸",
-  "left-bottom": "左下", "center-bottom": "底部", "right-bottom": "右下", "stretch-bottom": "底部横向拉伸",
-  "left-stretch": "左侧纵向拉伸", "center-stretch": "居中纵向拉伸", "right-stretch": "右侧纵向拉伸", "stretch-stretch": "双向拉伸",
+  "left-top": 'clientUIAnimationEditor.ui.canvas.anchorTopLeft', "center-top": 'clientUIAnimationEditor.ui.controls.top', "right-top": 'clientUIAnimationEditor.ui.controls.anchor.topRight', "stretch-top": 'clientUIAnimationEditor.ui.anchors.topHorizontalStretch',
+  "left-middle": 'clientUIAnimationEditor.ui.canvas.leftSide', "center-middle": 'clientUIAnimationEditor.ui.controls.anchor.centerPreset', "right-middle": 'clientUIAnimationEditor.ui.canvas.rightSide', "stretch-middle": 'clientUIAnimationEditor.ui.canvas.anchorMiddleStretch',
+  "left-bottom": 'clientUIAnimationEditor.ui.controls.anchor.bottomLeft', "center-bottom": 'clientUIAnimationEditor.ui.controls.anchor.bottom', "right-bottom": 'clientUIAnimationEditor.ui.controls.bottomRight', "stretch-bottom": 'clientUIAnimationEditor.ui.canvas.anchorBottomStretch',
+  "left-stretch": 'clientUIAnimationEditor.ui.controls.anchor.stretchVerticalLeft', "center-stretch": 'clientUIAnimationEditor.ui.anchors.centerVerticalStretch', "right-stretch": 'clientUIAnimationEditor.ui.controls.anchor.stretchVerticalRight', "stretch-stretch": 'clientUIAnimationEditor.ui.controls.anchor.stretchBoth',
 };
 const anchorPresets: AnchorPreset[] = anchorYModes.flatMap((vertical) => anchorXModes.map((horizontal) => ({ id: `${horizontal.id}-${vertical.id}`, label: anchorPresetLabels[`${horizontal.id}-${vertical.id}`], anchorMinX: horizontal.min, anchorMinY: vertical.min, anchorMaxX: horizontal.max, anchorMaxY: vertical.max, pivotX: 0.5, pivotY: 0.5 })));
 const rootId = createId();
@@ -500,10 +503,10 @@ const nodes = ref<UINode[]>([
 type DeviceMode = "pc" | "mobile" | "controllerDesktop" | "controllerMobile";
 interface PreviewPreset { id: string; ratio: string; width: number; height: number }
 const deviceModes: Array<{ id: DeviceMode; label: string; shortLabel: string; icon: string }> = [
-  { id: "pc", label: "PC", shortLabel: "PC", icon: "▱" },
-  { id: "mobile", label: "移动端", shortLabel: "移动", icon: "▭" },
-  { id: "controllerDesktop", label: "手柄（PC / 主机）", shortLabel: "手柄", icon: "⌘" },
-  { id: "controllerMobile", label: "手柄（移动端）", shortLabel: "手柄·移动", icon: "⌘" },
+  { id: "pc", label: 'clientUIAnimationEditor.ui.devices.pc', shortLabel: 'clientUIAnimationEditor.ui.devices.pc', icon: "▱" },
+  { id: "mobile", label: 'clientUIAnimationEditor.ui.devices.mobile', shortLabel: 'clientUIAnimationEditor.ui.canvas.moveTool', icon: "▭" },
+  { id: "controllerDesktop", label: 'clientUIAnimationEditor.ui.previewDevices.desktopController', shortLabel: 'clientUIAnimationEditor.ui.previewDevices.controller', icon: "⌘" },
+  { id: "controllerMobile", label: 'clientUIAnimationEditor.ui.devices.mobileGamepad', shortLabel: 'clientUIAnimationEditor.ui.previewDevices.controllerMobileShort', icon: "⌘" },
 ];
 const previewPresets: Record<DeviceMode, PreviewPreset[]> = {
   pc: [
@@ -525,8 +528,8 @@ const previewPresets: Record<DeviceMode, PreviewPreset[]> = {
     { id: "controller-mobile-4-3", ratio: "4:3", width: 1280, height: 959.53 },
   ],
 };
-const previewPresetGroups = deviceModes.map((device) => ({ id: device.id, label: device.label, presets: previewPresets[device.id] }));
-const projectName = ref("Untitled UI Animation"); const deviceMode = ref<DeviceMode>("pc"); const previewPresetId = ref("pc-16-9"); const canvasWidth = ref(1600); const canvasHeight = ref(900); const zoom = ref(0.55); const panX = ref(0); const panY = ref(0); const isPanning = ref(false); const selectedId = ref<string | null>(nodes.value[0].id); const search = ref(""); const collapsed = ref(new Set<string>()); const addMenuOpen = ref(false); const anchorMenuOpen = ref(false); const importMenuOpen = ref(false); const exportMenuOpen = ref(false); const luaExportMenuOpen = ref(false); const tweenFieldPickerNodeId = ref<string | null>(null); const tweenFieldSearch = ref(""); const fileInput = ref<HTMLInputElement | null>(null); const giaFileInput = ref<HTMLInputElement | null>(null); const giaImportStatus = ref(""); const currentTime = ref(0); const duration = computed({ get: () => activeAnimation.value.duration, set: (value: number) => { activeAnimation.value.duration = value; } }); const frameRate = ref<number>(30); const playing = ref(false); const tweenTracks = ref<UITweenTrack[]>([]); const selectedTweenTrackId = ref<string | null>(null); const draggingTweenTrackId = ref<string | null>(null); const resizingTweenEdge = ref<"start" | "end" | null>(null); const timelineContent = ref<HTMLElement | null>(null); const timelineTrackNames = ref<HTMLElement | null>(null); const timelinePanel = ref<HTMLElement | null>(null); const editorElement = ref<HTMLElement | null>(null); const viewportElement = ref<HTMLElement | null>(null); const hierarchyTree = ref<HTMLElement | null>(null); const cursorPosition = ref({ x: 0, y: 0 }); const timelineHeight = ref<number | null>(null); const timelineResizing = ref(false); const timelineScrubbing = ref(false); const editorHeight = ref(0);
+const previewPresetGroups = computed(() => deviceModes.map((device) => ({ id: device.id, label: device.label, presets: previewPresets[device.id] })));
+const projectName = ref("Untitled UI Animation"); const deviceMode = ref<DeviceMode>("pc"); const previewPresetId = ref("pc-16-9"); const canvasWidth = ref(1600); const canvasHeight = ref(900); const zoom = ref(0.55); const panX = ref(0); const panY = ref(0); const isPanning = ref(false); const selectedId = ref<string | null>(nodes.value[0].id); const search = ref(""); const collapsed = ref(new Set<string>()); const addMenuOpen = ref(false); const anchorMenuOpen = ref(false); const importMenuOpen = ref(false); const exportMenuOpen = ref(false); const luaExportMenuOpen = ref(false); const tweenFieldPickerNodeId = ref<string | null>(null); const tweenFieldSearch = ref(""); const fileInput = ref<HTMLInputElement | null>(null); const giaFileInput = ref<HTMLInputElement | null>(null); const giaImportStatus = ref<string>(""); const currentTime = ref(0); const duration = computed({ get: () => activeAnimation.value.duration, set: (value: number) => { activeAnimation.value.duration = value; } }); const frameRate = ref<number>(30); const playing = ref(false); const tweenTracks = ref<UITweenTrack[]>([]); const selectedTweenTrackId = ref<string | null>(null); const draggingTweenTrackId = ref<string | null>(null); const resizingTweenEdge = ref<"start" | "end" | null>(null); const timelineContent = ref<HTMLElement | null>(null); const timelineTrackNames = ref<HTMLElement | null>(null); const timelinePanel = ref<HTMLElement | null>(null); const editorElement = ref<HTMLElement | null>(null); const viewportElement = ref<HTMLElement | null>(null); const hierarchyTree = ref<HTMLElement | null>(null); const cursorPosition = ref({ x: 0, y: 0 }); const timelineHeight = ref<number | null>(null); const timelineResizing = ref(false); const timelineScrubbing = ref(false); const editorHeight = ref(0);
 const animations = ref<UIAnimation[]>([{ id: "animation-default", name: "默认动画", duration: 5, keyframeTracks: [] }]);
 const activeAnimationId = ref("animation-default");
 const eventPreviewLog = ref<string[]>([]);
@@ -538,7 +541,10 @@ function updateTimelineEvents(events: UITimelineEvent[]) {
 }
 function previewEvents(from: number, to: number, includeStart = false) {
   const entries = crossedTimelineEvents(activeAnimation.value.events ?? [], from, to, includeStart);
-eventPreviewLog.value = [...eventPreviewLog.value, ...entries.map(e => `${e.time.toFixed(3)}s · ${e.name} · ${nodes.value.find(n => n.id === e.nodeId)?.name ?? '动画根控件'} · ${e.params}`)].slice(-50);
+  eventPreviewLog.value = [...eventPreviewLog.value, ...entries.map(e => t('clientUIAnimationEditor.ui.events.previewLogEntry', {
+    time: e.time.toFixed(3), event: e.name,
+    node: nodes.value.find(n => n.id === e.nodeId)?.name ?? t('clientUIAnimationEditor.ui.animations.rootControl'), params: e.params,
+  }))].slice(-50);
 }
 function advanceTimelinePlayback(delta: number) {
   const length = duration.value;
@@ -555,7 +561,7 @@ function advanceTimelinePlayback(delta: number) {
 }
 const activeAnimation = computed(() => animations.value.find(animation => animation.id === activeAnimationId.value) ?? animations.value[0]);
 const keyframeTracks = computed({ get: () => activeAnimation.value.keyframeTracks, set: (value: UIKeyframeTrack[]) => { activeAnimation.value.keyframeTracks = value; } });
-const animationNotice = ref("");
+const animationNotice = ref<string>("");
 const animationsPanelCollapsed = ref(false);
 const selectedKeyframeId = ref<string | null>(null);
 const keyframeDocumentEpoch = ref(0);
@@ -565,7 +571,7 @@ const boneToolsEnabled = ref(false);
 const showContainerBones = ref(true);
 const historyPanelOpen = ref(false);
 const timelineSnapTime = ref<number | null>(null);
-const timelineEditNotice = ref("");
+const timelineEditNotice = ref<string>("");
 // Editor-local snapshot: never serialize it or carry node references into another document.
 const tweenClipClipboard = ref<UITweenTrack | null>(null);
 const timelineDataImportOpen = ref(false);
@@ -578,7 +584,7 @@ const timelineDataImportPreview = computed(() => !timelineDataImportOpen.value |
 }));
 const timelineDataImportSummary = computed(() => {
   const result = timelineDataImportPreview.value;
-return result ? { schema: result.schema, importedCount: result.importedTracks.length, eventCount: result.importedEvents.length, replacedCount: result.replacedCount, duration: result.duration, errors: result.errors, warnings: result.warnings } : null;
+  return result ? { schema: result.schema, importedCount: result.importedTracks.length, eventCount: result.importedEvents.length, replacedCount: result.replacedCount, duration: result.duration, errors: result.errors, warnings: result.warnings } : null;
 });
 const timelineDataRootOptions = computed(() => {
   const byId = new Map(nodes.value.map((node) => [node.id, node]));
@@ -608,7 +614,7 @@ const archive = sharedStorage ? useClientUIWorkspace(new ClientUIWorkspaceReposi
 const hasOpenDocument = computed(() => !archive || Boolean(archive.selectedDocument.value));
 type HierarchyDropMode = "inside" | "before" | "after" | null;
 interface HierarchyDragState { nodeId: string | null; active: boolean; pointerX: number; pointerY: number; dropTargetId: string | null; dropParentId: string | null; dropMode: HierarchyDropMode; dropLabel: string }
-const emptyHierarchyDrag = (): HierarchyDragState => ({ nodeId: null, active: false, pointerX: 0, pointerY: 0, dropTargetId: null, dropParentId: null, dropMode: null, dropLabel: "长按以开始拖动" });
+const emptyHierarchyDrag = (): HierarchyDragState => ({ nodeId: null, active: false, pointerX: 0, pointerY: 0, dropTargetId: null, dropParentId: null, dropMode: null, dropLabel: t('clientUIAnimationEditor.ui.hierarchy.longPressDragHint') });
 const hierarchyDrag = ref<HierarchyDragState>(emptyHierarchyDrag());
 const controlLabels = Object.fromEntries(controlDefinitions.map((definition) => [definition.type, definition.label])) as Record<ControlType, string>;
 const addControlDefinitions = [...controlDefinitions.filter(control => control.type !== "primitive"), ...controlDefinitions.filter(control => control.type === "primitive")];
@@ -619,10 +625,10 @@ const resizeCorners = ["tl", "tr", "bl", "br"] as const;
 const resizeEdges = ["l", "r", "t", "b"] as const;
 type ResizeCorner = typeof resizeCorners[number] | typeof resizeEdges[number];
 const canvasTools = [
-  { id: "combined", label: "三合一", icon: "transform", hint: "拖动控件移动 · 顶部手柄旋转 · 四角及边缘调整大小" },
-  { id: "move", label: "移动", icon: "move", hint: "拖动控件移动位置" },
-  { id: "rotate", label: "旋转", icon: "rotate", hint: "拖动控件或圆环，绕轴心旋转" },
-  { id: "scale", label: "缩放", icon: "scale", hint: "拖动控件等比缩放 · 红色 X / 绿色 Y 手柄单轴缩放" },
+  { id: "combined", label: 'clientUIAnimationEditor.ui.canvas.unifiedTransformTool', icon: "transform", hint: 'clientUIAnimationEditor.ui.canvas.transformGestureHint' },
+  { id: "move", label: 'clientUIAnimationEditor.ui.canvas.moveTool', icon: "move", hint: 'clientUIAnimationEditor.ui.canvas.moveToolHint' },
+  { id: "rotate", label: 'clientUIAnimationEditor.ui.controls.rotation', icon: "rotate", hint: 'clientUIAnimationEditor.ui.preview.dragToRotateHint' },
+  { id: "scale", label: 'clientUIAnimationEditor.ui.canvas.scaleTool', icon: "scale", hint: 'clientUIAnimationEditor.ui.canvas.scaleToolHint' },
 ] as const;
 type CanvasTool = typeof canvasTools[number]["id"];
 const canvasTool = ref<CanvasTool>("combined");
@@ -727,7 +733,7 @@ const tweenTrackConflicts = computed(() => {
       ? [track.initialValue, track.endValue].every((value) => typeof value === 'number' && Number.isFinite(value))
       : Boolean(normalizeColorRGBA(track.initialValue) && normalizeColorRGBA(track.endValue));
     if (!valid) continue;
-    const conflict = accepted.some((other) => tweenClipsOverlap(track, other)) ? "同一属性轨道的 Clip 时间重叠。" : getTweenTrackConflict(track.nodeId, track.fieldKey, nodes.value, accepted);
+    const conflict = accepted.some((other) => tweenClipsOverlap(track, other)) ? t('clientUIAnimationEditor.ui.timeline.overlappingClips') : getTweenTrackConflict(track.nodeId, track.fieldKey, nodes.value, accepted);
     if (conflict) conflicts.set(track.id, conflict);
     else accepted.push(track);
   }
@@ -744,7 +750,7 @@ const editorStyle = computed<CSSProperties>(() => ({ "--timeline-height": `${res
 const selectedControlDefinition = computed(() => getControlDefinition(selectedNode.value?.type ?? "container"));
 const imageLibraryOpen = ref(false);
 const giaSource = shallowRef<GiaExportSource | null>(null);
-const giaExportOpen = ref(false), giaExportBusy = ref(false), giaExportError = ref(""), giaExportNotice = ref("");
+const giaExportOpen = ref(false), giaExportBusy = ref(false), giaExportError = ref<string>(""), giaExportNotice = ref<string>("");
 function openGiaExport() { exportMenuOpen.value = false; primitiveResourceLibraryOpen.value = false; templateLibraryOpen.value = false; imageLibraryOpen.value = false; giaExportError.value = ""; giaExportNotice.value = ""; giaExportOpen.value = true; }
 function downloadGiaUI(options: { name: string; uiIndex: number; assetKind: GiaAssetKind }) {
   giaExportError.value = "";
@@ -753,8 +759,8 @@ function downloadGiaUI(options: { name: string; uiIndex: number; assetKind: GiaA
     const url = URL.createObjectURL(new Blob([result.bytes.buffer as ArrayBuffer], { type: "application/octet-stream" }));
     const link = document.createElement("a"); link.href = url; link.download = `${options.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_") || "ClientUI"}.gia`; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    giaExportNotice.value = `已导出${giaAssetLabels[result.assetKind]} · ${result.controlCount} 个控件，二进制回读校验通过。`;
-  } catch (error) { giaExportError.value = error instanceof Error ? error.message : "GIA 导出失败"; }
+    giaExportNotice.value = t('clientUIAnimationEditor.ui.giaExport.success', { assetKind: t(giaAssetLabels[result.assetKind]), controlCount: result.controlCount });
+  } catch (error) { giaExportError.value = (error instanceof Error ? error.message : String(error)); }
 }
 async function attachGiaSource(file: File) {
   giaExportBusy.value = true; giaExportError.value = "";
@@ -763,7 +769,7 @@ async function attachGiaSource(file: File) {
     const project = JSON.parse(await createGiaProject(file));
     if (epoch !== keyframeDocumentEpoch.value || !giaExportOpen.value) return;
     const source = normalizeGiaExportSource(project.giaSource);
-    if (!source) throw new Error("文件中没有可用的 GIA 原始数据");
+    if (!source) throw new Error(t('clientUIAnimationEditor.ui.giaImport.missingOriginalData'));
     source.baseline = createGiaExportBaseline(project.nodes, project.canvasWidth, project.canvasHeight);
     const originalIds = new Set(source.baseline.map(node => node.id));
     // Older imports displayed then-unknown native components as containers.
@@ -776,10 +782,10 @@ async function attachGiaSource(file: File) {
       return before;
     });
     const imported = nodes.value.filter(node => /^gia_node_\d+$/.test(node.id));
-    if (!imported.length || imported.some(node => !originalIds.has(node.id))) throw new Error("这个 GIA 与当前控件树的来源 ID 不匹配，请选择最初导入的文件");
+    if (!imported.length || imported.some(node => !originalIds.has(node.id))) throw new Error(t('clientUIAnimationEditor.ui.giaImport.originalSourceIdMismatch'));
     giaSource.value = source;
-    giaExportNotice.value = `已补充 ${file.name} 的原始组件，当前控件参数保持不变。`;
-  } catch (error) { giaExportError.value = error instanceof Error ? error.message : "读取原始 GIA 失败"; }
+    giaExportNotice.value = t('clientUIAnimationEditor.ui.giaImport.originalComponentsAttached', { fileName: file.name });
+  } catch (error) { giaExportError.value = (error instanceof Error ? error.message : String(error)); }
   finally { giaExportBusy.value = false; }
 }
 const templateLibraryOpen = ref(false);
@@ -825,8 +831,8 @@ const controlTemplateByIndex = computed(() => new Map(controlTemplates.value.map
 const selectedControlTemplate = computed(() => selectedNode.value?.type === "reference" ? controlTemplateByIndex.value.get(selectedNode.value.properties.referencedPrefabIndex ?? -1) ?? null : null);
 const selectedControlTemplateLabel = computed(() => {
   const node = selectedNode.value;
-  if (node?.type !== "reference" || node.properties.referencedPrefabIndex === null) return "未设置";
-  return `#${node.properties.referencedPrefabIndex} · ${selectedControlTemplate.value?.name ?? '未找到模板'}`;
+  if (node?.type !== "reference" || node.properties.referencedPrefabIndex === null) return t('clientUIAnimationEditor.ui.properties.unset');
+  return `#${node.properties.referencedPrefabIndex} · ${selectedControlTemplate.value?.name ?? t('clientUIAnimationEditor.ui.templates.notFound')}`;
 });
 function openControlTemplateLibrary() { primitiveResourceLibraryOpen.value = false; imageLibraryOpen.value = false; templateLibraryOpen.value = true; }
 function saveControlTemplate(asset: ControlTemplateAsset) {
@@ -870,8 +876,8 @@ const tweenFieldPickerCombos = computed(() => {
   const available = new Set(availableTweenFields(node).map(field => field.fieldKey));
   const query = tweenFieldSearch.value.trim().toLowerCase();
   return [
-    { label: "位置 XY", fields: ["anchoredPositionX", "anchoredPositionY"] },
-    { label: "大小 XY", fields: ["sizeDeltaX", "sizeDeltaY"] },
+    { label: t('clientUIAnimationEditor.ui.controls.positionAxes'), fields: ["anchoredPositionX", "anchoredPositionY"] },
+    { label: t('clientUIAnimationEditor.ui.controls.transform.sizeAxes'), fields: ["sizeDeltaX", "sizeDeltaY"] },
   ].filter(combo => combo.fields.every(key => getTweenableField(node.type, key) && !tweenFieldConflict(node, key))
     && combo.fields.some(key => available.has(key))
     && (!query || `${combo.label} ${combo.fields.join(' ')}`.toLowerCase().includes(query)));
@@ -881,11 +887,11 @@ const tweenFieldPickerGroups = computed(() => {
   const node = tweenFieldPickerNode.value;
   if (!node) return [];
   const query = tweenFieldSearch.value.trim().toLowerCase();
-  const fields = availableTweenFields(node).filter((field) => !query || `${field.label} ${field.fieldKey}`.toLowerCase().includes(query));
+  const fields = availableTweenFields(node).filter((field) => !query || `${t(field.label)} ${field.label} ${field.fieldKey}`.toLowerCase().includes(query));
   return [
-    { key: "group", title: "组合动画", description: "自身与全部后代 · 由 TweenTimelineLib 展开", fields: fields.filter((field) => field.source === "group") },
-    { key: "base", title: "基础变换", description: "ClientUIBaseControl", fields: fields.filter((field) => field.source === "base") },
-    { key: "control", title: controlLabels[node.type], description: selectedTweenPickerDefinition.value.runtimeClass, fields: fields.filter((field) => field.source === "properties") },
+    { key: "group", title: t('clientUIAnimationEditor.ui.timeline.groupAnimation'), description: t('clientUIAnimationEditor.ui.timeline.groupExpansionHint'), fields: fields.filter((field) => field.source === "group") },
+    { key: "base", title: t('clientUIAnimationEditor.ui.controls.basicTransform'), description: "ClientUIBaseControl", fields: fields.filter((field) => field.source === "base") },
+    { key: "control", title: t(controlLabels[node.type]), description: selectedTweenPickerDefinition.value.runtimeClass, fields: fields.filter((field) => field.source === "properties") },
   ].filter((group) => group.fields.length > 0);
 });
 const selectedProperties = computed<Record<string, unknown>>({
@@ -1072,7 +1078,7 @@ function renameAnimation(value: string) {
   if (!hasOpenDocument.value) return;
   const name = value.trim();
   if (!name || name.length > 80 || /[\x00-\x1f]/.test(name) || animations.value.some(animation => animation.id !== activeAnimationId.value && animation.name === name)) {
-    animationNotice.value = "请输入不重复的动画名称（1–80 个字符）。";
+    animationNotice.value = t('clientUIAnimationEditor.ui.animations.invalidNameHint');
     return;
   }
   activeAnimation.value.name = name;
@@ -1153,7 +1159,7 @@ function addKeyframeTrack(node: UINode, fieldKey: string) {
   selectedKeyframeId.value = key.id;
   playing.value = false;
   closeTweenFieldPicker();
-  timelineEditNotice.value = "已创建关键帧轨道；修改淡红色参数会在当前播放头位置记录关键帧。";
+  timelineEditNotice.value = t('clientUIAnimationEditor.ui.keyframes.trackCreatedHint');
 }
 function insertKeyframeAtTime(trackId: string, time: number) {
   const track = keyframeTracks.value.find(item => item.id === trackId);
@@ -1200,7 +1206,7 @@ function writeAnimatedValue(node: UINode, fieldKey: string, value: UITweenValue)
   delete key.incomingValue;
   delete key.incomingRelative;
   selectedKeyframeId.value = key.id;
-  if (created) timelineEditNotice.value = `已在 ${time} 秒为「${node.name} / ${field.label}」自动添加关键帧。`;
+  if (created) timelineEditNotice.value = t('clientUIAnimationEditor.ui.keyframes.autoAddedNotice', { time: time, nodeName: node.name, field: t(field.label) });
 }
 function normalizeRotationAngle(value: number) {
   if (!Number.isFinite(value)) return 0;
@@ -1284,7 +1290,7 @@ function moveKeyframe(trackId: string, keyId: string, time: number) {
   if (!track || !key || !Number.isFinite(time)) return;
   const next = roundTweenTime(Math.max(0, Math.min(duration.value, time)));
   if (track.keyframes.some(other => other.id !== key.id && Math.abs(other.time - next) <= 0.000001)) {
-    timelineEditNotice.value = "同一轨道同一时间只能有一个关键帧。";
+    timelineEditNotice.value = t('clientUIAnimationEditor.ui.keyframes.oneKeyframePerTime');
     return;
   }
   key.time = next;
@@ -1333,7 +1339,7 @@ function updateKeyframeDuration(value: number) {
   const last = Math.max(0.5, ...(activeAnimation.value.events ?? []).map(e => e.time), ...keyframeTracks.value.flatMap(track => track.keyframes.map(key => key.time)));
   duration.value = Math.max(value, last);
   currentTime.value = Math.min(currentTime.value, duration.value);
-  timelineEditNotice.value = value < last ? "时长不能短于最后一个关键帧。" : "";
+  timelineEditNotice.value = value < last ? t('clientUIAnimationEditor.ui.keyframes.durationBeforeLastKeyframe') : "";
 }
 function buildKeyframePreviewNodes(time: number) {
   const cloned = nodes.value.map(node => ({ ...node, properties: { ...node.properties } } as UINode));
@@ -1518,7 +1524,7 @@ function addTweenClip(node: UINode, fieldKey: string, startTime: number) {
   const field = getTweenableField(node.type, fieldKey);
   if (!field || tweenFieldConflict(node, fieldKey)) return null;
   const gap = getTweenClipGap(tweenTracks.value, node.id, fieldKey, startTime, sequenceDurationValue(), MIN_TWEEN_DURATION);
-  if (!gap) { timelineEditNotice.value = "此处已被 Clip 占用，或剩余空隙不足 0.01 秒。"; return null; }
+  if (!gap) { timelineEditNotice.value = t('clientUIAnimationEditor.ui.timeline.clipGapUnavailable'); return null; }
   const track: UITweenTrack = { id: createTweenId(), nodeId: node.id, fieldKey, ...gap, initialValue: null, endValue: null, easeType: "Linear" };
   const previous = orderTweenClips(tweenTracks.value.filter((item) => item.nodeId === node.id && item.fieldKey === fieldKey && item.startTime + item.duration <= gap.startTime + 0.000001)).at(-1);
   const relative = previous?.relative === true && isRelativeTweenField(fieldKey);
@@ -1538,7 +1544,7 @@ function copySelectedTweenClip() {
   const track = selectedTweenTrack.value;
   if (!track || selectedId.value !== track.nodeId) return null;
   tweenClipClipboard.value = { ...track, initialValue: cloneTweenValue(track.initialValue), endValue: cloneTweenValue(track.endValue) };
-  timelineEditNotice.value = "已复制 Clip；移动播放头后按 Ctrl+V，在原属性轨道粘贴。";
+  timelineEditNotice.value = t('clientUIAnimationEditor.ui.timeline.clipCopiedHint');
   return tweenClipClipboard.value;
 }
 function pasteTweenClipAtPlayhead() {
@@ -1546,21 +1552,21 @@ function pasteTweenClipAtPlayhead() {
   if (!source) return null;
   const node = nodes.value.find((item) => item.id === source.nodeId);
   if (!node || !getTweenableField(node.type, source.fieldKey)) {
-    timelineEditNotice.value = "无法粘贴：原控件或属性已不存在，请重新复制 Clip。";
+    timelineEditNotice.value = t('clientUIAnimationEditor.ui.timeline.pasteSourceMissing');
     return null;
   }
   const conflict = tweenFieldConflict(node, source.fieldKey);
-  if (conflict) { timelineEditNotice.value = `无法粘贴：${conflict}`; return null; }
+  if (conflict) { timelineEditNotice.value = t('clientUIAnimationEditor.ui.timeline.pasteConflict', { conflict: conflict }); return null; }
   const startTime = Number(currentTime.value.toFixed(6));
   const endTime = startTime + source.duration;
   if (!Number.isFinite(startTime) || !Number.isFinite(source.duration) || source.duration < MIN_TWEEN_DURATION - TWEEN_CLIP_TIME_EPSILON
     || startTime < 0 || !Number.isFinite(endTime) || endTime > sequenceDurationValue() + TWEEN_CLIP_TIME_EPSILON) {
-    timelineEditNotice.value = "无法粘贴：剩余序列时长不足以容纳完整 Clip，请移动播放头或延长序列。";
+    timelineEditNotice.value = t('clientUIAnimationEditor.ui.timeline.clipPasteTooLong');
     return null;
   }
   const track: UITweenTrack = { ...source, startTime, id: createTweenId(), initialValue: cloneTweenValue(source.initialValue), endValue: cloneTweenValue(source.endValue) };
   if (tweenTracks.value.some((other) => tweenClipsOverlap(track, other))) {
-    timelineEditNotice.value = "无法粘贴：此处空隙不足，会与同一属性轨道上的 Clip 重叠。";
+    timelineEditNotice.value = t('clientUIAnimationEditor.ui.timeline.pasteOverlap');
     return null;
   }
   while (tweenTracks.value.some((other) => other.id === track.id)) track.id = createTweenId();
@@ -1569,7 +1575,7 @@ function pasteTweenClipAtPlayhead() {
   selectedId.value = node.id;
   selectedTweenTrackId.value = track.id;
   closeTweenFieldPicker();
-  timelineEditNotice.value = `已在 ${startTime} 秒粘贴 Clip。`;
+  timelineEditNotice.value = t('clientUIAnimationEditor.ui.timeline.clipPasted', { startTime: startTime });
   return track;
 }
 function selectTweenTrack(row: TimelineTweenRow, clip = (row.tracks ?? []).find((item) => item.id === selectedTweenTrackId.value) ?? row.track) { selectedId.value = row.node.id; selectedTweenTrackId.value = clip.id; closeTweenFieldPicker(); }
@@ -1592,8 +1598,8 @@ function openTimelineContextMenu(event: MouseEvent | KeyboardEvent, row: Timelin
   const gap = getTweenClipGap(tweenTracks.value, row.node.id, row.field.fieldKey, time, sequenceDurationValue(), MIN_TWEEN_DURATION);
   timelineContextMenu.value = {
     trackId: clip?.id ?? row.track.id, clipId: clip?.id ?? null, time,
-    canCreate: Boolean(gap), createHint: gap ? "" : "此处已有 Clip，或可用时长不足 0.01 秒",
-    label: `${row.node.name} · ${row.field.label}`,
+    canCreate: Boolean(gap), createHint: gap ? "" : t('clientUIAnimationEditor.ui.timeline.clipPlacementUnavailable'),
+    label: t('clientUIAnimationEditor.ui.timeline.nodeFieldLabel', { name: row.node.name, field: t(row.field.label) }),
     x: hasPointerPosition ? event.clientX : rect.left,
     y: hasPointerPosition ? event.clientY : rect.bottom,
   };
@@ -1672,13 +1678,13 @@ function updateTweenTiming(key: "startTime" | "duration", rawValue: number | nul
   const limit = key === "startTime" ? bounds.maxEnd - track.duration : bounds.maxEnd - track.startTime;
   const minimum = key === "startTime" ? bounds.minStart : MIN_TWEEN_DURATION;
   track[key] = Number(Math.min(limit, Math.max(minimum, rawValue)).toFixed(6));
-  timelineEditNotice.value = Math.abs(track[key] - rawValue) > 0.000001 ? "已限制到相邻 Clip 或序列边界；同一属性的 Clip 不能重叠。" : "";
+  timelineEditNotice.value = Math.abs(track[key] - rawValue) > 0.000001 ? t('clientUIAnimationEditor.ui.timeline.clipMoveConstrained') : "";
 }
 function updateSequenceDuration(rawValue: number | null) {
   const requested = rawValue !== null && Number.isFinite(rawValue) ? Math.max(0.5, rawValue) : 0.5;
   const lastEnd = tweenTracks.value.reduce((end, track) => Math.max(end, track.startTime + track.duration), 0.5);
   duration.value = Math.max(requested, lastEnd);
-  timelineEditNotice.value = requested < lastEnd ? "序列时长不能短于已有 Clip 的结束时间；请先缩短或移除对应 Clip。" : "";
+  timelineEditNotice.value = requested < lastEnd ? t('clientUIAnimationEditor.ui.timeline.durationBeforeClipEnd') : "";
   currentTime.value = Math.min(currentTime.value, duration.value);
 }
 let stopTweenClipDrag: (() => void) | null = null;
@@ -1746,7 +1752,7 @@ function startTweenTimingDrag(event: PointerEvent, row: TimelineTweenRow, mode: 
 }
 let syncingTimelineScroll = false;
 function syncTimelineScroll(source: "names" | "content") { if (syncingTimelineScroll) return; const from = source === "names" ? timelineTrackNames.value : timelineContent.value; const to = source === "names" ? timelineContent.value : timelineTrackNames.value; if (!from || !to || Math.abs(to.scrollTop - from.scrollTop) < 1) return; syncingTimelineScroll = true; to.scrollTop = from.scrollTop; requestAnimationFrame(() => { syncingTimelineScroll = false; }); }
-function addNode(type: ControlType) { let root = rootContainer.value; if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); rebaseNodeLayout(root); } const parent = selectedNode.value ?? root; const count = nodes.value.filter((node) => node.type === type).length + 1; const node = makeNode(type, `${controlLabels[type]}_${count}`, { parentId: parent.id, x: parent.width / 2 + (count - 2) * 40, y: parent.height / 2 - (count - 2) * 30 }); rebaseNodeLayout(node); nodes.value.push(node); selectedId.value = node.id; addMenuOpen.value = false; }
+function addNode(type: ControlType) { let root = rootContainer.value; if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); rebaseNodeLayout(root); } const parent = selectedNode.value ?? root; const count = nodes.value.filter((node) => node.type === type).length + 1; const node = makeNode(type, `${t(controlLabels[type])}_${count}`, { parentId: parent.id, x: parent.width / 2 + (count - 2) * 40, y: parent.height / 2 - (count - 2) * 30 }); rebaseNodeLayout(node); nodes.value.push(node); selectedId.value = node.id; addMenuOpen.value = false; }
 function removeSelected() { if (!selectedId.value || selectedId.value === rootContainer.value?.id) return; const remove = new Set<string>([selectedId.value]); let changed = true; while (changed) { changed = false; nodes.value.forEach((node) => { if (node.parentId && remove.has(node.parentId) && !remove.has(node.id)) { remove.add(node.id); changed = true; } }); } nodes.value = nodes.value.filter((node) => !remove.has(node.id)); tweenTracks.value = tweenTracks.value.filter((track) => !remove.has(track.nodeId)); animations.value.forEach(animation => { animation.keyframeTracks = animation.keyframeTracks.filter(track => !remove.has(track.nodeId)); animation.events = animation.events?.filter(event => event.nodeId === null || !remove.has(event.nodeId)); }); selectedKeyframeId.value = null; selectedTweenTrackId.value = null; selectedId.value = rootContainer.value?.id ?? null; }
 function anchorVisualStyle(values: AnchorValues): CSSProperties { return { "--anchor-min-x": `${values.anchorMinX * 100}%`, "--anchor-min-y": `${values.anchorMinY * 100}%`, "--anchor-max-x": `${values.anchorMaxX * 100}%`, "--anchor-max-y": `${values.anchorMaxY * 100}%`, "--pivot-x": `${values.pivotX * 100}%`, "--pivot-y": `${values.pivotY * 100}%` } as CSSProperties; }
 function clamp01(value: number) { return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)); }
@@ -1780,7 +1786,7 @@ function reparentNode(node: UINode, requestedParentId: string | null, usePreview
   const world = worlds.get(node.id), parentWorld = worlds.get(nextParent.id);
   const local = world && parentWorld && boneAttachmentTransform(world, parentWorld);
   if (!local || ![local.offset.x, local.offset.y, local.rotation, local.scaleX, local.scaleY].every(Number.isFinite)) {
-    timelineEditNotice.value = "无法保持控件外观：新父级含零缩放，或换父级会产生无法表示的斜切。此次层级拖拽已取消。";
+    timelineEditNotice.value = t('clientUIAnimationEditor.ui.hierarchy.reparentTransformUnsupported');
     return false;
   }
   const fields = {
@@ -1793,7 +1799,7 @@ function reparentNode(node: UINode, requestedParentId: string | null, usePreview
     localRotationZ: local.rotation, localScaleX: local.scaleX, localScaleY: local.scaleY,
   };
   if (usePreview && !keyframeTracks.value.length && tweenTracks.value.some(track => track.nodeId === node.id && track.fieldKey in fields)) {
-    timelineEditNotice.value = "此控件仍使用旧版 Clip 变换轨道，请先转换为关键帧后再调整父级；此次拖拽已取消。";
+    timelineEditNotice.value = t('clientUIAnimationEditor.ui.hierarchy.convertLegacyClipsBeforeReparenting');
     return false;
   }
   const oldWidth = node.width, oldHeight = node.height;
@@ -1810,18 +1816,18 @@ function reparentNode(node: UINode, requestedParentId: string | null, usePreview
   }
   applyNodeLayout(node);
   if (node.width !== oldWidth || node.height !== oldHeight) applyDescendantLayouts(node.id);
-  timelineEditNotice.value = "已调整父级，保持当前画布位置、大小和旋转；局部变换已补偿。";
+  timelineEditNotice.value = t('clientUIAnimationEditor.ui.hierarchy.reparentSuccess');
   return true;
 }
 function placeNodeRelative(node: UINode, target: UINode, mode: "before" | "after") { const root = rootContainer.value; if (!root || node.id === root.id || node.id === target.id) return false; const parentId = target.id === root.id ? root.id : target.parentId ?? root.id; const nextParent = nodes.value.find((item) => item.id === parentId); if (!nextParent || nextParent.id === node.id || isDescendant(nextParent.id, node.id) || !reparentNode(node, nextParent.id, true)) return false; const movingIndex = nodes.value.findIndex((item) => item.id === node.id); if (movingIndex < 0) return false; const [movingNode] = nodes.value.splice(movingIndex, 1); const targetIndex = nodes.value.findIndex((item) => item.id === target.id); const insertIndex = target.id === root.id ? targetIndex + 1 : targetIndex + (mode === "after" ? 1 : 0); nodes.value.splice(Math.max(0, insertIndex), 0, movingNode); return true; }
 function ensureSingleRootContainer() { let root = nodes.value.find((node) => node.type === "container" && node.parentId === null) ?? nodes.value.find((node) => node.type === "container"); if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); } if (root.parentId !== null) { const world = worldTransforms.value.get(root.id); root.parentId = null; root.x = roundLayout(world?.x ?? root.x); root.y = roundLayout(world?.y ?? root.y); rebaseNodeLayout(root); } nodes.value.filter((node) => node.id !== root.id && (!node.parentId || !nodes.value.some((parent) => parent.id === node.parentId))).forEach((node) => reparentNode(node, root.id)); }
-function updateHierarchyDropTarget(clientX: number, clientY: number, draggedNode: UINode) { hierarchyDrag.value.pointerX = clientX; hierarchyDrag.value.pointerY = clientY; const tree = hierarchyTree.value; const root = rootContainer.value; if (!tree || !root) return; const treeRect = tree.getBoundingClientRect(); if (clientX < treeRect.left || clientX > treeRect.right || clientY < treeRect.top || clientY > treeRect.bottom) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "移回层级区域后释放"; return; } const row = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>(".tree-row[data-node-id]"); const hoveredNode = row?.dataset.nodeId ? nodes.value.find((node) => node.id === row.dataset.nodeId) : null; if (!row || !hoveredNode) { hierarchyDrag.value.dropTargetId = root.id; hierarchyDrag.value.dropParentId = root.id; hierarchyDrag.value.dropMode = "inside"; hierarchyDrag.value.dropLabel = `放到根层级 ${root.name}`; return; } const rowRect = row.getBoundingClientRect(); const ratioY = (clientY - rowRect.top) / Math.max(1, rowRect.height); let mode: Exclude<HierarchyDropMode, null> = ratioY < 0.27 ? "before" : ratioY > 0.73 ? "after" : "inside"; if (hoveredNode.id === draggedNode.id) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能放到自身"; return; } if (mode === "inside") { if (isDescendant(hoveredNode.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能归属到自己的子级"; return; } hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = hoveredNode.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = `成为 ${hoveredNode.name} 的子级`; return; } const nextParent = hoveredNode.id === root.id ? root : nodes.value.find((node) => node.id === hoveredNode.parentId) ?? root; if (nextParent.id === draggedNode.id || isDescendant(nextParent.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = "不能移动到自己的子级之间"; return; } if (hoveredNode.id === root.id) mode = "after"; hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = nextParent.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = hoveredNode.id === root.id ? "放到根层级顶部" : `移到 ${hoveredNode.name} ${mode === "before" ? "上方" : "下方"}`; }
+function updateHierarchyDropTarget(clientX: number, clientY: number, draggedNode: UINode) { hierarchyDrag.value.pointerX = clientX; hierarchyDrag.value.pointerY = clientY; const tree = hierarchyTree.value; const root = rootContainer.value; if (!tree || !root) return; const treeRect = tree.getBoundingClientRect(); if (clientX < treeRect.left || clientX > treeRect.right || clientY < treeRect.top || clientY > treeRect.bottom) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = t('clientUIAnimationEditor.ui.hierarchy.returnBeforeDropHint'); return; } const row = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>(".tree-row[data-node-id]"); const hoveredNode = row?.dataset.nodeId ? nodes.value.find((node) => node.id === row.dataset.nodeId) : null; if (!row || !hoveredNode) { hierarchyDrag.value.dropTargetId = root.id; hierarchyDrag.value.dropParentId = root.id; hierarchyDrag.value.dropMode = "inside"; hierarchyDrag.value.dropLabel = t('clientUIAnimationEditor.ui.hierarchy.dropAtRoot', { rootName: root.name }); return; } const rowRect = row.getBoundingClientRect(); const ratioY = (clientY - rowRect.top) / Math.max(1, rowRect.height); let mode: Exclude<HierarchyDropMode, null> = ratioY < 0.27 ? "before" : ratioY > 0.73 ? "after" : "inside"; if (hoveredNode.id === draggedNode.id) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = t('clientUIAnimationEditor.ui.hierarchy.cannotDropOnSelf'); return; } if (mode === "inside") { if (isDescendant(hoveredNode.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = t('clientUIAnimationEditor.ui.hierarchy.descendantParentForbidden'); return; } hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = hoveredNode.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = t('clientUIAnimationEditor.ui.hierarchy.makeChild', { targetName: hoveredNode.name }); return; } const nextParent = hoveredNode.id === root.id ? root : nodes.value.find((node) => node.id === hoveredNode.parentId) ?? root; if (nextParent.id === draggedNode.id || isDescendant(nextParent.id, draggedNode.id)) { hierarchyDrag.value.dropTargetId = null; hierarchyDrag.value.dropParentId = null; hierarchyDrag.value.dropMode = null; hierarchyDrag.value.dropLabel = t('clientUIAnimationEditor.ui.hierarchy.cannotMoveBetweenDescendants'); return; } if (hoveredNode.id === root.id) mode = "after"; hierarchyDrag.value.dropTargetId = hoveredNode.id; hierarchyDrag.value.dropParentId = nextParent.id; hierarchyDrag.value.dropMode = mode; hierarchyDrag.value.dropLabel = hoveredNode.id === root.id ? t('clientUIAnimationEditor.ui.hierarchy.moveToRootTop') : mode === "before" ? t('clientUIAnimationEditor.ui.hierarchy.moveAboveControl', { targetName: hoveredNode.name }) : t('clientUIAnimationEditor.ui.hierarchy.moveBelowTarget', { targetName: hoveredNode.name }); }
 let cancelHierarchyPress: (() => void) | null = null;
-function startHierarchyPress(event: PointerEvent, node: UINode) { if (event.button !== 0 || boneCreateMode.value) return; selectedId.value = node.id; if (node.id === rootContainer.value?.id) return; cancelHierarchyPress?.(); const startX = event.clientX; const startY = event.clientY; let activated = false; let timer = window.setTimeout(() => { activated = true; hierarchyDrag.value = { nodeId: node.id, active: true, pointerX: startX, pointerY: startY, dropTargetId: null, dropParentId: node.parentId ?? rootContainer.value?.id ?? null, dropMode: null, dropLabel: `当前归属：${getLayoutParent(node)?.name ?? rootContainer.value?.name ?? "根容器"}` }; updateHierarchyDropTarget(startX, startY, node); }, 50); const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", cancel); cancelHierarchyPress = null; }; const move = (next: PointerEvent) => { if (!activated && Math.hypot(next.clientX - startX, next.clientY - startY) > 7) { cleanup(); return; } if (activated) { next.preventDefault(); updateHierarchyDropTarget(next.clientX, next.clientY, node); } }; const finish = (next: PointerEvent) => { if (activated) { updateHierarchyDropTarget(next.clientX, next.clientY, node); const targetId = hierarchyDrag.value.dropTargetId; const mode = hierarchyDrag.value.dropMode; const target = targetId ? nodes.value.find((item) => item.id === targetId) : null; const changed = target && mode === "inside" ? reparentNode(node, target.id, true) : target && (mode === "before" || mode === "after") ? placeNodeRelative(node, target, mode) : false; if (changed) { const expandId = mode === "inside" ? target?.id : hierarchyDrag.value.dropParentId; if (expandId) { const nextCollapsed = new Set(collapsed.value); nextCollapsed.delete(expandId); collapsed.value = nextCollapsed; } } } cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; const cancel = () => { cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; cancelHierarchyPress = cleanup; window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", cancel); }
+function startHierarchyPress(event: PointerEvent, node: UINode) { if (event.button !== 0 || boneCreateMode.value) return; selectedId.value = node.id; if (node.id === rootContainer.value?.id) return; cancelHierarchyPress?.(); const startX = event.clientX; const startY = event.clientY; let activated = false; let timer = window.setTimeout(() => { activated = true; hierarchyDrag.value = { nodeId: node.id, active: true, pointerX: startX, pointerY: startY, dropTargetId: null, dropParentId: node.parentId ?? rootContainer.value?.id ?? null, dropMode: null, dropLabel: t('clientUIAnimationEditor.ui.hierarchy.currentParent', { nodeName: getLayoutParent(node)?.name ?? rootContainer.value?.name ?? t('clientUIAnimationEditor.ui.hierarchy.rootContainer') }) }; updateHierarchyDropTarget(startX, startY, node); }, 50); const cleanup = () => { window.clearTimeout(timer); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", cancel); cancelHierarchyPress = null; }; const move = (next: PointerEvent) => { if (!activated && Math.hypot(next.clientX - startX, next.clientY - startY) > 7) { cleanup(); return; } if (activated) { next.preventDefault(); updateHierarchyDropTarget(next.clientX, next.clientY, node); } }; const finish = (next: PointerEvent) => { if (activated) { updateHierarchyDropTarget(next.clientX, next.clientY, node); const targetId = hierarchyDrag.value.dropTargetId; const mode = hierarchyDrag.value.dropMode; const target = targetId ? nodes.value.find((item) => item.id === targetId) : null; const changed = target && mode === "inside" ? reparentNode(node, target.id, true) : target && (mode === "before" || mode === "after") ? placeNodeRelative(node, target, mode) : false; if (changed) { const expandId = mode === "inside" ? target?.id : hierarchyDrag.value.dropParentId; if (expandId) { const nextCollapsed = new Set(collapsed.value); nextCollapsed.delete(expandId); collapsed.value = nextCollapsed; } } } cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; const cancel = () => { cleanup(); hierarchyDrag.value = emptyHierarchyDrag(); }; cancelHierarchyPress = cleanup; window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", cancel); }
 function applyDescendantLayouts(parentId: string) { nodes.value.filter((node) => node.parentId === parentId).forEach((child) => { applyNodeLayout(child); applyDescendantLayouts(child.id); }); }
 function propertyGroupLabel(group: PropertyGroup) {
-  if (group === "control") return `${selectedControlDefinition.value.label}参数`;
-  return { transform: "变换", image: "图片设置", creation: "创建设置", editor: "编辑设置" }[group];
+  if (group === "control") return t('clientUIAnimationEditor.ui.properties.controlParameters', { label: t(selectedControlDefinition.value.label) });
+  return { transform: t('clientUIAnimationEditor.ui.properties.transform'), image: t('clientUIAnimationEditor.ui.images.settings'), creation: t('clientUIAnimationEditor.ui.controls.creationSettings'), editor: t('clientUIAnimationEditor.ui.editor.settings') }[group];
 }
 function canPasteSelectedPropertyGroup(group: PropertyGroup) {
   const node = selectedNode.value;
@@ -1829,14 +1835,17 @@ function canPasteSelectedPropertyGroup(group: PropertyGroup) {
 }
 function propertyPasteHint(group: PropertyGroup) {
   const clipboard = propertyClipboard.value;
-  if (!clipboard) return "请先复制此分组的属性";
-  if (clipboard.group !== group) return "请先复制相同分组的属性";
-  if (!canPasteSelectedPropertyGroup(group)) return "此分组只支持同类型控件之间粘贴";
-  return `粘贴已复制的${propertyGroupLabel(group)}属性`;
+  if (!clipboard) return t('clientUIAnimationEditor.ui.properties.copyGroupBeforePaste');
+  if (clipboard.group !== group) return t('clientUIAnimationEditor.ui.properties.copyGroupFirst');
+  if (!canPasteSelectedPropertyGroup(group)) return t('clientUIAnimationEditor.ui.properties.pasteRequiresSameControlType');
+  return t('clientUIAnimationEditor.ui.properties.pasteGroupHint', { group: propertyGroupLabel(group) });
 }
-function reportPropertyAction(group: PropertyGroup, action: string) {
+function reportPropertyAction(group: PropertyGroup, action: "copy" | "reset" | "paste") {
   if (!selectedNode.value) return;
-  propertyActionFeedback.value = { nodeId: selectedNode.value.id, message: `${action}${propertyGroupLabel(group)}属性` };
+  const label = propertyGroupLabel(group);
+  const message = action === "copy" ? t('clientUIAnimationEditor.ui.properties.groupCopied', { group: label })
+    : action === "reset" ? t('clientUIAnimationEditor.ui.properties.groupResetSuccess', { group: label }) : t('clientUIAnimationEditor.ui.properties.groupPasted', { group: label });
+  propertyActionFeedback.value = { nodeId: selectedNode.value.id, message };
 }
 function copySelectedPropertyGroup(group: PropertyGroup) {
   const node = inspectorNode.value;
@@ -1844,7 +1853,7 @@ function copySelectedPropertyGroup(group: PropertyGroup) {
   const snapshot = capturePropertyGroup(node, group);
   if (!snapshot) return;
   propertyClipboard.value = snapshot;
-  reportPropertyAction(group, "已复制");
+  reportPropertyAction(group, "copy");
 }
 function applySelectedPropertyLayout(group: PropertyGroup, node: UINode) {
   if (group !== "transform") return;
@@ -1864,7 +1873,7 @@ function commitSelectedPropertyGroup(group: PropertyGroup, node: UINode, before:
       ? typeof change.value === "number" && Number.isFinite(change.value)
       : Boolean(normalizeColorRGBA(change.value));
     if (!valid) {
-      timelineEditNotice.value = `「${change.field.label}」已加入动画，不能设为未设置或无效值；请先填写有效数值或删除该属性轨道。`;
+      timelineEditNotice.value = t('clientUIAnimationEditor.ui.properties.animatedFieldRequiresValue', { field: t(change.field.label) });
       return false;
     }
   }
@@ -1891,11 +1900,11 @@ function stageSelectedPropertyGroup(group: PropertyGroup, action: "reset" | "pas
 }
 function resetSelectedPropertyGroup(group: PropertyGroup) {
   if (!stageSelectedPropertyGroup(group, "reset")) return;
-  reportPropertyAction(group, "已重置");
+  reportPropertyAction(group, "reset");
 }
 function pasteSelectedPropertyGroup(group: PropertyGroup) {
   if (!stageSelectedPropertyGroup(group, "paste")) return;
-  reportPropertyAction(group, "已粘贴");
+  reportPropertyAction(group, "paste");
 }
 let imageSelectionVersion = 0;
 async function selectImageAsset(assetId: number | null) {
@@ -2105,7 +2114,7 @@ function createBoneFromDrag(parent: UINode, start: BonePoint, end: BonePoint) {
   if (!nodes.value.includes(parent) || parent.locked || !isVisibleInHierarchy(parent)) return null;
   const pose = previewNode(parent), world = previewWorldTransforms.value.get(parent.id);
   const geometry = world && boneGeometry(start, end, world);
-  if (!geometry) { timelineEditNotice.value = "拖拽距离过短，或父级缩放为 0，无法创建骨骼。"; return null; }
+  if (!geometry) { timelineEditNotice.value = t('clientUIAnimationEditor.ui.bones.creationDegenerateTransform'); return null; }
   let index = 1;
   while (nodes.value.some(node => node.name === `骨骼_${index}`)) index++;
   const node = makeNode("container", `骨骼_${index}`, {
@@ -2120,20 +2129,20 @@ function createBoneFromDrag(parent: UINode, start: BonePoint, end: BonePoint) {
   collapsed.value = new Set([...collapsed.value].filter(id => id !== parent.id));
   boneParentId.value = node.id;
   selectHierarchyNode(node);
-  timelineEditNotice.value = `已创建 ${node.name}，下一根将作为它的子级。`;
+  timelineEditNotice.value = t('clientUIAnimationEditor.ui.bones.createdChildParentHint', { nodeName: node.name });
   return node;
 }
 function attachControlToBone(node: UINode) {
   const parent = boneParent.value;
   if (!parent || node.id === rootContainer.value?.id || node.id === parent.id || isDescendant(parent.id, node.id)) {
-    timelineEditNotice.value = "不能把根容器、自身或骨骼的祖先挂到当前骨骼下。"; return false;
+    timelineEditNotice.value = t('clientUIAnimationEditor.ui.bones.invalidParent'); return false;
   }
-  if (node.locked || parent.locked) { timelineEditNotice.value = "请先解锁控件和父骨骼。"; return false; }
+  if (node.locked || parent.locked) { timelineEditNotice.value = t('clientUIAnimationEditor.ui.hierarchy.unlockControlAndParentBone'); return false; }
   if (node.parentId === parent.id) return true;
   const pose = previewNode(node), parentPose = previewNode(parent);
   const world = previewWorldTransforms.value.get(node.id), parentWorld = previewWorldTransforms.value.get(parent.id);
   const local = world && parentWorld && boneAttachmentTransform(world, parentWorld);
-  if (!local) { timelineEditNotice.value = "当前父级含零缩放或会产生斜切，无法保持控件外观；请先调整父级缩放。"; return false; }
+  if (!local) { timelineEditNotice.value = t('clientUIAnimationEditor.ui.hierarchy.parentTransformInvalid'); return false; }
   node.parentId = parent.id;
   node.width = pose.width; node.height = pose.height;
   node.anchorMinX = node.anchorMaxX = parentPose.pivotX;
@@ -2150,7 +2159,7 @@ function attachControlToBone(node: UINode) {
   }
   collapsed.value = new Set([...collapsed.value].filter(id => id !== parent.id));
   selectedId.value = parent.id;
-  timelineEditNotice.value = `已将 ${node.name} 挂到 ${parent.name} 下。`;
+  timelineEditNotice.value = t('clientUIAnimationEditor.ui.bones.parentChanged', { nodeName: node.name, parentName: parent.name });
   return true;
 }
 function boneAttachTargetAtPoint(x: number, y: number) {
@@ -2529,7 +2538,7 @@ function onImportMenuFocusOut(event: FocusEvent) {
   if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) importMenuOpen.value = false;
 }
 function openGiaFile() { importMenuOpen.value = false; if (canCreateWorkspaceDocument()) giaFileInput.value?.click(); }
-const psdFileInput = ref<HTMLInputElement | null>(null), psdImportBusy = ref(false), psdImportProgress = ref("正在解析 PSD…");
+const psdFileInput = ref<HTMLInputElement | null>(null), psdImportBusy = ref(false), psdImportProgress = ref<string>(t('clientUIAnimationEditor.ui.psdImport.parsing'));
 const spineFileInput = ref<HTMLInputElement | null>(null), spineImportBusy = ref(false);
 function openSpineFolder() {
   importMenuOpen.value = false;
@@ -2543,7 +2552,7 @@ async function loadSpineFolder(event: Event) {
   try {
     const { importSpineFiles } = await import("./spineImporter");
     const imported = await importSpineFiles(files, targetCanvas.canvasWidth, targetCanvas.canvasHeight);
-    const status = `Spine · ${imported.nodes.length - 1} 个骨骼/附件 · ${imported.animations.length} 个动画${imported.warnings.length ? ` · ${imported.warnings.join('；')}` : ''}`;
+    const status = t('clientUIAnimationEditor.ui.spineImport.resultSummary', { nodeCount: imported.nodes.length - 1, animationCount: imported.animations.length, warnings: imported.warnings.length ? t('clientUIAnimationEditor.ui.import.warningSuffix', { warnings: (imported.warnings).join('; ') }) : '' });
     const serialized = JSON.stringify({
       version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
       name: imported.name, ...targetCanvas, nodes: imported.nodes,
@@ -2553,10 +2562,10 @@ async function loadSpineFolder(event: Event) {
     if (archive) await archive.createDocument(imported.name, async () => serialized);
     else applyProjectData(serialized);
     workspacePanelOpen.value = false;
-    if (imported.warnings.length) toast.warning(`Spine 已导入，注意：${imported.warnings.join('；')}`);
-    else toast.success("Spine 工程已导入。");
+    if (imported.warnings.length) toast.warning(t('clientUIAnimationEditor.ui.spineImport.importedWithNotes', { warnings: (imported.warnings).join('; ') }));
+    else toast.success(t('clientUIAnimationEditor.ui.spineImport.projectImported'));
   } catch (error) {
-    toast.error(`Spine 导入失败，当前工程未替换：${error instanceof Error ? error.message : '未知错误'}`);
+    toast.error(t('clientUIAnimationEditor.ui.spineImport.failed', { error: (error instanceof Error ? error.message : String(error)) }));
   } finally { spineImportBusy.value = false; }
 }
 function openPsdFile() { importMenuOpen.value = false; if (!psdImportBusy.value && canCreateWorkspaceDocument()) psdFileInput.value?.click(); }
@@ -2566,7 +2575,7 @@ async function createPsdProject(file: File) {
   const width = canvasWidth.value;
   const height = canvasHeight.value;
   const { importPsdFile } = await import("./psdImporter");
-  const imported = await importPsdFile(file, (done, total) => { psdImportProgress.value = `提取图层 ${done}/${total}`; });
+  const imported = await importPsdFile(file, (done, total) => { psdImportProgress.value = t('clientUIAnimationEditor.ui.psdImport.extractLayersProgress', { done: done, total: total }); });
   // 根容器适配当前画布，图层按中心锚点平移，保留 PSD 原始尺寸和相对布局。
   const root = imported.nodes.find(node => node.parentId === null);
   if (root) {
@@ -2582,20 +2591,20 @@ async function createPsdProject(file: File) {
     version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
     name: file.name.replace(/\.psd$/i, ""), deviceMode: mode, previewPresetId: presetId, canvasWidth: width, canvasHeight: height,
     duration: 5, frameRate: 30, nodes: imported.nodes, primitiveResources: imported.resources, tweenTracks: [], showContainerBones: false,
-    giaImportStatus: `PSD · ${imported.folders} 个文件夹 · ${imported.layers} 个图层 · ${imported.hidden} 个隐藏项${imported.warnings.length ? ` · ${imported.warnings.join("；")}` : ""}`,
+    giaImportStatus: t('clientUIAnimationEditor.ui.psdImport.resultSummary', { folders: imported.folders, layers: imported.layers, hidden: imported.hidden, warnings: imported.warnings.length ? t('clientUIAnimationEditor.ui.import.warningSuffix', { warnings: (imported.warnings).join('; ') }) : '' }),
   });
 }
 async function loadPsdFile(event: Event) {
   const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = "";
   if (!file || psdImportBusy.value) return;
-  psdImportBusy.value = true; psdImportProgress.value = "正在解析 PSD…";
+  psdImportBusy.value = true; psdImportProgress.value = t('clientUIAnimationEditor.ui.psdImport.parsing');
   try {
     if (archive) await archive.createDocument(file.name.replace(/\.psd$/i, ""), () => createPsdProject(file));
     else applyProjectData(await createPsdProject(file));
     workspacePanelOpen.value = false; primitiveResourceLibraryOpen.value = false;
-    toast.success("PSD 已导入，图层图片可在图片资源面板中设置拟合。");
+    toast.success(t('clientUIAnimationEditor.ui.psdImport.importedLayerFittingHint'));
   } catch (error) {
-    toast.error(`PSD 导入失败，当前文件已保留：${error instanceof Error ? error.message : "未知错误"}`);
+    toast.error(t('clientUIAnimationEditor.ui.psdImport.failedWithFileRetained', { error: (error instanceof Error ? error.message : String(error)) }));
   } finally { psdImportBusy.value = false; }
 }
 async function createGiaProject(file: File) {
@@ -2624,7 +2633,7 @@ async function createGiaProject(file: File) {
   const resolving = new Set<string>();
   const resolve = (node: UINode) => {
     if (resolved.has(node.id)) return;
-    if (resolving.has(node.id)) throw new Error("GIA 控件层级存在循环");
+    if (resolving.has(node.id)) throw new Error(t('clientUIAnimationEditor.ui.giaExport.controlHierarchyCycle'));
     resolving.add(node.id);
     const parent = node.parentId ? nodeMap.get(node.parentId) : null;
     if (parent) resolve(parent);
@@ -2639,7 +2648,7 @@ async function createGiaProject(file: File) {
   };
   importedNodes.forEach(resolve);
   const roots = importedNodes.filter(node => !node.parentId);
-  if (roots.length !== 1) throw new Error("客户端 UI 控件树必须有且仅有一个根控件，不支持合并导入多个资产。");
+  if (roots.length !== 1) throw new Error(t('clientUIAnimationEditor.ui.giaImport.singleRootRequired'));
   if (roots[0].type !== "container") {
     // A single image/text template needs an editor canvas container.
     const root = makeRootContainer(width, height);
@@ -2647,15 +2656,16 @@ async function createGiaProject(file: File) {
     importedNodes.unshift(root);
   }
   const counts = imported.controls.reduce<Record<string, number>>((result, control) => { result[control.type] = (result[control.type] ?? 0) + 1; return result; }, {});
-  const typeSummary = Object.entries(counts).map(([type, count]) => `${controlLabels[type as ControlType]} ${count}`).join("、");
-  const deviceLabel = deviceModes.find((device) => device.id === mode)?.label ?? mode;
+  const typeSummary = (Object.entries(counts).map(([type, count]) => t('clientUIAnimationEditor.ui.import.controlTypeCount', { label: t(controlLabels[type as ControlType]), count }))).join(', ');
+  const importedDevice = deviceModes.find((device) => device.id === mode);
+  const deviceLabel = importedDevice ? t(importedDevice.label) : mode;
   return JSON.stringify({
     version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
     name: imported.projectName || file.name.replace(/\.gia$/i, ""),
     deviceMode: mode, previewPresetId: presetId, canvasWidth: width, canvasHeight: height,
     duration: 5, frameRate: 30, nodes: importedNodes, tweenTracks: [],
     giaSource: { document: imported.sourceDocument, deviceIndex: deviceIndex[mode], imageMaskVersion: 1 },
-    giaImportStatus: `GIA · ${giaAssetLabels[imported.assetKind]} · ${imported.controls.length} 个控件 · ${deviceLabel}布局 · ${typeSummary}${imported.warnings.length ? ` · ${imported.warnings.join("；")}` : ""}`,
+    giaImportStatus: t('clientUIAnimationEditor.ui.giaImport.summary', { assetKind: t(giaAssetLabels[imported.assetKind]), controlCount: imported.controls.length, deviceLabel: deviceLabel, typeSummary: typeSummary, warnings: imported.warnings.length ? t('clientUIAnimationEditor.ui.import.warningSuffix', { warnings: (imported.warnings).join('; ') }) : '' }),
   });
 }
 async function loadGiaFile(event: Event) {
@@ -2667,7 +2677,7 @@ async function loadGiaFile(event: Event) {
     else applyProjectData(await createGiaProject(file));
     workspacePanelOpen.value = false;
   } catch (error) {
-    const message = `GIA 导入失败，当前文件已保留：${error instanceof Error ? error.message : "未知错误"}`;
+    const message = t('clientUIAnimationEditor.ui.giaImport.failedCurrentRetained', { error: (error instanceof Error ? error.message : String(error)) });
     if (archive) { archive.error.value = message; workspacePanelOpen.value = true; }
     else window.alert(message);
   } finally { input.value = ""; }
@@ -2682,7 +2692,7 @@ function createBlankProject(name: string) {
 async function resetProject() {
   if (!archive) { applyProjectData(createBlankProject("Untitled UI Animation")); return; }
   if (!canCreateWorkspaceDocument()) return;
-  requestArchiveAction("createDocument", "新建编辑文件", "在当前工作区创建独立的 UI 动画文件。", "新建动画");
+  requestArchiveAction("createDocument", t('clientUIAnimationEditor.ui.workspace.createEditorFile'), t('clientUIAnimationEditor.ui.workspace.createAnimationDocumentHint'), "新建动画");
 }
 function serializeProject() {
   return JSON.stringify({ version: 12, hierarchyLayoutVersion: 2, controlModelVersion: 2, timelineModelVersion: TIMELINE_MODEL_VERSION,
@@ -2728,9 +2738,9 @@ function exportSelectedPrimitiveProject() {
     const result = buildPrimitiveProjectLua({ projectName: projectName.value, rootNodeId: selectedNode.value?.id ?? "", nodes: nodes.value, resources: primitiveResources.value });
     downloadLuaFile(result.code, result.fileName);
     luaExportMenuOpen.value = false;
-    toast.success(`已导出 ${result.targetCount} 个图元控件，共 ${result.elementCount} 张图片。`);
-    if (result.warnings.length) toast.warning(`已跳过 ${result.warnings.length} 个未拟合控件，名称和原因已写入导出文件开头。`);
-  } catch (error) { toast.error(`无法导出图元项目：${error instanceof Error ? error.message : String(error)}`); }
+    toast.success(t('clientUIAnimationEditor.ui.primitiveExport.success', { targetCount: result.targetCount, elementCount: result.elementCount }));
+    if (result.warnings.length) toast.warning(t('clientUIAnimationEditor.ui.primitiveExport.skippedUnfittedControls', { warningCount: result.warnings.length }));
+  } catch (error) { toast.error(t('clientUIAnimationEditor.ui.primitiveExport.projectExportFailed', { error: (error instanceof Error ? error.message : String(error)) })); }
 }
 function openTimelineDataImport() {
   if (!hasOpenDocument.value || archive?.busy.value) return;
@@ -2757,16 +2767,18 @@ function confirmTimelineDataImport() {
   selectedTweenTrackId.value = null;
   selectedKeyframeId.value = first?.keyframes[0]?.id ?? null;
   timelineDataSource.value = "";
-  timelineEditNotice.value = "已还原 " + result.importedTracks.length + " 条关键帧轨道、" + result.importedEvents.length + " 个事件" + (mode === "replace" ? "，替换了所选范围内的 " + result.replacedCount + " 条轨道。" : "，已追加到当前时间轴。");
+  timelineEditNotice.value = mode === "replace"
+    ? t('clientUIAnimationEditor.ui.keyframeImport.replaceSuccess', { trackCount: result.importedTracks.length, eventCount: result.importedEvents.length, replacedCount: result.replacedCount })
+    : t('clientUIAnimationEditor.ui.timelineImport.appendedKeyframesAndEvents', { trackCount: result.importedTracks.length, eventCount: result.importedEvents.length });
 }
 function exportSelectedNodeTweenData() {
   try { exportSelectedNodeKeyframeData(); }
-  catch (error) { toast.error(`无法导出关键帧：${error instanceof Error ? error.message : String(error)}`); }
+  catch (error) { toast.error(t('clientUIAnimationEditor.ui.keyframeExport.failed', { error: (error instanceof Error ? error.message : String(error)) })); }
 }
 function exportSelectedNodeKeyframeData() {
   const rootNode = selectedNode.value;
   if (!rootNode) {
-    window.alert("请先在层级、画布或时间轴中选择导出根控件。");
+    window.alert(t('clientUIAnimationEditor.ui.giaExport.rootControlRequired'));
     return;
   }
   const result = buildKeyframeTimelineDataLua({
@@ -2779,13 +2791,13 @@ function exportSelectedNodeKeyframeData() {
   });
   if (!result.trackCount && !result.eventCount) {
     const detail = result.warnings.length ? `\n\n${result.warnings.join("\n")}` : "";
-    window.alert(`控件「${rootNode.name}」及其子级目前没有可导出的 Tween。${detail}`);
+    window.alert(t('clientUIAnimationEditor.ui.tweenExport.noExportableTweens', { nodeName: rootNode.name, detail: detail }));
     return;
   }
   downloadLuaFile(result.code, result.fileName);
   luaExportMenuOpen.value = false;
   if (result.warnings.length) {
-    window.alert(`Timeline Data 已导出，并附带 ${result.warnings.length} 条提示。`);
+    window.alert(t('clientUIAnimationEditor.ui.timeline.exportedWithNotes', { warningCount: result.warnings.length }));
   }
 }
 type SavedNode = Partial<ClientUIBaseControlModel> & { type?: ControlType; editor?: UINodeEditorSettings | null; properties?: Record<string, unknown>; colorRGBA?: ColorRGBA; color?: string; opacity?: number; text?: string; imageId?: number | null; imageType?: string; fontSize?: number; fontColor?: ColorRGBA; bgColor?: ColorRGBA; enableOutline?: boolean; outlineColor?: ColorRGBA; horizontalAlignment?: string; verticalAlignment?: string; adaptiveFontSize?: boolean; minimumFontSize?: number };
@@ -2838,7 +2850,7 @@ function normalizeTweenTracks(value: unknown, timelineModelVersion = 0) {
       initialValue: loadValue("initialValue"), endValue: loadValue("endValue"), easeType,
       ...(relative ? { relative: true } : {}),
     };
-    if (result.some((other) => tweenClipsOverlap(track, other))) throw new Error(`「${node.name}」的 ${fieldKey} 存在重叠 Clip，请先调整时间后再导入。`);
+    if (result.some((other) => tweenClipsOverlap(track, other))) throw new Error(t('clientUIAnimationEditor.ui.timelineImport.overlappingClips', { nodeName: node.name, fieldKey: fieldKey }));
     result.push(track);
   });
   return result;
@@ -2858,7 +2870,7 @@ function applyProjectData(serialized: string, resetHistory = true) {
 function applyProjectDataContents(serialized: string) {
   const data = JSON.parse(serialized);
   if (!data || !Array.isArray(data.nodes) || data.nodes.some((node: unknown) => !node || typeof node !== "object" || Array.isArray(node))) {
-    throw new Error("这不是有效的 UI 动画工程文件");
+    throw new Error(t('clientUIAnimationEditor.ui.editor.invalidProjectFile'));
   }
   const loadedTemplates = normalizeControlTemplates(data.controlTemplates);
   const loadedPrimitiveResources = normalizePrimitiveResources(data.primitiveResources);
@@ -2907,7 +2919,7 @@ function applyProjectDataContents(serialized: string) {
   timelineDataImportOpen.value = false;
   selectedTweenTrackId.value = null;
   closeTweenFieldPicker();
-  giaImportStatus.value = typeof data.giaImportStatus === "string" ? data.giaImportStatus : "";
+  giaImportStatus.value = typeof data.giaImportStatus === "string" || data.giaImportStatus && typeof data.giaImportStatus === "object" && typeof data.giaImportStatus.key === "string" ? data.giaImportStatus : "";
   playing.value = false;
   currentTime.value = 0;
   selectedId.value = rootContainer.value?.id ?? null;
@@ -2928,7 +2940,7 @@ async function loadProject(event: Event) {
     }
     workspacePanelOpen.value = false;
   } catch (error) {
-    const message = `无法导入，当前文件已保留：${error instanceof Error ? error.message : "未知错误"}`;
+    const message = t('clientUIAnimationEditor.ui.importMenu.failedCurrentRetained', { error: (error instanceof Error ? error.message : String(error)) });
     if (archive) { archive.error.value = message; workspacePanelOpen.value = true; }
     else window.alert(message);
   } finally { input.value = ""; }
@@ -2956,7 +2968,7 @@ async function runArchiveAction(action: () => Promise<unknown>) {
   try { await action(); return true; }
   catch (error) {
     workspacePanelOpen.value = true;
-    if (archive) archive.error.value = error instanceof Error ? error.message : "存档操作失败";
+    if (archive) archive.error.value = (error instanceof Error ? error.message : String(error));
     return false;
   }
 }
@@ -2970,23 +2982,23 @@ function requestArchiveAction(kind: ArchiveActionKind, title: string, message: s
   archiveAction.value = { kind, title, message, initialValue, mode: kind.startsWith("delete") ? "confirm" : "name" };
 }
 function createWorkspace() {
-  requestArchiveAction("createWorkspace", "新建工作区", "工作区用于集中保存多个独立的编辑文件。", "新工作区");
+  requestArchiveAction("createWorkspace", t('clientUIAnimationEditor.ui.workspace.create'), t('clientUIAnimationEditor.ui.workspace.multipleFilesHint'), "新工作区");
 }
 function renameWorkspace() {
   if (!archive?.selectedWorkspace.value) return;
-  requestArchiveAction("renameWorkspace", "重命名工作区", "编辑文件会保留在此工作区内。", archive.selectedWorkspace.value);
+  requestArchiveAction("renameWorkspace", t('clientUIAnimationEditor.ui.workspace.renameWorkspace'), t('clientUIAnimationEditor.ui.workspace.renameKeepsDocumentsHint'), archive.selectedWorkspace.value);
 }
 function deleteWorkspace() {
   if (!archive?.selectedWorkspace.value) return;
-  requestArchiveAction("deleteWorkspace", "删除工作区", `将「${archive.selectedWorkspace.value}」及其编辑文件移至回收站？当前页面可撤销最近一次删除。`);
+  requestArchiveAction("deleteWorkspace", t('clientUIAnimationEditor.ui.workspace.deleteWorkspace'), t('clientUIAnimationEditor.ui.workspace.deleteWorkspaceConfirmation', { workspace: archive.selectedWorkspace.value }));
 }
 function renameWorkspaceDocument() {
   if (!archive?.selectedDocument.value) return;
-  requestArchiveAction("renameDocument", "重命名编辑文件", "控件、参数和 Timeline 不会改变。", archive.selectedDocument.value);
+  requestArchiveAction("renameDocument", t('clientUIAnimationEditor.ui.workspace.renameDocument'), t('clientUIAnimationEditor.ui.workspace.renameDocumentKeepsContentsHint'), archive.selectedDocument.value);
 }
 function deleteWorkspaceDocument() {
   if (!archive?.selectedDocument.value) return;
-  requestArchiveAction("deleteDocument", "删除编辑文件", `将「${archive.selectedDocument.value}」移至回收站？当前页面可撤销最近一次删除。`);
+  requestArchiveAction("deleteDocument", t('clientUIAnimationEditor.ui.workspace.deleteEditorFile'), t('clientUIAnimationEditor.ui.workspace.deleteDocumentConfirm', { document: archive.selectedDocument.value }));
 }
 async function confirmArchiveAction(value: string) {
   if (!archive || archive.busy.value || !archiveAction.value) return;
@@ -3147,10 +3159,10 @@ async function undoEditorOperation() {
   try {
     await editorHistory.undo();
     if (editorHistory.index.value === previousIndex - 1 && editorHistory.entries.value[previousIndex]?.id === entry.id) {
-      toast.info(`撤回:【${entry.label}】还可撤回${editorHistory.index.value + 1}步`);
+      toast.info(t('clientUIAnimationEditor.ui.history.undoSummaryCompact', { label: entry.label, remainingSteps: editorHistory.index.value + 1 }));
     }
   }
-  catch (error) { timelineEditNotice.value = `撤销失败：${error instanceof Error ? error.message : String(error)}`; }
+  catch (error) { timelineEditNotice.value = t('clientUIAnimationEditor.ui.history.undoFailed', { error: (error instanceof Error ? error.message : String(error)) }); }
 }
 async function redoEditorOperation() {
   if (!historyInteractionAllowed() || historyPointerId !== null) return;
@@ -3161,10 +3173,10 @@ async function redoEditorOperation() {
   try {
     await editorHistory.redo();
     if (editorHistory.index.value === nextIndex && editorHistory.entries.value[nextIndex]?.id === entry.id) {
-      toast.info(`重做【${entry.label}】还可重做${editorHistory.entries.value.length - editorHistory.index.value - 1}步`);
+      toast.info(t('clientUIAnimationEditor.ui.history.redoCompleted', { label: entry.label, remainingSteps: editorHistory.entries.value.length - editorHistory.index.value - 1 }));
     }
   }
-  catch (error) { timelineEditNotice.value = `重做失败：${error instanceof Error ? error.message : String(error)}`; }
+  catch (error) { timelineEditNotice.value = t('clientUIAnimationEditor.ui.history.redoFailed', { error: (error instanceof Error ? error.message : String(error)) }); }
 }
 function handleEditorHistoryKeyboard(event: KeyboardEvent) {
   if ((event.target as Element | null)?.closest?.('.ease-panel')) return;
@@ -3192,6 +3204,7 @@ watch(observeUndoSnapshot, handleEditorHistoryChange, { flush: "post" });
 watch(() => [archive?.ready.value, archive?.busy.value, archive?.loading.value, archive?.selectedWorkspace.value, archive?.selectedDocument.value], syncEditorHistoryDocument, { flush: "sync" });
 onMounted(() => {
   void loadImageCatalog();
+  void loadImageTranslations();
   editorHistory.reset(captureUndoState());
   window.addEventListener("keydown", handleEditorHistoryKeyboard, true);
   window.addEventListener("pointerup", endEditorHistoryPointer);
@@ -3243,7 +3256,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-width: 980px;
   display: grid;
-  grid-template-rows: 48px minmax(260px, 1fr) var(--timeline-height, 250px);
+  grid-template-rows: auto minmax(260px, 1fr) var(--timeline-height, 250px);
   grid-template-columns: minmax(0, 1fr);
   background: var(--bg);
   color: var(--text);
@@ -4927,7 +4940,7 @@ button, select, input, textarea { font: inherit; }
 .animation-editor :deep(input:focus-visible),
 .animation-editor select:focus-visible { outline: 1px solid #89a6ff; outline-offset: -1px; }
 button { transition: background .12s, border-color .12s; }
-.editor-toolbar { gap: 6px; padding: 0 12px; background: #2d313b; }
+.editor-toolbar { flex-wrap: wrap; gap: 6px; min-height: 48px; box-sizing: border-box; padding: 6px 12px; background: #2d313b; }
 .tool-button, .icon-button, .square-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; color: #d9dde7; font-size: 12px; }
 .tool-button { padding: 0 9px; white-space: nowrap; }
 .back-button { border: 0; text-decoration: none; }

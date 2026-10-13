@@ -1,16 +1,17 @@
 <template>
-  <div class="template-preview" :aria-label="asset?.name || '未设置控件模板'">
+  <div class="template-preview" :aria-label="asset?.name || t('clientUIAnimationEditor.ui.templates.notConfigured')">
     <div v-if="scene" class="template-scene" :style="sceneStyle">
       <div v-for="node in scene.nodes" :key="node.control.sourceNodeIndex" class="template-node" :data-template-node="node.control.sourceNodeIndex" :style="nodeStyle(node)">
         <SpriteImage v-if="node.control.type === 'image'" :asset="imageAssetById.get(Number(node.control.properties.imageId)) ?? null" :width="node.width" :height="node.height" :image-type="node.control.properties.imageType === 'stretch' ? 'stretch' : 'basic'" :color="color(node.control.properties.imageColor)" />
         <span v-else-if="node.control.type === 'text' || node.control.type === 'textWindow'" class="template-text" :style="textStyle(node)">{{ node.control.properties.text }}</span>
       </div>
     </div>
-    <span v-else class="template-placeholder">{{ missingIndex == null ? '选择控件模板' : `未找到模板 #${missingIndex}` }}</span>
+    <span v-else class="template-placeholder">{{ missingIndex == null ? t('clientUIAnimationEditor.ui.templates.selectPreviewHint') : t('clientUIAnimationEditor.ui.templates.missingTemplate', { missingIndex: missingIndex }) }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, type CSSProperties } from "vue";
 import { buildTemplateScene, type ControlTemplateAsset, type TemplateSceneNode } from "./controlTemplates";
 import { imageAssetById, loadImageCatalog } from "./imageAssets";

@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-keyframe-model.cjs */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -138,7 +139,7 @@ try {
     assert.deepEqual(inserted.keyframes.map((item) => item.time), [0, 2]);
     const moved = upsertKeyframe(inserted, { ...inserted.keyframes[0], time: 1 });
     assert.deepEqual(moved.keyframes.map((item) => item.time), [1, 2]);
-    assert.throws(() => upsertKeyframe(moved, { ...moved.keyframes[0], time: 2 }), /已有/);
+    assert.throws(() => upsertKeyframe(moved, { ...moved.keyframes[0], time: 2 }), errorMatches(/已有/));
   });
 
   test("Normalization clones valid tracks and rejects duplicate IDs, lanes and epsilon times", () => {
@@ -147,35 +148,35 @@ try {
     assert.deepEqual(normalized[0].keyframes.map((item) => item.time), [0, 2]);
     normalized[0].keyframes[0].value = 99;
     assert.equal(raw[0].keyframes[1].value, 0);
-    assert.throws(() => normalizeKeyframeTracks([raw[0], raw[0]], nodes), /ID.*重复/);
-    assert.throws(() => normalizeKeyframeTracks([raw[0], { ...raw[0], id: "other" }], nodes), /轨道重复/);
-    assert.throws(() => normalizeKeyframeTracks([lane([key(0, 0), key(KEYFRAME_TIME_EPSILON, 1)])], nodes), /重复关键帧/);
+    assert.throws(() => normalizeKeyframeTracks([raw[0], raw[0]], nodes), errorMatches(/ID.*重复/));
+    assert.throws(() => normalizeKeyframeTracks([raw[0], { ...raw[0], id: "other" }], nodes), errorMatches(/轨道重复/));
+    assert.throws(() => normalizeKeyframeTracks([lane([key(0, 0), key(KEYFRAME_TIME_EPSILON, 1)])], nodes), errorMatches(/重复关键帧/));
     const duplicate = key(0, 0);
-    assert.throws(() => normalizeKeyframeTracks([lane([duplicate]), lane([{ ...duplicate }], { fieldKey: "sizeDeltaX" })], nodes), /ID.*重复/);
+    assert.throws(() => normalizeKeyframeTracks([lane([duplicate]), lane([{ ...duplicate }], { fieldKey: "sizeDeltaX" })], nodes), errorMatches(/ID.*重复/));
   });
 
   test("Normalization rejects unsupported fields, missing nodes, invalid values and flags explicitly", () => {
     const valid = lane([key(0, 1)]);
-    assert.throws(() => normalizeKeyframeTracks(null, nodes), /数组/);
-    assert.throws(() => normalizeKeyframeTracks([null], nodes), /格式/);
-    assert.throws(() => normalizeKeyframeTracks([{ ...valid, nodeId: "missing" }], nodes), /找不到控件/);
-    assert.throws(() => normalizeKeyframeTracks([{ ...valid, fieldKey: "notTweenable" }], nodes), /不支持/);
+    assert.throws(() => normalizeKeyframeTracks(null, nodes), errorMatches(/数组/));
+    assert.throws(() => normalizeKeyframeTracks([null], nodes), errorMatches(/格式/));
+    assert.throws(() => normalizeKeyframeTracks([{ ...valid, nodeId: "missing" }], nodes), errorMatches(/找不到控件/));
+    assert.throws(() => normalizeKeyframeTracks([{ ...valid, fieldKey: "notTweenable" }], nodes), errorMatches(/不支持/));
     for (const changes of [{ id: "" }, { time: -1 }, { time: NaN }, { time: Infinity }, { easeType: "unknown" },
       { interpolation: "bezier" }, { value: Infinity }, { value: undefined }, { value: "1" }, { relative: "true" }, { incomingRelative: true }]) {
       assert.throws(() => normalizeKeyframeTracks([{ ...valid, keyframes: [{ ...valid.keyframes[0], ...changes }] }], nodes));
     }
-    assert.throws(() => normalizeKeyframeTracks([lane([key(0, 1, { relative: true })], { nodeId: "text", fieldKey: "fontSize" })], nodes), /不支持增量/);
-    assert.throws(() => normalizeKeyframeTracks([lane([key(0, 300)], { fieldKey: "groupAlpha" })], nodes), /0–255/);
+    assert.throws(() => normalizeKeyframeTracks([lane([key(0, 1, { relative: true })], { nodeId: "text", fieldKey: "fontSize" })], nodes), errorMatches(/不支持增量/));
+    assert.throws(() => normalizeKeyframeTracks([lane([key(0, 300)], { fieldKey: "groupAlpha" })], nodes), errorMatches(/0–255/));
     const colorLane = lane([key(0, { r: 255, g: 0, b: 0, a: 2 })], { nodeId: "image", fieldKey: "imageColor" });
-    assert.throws(() => normalizeKeyframeTracks([colorLane], nodes), /ColorRGBA/);
+    assert.throws(() => normalizeKeyframeTracks([colorLane], nodes), errorMatches(/ColorRGBA/));
     assert.doesNotThrow(() => normalizeKeyframeTracks([lane([key(0, null)])], nodes));
   });
 
   test("Normalization prevents group-alpha and descendant color lanes from competing", () => {
     const group = lane([key(0, 255)], { fieldKey: "groupAlpha" });
     const color = lane([key(0, { r: 1, g: 2, b: 3, a: 1 })], { nodeId: "text", fieldKey: "fontColor" });
-    assert.throws(() => normalizeKeyframeTracks([group, color], nodes), /同一颜色/);
-    assert.throws(() => normalizeKeyframeTracks([color, group], nodes), /同一颜色/);
+    assert.throws(() => normalizeKeyframeTracks([group, color], nodes), errorMatches(/同一颜色/));
+    assert.throws(() => normalizeKeyframeTracks([color, group], nodes), errorMatches(/同一颜色/));
     assert.doesNotThrow(() => normalizeKeyframeTracks([group, lane([key(0, 5)])], nodes));
   });
 
@@ -260,9 +261,9 @@ try {
     for (const changes of [{ duration: 0 }, { startTime: -1 }, { endValue: Infinity }, { easeType: "Invalid" }]) {
       assert.throws(() => migrateTweenClipsToKeyframes([clip(0, 0, 1, changes)]));
     }
-    assert.throws(() => migrateTweenClipsToKeyframes([clip(0, 0, 1), clip(0.5, 1, 2)]), /重叠/);
-    assert.throws(() => migrateTweenClipsToKeyframes([clip(0, 0, 1, { fieldKey: "fontSize", relative: true })]), /不支持/);
-    assert.throws(() => migrateTweenClipsToKeyframes([clip(0, -Number.MAX_VALUE, Number.MAX_VALUE, { relative: true })]), /溢出/);
+    assert.throws(() => migrateTweenClipsToKeyframes([clip(0, 0, 1), clip(0.5, 1, 2)]), errorMatches(/重叠/));
+    assert.throws(() => migrateTweenClipsToKeyframes([clip(0, 0, 1, { fieldKey: "fontSize", relative: true })]), errorMatches(/不支持/));
+    assert.throws(() => migrateTweenClipsToKeyframes([clip(0, -Number.MAX_VALUE, Number.MAX_VALUE, { relative: true })]), errorMatches(/溢出/));
   });
 
   test("Legacy unset endpoints survive migration and normalization as null key placeholders", () => {

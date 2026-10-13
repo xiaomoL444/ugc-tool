@@ -16,19 +16,20 @@
       <h2 id="client-ui-archive-action-title">{{ title }}</h2>
       <p id="client-ui-archive-action-message">{{ message }}</p>
       <label v-if="mode === 'name'" class="name-field">
-        <span>名称</span>
-        <input ref="nameInput" v-model="value" type="text" :disabled="busy" autocomplete="off" spellcheck="false" aria-label="名称" />
+        <span>{{ t('clientUIAnimationEditor.ui.properties.name') }}</span>
+        <input ref="nameInput" v-model="value" type="text" :disabled="busy" autocomplete="off" spellcheck="false" :aria-label="t('clientUIAnimationEditor.ui.properties.name')" />
       </label>
       <div v-if="error" class="action-error" role="alert">{{ error }}</div>
       <footer>
-        <button type="button" :disabled="busy" @click="cancel">取消</button>
-        <button ref="submitButton" class="primary-action" :class="{ 'danger-action': mode === 'confirm' }" type="submit" :disabled="busy">{{ busy ? '正在处理…' : mode === 'confirm' ? '移至回收站' : '确认' }}</button>
+        <button type="button" :disabled="busy" @click="cancel">{{ t('clientUIAnimationEditor.ui.actions.cancel') }}</button>
+        <button ref="submitButton" class="primary-action" :class="{ 'danger-action': mode === 'confirm' }" type="submit" :disabled="busy">{{ busy ? t('clientUIAnimationEditor.ui.common.processing') : mode === 'confirm' ? t('clientUIAnimationEditor.ui.workspace.moveToRecycleBin') : t('clientUIAnimationEditor.ui.common.confirm') }}</button>
       </footer>
     </form>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const props = defineProps<{

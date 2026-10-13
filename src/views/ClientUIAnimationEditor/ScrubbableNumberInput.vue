@@ -4,7 +4,7 @@
     class="scrubbable-number-input"
     :class="{ 'is-editing': editing, 'is-scrubbing': scrubbing, 'is-animated': animated }"
     :data-animated="animated ? 'true' : undefined"
-    :aria-description="animated ? '此属性已加入动画；修改会在当前时间记帧' : undefined"
+    :aria-description="animated ? t('clientUIAnimationEditor.ui.properties.autoKeyframeHint') : undefined"
     :value="draft"
     type="number"
     :min="min"
@@ -12,7 +12,7 @@
     :step="step"
     :readonly="!editing"
     :disabled="disabled"
-    :title="`${animated ? '此属性已加入动画；修改会在当前时间记帧\n' : ''}左右拖动调整数值 · Shift 精调 · Ctrl 加速 · 双击输入 · Esc 结束拖动`"
+    :title="t('clientUIAnimationEditor.ui.properties.scrubNumberHint', { value: animated ? t('clientUIAnimationEditor.ui.properties.animatedScrubTooltip') : '' })"
     @input="handleInput"
     @blur="finishEditing"
     @keydown.enter.prevent="finishEditing"
@@ -23,6 +23,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { advanceNumberScrub, clampNumberScrubValue } from "./numberScrubbing";
 

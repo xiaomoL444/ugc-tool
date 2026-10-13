@@ -1,17 +1,18 @@
+import { t } from "../../i18n";
 import type { UIAnimation, UINode } from "./types";
 import { normalizeKeyframeTracks } from "./keyframeTimeline";
 import { normalizeTimelineEvents } from "./timelineEvents";
 
 export function normalizeAnimationCollection(value: unknown, nodes: UINode[]): UIAnimation[] {
-  if (!Array.isArray(value) || !value.length) throw new Error("工程必须包含至少一个 Animation");
+  if (!Array.isArray(value) || !value.length) throw new Error(t("clientUIAnimationEditor.ui.animations.atLeastOneRequired"));
   const ids = new Set<string>(), names = new Set<string>();
   return value.map((item: unknown) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Animation 数据无效");
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(t("clientUIAnimationEditor.ui.animations.invalidData"));
     const saved = item as Record<string, unknown>;
     const name = typeof saved.name === "string" ? saved.name.trim() : "";
-    if (typeof saved.id !== "string" || !saved.id || ids.has(saved.id)) throw new Error("Animation ID 缺失或重复");
-    if (!name || name.length > 80 || /[\x00-\x1f]/.test(name) || names.has(name)) throw new Error("Animation 名称无效或重复");
-    if (typeof saved.duration !== "number" || !Number.isFinite(saved.duration) || saved.duration <= 0) throw new Error(`「${name}」的时长无效`);
+    if (typeof saved.id !== "string" || !saved.id || ids.has(saved.id)) throw new Error(t("clientUIAnimationEditor.ui.animations.invalidAnimationId"));
+    if (!name || name.length > 80 || /[\x00-\x1f]/.test(name) || names.has(name)) throw new Error(t("clientUIAnimationEditor.ui.animations.invalidOrDuplicateName"));
+    if (typeof saved.duration !== "number" || !Number.isFinite(saved.duration) || saved.duration <= 0) throw new Error(t("clientUIAnimationEditor.ui.animations.invalidDuration", { name: name }));
     const keyframeTracks = normalizeKeyframeTracks(saved.keyframeTracks, nodes);
     const events = normalizeTimelineEvents(saved.events, nodes, true);
     ids.add(saved.id); names.add(name);

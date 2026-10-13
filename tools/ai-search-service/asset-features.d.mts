@@ -27,13 +27,13 @@ export interface FeatureAsset extends FeatureIdentity {
   audio: { description: Record<string, string>; detailedDescription: Record<string, string>; keywords: Record<string, string[]>; suggestedUses: Record<string, string[]> };
 }
 export type FeatureIdentities = FeatureIdentity[] | { assets: FeatureIdentity[]; indexVersion?: string };
-export interface FeatureParseOptions { project?: string; kind?: string; baseIndexVersion?: string; identities?: FeatureIdentities; requireCompiled?: boolean; dictionaries?: Record<string, unknown> }
+export interface FeatureParseOptions { project?: string; kind?: string; baseIndexVersion?: string; identities?: FeatureIdentities; requireCompiled?: boolean; dictionaries?: Record<string, unknown>; /** Selected browser display languages; partial sets require requireCompiled: false. */ locales?: string[] }
 export const FEATURE_LOCALES: string[];
 export const FEATURE_HASH_ALGORITHM: string;
 export const FEATURE_LIMITS: Record<string, number>;
 export class AssetFeatureError extends Error { code: string; status: number }
 export function extractAssetFeatureDictionary(project: string, dictionary: unknown): Record<string, string>;
-export function extractAssetFeatureDictionaries(project: string, dictionaries: Record<string, unknown>): Record<string, Record<string, string>>;
+export function extractAssetFeatureDictionaries(project: string, dictionaries: Record<string, unknown>, locales?: string[]): Record<string, Record<string, string>>;
 export function computeAssetFeatureSourceHash(feature: string, dictionaryHashes: Record<string, string>): Promise<string>;
 export function parseAssetFeatureSidecar(raw: unknown, options?: FeatureParseOptions): FeatureSidecar;
 export function verifyAssetFeatureSidecar(raw: unknown, options?: FeatureParseOptions): Promise<FeatureSidecar>;

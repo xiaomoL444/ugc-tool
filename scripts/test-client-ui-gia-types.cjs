@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-gia-types.cjs [native-ui.gia template.gia ...] */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -12,7 +13,7 @@ async function main() {
   const converter = await import('genshin-impact-ugc-file-converter-web');
   const oldLoad = Module._load, oldTs = Module._extensions['.ts'];
   Module._load = function (request, parent, isMain) { return request === 'genshin-impact-ugc-file-converter-web' ? converter : oldLoad.call(this, request, parent, isMain); };
-  const transpile = code => ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText;
+  const transpile = code => ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true } }).outputText;
   Module._extensions['.ts'] = (module, file) => module._compile(transpile(fs.readFileSync(file, 'utf8')), file);
   try {
     const directory = path.resolve(__dirname, '../src/views/ClientUIAnimationEditor');
@@ -76,9 +77,9 @@ async function main() {
     const image = exportGiaUI({ name: '单图片模板', uiIndex: 0, assetKind: 'controlTemplate', deviceIndex: 0, nodes: [node('image', 'image')] });
     checkShape(image, 'controlTemplate', 1, 0);
     assert.equal(importGiaControls(buffer(image.bytes)).controls[0].type, 'image');
-    assert.throws(() => exportGiaUI({ name: 'UI', uiIndex: 1, assetKind: 'containerUI', deviceIndex: 0, nodes: [node('image', 'image')] }), /根控件必须是容器/);
-    assert.throws(() => exportGiaUI({ name: '模板', uiIndex: 1, assetKind: 'controlTemplate', deviceIndex: 0, nodes: [node('image', 'a'), node('text', 'b')] }), /一个根控件/);
-    assert.throws(() => exportGiaUI({ name: '模板', uiIndex: 1, assetKind: 'wrong', deviceIndex: 0, nodes: fresh }), /导出类型/);
+    assert.throws(() => exportGiaUI({ name: 'UI', uiIndex: 1, assetKind: 'containerUI', deviceIndex: 0, nodes: [node('image', 'image')] }), errorMatches(/根控件必须是容器/));
+    assert.throws(() => exportGiaUI({ name: '模板', uiIndex: 1, assetKind: 'controlTemplate', deviceIndex: 0, nodes: [node('image', 'a'), node('text', 'b')] }), errorMatches(/一个根控件/));
+    assert.throws(() => exportGiaUI({ name: '模板', uiIndex: 1, assetKind: 'wrong', deviceIndex: 0, nodes: fresh }), errorMatches(/导出类型/));
     console.log('PASS fresh template structure, separate asset/control names, root-only image templates, four layouts and export validation');
 
     function checkConversions(bytes, label) {
@@ -135,11 +136,11 @@ async function main() {
       for (const initialKind of ['containerUI', 'controlTemplate']) {
         const props = vue.reactive({ projectName: '  导出名称  ', initialIndex: 37, initialKind, count: 3, hasSource: true, busy: false, error: '', notice: '' });
         const events = [], exports = {};
-        const context = vm.createContext({ ...vue, defineProps: () => props, defineEmits: () => (...args) => events.push(args),
+        const context = vm.createContext({ ...vue, ...require('../src/i18n/index.ts'), defineProps: () => props, defineEmits: () => (...args) => events.push(args),
           onMounted: () => {}, onBeforeUnmount: () => {}, require: request => request === 'vue' ? vue : require(request), exports });
         const scope = vue.effectScope();
         try {
-          scope.run(() => vm.runInContext(transpile(declarations + '\nglobalThis.api = { name, index, assetKind, emit, fileInput, dialog, loadSource };'), context));
+          scope.run(() => vm.runInContext(transpile(declarations + '\nglobalThis.api = { name, index, assetKind, emit, fileInput, dialog, loadSource, t };'), context));
           vm.runInContext(transpile(rendered.code), context);
           const setup = vue.reactive(context.api);
           assert.equal(setup.assetKind, initialKind);

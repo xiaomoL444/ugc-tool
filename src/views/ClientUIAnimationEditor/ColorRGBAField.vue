@@ -1,16 +1,17 @@
 <template>
-  <label class="rgba-control" :class="{ 'is-animated': animated }" :data-animated="animated ? 'true' : undefined" :title="animated ? '此属性已加入动画；修改会在当前时间记帧' : undefined">
-    <span class="rgba-label">{{ label }}<small v-if="animated" class="rgba-animation-badge">◆ 已加入动画</small></span>
+  <label class="rgba-control" :class="{ 'is-animated': animated }" :data-animated="animated ? 'true' : undefined" :title="animated ? t('clientUIAnimationEditor.ui.properties.autoKeyframeHint') : undefined">
+    <span class="rgba-label">{{ label }}<small v-if="animated" class="rgba-animation-badge">{{ t('clientUIAnimationEditor.ui.properties.animatedBadge') }}</small></span>
     <div class="rgba-inputs">
-      <input class="rgba-swatch" :value="hex" type="color" :aria-label="`${label}取色`" @input="updateHex" />
-      <input class="rgba-hex" :value="hexText" :aria-label="`${label}十六进制`" maxlength="6" @input="updateHex" />
-      <ScrubbableNumberInput class="rgba-alpha" :model-value="opacity" :aria-label="`${label}透明度`" :animated="animated" :min="0" :max="100" :step="1" @update:model-value="updateOpacity" />
+      <input class="rgba-swatch" :value="hex" type="color" :aria-label="t('clientUIAnimationEditor.ui.color.pickColor', { label })" @input="updateHex" />
+      <input class="rgba-hex" :value="hexText" :aria-label="t('clientUIAnimationEditor.ui.colors.hexadecimalLabel', { label })" maxlength="6" @input="updateHex" />
+      <ScrubbableNumberInput class="rgba-alpha" :model-value="opacity" :aria-label="t('clientUIAnimationEditor.ui.color.opacity', { label })" :animated="animated" :min="0" :max="100" :step="1" @update:model-value="updateOpacity" />
       <i>%</i>
     </div>
   </label>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed } from "vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import type { ColorRGBA } from "./types";

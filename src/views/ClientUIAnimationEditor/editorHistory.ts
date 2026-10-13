@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { computed, ref, shallowRef } from "vue";
 import UndoManager from "../../lib/undo-manager/undo-manager";
 
@@ -67,7 +68,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
   function syncEntries() {
     entries.value = manager.getCommands().map((command) => ({
       id: command.groupId!,
-      label: command.label ?? "修改编辑文件",
+      label: command.label ?? t("clientUIAnimationEditor.ui.history.modifyContent"),
     }));
     index.value = manager.getIndex();
   }
@@ -193,7 +194,7 @@ export function createEditorHistory(options: EditorHistoryOptions) {
           // An application restore that also fails to roll back cannot safely
           // retain commands against an unknown document state.
           reset(options.capture());
-          throw new Error(`恢复操作失败，回滚也失败：${String(context.error)}；${String(rollbackError)}`);
+          throw new Error(t("clientUIAnimationEditor.ui.history.restoreAndRollbackFailed", { error: (context.error instanceof Error ? context.error.message : String(context.error)), rollbackError: (rollbackError instanceof Error ? rollbackError.message : String(rollbackError)) }));
         }
         baseline = originalSnapshot;
         throw context.error;

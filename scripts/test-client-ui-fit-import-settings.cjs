@@ -4,6 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const Module = require('node:module');
 const ts = require('typescript');
+const { messageText } = require('./i18n-test-helpers.cjs');
 const vue = require('vue');
 const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc');
 const previous = Module._extensions['.ts'];
@@ -28,7 +29,7 @@ const event = (text=()=>Promise.resolve(source),size=source.length) => ({target:
 function fixture() {
   const props = vue.reactive({name:'Asset',modelValue:{id:'keep',imageUrl:'https://example.com/original.png',fitData:fit,fitOptions:{count:123}}});
   const events=[], unmount=[];
-  const context = vm.createContext({...vue,...data,...css,...svg,Error,navigator:{hardwareConcurrency:8},
+  const context = vm.createContext({...vue,...data,...css,...svg,...require('../src/i18n/index.ts'),Error,navigator:{hardwareConcurrency:8},
     defineProps:()=>props, defineEmits:()=>((name,value)=>{events.push([name,value]);if(name==='update:modelValue')props.modelValue=value;}),
     onBeforeUnmount:fn=>unmount.push(fn),imageAssetById:new Map(),imageCatalogLoading:vue.ref(false),loadImageCatalog:()=>Promise.resolve(),
   });
@@ -42,11 +43,11 @@ async function main() {
     assert.equal(input.target.value,''); assert.equal(f.props.modelValue.id,'keep');
     assert.equal(f.props.modelValue.imageUrl,'https://example.com/original.png'); assert.equal(f.props.modelValue.fitOptions.count,123);
     assert.equal(f.props.modelValue.previewMode,'primitives'); assert.equal(f.props.modelValue.fitData.elements.length,2);
-    assert.match(f.api.status.value,/CSS/); assert.ok(f.events.some(([name,v])=>name==='busy'&&v===true)); assert.equal(f.api.fitReading.value,false);
+    assert.match(messageText(f.api.status.value),/CSS/); assert.ok(f.events.some(([name,v])=>name==='busy'&&v===true)); assert.equal(f.api.fitReading.value,false);
     const saved=f.props.modelValue.fitData;
     await f.api.readFitFile(event(()=>Promise.resolve('invalid CSS')),'CSS');
-    assert.equal(f.props.modelValue.fitData,saved); assert.match(f.api.error.value,/保留/);
-    await f.api.readFitFile(event(()=>Promise.resolve(source),3*1024*1024),'CSS'); assert.match(f.api.error.value,/2 MiB/);
+    assert.equal(f.props.modelValue.fitData,saved); assert.match(messageText(f.api.error.value),/保留/);
+    await f.api.readFitFile(event(()=>Promise.resolve(source),3*1024*1024),'CSS'); assert.match(messageText(f.api.error.value),/2 MiB/);
   } finally {f.close();}
   for (const action of ['replace','unmount']) {
     f=fixture(); let resolve;

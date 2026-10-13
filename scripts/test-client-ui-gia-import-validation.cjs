@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-gia-import-validation.cjs [unsupported-asset-pack.gia ...] */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -10,7 +11,7 @@ const { parse } = require('@vue/compiler-sfc');
 async function main() {
   const converter = await import('genshin-impact-ugc-file-converter-web');
   const oldLoad = Module._load, oldTs = Module._extensions['.ts'];
-  const transpile = code => ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText;
+  const transpile = code => ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true } }).outputText;
   Module._load = function (request, parent, isMain) { return request === 'genshin-impact-ugc-file-converter-web' ? converter : oldLoad.call(this, request, parent, isMain); };
   Module._extensions['.ts'] = (module, file) => module._compile(transpile(fs.readFileSync(file, 'utf8')), file);
   try {
@@ -22,11 +23,11 @@ async function main() {
     const filename = path.join(dir, 'ClientUIAnimationEditor.vue');
     const { descriptor } = parse(fs.readFileSync(filename, 'utf8'));
     const ast = ts.createSourceFile(filename + '.ts', descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true);
-    const functions = ['makeNode', 'makeRootContainer', 'roundLayout', 'createGiaProject', 'loadGiaFile'];
+    const functions = ['makeNode', 'makeRootContainer', 'roundLayout', 'formatMessageList', 'createGiaProject', 'loadGiaFile'];
     const source = ast.statements.filter(s => ts.isFunctionDeclaration(s) && functions.includes(s.name?.text)).map(s => s.getText(ast)).join('\n');
     let nextId = 0, currentProject = 'existing project', created = 0;
     const archive = { error: { value: '' }, async createDocument(name, factory) { const data = await factory(); currentProject = data; created++; } };
-    const context = vm.createContext({ ...registry, ...importer,
+    const context = vm.createContext({ ...registry, ...importer, ...require('../src/i18n/index.ts'),
       ...require(path.join(dir, 'containerDirectionGuide.ts')),
       DEFAULT_CANVAS_WIDTH: 1600, DEFAULT_CANVAS_HEIGHT: 900, TIMELINE_MODEL_VERSION: 12,
       createId: () => `test-node-${++nextId}`, deviceMode: { value: 'pc' }, previewPresetId: { value: 'pc-16-9' },
@@ -94,13 +95,13 @@ async function main() {
     const malformed = clone(nativeUI); malformed.json['1'] = 'string:invalid';
     const rejection = /仅支持导入客户端容器 UI|不支持导入资产包/;
     assert.equal(importer.detectGiaAssetKind(malformed.json), null);
-    assert.throws(() => importer.readGiaControls(malformed.json, 0), rejection);
+    assert.throws(() => importer.readGiaControls(malformed.json, 0), errorMatches(rejection));
     async function reject(bytes, label) {
       assert.equal(importer.detectGiaAssetKind(converter.decode(bytes, { type: 'gia' }).json), null, label);
-      assert.throws(() => importer.importGiaControls(buffer(bytes)), rejection, label);
-      assert.throws(() => importer.importGiaControlTemplate(buffer(bytes)), rejection, label);
-      assert.throws(() => templates.readControlTemplate(buffer(bytes), label, 1), rejection, label);
-      await assert.rejects(api.createGiaProject(file(bytes, label)), rejection, label);
+      assert.throws(() => importer.importGiaControls(buffer(bytes)), errorMatches(rejection), label);
+      assert.throws(() => importer.importGiaControlTemplate(buffer(bytes)), errorMatches(rejection), label);
+      assert.throws(() => templates.readControlTemplate(buffer(bytes), label, 1), errorMatches(rejection), label);
+      await assert.rejects(api.createGiaProject(file(bytes, label)), errorMatches(rejection), label);
       const before = currentProject, count = created;
       const input = { files: [file(bytes, label)], value: 'selected' };
       await api.loadGiaFile({ target: input });

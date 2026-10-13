@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { parseLuaData } from "./luaDataParser";
 import { prepareTweenTimelineImport } from "./luaTweenImporter";
 import { KEYFRAME_TIME_EPSILON, migrateTweenClipsToKeyframes, normalizeKeyframeTracks } from "./keyframeTimeline";
@@ -56,7 +57,7 @@ const comment = (value: string) => value.replace(/[\r\n\u0000-\u001f]+/g, " ");
 function hierarchy(nodes: UINode[], rootNodeId: string) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const root = byId.get(rootNodeId);
-  if (!root) throw new Error("请选择当前文件中的根控件。");
+  if (!root) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.currentFileRootRequired"));
   const children = new Map<string, UINode[]>();
   for (const node of nodes) {
     if (node.parentId) {
@@ -69,10 +70,10 @@ function hierarchy(nodes: UINode[], rootNodeId: string) {
     let current = root!;
     if (!path) return current;
     for (const name of path.split("/")) {
-      if (!name.trim()) throw new Error("控件路径包含空层级。");
+      if (!name.trim()) throw new Error(t("clientUIAnimationEditor.ui.keyframeExport.emptyPathSegment"));
       const matches = (children.get(current.id) ?? []).filter((node) => node.name === name);
-      if (matches.length === 0) throw new Error(`找不到路径「${path}」，请确认导入根控件和名称。`);
-      if (matches.length !== 1) throw new Error(`路径「${path}」存在同名子控件，无法唯一匹配。`);
+      if (matches.length === 0) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.controlPathNotFound", { path: path }));
+      if (matches.length !== 1) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.ambiguousChildPath", { path: path }));
       current = matches[0];
     }
     return current;
@@ -88,9 +89,9 @@ function hierarchy(nodes: UINode[], rootNodeId: string) {
       current = current.parentId ? byId.get(current.parentId) : undefined;
     }
     if (!current) return null;
-    if (names.some((name) => !name.trim() || name.includes("/"))) throw new Error(`控件「${node.name}」的名称不能组成可靠的 FindChild 路径。`);
+    if (names.some((name) => !name.trim() || name.includes("/"))) throw new Error(t("clientUIAnimationEditor.ui.keyframeExport.unreliableControlPath", { name: node.name }));
     const path = names.join("/");
-    if (resolve(path).id !== node.id) throw new Error(`路径「${path}」无法唯一匹配控件。`);
+    if (resolve(path).id !== node.id) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.ambiguousControlPath", { path: path }));
     return path;
   }
   return { root, byId, resolve, relativePath };
@@ -98,15 +99,15 @@ function hierarchy(nodes: UINode[], rootNodeId: string) {
 
 function decode(value: unknown, kind: "number" | "color" | "boolean"): UITweenValue {
   if (kind === "boolean") {
-    if (typeof value !== "boolean") throw new Error("显隐关键帧必须是布尔值。");
+    if (typeof value !== "boolean") throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.visibilityMustBeBoolean"));
     return value;
   }
   if (kind === "number") {
-    if (!finite(value)) throw new Error("关键帧值必须是有限数值。");
+    if (!finite(value)) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.valueMustBeFinite"));
     return value;
   }
   if (!Array.isArray(value) || value.length !== 4 || !value.every((channel) => finite(channel) && Number.isInteger(channel) && channel >= 0 && channel <= 255)) {
-    throw new Error("颜色必须由四个 0–255 的 RGBA 整数组成。");
+    throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.invalidRgbaChannels"));
   }
   return { r: value[0], g: value[1], b: value[2], a: value[3] / 255 };
 }
@@ -118,7 +119,7 @@ function encode(value: UITweenValue): string {
     const color = value as ColorRGBA;
     return `{ ${[color.r, color.g, color.b, color.a * 255].map((channel) => Math.round(channel)).join(", ")} }`;
   }
-  throw new Error("关键帧缺少有效值。");
+  throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.missingValue"));
 }
 
 function checkColorConflicts(tracks: UIKeyframeTrack[], nodes: UINode[]) {
@@ -136,12 +137,12 @@ export function buildKeyframeTimelineDataLua(options: KeyframeTimelineLuaExportO
   const scoped: Array<{ track: UIKeyframeTrack; path: string }> = [];
   for (const track of options.tracks) {
     const node = tree.byId.get(track.nodeId);
-    if (!node) throw new Error(`找不到关键帧轨道对应的控件：${track.nodeId}`);
+    if (!node) throw new Error(t("clientUIAnimationEditor.ui.keyframeExport.controlNotFound", { nodeId: track.nodeId }));
     const path = tree.relativePath(node);
     if (path !== null) scoped.push({ track, path });
   }
   const tracks = normalizeKeyframeTracks(scoped.map((item) => item.track), options.nodes);
-  for (const track of tracks) if (!track.keyframes.length) throw new Error(`「${tree.byId.get(track.nodeId)?.name ?? track.nodeId} / ${track.fieldKey}」尚未设置关键帧。`);
+  for (const track of tracks) if (!track.keyframes.length) throw new Error(t("clientUIAnimationEditor.ui.keyframeExport.trackHasNoKeyframes", { value: tree.byId.get(track.nodeId)?.name ?? track.nodeId, fieldKey: track.fieldKey }));
   checkColorConflicts(tracks, options.nodes);
   const warnings: string[] = [];
   const targets = new Set<string>();
@@ -171,7 +172,7 @@ export function buildKeyframeTimelineDataLua(options: KeyframeTimelineLuaExportO
         count += fields.length;
       }
       tweenCount += segments * count;
-      if (!count) warnings.push(`控件「${node.name}」及子级当前没有颜色；已保留组透明度轨道，运行时会重新扫描。`);
+      if (!count) warnings.push(t("clientUIAnimationEditor.ui.keyframeExport.groupColorRescanHint", { name: node.name }));
     } else {
       targets.add(node.id);
       tweenCount += segments;
@@ -205,12 +206,12 @@ export function prepareKeyframeTimelineImport(options: KeyframeTimelineImportOpt
   const failure = (): KeyframeTimelineImportResult => ({ tracks: existingTracks, importedTracks: [], events: options.existingEvents ?? [], importedEvents: [], duration: options.sequenceDuration, replacedCount: 0, schema, errors, warnings });
   try {
     const data: unknown = parseLuaData(options.source);
-    if (!record(data) || typeof data.schema !== "string" || !/^ClientUIAnimationEditor\.TweenTimeline@[3-8]$/.test(data.schema)) throw new Error("仅支持 TweenTimeline Data @3–@8；请选择 Data，而不是运行库。");
+    if (!record(data) || typeof data.schema !== "string" || !/^ClientUIAnimationEditor\.TweenTimeline@[3-8]$/.test(data.schema)) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.supportedSchemasHint"));
     schema = data.schema;
-    if (!finite(data.duration) || data.duration < 0) throw new Error("Data.duration 必须是非负的有限秒数。");
+    if (!finite(data.duration) || data.duration < 0) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.invalidDataDuration"));
     const dataDuration = data.duration;
     const tree = hierarchy(nodes, options.rootNodeId);
-    if (mode !== "append" && mode !== "replace") throw new Error("未知导入方式。");
+    if (mode !== "append" && mode !== "replace") throw new Error(t("clientUIAnimationEditor.ui.timelineImport.unknownImportMode"));
     let imported: UIKeyframeTrack[];
     const usedIds = new Set(existingTracks.flatMap((track) => [track.id, ...track.keyframes.map((frame) => frame.id)]));
     const prefix = "key_import_" + Date.now().toString(36) + "_";
@@ -222,53 +223,53 @@ export function prepareKeyframeTimelineImport(options: KeyframeTimelineImportOpt
       return result;
     };
     for (const event of options.existingEvents ?? []) usedIds.add(event.id);
-    if (data.events !== undefined && (!Array.isArray(data.events) || data.events.length > 10000)) throw new Error("Data.events 必须为事件列表（最多 10000 个）");
+    if (data.events !== undefined && (!Array.isArray(data.events) || data.events.length > 10000)) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.invalidEventsList"));
     const importedEvents = normalizeTimelineEvents((data.events as unknown[] ?? []).map(value => {
-      if (!record(value) || typeof value.target !== "string") throw new Error("事件必须包含 time、name、target、params");
+      if (!record(value) || typeof value.target !== "string") throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.requiredEventFields"));
       const nodeId = value.target === "" ? tree.root.id : tree.resolve(value.target).id;
       return { id: id(), time: value.time, name: value.name, nodeId, params: value.params };
     }), nodes);
     if (schema !== KEYFRAME_TIMELINE_SCHEMA) {
       const legacy = prepareTweenTimelineImport({ ...options, existingTracks: [], mode: "append" });
       if (legacy.errors.length) { errors.push(...legacy.errors); return failure(); }
-      warnings.push(...legacy.warnings, "旧版 Clip 已无损转换为关键帧；空档使用保持插值，相接处不同首尾值保留为边界跳变。");
+      warnings.push(...legacy.warnings, t("clientUIAnimationEditor.ui.keyframeImport.legacyClipsConverted"));
       imported = migrateTweenClipsToKeyframes(legacy.importedTracks).map((track) => ({ ...track, id: id(), keyframes: track.keyframes.map((frame) => ({ ...frame, id: id() })) }));
     } else {
-      if (!Array.isArray(data.tracks) || !data.tracks.length && !importedEvents.length || data.tracks.length > MAX_TRACKS) throw new Error("Data 必须包含关键帧轨道或事件；空表不会清空现有动画。");
+      if (!Array.isArray(data.tracks) || !data.tracks.length && !importedEvents.length || data.tracks.length > MAX_TRACKS) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.emptyData"));
       let keyCount = 0;
       imported = [];
       for (let trackIndex = 0; trackIndex < data.tracks.length; trackIndex++) {
         try {
           const row = data.tracks[trackIndex];
-          if (!Array.isArray(row) || row.length !== 3 || typeof row[0] !== "string" || typeof row[1] !== "string" || !Array.isArray(row[2]) || !row[2].length) throw new Error("轨道须为 {路径, 字段, 非空关键帧列表}。");
+          if (!Array.isArray(row) || row.length !== 3 || typeof row[0] !== "string" || typeof row[1] !== "string" || !Array.isArray(row[2]) || !row[2].length) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.invalidTrackRow"));
           const node = tree.resolve(row[0]);
           const fieldKey = row[1];
           const field = getTweenableField(node.type, fieldKey);
-          if (!field) throw new Error(`控件「${node.name}」不支持 Tweenable 字段 ${fieldKey}。`);
+          if (!field) throw new Error(t("clientUIAnimationEditor.ui.timelineImport.unsupportedTweenField", { name: node.name, fieldKey: fieldKey }));
           keyCount += row[2].length;
-          if (keyCount > MAX_KEYS) throw new Error("关键帧数量超过 50000。");
+          if (keyCount > MAX_KEYS) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.keyframeLimit"));
           const frames: UIKeyframe[] = [];
           for (let frameIndex = 0; frameIndex < row[2].length; frameIndex++) {
             const entry = row[2][frameIndex];
             try {
-              if (!Array.isArray(entry) || entry.length < 5 || entry.length > 7) throw new Error("关键帧须按时间、值、增量、缓动、插值及可选左极限填写。");
-              if (!finite(entry[0]) || entry[0] < 0) throw new Error("时间必须是非负的有限秒数。");
+              if (!Array.isArray(entry) || entry.length < 5 || entry.length > 7) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.invalidKeyframeTuple"));
+              if (!finite(entry[0]) || entry[0] < 0) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.invalidTime"));
               for (const index of [2, 6]) {
-                if (entry[index] !== undefined && entry[index] !== null && typeof entry[index] !== "boolean") throw new Error("增量只能为 true 或 false。");
-                if (entry[index] === true && !isRelativeTweenField(fieldKey)) throw new Error(`字段 ${fieldKey} 不支持增量。`);
+                if (entry[index] !== undefined && entry[index] !== null && typeof entry[index] !== "boolean") throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.invalidRelativeFlag"));
+                if (entry[index] === true && !isRelativeTweenField(fieldKey)) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.deltaUnsupportedForField", { fieldKey: fieldKey }));
               }
-              if (!isTweenEaseType(entry[3])) throw new Error("未知缓动类型：" + String(entry[3]));
-              if (entry[4] !== "tween" && entry[4] !== "step") throw new Error("插值只能是 tween 或 step。");
+              if (!isTweenEaseType(entry[3])) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.unknownEasing", { value: String(entry[3]) }));
+              if (entry[4] !== "tween" && entry[4] !== "step") throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.invalidInterpolation"));
               const value = decode(entry[1], field.valueKind);
               const incomingValue = entry[5] === undefined || entry[5] === null ? undefined : decode(entry[5], field.valueKind);
-              if (incomingValue === undefined && entry[6] === true) throw new Error("缺少左极限值，不能启用左极限增量。");
-              if (fieldKey === GROUP_ALPHA_FIELD_KEY && [value, ...(incomingValue === undefined ? [] : [incomingValue])].some((item) => typeof item !== "number" || item < 0 || item > GROUP_ALPHA_MAX)) throw new Error("组透明度必须在 0–255 之间。");
+              if (incomingValue === undefined && entry[6] === true) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.incomingDeltaRequiresValue"));
+              if (fieldKey === GROUP_ALPHA_FIELD_KEY && [value, ...(incomingValue === undefined ? [] : [incomingValue])].some((item) => typeof item !== "number" || item < 0 || item > GROUP_ALPHA_MAX)) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.groupOpacityOutOfRange"));
               frames.push({ id: id(), time: entry[0], value, relative: entry[2] === true, easeType: entry[3], interpolation: entry[4], ...(incomingValue === undefined ? {} : { incomingValue, incomingRelative: entry[6] === true }) });
-            } catch (error) { throw new Error(`第 ${frameIndex + 1} 帧：${error instanceof Error ? error.message : String(error)}`); }
+            } catch (error) { throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.frameError", { frameIndex: frameIndex + 1, value: (error instanceof Error ? error.message : String(error)) })); }
           }
           imported.push({ id: id(), nodeId: node.id, fieldKey, keyframes: frames });
         } catch (error) {
-          errors.push(`第 ${trackIndex + 1} 条轨道：${error instanceof Error ? error.message : String(error)}`);
+          errors.push(t("clientUIAnimationEditor.ui.keyframeImport.trackError", { trackIndex: trackIndex + 1, value: (error instanceof Error ? error.message : String(error)) }));
           if (errors.length >= 100) break;
         }
       }
@@ -284,7 +285,7 @@ export function prepareKeyframeTimelineImport(options: KeyframeTimelineImportOpt
       const previous = merged.get(key);
       const frames = [...(previous?.keyframes ?? []), ...track.keyframes].sort((a, b) => a.time - b.time);
       for (let index = 1; index < frames.length; index++) {
-        if (Math.abs(frames[index].time - frames[index - 1].time) <= KEYFRAME_TIME_EPSILON) throw new Error(`「${tree.byId.get(track.nodeId)?.name ?? track.nodeId} / ${track.fieldKey}」在 ${luaNumber(frames[index].time)} 秒已有关键帧；请调整时间或选择替换。`);
+        if (Math.abs(frames[index].time - frames[index - 1].time) <= KEYFRAME_TIME_EPSILON) throw new Error(t("clientUIAnimationEditor.ui.keyframeImport.keyframeTimeOccupied", { value: tree.byId.get(track.nodeId)?.name ?? track.nodeId, fieldKey: track.fieldKey, value2: luaNumber(frames[index].time) }));
       }
       merged.set(key, { ...track, id: previous?.id ?? track.id, keyframes: frames });
     };
@@ -300,11 +301,11 @@ export function prepareKeyframeTimelineImport(options: KeyframeTimelineImportOpt
     }
     imported = [...importedByLane.values()];
     const endTime = tracks.reduce((end, track) => track.keyframes.reduce((maximum, frame) => Math.max(maximum, frame.time), end), 0);
-    if (endTime > dataDuration + KEYFRAME_TIME_EPSILON) warnings.push("动画超出 Data.duration，序列时长已扩展以完整保留关键帧。");
+    if (endTime > dataDuration + KEYFRAME_TIME_EPSILON) warnings.push(t("clientUIAnimationEditor.ui.keyframeImport.durationExtended"));
     const duration = Math.max(0.5, dataDuration, endTime, ...events.map(e => e.time), mode === "append" ? options.sequenceDuration : 0);
     return { tracks, importedTracks: imported, events, importedEvents, duration, replacedCount: existingTracks.length - retained.length, schema, errors, warnings };
   } catch (error) {
-    errors.push(error instanceof Error ? error.message : String(error));
+    errors.push((error instanceof Error ? error.message : String(error)));
     return failure();
   }
 }

@@ -1,3 +1,4 @@
+const { messageText } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-multi-clip-export.cjs
  * Optional: LUA_BIN points to a local Lua 5.3 executable for generated-runtime tests.
  */
@@ -12,7 +13,7 @@ const originalTsExtension = Module._extensions[".ts"];
 Module._extensions[".ts"] = (module, filename) => {
   const compiled = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
     fileName: filename,
-    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+    compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true },
   });
   module._compile(compiled.outputText, filename);
 };
@@ -138,7 +139,7 @@ try {
     const result = exportData([clip(1, 10, 20, { duration: 2 }), clip(0, 0, 1, { duration: 2 }), clip(3, 20, 40)]);
     assert.deepEqual(rows(result.code).map((row) => row[2]), [1, 3]);
     assert.equal(result.warnings.length, 1);
-    assert.match(result.warnings[0], /时间重叠/);
+    assert.match(messageText(result.warnings[0]), /时间重叠/);
   });
   test("Identical and nested intervals are rejected without removing adjacent Clips", () => {
     const result = exportData([clip(0, 0, 40, { duration: 3 }), clip(0), clip(1), clip(3)]);
@@ -190,7 +191,7 @@ try {
       clip(4, 255, 0, { fieldKey: "groupAlpha", nodeId: "icon" })], nodes);
     assert.equal(result.trackCount, 1);
     assert.equal(result.warnings.length, 2);
-    assert.ok(result.warnings.every((warning) => warning.includes("控制同一颜色")));
+    assert.ok(result.warnings.every((warning) => messageText(warning).includes("控制同一颜色")));
   });
   test("Legacy single-Clip formats stay @3 absolute, @4 alpha, @5 scale; position relative uses @7", () => {
     assert.match(exportData([clip(0)]).code, /TweenTimeline@3/);

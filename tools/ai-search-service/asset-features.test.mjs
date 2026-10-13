@@ -89,6 +89,34 @@ test('aggregate source version includes all raw dictionary hashes even for an un
   await assert.rejects(computeAssetFeatureSourceHash('a'.repeat(64), {}), /dictionary hash/);
 });
 
+test('browser locale selection validates one dictionary without weakening canonical feature validation', async () => {
+  const { sidecar, identities } = fixture();
+  await compileSidecar(sidecar, identities);
+  const { i18n, ...external } = sidecar;
+  external.i18nSource = 'project-i18n-v1';
+  const dictionaries = { 'en-US': i18n['en-us'] };
+  const options = { identities, dictionaries, locales: ['en-us'], requireCompiled: false };
+  const partial = parseAssetFeatureSidecar(external, options);
+  assert.deepEqual(Object.keys(partial.i18n), ['en-us']);
+  assert.equal(normalizeAssetFeatureResources(partial, identities)[0].audio.description['en-US'], 'en-us audio short');
+  assert.throws(() => parseAssetFeatureSidecar(external, { identities, dictionaries, requireCompiled: false }), /Incomplete project/,
+    'Partial loading requires an explicit browser locale selection');
+  assert.throws(() => parseAssetFeatureSidecar(external, { ...options, requireCompiled: true }), /Partial feature locales/);
+  assert.throws(() => parseAssetFeatureSidecar(partial, { requireCompiled: false }), /Incomplete feature locales/);
+  for (const locales of [[], ['de-de'], ['en-us', 'en-us']]) {
+    assert.throws(() => parseAssetFeatureSidecar(external, { ...options, locales }), /Invalid feature locale selection/);
+  }
+  const missing = structuredClone(dictionaries);
+  delete missing['en-US'][external.resources[1].searchMetadata.audio.shortDescriptionI18nKey];
+  assert.throws(() => parseAssetFeatureSidecar(external, { ...options, dictionaries: missing }), /Dangling feature translation reference/);
+  for (const header of [{ locale: 'zh-cn' }, { namespace: 'soundEffectPlayer' }]) {
+    assert.throws(() => parseAssetFeatureSidecar(external, { ...options, dictionaries: { 'en-US': { translations: dictionaries['en-US'], ...header } } }), /dictionary (?:locale|namespace) mismatch/);
+  }
+  await assert.rejects(computeLexicalFeatureHash(partial), /Canonical feature hashes require all locales/);
+  await assert.rejects(verifyAssetFeatureSidecar(external, options), /Canonical feature hashes require all locales/);
+  assert.equal(await computeLexicalFeatureHash(sidecar), sidecar.lexicalFeatureHash, 'Full canonical hashes retain their original bytes and ordering');
+});
+
 test('sound descriptions resolve from audio while unavailable effect parts contribute no invented evidence', async () => {
   const sound = fixture('sound'); await compileSidecar(sound.sidecar, sound.identities);
   const audioAsset = normalizeAssetFeatureResources(sound.sidecar, sound.identities)[0];
@@ -235,7 +263,8 @@ test('BGM feature edits do not change the identity index and full catalogs requi
   assert.equal(Object.keys(catalog.featureSourceHashes).length, 3);
 });
 test('offline export restores data bytes, preserves translation entries and supports project i18n reindex', async t => {
-  const exportRoot = path.join(root, 'exports'); await mkdir(exportRoot, { recursive: true });
+  const artifactRoot = path.resolve(process.env.AI_SEARCH_FILE_ROOT || path.join(root, '../ugc-ai-search-file'));
+  const exportRoot = path.join(artifactRoot, 'exports'); await mkdir(exportRoot, { recursive: true });
   for (const bgmRowsField of ['data', 'musicData']) await t.test('BGM ' + bgmRowsField, async () => {
   const directory = await mkdtemp(path.join(exportRoot, '.asset-features-test-'));
   try {

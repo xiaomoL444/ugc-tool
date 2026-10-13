@@ -153,7 +153,9 @@ test("The keyframe content grid owns every row and the full-height playhead area
 test("The ruler is a focusable draggable slider whose actual keyboard handler supports arrows, Home and End", () => {
   const ruler = elementWithClass("kf-ruler");
   assert.equal(attribute(ruler, "role"), "slider"); assert.equal(attribute(ruler, "tabindex"), "0");
-  assert.equal(attribute(ruler, "aria-label"), "关键帧播放进度");
+  const labelExpression = directive(ruler, "bind", "aria-label")?.exp?.content;
+  assert.equal(labelExpression, "t('clientUIAnimationEditor.ui.timeline.playbackProgress')");
+  assert.equal(require('./i18n-test-helpers.cjs').publicI18n().t('clientUIAnimationEditor.ui.timeline.playbackProgress'), "关键帧播放进度");
   assert.equal(directive(ruler, "on", "pointerdown")?.exp?.content, "startSeek");
   assert.equal(directive(ruler, "on", "keydown")?.exp?.content, "handleRulerKey");
   const keyframeAst = ts.createSourceFile(`${keyframeFilename}.ts`, keyframeParsed.descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);

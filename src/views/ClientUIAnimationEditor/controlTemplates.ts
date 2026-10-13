@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { controlRegistry } from "./controlRegistry";
 import { importGiaControlTemplate, type GiaImportedControl } from "./giaImporter";
 
@@ -18,9 +19,9 @@ export function nextTemplateIndex(assets: ControlTemplateAsset[]): number {
   return index;
 }
 
-export function templateIndexError(index: number, assets: ControlTemplateAsset[], exceptId?: string): string {
-  if (!Number.isSafeInteger(index) || index < 0 || index > 2147483647) return "索引必须是 0～2147483647 的整数";
-  return assets.some(asset => asset.id !== exceptId && asset.index === index) ? `索引 ${index} 已被其他模板使用` : "";
+export function templateIndexError(index: number, assets: ControlTemplateAsset[], exceptId?: string): string | null {
+  if (!Number.isSafeInteger(index) || index < 0 || index > 2147483647) return t("clientUIAnimationEditor.ui.templates.indexRangeRequired");
+  return assets.some(asset => asset.id !== exceptId && asset.index === index) ? t("clientUIAnimationEditor.ui.templates.indexAlreadyUsed", { index }) : null;
 }
 
 export function readControlTemplate(input: ArrayBuffer, sourceName: string, index: number): ControlTemplateAsset {
@@ -28,7 +29,8 @@ export function readControlTemplate(input: ArrayBuffer, sourceName: string, inde
   const asset: ControlTemplateAsset = {
     id: `template-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     index, name: results[0].projectName || sourceName.replace(/\.gia$/i, ""), sourceName,
-    devices: results.map(result => result.controls), warnings: [...new Set(results.flatMap(result => result.warnings))],
+    devices: results.map(result => result.controls),
+    warnings: [...new Set(results.flatMap(result => result.warnings))],
   };
   return normalizeControlTemplates([asset])[0];
 }
@@ -40,16 +42,16 @@ function record(value: unknown): value is Record<string, unknown> {
 /** Reject malformed libraries before changing the currently open document. */
 export function normalizeControlTemplates(value: unknown): ControlTemplateAsset[] {
   if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error("控件模板库格式无效");
+  if (!Array.isArray(value)) throw new Error(t("clientUIAnimationEditor.ui.templates.invalidLibraryFormat"));
   const result: ControlTemplateAsset[] = [];
   for (const item of value) {
     if (!record(item) || typeof item.id !== "string" || !item.id || result.some(asset => asset.id === item.id)
       || typeof item.name !== "string" || !item.name.trim() || typeof item.index !== "number"
-      || !Array.isArray(item.devices) || item.devices.length !== 4) throw new Error("控件模板数据无效");
+      || !Array.isArray(item.devices) || item.devices.length !== 4) throw new Error(t("clientUIAnimationEditor.ui.templates.invalidTemplateData"));
     const error = templateIndexError(item.index, result);
     if (error) throw new Error(error);
     for (const controls of item.devices) {
-      if (!Array.isArray(controls) || !controls.length) throw new Error(`模板「${item.name}」没有控件`);
+      if (!Array.isArray(controls) || !controls.length) throw new Error(t("clientUIAnimationEditor.ui.templates.emptyControls", { name: item.name }));
       const ids = new Set<number>();
       for (const control of controls) {
         if (!record(control) || !Number.isSafeInteger(control.sourceNodeIndex) || ids.has(control.sourceNodeIndex as number)
@@ -59,19 +61,19 @@ export function normalizeControlTemplates(value: unknown): ControlTemplateAsset[
           || !Object.prototype.hasOwnProperty.call(controlRegistry, control.type)
           || !record(control.properties) || !record(control.layout)
           || !Array.isArray(control.childSourceNodeIndices) || !control.childSourceNodeIndices.every(Number.isSafeInteger)) {
-          throw new Error(`模板「${item.name}」的控件数据无效`);
+          throw new Error(t("clientUIAnimationEditor.ui.templates.invalidNamedControlData", { name: item.name }));
         }
         const layout = control.layout;
         if (typeof layout.active !== "boolean" || ["scaleX", "scaleY", "scaleZ", "rotationX", "rotationY", "rotationZ",
           "anchorMinX", "anchorMinY", "anchorMaxX", "anchorMaxY", "anchoredPositionX", "anchoredPositionY", "sizeDeltaX", "sizeDeltaY", "pivotX", "pivotY"]
-          .some(key => typeof layout[key] !== "number" || !Number.isFinite(layout[key]))) throw new Error(`模板「${item.name}」的布局数据无效`);
+          .some(key => typeof layout[key] !== "number" || !Number.isFinite(layout[key]))) throw new Error(t("clientUIAnimationEditor.ui.templates.invalidLayout", { name: item.name }));
         ids.add(control.sourceNodeIndex as number);
       }
       const byId = new Map<number, GiaImportedControl>((controls as GiaImportedControl[]).map(control => [control.sourceNodeIndex, control]));
       const visited = new Set<number>();
       const visiting = new Set<number>();
       function visit(control: GiaImportedControl) {
-        if (visiting.has(control.sourceNodeIndex)) throw new Error(`模板「${item.name}」的控件层级存在循环`);
+        if (visiting.has(control.sourceNodeIndex)) throw new Error(t("clientUIAnimationEditor.ui.templates.hierarchyCycle", { name: item.name }));
         if (visited.has(control.sourceNodeIndex)) return;
         visiting.add(control.sourceNodeIndex);
         const parent = control.parentSourceNodeIndex === null ? undefined : byId.get(control.parentSourceNodeIndex);
@@ -82,7 +84,8 @@ export function normalizeControlTemplates(value: unknown): ControlTemplateAsset[
       byId.forEach(visit);
     }
     result.push({ id: item.id, index: item.index, name: item.name.trim(), sourceName: typeof item.sourceName === "string" ? item.sourceName : "",
-      devices: JSON.parse(JSON.stringify(item.devices)), warnings: Array.isArray(item.warnings) ? item.warnings.filter((warning): warning is string => typeof warning === "string") : [] });
+      devices: JSON.parse(JSON.stringify(item.devices)), warnings: Array.isArray(item.warnings) ? item.warnings.filter((warning): warning is string => typeof warning === "string") : [],
+    });
   }
   return result;
 }

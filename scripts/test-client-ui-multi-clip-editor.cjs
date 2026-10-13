@@ -1,3 +1,4 @@
+const { errorMatches } = require('./i18n-test-helpers.cjs');
 /* Run: node scripts/test-client-ui-multi-clip-editor.cjs
  * Exercises the real Vue setup declarations, timing handlers, preview resolver
  * and project import/export. No reimplementation of editor logic is used.
@@ -59,18 +60,19 @@ async function main() {
   const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) < 1e-8, `${message || "Value"}: ${actual} != ${expected}`);
   let passed = 0;
   const failures = [];
+  const editorScopes = [];
   async function test(name, check) {
     try { await check(); passed += 1; console.log(`PASS ${name}`); }
     catch (error) { failures.push({ name, error }); console.error(`FAIL ${name}\n${error.stack}`); }
   }
   try {
-    // Discover the editor's actual local helper modules, including newly added
-    // lane/timing helpers, without executing SFCs or browser-only asset imports.
-    const imports = {};
+    // Use the public messages and the editor's actual local helpers without
+    // executing SFCs or mounted browser lifecycle callbacks.
+    const imports = { ...require("../src/i18n/index.ts") };
     for (const statement of ast.statements) {
       if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue;
       const source = statement.moduleSpecifier.text;
-      if (!source.startsWith("./") || source.endsWith(".vue") || source === "./imageAssets") continue;
+      if (!source.startsWith("./") || source.endsWith(".vue")) continue;
       const sourcePath = path.resolve(editor, `${source}.ts`);
       if (fs.existsSync(sourcePath)) Object.assign(imports, require(sourcePath));
     }
@@ -94,7 +96,9 @@ async function main() {
         Blob: class { constructor(parts) { this.text = parts.join(""); } },
         URL: { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
       });
-      vm.runInContext(script, context, { filename, timeout: 2000 });
+      const scope = vue.effectScope();
+      editorScopes.push(scope);
+      scope.run(() => vm.runInContext(script, context, { filename, timeout: 2000 }));
       const api = context.editorApi;
       api.alerts = alerts;
       api.dispatch = (type, event) => [...(listeners.get(type) || [])].forEach((callback) => callback(event));
@@ -327,7 +331,7 @@ async function main() {
     });
     await test("The bone visibility button exposes its pressed state and toggles the actual global preference", () => {
       const template = parsed.descriptor.template.content;
-      const button = template.match(/<button\b[^>]*aria-label="显示骨骼"[^>]*>/)?.[0];
+      const button = template.match(/<button\b[^>]*:aria-label="t\('clientUIAnimationEditor\.ui\.preview\.showBones'\)"[^>]*>/)?.[0];
       assert.ok(button, "The canvas toolbar must expose a Show Bones button");
       assert.match(button, /:aria-pressed="showContainerBones"/);
       assert.match(button, /@click\.stop="showContainerBones\s*=\s*!showContainerBones"/);
@@ -734,7 +738,7 @@ async function main() {
     });
     await test("Overlapping imported Clips are rejected explicitly instead of silently dropping or shifting one", () => {
       const { api } = fixture();
-      assert.throws(() => api.normalizeTweenTracks([clip("anchoredPositionX", 0, 2, 100, 140), clip("anchoredPositionX", 1, 2, 140, 50)], 7), /重叠|交叉|overlap/i);
+      assert.throws(() => api.normalizeTweenTracks([clip("anchoredPositionX", 0, 2, 100, 140), clip("anchoredPositionX", 1, 2, 140, 50)], 7), errorMatches(/重叠|交叉|overlap/i));
     });
     await test("Project JSON round-trips multiple Clips, modes, IDs and preview values", async () => {
       const { api } = multiFixture();
@@ -869,9 +873,10 @@ async function main() {
         {"","sizeDeltaX",0,1,"Linear",0,40,true}
       }}`;
       assert.deepEqual(plain(api.timelineDataImportSummary.value), {
-        schema: "ClientUIAnimationEditor.TweenTimeline@7", importedCount: 1, replacedCount: 0,
-        duration: 5, errors: [], warnings: ["旧版 Clip 已无损转换为关键帧；空档使用保持插值，相接处不同首尾值保留为边界跳变。"],
+        schema: "ClientUIAnimationEditor.TweenTimeline@7", importedCount: 1, replacedCount: 0, eventCount: 0,
+        duration: 5, errors: [], warnings: [imports.t("clientUIAnimationEditor.ui.keyframeImport.legacyClipsConverted")],
       });
+      assert.equal(api.timelineDataImportSummary.value.warnings[0], "旧版 Clip 已无损转换为关键帧；空档使用保持插值，相接处不同首尾值保留为边界跳变。");
       assert.equal(api.keyframeTracks.value.length, 1, "Preview must not commit imported keyframes");
       api.confirmTimelineDataImport();
       assert.equal(api.timelineDataImportOpen.value, false);
@@ -966,6 +971,7 @@ async function main() {
       }
     });
   } finally {
+    editorScopes.forEach((scope) => scope.stop());
     Module._load = originalLoad;
     if (originalTsExtension) Module._extensions[".ts"] = originalTsExtension;
     else delete Module._extensions[".ts"];

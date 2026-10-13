@@ -1,3 +1,4 @@
+
 export interface AppRoute {
   path: string;
   name: string;
@@ -79,6 +80,8 @@ export const appRoutes: AppRoute[] = [
     path: "/ClientUIAnimationEditor",
     name: "ClientUIAnimationEditor",
     title: "客户端UI动画编辑器",
+    titleKey: "app.clientUIAnimationEditorTitle",
+    descriptionKey: "app.clientUIAnimationEditorDescription",
     description:
       `客户端UI动画编辑器
       这会成为一个伟大的项目吗？`,

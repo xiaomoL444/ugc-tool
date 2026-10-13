@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { controlRegistry } from "./controlRegistry";
 import type { ControlType, TweenEaseType, UITweenTrack, UINode } from "./types";
 
@@ -26,9 +27,9 @@ export const VISIBILITY_FIELD_KEY = "visible";
 
 /** visible 是只读状态；运行库通过 SetVisible 回调写入，不创建 Tween。 */
 const visibilityField: TweenableFieldDefinition = {
-  fieldKey: VISIBILITY_FIELD_KEY, modelKey: "visible", label: "控件显隐",
+  fieldKey: VISIBILITY_FIELD_KEY, modelKey: "visible", label: "clientUIAnimationEditor.ui.keyframes.controlVisibility",
   source: "base", valueKind: "boolean",
-  description: "到达关键帧时立即显示或隐藏；首帧前保留初始可见性。隐藏父控件会同时隐藏子级，不改变激活状态。",
+  description: "clientUIAnimationEditor.ui.controls.visibilityKeyframeHint",
 };
 
 /** XYZ 都是合法补间字段；Z 的游戏显示无效果，仅在添加菜单隐藏。 */
@@ -46,18 +47,18 @@ export function isRelativeTweenField(fieldKey: string): boolean {
 }
 
 export function getTweenRelativeLabel(fieldKey: string): string {
-  if (isSizeTweenField(fieldKey)) return "大小使用增量";
-  return isScaleTweenField(fieldKey) ? "缩放使用增量" : "位置使用增量";
+  if (isSizeTweenField(fieldKey)) return "clientUIAnimationEditor.ui.tween.relativeSize";
+  return isScaleTweenField(fieldKey) ? "clientUIAnimationEditor.ui.tween.relativeScale" : "clientUIAnimationEditor.ui.tween.relativePosition";
 }
 
 const groupTweenableFields: TweenableFieldDefinition[] = [{
   fieldKey: GROUP_ALPHA_FIELD_KEY,
   modelKey: GROUP_ALPHA_FIELD_KEY,
-  label: "自身及子级透明度",
+  label: "clientUIAnimationEditor.ui.controls.groupOpacity",
   source: "group",
   valueKind: "number",
   min: 0, max: GROUP_ALPHA_MAX, step: 1, scrubSpeed: 1,
-  description: "0–255；255 保留各控件的基础透明度，0 完全透明。作用于自身及全部后代的图片、文字、文字背景和描边颜色，保留 RGB。",
+  description: "clientUIAnimationEditor.ui.tween.groupAlphaHint",
 }];
 
 /** 只处理已确认的原生颜色字段，不给空容器附加不存在的 Color 属性。 */
@@ -106,7 +107,7 @@ export function getTweenTrackConflict(
     const overlap = (otherIsGroup ? getTweenGroupNodes(other.id, nodes) : [other]).some((target) =>
       (otherIsGroup ? getGroupAlphaColorFields(target.type) : [track.fieldKey])
         .some((key) => targets.has(`${target.id}\0${key}`)));
-    if (overlap) return `与「${other.name}」的 ${track.fieldKey} 轨道控制同一颜色。请先移除该轨道，避免多个 Tween 同时改写颜色。`;
+    if (overlap) return t("clientUIAnimationEditor.ui.tween.sharedColorConflict", { name: other.name, fieldKey: track.fieldKey });
   }
   return null;
 }
@@ -117,22 +118,22 @@ const scaleScrub = { step: 0.01, scrubSpeed: 0.01 };
 const rotationScrub = { step: 0.01, scrubSpeed: 1 };
 
 export const baseTweenableFields: TweenableFieldDefinition[] = [
-  { fieldKey: "anchoredPositionX", modelKey: "anchorOffsetX", label: "位置 X", source: "base", valueKind: "number", ...pixelScrub },
-  { fieldKey: "anchoredPositionY", modelKey: "anchorOffsetY", label: "位置 Y", source: "base", valueKind: "number", ...pixelScrub },
-  { fieldKey: "sizeDeltaX", modelKey: "sizeDeltaX", label: "大小 X", source: "base", valueKind: "number", ...pixelScrub },
-  { fieldKey: "sizeDeltaY", modelKey: "sizeDeltaY", label: "大小 Y", source: "base", valueKind: "number", ...pixelScrub },
-  { fieldKey: "anchorMinX", modelKey: "anchorMinX", label: "最小锚点 X", source: "base", valueKind: "number", ...normalizedScrub },
-  { fieldKey: "anchorMinY", modelKey: "anchorMinY", label: "最小锚点 Y", source: "base", valueKind: "number", ...normalizedScrub },
-  { fieldKey: "anchorMaxX", modelKey: "anchorMaxX", label: "最大锚点 X", source: "base", valueKind: "number", ...normalizedScrub },
-  { fieldKey: "anchorMaxY", modelKey: "anchorMaxY", label: "最大锚点 Y", source: "base", valueKind: "number", ...normalizedScrub },
-  { fieldKey: "pivotX", modelKey: "pivotX", label: "中心 X", source: "base", valueKind: "number", ...normalizedScrub },
-  { fieldKey: "pivotY", modelKey: "pivotY", label: "中心 Y", source: "base", valueKind: "number", ...normalizedScrub },
-  { fieldKey: "localScaleX", modelKey: "scaleX", label: "缩放 X", source: "base", valueKind: "number", ...scaleScrub },
-  { fieldKey: "localScaleY", modelKey: "scaleY", label: "缩放 Y", source: "base", valueKind: "number", ...scaleScrub },
-  { fieldKey: "localScaleZ", modelKey: "scaleZ", label: "缩放 Z", source: "base", valueKind: "number", ...scaleScrub },
-  { fieldKey: "localRotationX", modelKey: "rotationX", label: "旋转 X", source: "base", valueKind: "number", ...rotationScrub },
-  { fieldKey: "localRotationY", modelKey: "rotationY", label: "旋转 Y", source: "base", valueKind: "number", ...rotationScrub },
-  { fieldKey: "localRotationZ", modelKey: "rotation", label: "旋转 Z", source: "base", valueKind: "number", ...rotationScrub },
+  { fieldKey: "anchoredPositionX", modelKey: "anchorOffsetX", label: "clientUIAnimationEditor.ui.controls.transform.positionHorizontal", source: "base", valueKind: "number", ...pixelScrub },
+  { fieldKey: "anchoredPositionY", modelKey: "anchorOffsetY", label: "clientUIAnimationEditor.ui.tween.positionY", source: "base", valueKind: "number", ...pixelScrub },
+  { fieldKey: "sizeDeltaX", modelKey: "sizeDeltaX", label: "clientUIAnimationEditor.ui.tween.sizeX", source: "base", valueKind: "number", ...pixelScrub },
+  { fieldKey: "sizeDeltaY", modelKey: "sizeDeltaY", label: "clientUIAnimationEditor.ui.controls.sizeY", source: "base", valueKind: "number", ...pixelScrub },
+  { fieldKey: "anchorMinX", modelKey: "anchorMinX", label: "clientUIAnimationEditor.ui.controls.anchorMinX", source: "base", valueKind: "number", ...normalizedScrub },
+  { fieldKey: "anchorMinY", modelKey: "anchorMinY", label: "clientUIAnimationEditor.ui.tween.anchorMinY", source: "base", valueKind: "number", ...normalizedScrub },
+  { fieldKey: "anchorMaxX", modelKey: "anchorMaxX", label: "clientUIAnimationEditor.ui.controls.anchorMaxX", source: "base", valueKind: "number", ...normalizedScrub },
+  { fieldKey: "anchorMaxY", modelKey: "anchorMaxY", label: "clientUIAnimationEditor.ui.tween.anchorMaxY", source: "base", valueKind: "number", ...normalizedScrub },
+  { fieldKey: "pivotX", modelKey: "pivotX", label: "clientUIAnimationEditor.ui.controls.pivotX", source: "base", valueKind: "number", ...normalizedScrub },
+  { fieldKey: "pivotY", modelKey: "pivotY", label: "clientUIAnimationEditor.ui.tween.pivotY", source: "base", valueKind: "number", ...normalizedScrub },
+  { fieldKey: "localScaleX", modelKey: "scaleX", label: "clientUIAnimationEditor.ui.controls.scaleX", source: "base", valueKind: "number", ...scaleScrub },
+  { fieldKey: "localScaleY", modelKey: "scaleY", label: "clientUIAnimationEditor.ui.tween.scaleY", source: "base", valueKind: "number", ...scaleScrub },
+  { fieldKey: "localScaleZ", modelKey: "scaleZ", label: "clientUIAnimationEditor.ui.controls.transform.scaleDepth", source: "base", valueKind: "number", ...scaleScrub },
+  { fieldKey: "localRotationX", modelKey: "rotationX", label: "clientUIAnimationEditor.ui.tween.rotationX", source: "base", valueKind: "number", ...rotationScrub },
+  { fieldKey: "localRotationY", modelKey: "rotationY", label: "clientUIAnimationEditor.ui.controls.rotationY", source: "base", valueKind: "number", ...rotationScrub },
+  { fieldKey: "localRotationZ", modelKey: "rotation", label: "clientUIAnimationEditor.ui.tween.rotationZ", source: "base", valueKind: "number", ...rotationScrub },
 ];
 
 export function getTweenableFields(type: ControlType): TweenableFieldDefinition[] {
@@ -156,17 +157,17 @@ export function getTweenableField(type: ControlType, fieldKey: string) {
 }
 
 export const tweenEaseOptions: Array<{ value: TweenEaseType; label: string }> = [
-  { value: "Linear", label: "线性" },
-  { value: "InSine", label: "正弦 · 缓入" }, { value: "OutSine", label: "正弦 · 缓出" }, { value: "InOutSine", label: "正弦 · 缓入缓出" },
-  { value: "InQuad", label: "二次 · 缓入" }, { value: "OutQuad", label: "二次 · 缓出" }, { value: "InOutQuad", label: "二次 · 缓入缓出" },
-  { value: "InCubic", label: "三次 · 缓入" }, { value: "OutCubic", label: "三次 · 缓出" }, { value: "InOutCubic", label: "三次 · 缓入缓出" },
-  { value: "InQuart", label: "四次 · 缓入" }, { value: "OutQuart", label: "四次 · 缓出" }, { value: "InOutQuart", label: "四次 · 缓入缓出" },
-  { value: "InQuint", label: "五次 · 缓入" }, { value: "OutQuint", label: "五次 · 缓出" }, { value: "InOutQuint", label: "五次 · 缓入缓出" },
-  { value: "InExpo", label: "指数 · 缓入" }, { value: "OutExpo", label: "指数 · 缓出" }, { value: "InOutExpo", label: "指数 · 缓入缓出" },
-  { value: "InCirc", label: "圆形 · 缓入" }, { value: "OutCirc", label: "圆形 · 缓出" }, { value: "InOutCirc", label: "圆形 · 缓入缓出" },
-  { value: "InBack", label: "回弹 · 缓入" }, { value: "OutBack", label: "回弹 · 缓出" }, { value: "InOutBack", label: "回弹 · 缓入缓出" },
-  { value: "InElastic", label: "弹性 · 缓入" }, { value: "OutElastic", label: "弹性 · 缓出" }, { value: "InOutElastic", label: "弹性 · 缓入缓出" },
-  { value: "InBounce", label: "弹跳 · 缓入" }, { value: "OutBounce", label: "弹跳 · 缓出" }, { value: "InOutBounce", label: "弹跳 · 缓入缓出" },
+  { value: "Linear", label: "clientUIAnimationEditor.ui.controls.easing.linear" },
+  { value: "InSine", label: "clientUIAnimationEditor.ui.easing.sineIn" }, { value: "OutSine", label: "clientUIAnimationEditor.ui.easing.sineOut" }, { value: "InOutSine", label: "clientUIAnimationEditor.ui.controls.easing.sineInOut" },
+  { value: "InQuad", label: "clientUIAnimationEditor.ui.easing.quadraticIn" }, { value: "OutQuad", label: "clientUIAnimationEditor.ui.easing.quadraticOut" }, { value: "InOutQuad", label: "clientUIAnimationEditor.ui.controls.easing.quadInOut" },
+  { value: "InCubic", label: "clientUIAnimationEditor.ui.controls.easing.cubicIn" }, { value: "OutCubic", label: "clientUIAnimationEditor.ui.easing.cubicOut" }, { value: "InOutCubic", label: "clientUIAnimationEditor.ui.easing.cubicInOut" },
+  { value: "InQuart", label: "clientUIAnimationEditor.ui.easing.quarticIn" }, { value: "OutQuart", label: "clientUIAnimationEditor.ui.easing.quarticOut" }, { value: "InOutQuart", label: "clientUIAnimationEditor.ui.controls.easing.quartInOut" },
+  { value: "InQuint", label: "clientUIAnimationEditor.ui.easing.quinticIn" }, { value: "OutQuint", label: "clientUIAnimationEditor.ui.easing.quinticOut" }, { value: "InOutQuint", label: "clientUIAnimationEditor.ui.controls.easing.quintInOut" },
+  { value: "InExpo", label: "clientUIAnimationEditor.ui.controls.easing.expoIn" }, { value: "OutExpo", label: "clientUIAnimationEditor.ui.easing.exponentialOut" }, { value: "InOutExpo", label: "clientUIAnimationEditor.ui.easing.exponentialInOut" },
+  { value: "InCirc", label: "clientUIAnimationEditor.ui.controls.easing.circIn" }, { value: "OutCirc", label: "clientUIAnimationEditor.ui.easing.circularOut" }, { value: "InOutCirc", label: "clientUIAnimationEditor.ui.easing.circularInOut" },
+  { value: "InBack", label: "clientUIAnimationEditor.ui.easing.backIn" }, { value: "OutBack", label: "clientUIAnimationEditor.ui.easing.backOut" }, { value: "InOutBack", label: "clientUIAnimationEditor.ui.controls.easing.backInOut" },
+  { value: "InElastic", label: "clientUIAnimationEditor.ui.easing.elasticIn" }, { value: "OutElastic", label: "clientUIAnimationEditor.ui.easing.elasticOut" }, { value: "InOutElastic", label: "clientUIAnimationEditor.ui.controls.easing.elasticInOut" },
+  { value: "InBounce", label: "clientUIAnimationEditor.ui.easing.bounceIn" }, { value: "OutBounce", label: "clientUIAnimationEditor.ui.easing.bounceOut" }, { value: "InOutBounce", label: "clientUIAnimationEditor.ui.controls.easing.bounceInOut" },
 ];
 
 const tweenEaseTypeSet = new Set<TweenEaseType>(tweenEaseOptions.map((option) => option.value));

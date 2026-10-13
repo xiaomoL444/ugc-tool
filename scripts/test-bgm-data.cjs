@@ -61,9 +61,8 @@ require.extensions[".ts"] = (mod, file) => mod._compile(ts.transpileModule(fs.re
 global.window = {};
 const { computed, ref } = require("vue");
 const { createAppI18n } = require("../src/i18n/index.ts");
-const { createCachedText } = require("../src/i18n/cachedText.ts");
 const composer = createAppI18n("zh-CN").global;
-const text = createCachedText(composer);
+const text = composer.t;
 const selected = ref(parsed.data[0]);
 const label = computed(() => text(selected.value.nameI18nKey));
 assert.equal(label.value, "bgmPlayer.data.10001");

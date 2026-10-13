@@ -1,27 +1,28 @@
 <template>
   <div class="gia-export-backdrop" @pointerdown.self.stop="emit('close')">
-    <section ref="dialog" class="gia-export-dialog" role="dialog" aria-modal="true" aria-label="导出客户端 GIA" tabindex="-1" @pointerdown.stop @keydown.esc.stop.prevent="emit('close')">
-      <header><h2>导出客户端 GIA</h2><button type="button" aria-label="关闭 GIA 导出" @click="emit('close')">×</button></header>
-      <p>导出当前控件树的 {{ count }} 个控件及基础参数。Timeline 动画仍通过 Lua 工具导出。</p>
-      <p>模板引用按索引保存，对应模板需已存在于游戏工程中。</p>
-      <p>导出时控件内部 ID 按列表顺序重新连续编号，并同步更新层级引用；图片素材 ID 和模板索引保持不变。</p>
-      <p>图元控件导出为空容器，隐藏状态和手柄聚焦由配套图元 Lua 数据及 PrimitiveImageLib 恢复。</p>
+    <section ref="dialog" class="gia-export-dialog" role="dialog" aria-modal="true" :aria-label="t('clientUIAnimationEditor.ui.exportGia.title')" tabindex="-1" @pointerdown.stop @keydown.esc.stop.prevent="emit('close')">
+      <header><h2>{{ t('clientUIAnimationEditor.ui.exportGia.title') }}</h2><button type="button" :aria-label="t('clientUIAnimationEditor.ui.exportGia.closeLabel')" @click="emit('close')">×</button></header>
+      <p>{{ t('clientUIAnimationEditor.ui.exportGia.controlCountHint', { count: count }) }}</p>
+      <p>{{ t('clientUIAnimationEditor.ui.exportGia.templateReferenceHint') }}</p>
+      <p>{{ t('clientUIAnimationEditor.ui.giaExport.controlIdReindexHint') }}</p>
+      <p>{{ t('clientUIAnimationEditor.ui.exportGia.primitiveContainerHint') }}</p>
       <form @submit.prevent="emit('export', { name: name.trim(), uiIndex: Number(index), assetKind })">
-        <label>导出类型<select v-model="assetKind" aria-label="GIA 导出类型" :disabled="busy"><option value="containerUI">客户端容器 UI</option><option value="controlTemplate">客户端控件模板</option></select></label>
-        <p>{{ assetKind === 'containerUI' ? '导出为客户端容器 UI，控件树必须有一个根容器。' : '导出为可复用的客户端控件模板，控件树必须有一个根控件。' }}</p>
-        <label>名称<input v-model="name" aria-label="GIA 名称" required /></label>
-        <label>{{ assetKind === 'containerUI' ? '客户端 UI 索引' : '控件模板索引' }}<input v-model="index" :aria-label="assetKind === 'containerUI' ? '客户端 UI 索引' : '控件模板索引'" type="number" min="0" max="2147483647" step="1" required /></label>
-        <p>{{ hasSource ? '已保留原始 GIA；未修改的组件和其他设备布局将保留。布局修改写入当前预览设备。' : '新建控件使用当前基础布局。旧工程如曾导入 GIA，请先补充原始文件以保留完整组件数据。' }}</p>
-        <button type="button" :disabled="busy" @click="fileInput?.click()">{{ hasSource ? '更换原始 GIA' : '补充原始 GIA' }}</button>
+        <label>{{ t('clientUIAnimationEditor.ui.giaExport.exportType') }}<select v-model="assetKind" :aria-label="t('clientUIAnimationEditor.ui.exportGia.assetType')" :disabled="busy"><option value="containerUI">{{ t('clientUIAnimationEditor.ui.giaImport.containerUiAsset') }}</option><option value="controlTemplate">{{ t('clientUIAnimationEditor.ui.exportGia.controlTemplateKind') }}</option></select></label>
+        <p>{{ assetKind === 'containerUI' ? t('clientUIAnimationEditor.ui.exportGia.rootContainerHint') : t('clientUIAnimationEditor.ui.exportGia.controlTemplateHint') }}</p>
+        <label>{{ t('clientUIAnimationEditor.ui.properties.name') }}<input v-model="name" :aria-label="t('clientUIAnimationEditor.ui.exportGia.name')" required /></label>
+        <label>{{ assetKind === 'containerUI' ? t('clientUIAnimationEditor.ui.exportGia.uiIndex') : t('clientUIAnimationEditor.ui.exportGia.templateIndex') }}<input v-model="index" :aria-label="assetKind === 'containerUI' ? t('clientUIAnimationEditor.ui.exportGia.uiIndex') : t('clientUIAnimationEditor.ui.exportGia.templateIndex')" type="number" min="0" max="2147483647" step="1" required /></label>
+        <p>{{ hasSource ? t('clientUIAnimationEditor.ui.giaExport.preserveNativeDataHint') : t('clientUIAnimationEditor.ui.exportGia.originalDataHint') }}</p>
+        <button type="button" :disabled="busy" @click="fileInput?.click()">{{ hasSource ? t('clientUIAnimationEditor.ui.exportGia.replaceOriginal') : t('clientUIAnimationEditor.ui.exportGia.attachOriginal') }}</button>
         <input ref="fileInput" class="hidden-input" type="file" accept=".gia" @change="loadSource" />
         <p v-if="notice" class="notice" role="status">{{ notice }}</p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <footer><button type="button" @click="emit('close')">取消</button><button class="primary" :disabled="busy || !name.trim()" type="submit">{{ busy ? '正在处理…' : '校验并导出 GIA' }}</button></footer>
+        <footer><button type="button" @click="emit('close')">{{ t('clientUIAnimationEditor.ui.actions.cancel') }}</button><button class="primary" :disabled="busy || !name.trim()" type="submit">{{ busy ? t('clientUIAnimationEditor.ui.common.processing') : t('clientUIAnimationEditor.ui.exportGia.validateExport') }}</button></footer>
       </form>
     </section>
   </div>
 </template>
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { onMounted, onBeforeUnmount, ref, watch } from "vue";
 import type { GiaAssetKind } from "./giaImporter";
 const props = defineProps<{ projectName: string; initialIndex: number; initialKind?: GiaAssetKind; count: number; hasSource: boolean; busy: boolean; error: string; notice: string }>();

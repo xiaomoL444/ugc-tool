@@ -1,10 +1,11 @@
+import { t } from "../../i18n";
 import { decode, type ConverterDocument, type UgcValue } from "genshin-impact-ugc-file-converter-web";
 import type { ColorRGBA, ControlType } from "./types";
 
 type GiaObject = Record<string, UgcValue>;
 
 export type GiaAssetKind = "containerUI" | "controlTemplate";
-export const giaAssetLabels: Record<GiaAssetKind, string> = { containerUI: "客户端容器 UI", controlTemplate: "客户端控件模板" };
+export const giaAssetLabels: Record<GiaAssetKind, string> = { containerUI: "clientUIAnimationEditor.ui.giaImport.containerUiAsset", controlTemplate: "clientUIAnimationEditor.ui.exportGia.controlTemplateKind" };
 
 export interface GiaImportedLayout {
   active: boolean;
@@ -362,10 +363,10 @@ export function detectGiaAssetKind(json: UgcValue | undefined): GiaAssetKind | n
 
 export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportResult {
   const root = asObject(json);
-  if (!root) throw new Error("GIA 根数据不是对象");
+  if (!root) throw new Error(t("clientUIAnimationEditor.ui.giaImport.invalidRootData"));
   const assetKind = detectGiaAssetKind(json);
-  if (asArray(root["1"]).length > 1) throw new Error("不支持导入资产包或多个资产，请在游戏中单独导出一个客户端容器 UI 或客户端控件模板。");
-  if (!assetKind) throw new Error("仅支持导入客户端容器 UI 和客户端控件模板，不支持资产包、服务端控件模板或其他资产。");
+  if (asArray(root["1"]).length > 1) throw new Error(t("clientUIAnimationEditor.ui.giaImport.singleClientAssetRequired"));
+  if (!assetKind) throw new Error(t("clientUIAnimationEditor.ui.giaImport.unsupportedAssetType"));
   const primary = asObject(asArray(root["1"])[0])!;
   // The member pool can also contain external asset dependencies, not controls.
   const rawNodes = asArray(root["2"]).map(asObject).filter((node): node is GiaObject => Boolean(node && node["5"] === 15 && componentOf(node, "11")));
@@ -388,7 +389,7 @@ export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportR
       ? componentName : decodeGiaText(node["3"], componentName || `Control_${sourceNodeIndex}`);
     const stateComponent = componentOf(node, "14");
     const initialState = asObject(asObject(asObject(stateComponent?.["503"])?.["14"])?.["17"]);
-    if (!detected.known) warnings.push(`${name}：未识别具体控件组件，按容器保留层级`);
+    if (!detected.known) warnings.push(t("clientUIAnimationEditor.ui.giaImport.unrecognizedControlComponent", { name: name }));
     controls.push({
       sourceNodeIndex,
       parentSourceNodeIndex: Number.isFinite(rawParentIndex) ? rawParentIndex : null,
@@ -402,11 +403,11 @@ export function readGiaControls(json: UgcValue, deviceIndex: number): GiaImportR
     });
   });
 
-  if (controls.length === 0) throw new Error("GIA 中没有找到客户端 UI 控件");
+  if (controls.length === 0) throw new Error(t("clientUIAnimationEditor.ui.giaImport.noControls"));
   const unknownTextAlignments = controls.filter((control) => control.type === "text"
     && (control.properties.horizontalAlignment === null || control.properties.verticalAlignment === null));
   if (unknownTextAlignments.length) {
-    warnings.push(`文本对齐未识别（${unknownTextAlignments.map((control) => `${control.name} #${control.sourceNodeIndex}`).join("、")}）：未知的水平/垂直对齐值已标为未设置，请在属性面板核对`);
+    warnings.push(t("clientUIAnimationEditor.ui.giaImport.unrecognizedTextAlignment", { value: unknownTextAlignments.map((control) => `${control.name} #${control.sourceNodeIndex}`).join("、") }));
   }
   return {
     assetKind,

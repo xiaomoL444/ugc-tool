@@ -54,12 +54,13 @@ async function main() {
   let passed = 0;
   async function test(name, check) { await check(); passed += 1; console.log(`PASS ${name}`); }
   try {
-    const imports = Object.assign({}, ...["controlRegistry", "tweenRegistry", "giaImporter", "luaTweenExporter", "propertyGroupActions", "timelineSnapping", "timelineClipLayout", "containerDirectionGuide", "editorHistory", "historyChangeLabel", "keyframeTimeline", "keyframeLua", "animationCollection"]
+    const imports = Object.assign({}, ...["controlRegistry", "tweenRegistry", "giaImporter", "giaExporter", "luaTweenExporter", "propertyGroupActions", "timelineSnapping", "timelineClipLayout", "containerDirectionGuide", "editorHistory", "historyChangeLabel", "keyframeTimeline", "keyframeLua", "animationCollection", "controlTemplates", "primitiveResources", "primitiveData", "timelineEvents"]
       .map((name) => require(path.join(editor, `${name}.ts`))));
     function createEditor() {
       const listeners = new Map();
       const context = vm.createContext({
-        ...vue, ...imports,
+        ...vue, ...imports, ...require('../src/i18n/index.ts'),
+        useImageCatalogTranslations: () => () => Promise.resolve(),
         inject: () => null,
         nextTick: () => Promise.resolve(),
         window: {

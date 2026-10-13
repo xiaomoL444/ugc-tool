@@ -5,7 +5,7 @@
 
             <div class="col title-col">
                 <NEllipsis>
-                    <div class="title">{{ resourceText(info.nameI18nKey) }}</div>
+                    <div class="title">{{ t(info.nameI18nKey) }}</div>
                 </NEllipsis>
                 <div class="meta-row">
                     <div class="bgm-id">{{ info.id }}</div>
@@ -13,7 +13,7 @@
                 </div>
             </div>
             <div class="col album-col">
-                <NEllipsis>{{ resourceText(info.albumI18nKey) }}</NEllipsis>
+                <NEllipsis>{{ t(info.albumI18nKey) }}</NEllipsis>
             </div>
         </div>
     </div>
@@ -88,9 +88,8 @@ import { BgmInfo } from '../types/bgmInfo';
 import { createOss } from "@/utils/oss";
 
 import { useI18n } from "vue-i18n";
-import { createCachedText } from "@/i18n/cachedText";
 
-const resourceText = createCachedText(useI18n({ useScope: "global" }));
+const { t } = useI18n({ useScope: "global" });
 const oss = createOss("BgmPlayer");
 
 defineProps<{

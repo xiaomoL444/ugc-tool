@@ -14,6 +14,13 @@ export function isAppLocale(value: unknown): value is AppLocale {
   return supportedLocales.some((locale) => locale.value === value);
 }
 
+/** Match supported locale codes without guessing a fallback language. */
+export function normalizeAppLocale(value: unknown): AppLocale | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.replace(/_/g, "-").toLowerCase();
+  return supportedLocales.find(({ value: locale }) => locale.toLowerCase() === normalized)?.value;
+}
+
 export function resolveInitialLocale(savedLocale: unknown, browserLanguages: readonly string[]): AppLocale {
   if (isAppLocale(savedLocale)) return savedLocale;
   for (const language of browserLanguages) {

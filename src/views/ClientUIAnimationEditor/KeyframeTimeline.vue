@@ -1,89 +1,90 @@
 <template>
-  <section ref="root" class="kf-timeline" tabindex="0" aria-label="关键帧时间轴" @keydown="handleKeyDown" @pointerdown="menu = null">
+  <section ref="root" class="kf-timeline" tabindex="0" :aria-label="t('clientUIAnimationEditor.ui.keyframes.timelineTitle')" @keydown="handleKeyDown" @pointerdown="menu = null">
     <header class="kf-toolbar">
-      <span class="kf-title" :title="animationName"><EditorIcon name="timeline" :size="16" /><span class="kf-animation-name">{{ animationName || '关键帧时间轴' }}</span></span>
-      <button aria-label="回到起点" title="回到起点" @click="emit('rewind')"><EditorIcon name="skip-back" :size="15" /></button>
-      <button :aria-label="playing ? '暂停时间轴' : '播放时间轴'" :title="playing ? '暂停 · 空格' : '播放 · 空格'" @click="emit('toggle-play')"><EditorIcon :name="playing ? 'pause' : 'play'" :size="15" /></button>
-      <output>{{ formatTime(currentTime) }} s · {{ Math.round(currentTime * fps) }} 帧</output>
-      <label class="kf-duration">帧率<ScrubbableNumberInput :model-value="fps" :min="1" :max="240" :step="1" :scrub-speed="1" aria-label="时间轴帧率" @update:model-value="changeFrameRate" /><span>帧/秒</span></label>
-      <button class="kf-snap" :class="{ active: snapEnabled }" :aria-pressed="snapEnabled" aria-label="关键帧吸附" @click="emit('toggle-snap')"><EditorIcon name="magnet" :size="14" />吸附</button>
-      <label class="kf-duration">序列时长<ScrubbableNumberInput :model-value="duration" :min="lastKeyTime || 0.01" :step="0.01" :scrub-speed="0.01" aria-label="关键帧序列时长" @update:model-value="changeDuration" /><span>s</span></label>
-      <span class="kf-toolbar-hint">双击空白添加关键帧 · 拖动菱形调整时间</span>
+      <span class="kf-title" :title="animationName"><EditorIcon name="timeline" :size="16" /><span class="kf-animation-name">{{ animationName || t('clientUIAnimationEditor.ui.keyframes.timelineTitle') }}</span></span>
+      <button :aria-label="t('clientUIAnimationEditor.ui.timeline.returnToStart')" :title="t('clientUIAnimationEditor.ui.timeline.returnToStart')" @click="emit('rewind')"><EditorIcon name="skip-back" :size="15" /></button>
+      <button :aria-label="playing ? t('clientUIAnimationEditor.ui.timeline.pause') : t('clientUIAnimationEditor.ui.timeline.play')" :title="playing ? t('clientUIAnimationEditor.ui.timeline.pauseShortcut') : t('clientUIAnimationEditor.ui.timeline.playShortcut')" @click="emit('toggle-play')"><EditorIcon :name="playing ? 'pause' : 'play'" :size="15" /></button>
+      <output>{{ t('clientUIAnimationEditor.ui.timeline.timeAndFrame', { time: formatTime(currentTime), value: Math.round(currentTime * fps) }) }}</output>
+      <label class="kf-duration">{{ t('clientUIAnimationEditor.ui.timeline.fps') }}<ScrubbableNumberInput :model-value="fps" :min="1" :max="240" :step="1" :scrub-speed="1" :aria-label="t('clientUIAnimationEditor.ui.timeline.frameRateLabel')" @update:model-value="changeFrameRate" /><span>{{ t('clientUIAnimationEditor.ui.timeline.framesPerSecond') }}</span></label>
+      <button class="kf-snap" :class="{ active: snapEnabled }" :aria-pressed="snapEnabled" :aria-label="t('clientUIAnimationEditor.ui.keyframes.snapping')" @click="emit('toggle-snap')"><EditorIcon name="magnet" :size="14" />{{ t('clientUIAnimationEditor.ui.timeline.snap') }}</button>
+      <label class="kf-duration">{{ t('clientUIAnimationEditor.ui.timeline.sequenceDuration') }}<ScrubbableNumberInput :model-value="duration" :min="lastKeyTime || 0.01" :step="0.01" :scrub-speed="0.01" :aria-label="t('clientUIAnimationEditor.ui.keyframes.sequenceDuration')" @update:model-value="changeDuration" /><span>s</span></label>
+      <span class="kf-toolbar-hint">{{ t('clientUIAnimationEditor.ui.timeline.keyframeGestureHint') }}</span>
     </header>
     <div class="kf-workspace">
       <div ref="scrollArea" class="kf-scroll" @scroll="menu = null">
         <div class="kf-grid">
           <div class="kf-row kf-ruler-row">
-            <div class="kf-name kf-ruler-name">控件 / 属性轨道</div>
-            <div class="kf-lane"><div ref="ruler" class="kf-track-content kf-ruler" role="slider" tabindex="0" aria-label="关键帧播放进度" :aria-valuemin="0" :aria-valuemax="safeDuration" :aria-valuenow="currentTime" @pointerdown="startSeek" @keydown="handleRulerKey">
+            <div class="kf-name kf-ruler-name">{{ t('clientUIAnimationEditor.ui.keyframes.controlPropertyTracks') }}</div>
+            <div class="kf-lane"><div ref="ruler" class="kf-track-content kf-ruler" role="slider" tabindex="0" :aria-label="t('clientUIAnimationEditor.ui.timeline.playbackProgress')" :aria-valuemin="0" :aria-valuemax="safeDuration" :aria-valuenow="currentTime" @pointerdown="startSeek" @keydown="handleRulerKey">
               <span v-for="tick in ticks" :key="tick" class="kf-tick" :style="{ left: percent(tick) }">{{ Math.round(tick * fps) }}f</span>
             </div></div>
           </div>
           <slot name="events" />
           <div v-for="row in rows" :key="row.id" class="kf-row" :class="{ 'is-node': row.kind === 'node', 'is-selected': row.node.id === selectedNodeId }">
             <div v-if="row.kind === 'node'" class="kf-name kf-node-name" :style="{ paddingLeft: `${10 + row.depth * 12}px` }">
-              <button class="kf-collapse" :aria-label="`${collapsed.has(row.node.id) ? '展开' : '折叠'} ${row.node.name}`" @click.stop="toggleCollapsed(row.node.id)">{{ collapsed.has(row.node.id) ? '▸' : '▾' }}</button>
+              <button class="kf-collapse" :aria-label="t('clientUIAnimationEditor.ui.timeline.collapseNodeLabel', { value: collapsed.has(row.node.id) ? t('clientUIAnimationEditor.ui.timeline.expand') : t('clientUIAnimationEditor.ui.timeline.collapse'), name: row.node.name })" @click.stop="toggleCollapsed(row.node.id)">{{ collapsed.has(row.node.id) ? '▸' : '▾' }}</button>
               <button class="kf-node-select" :title="row.node.name" @click="emit('select-node', row.node.id)"><EditorIcon :name="row.node.type" :size="13" /><span>{{ row.node.name }}</span></button>
-              <button class="kf-add-track" :aria-label="`为 ${row.node.name} 添加属性轨道`" title="添加可动画属性" @click.stop="emit('select-node', row.node.id); emit('add-track', row.node.id)"><EditorIcon name="plus" :size="13" /></button>
+              <button class="kf-add-track" :aria-label="t('clientUIAnimationEditor.ui.keyframes.addTrackForControl', { name: row.node.name })" :title="t('clientUIAnimationEditor.ui.timeline.addAnimatedProperty')" @click.stop="emit('select-node', row.node.id); emit('add-track', row.node.id)"><EditorIcon name="plus" :size="13" /></button>
             </div>
             <div v-else class="kf-name kf-property-name" :class="{ 'selected-track': row.track.keyframes.some(key => key.id === selectedKeyframeId) }" :style="{ paddingLeft: `${28 + row.depth * 12}px` }" @click.stop="emit('select-track', row.track.id)">
-              <button :title="row.track.fieldKey" :aria-label="`选择 ${row.node.name} / ${fieldLabel(row.node, row.track)} 轨道`" @click.stop="emit('select-track', row.track.id)">{{ fieldLabel(row.node, row.track) }}</button>
+              <button :title="row.track.fieldKey" :aria-label="t('clientUIAnimationEditor.ui.keyframes.selectTrackLabel', { name: row.node.name, value: fieldLabel(row.node, row.track) })" @click.stop="emit('select-track', row.track.id)">{{ fieldLabel(row.node, row.track) }}</button>
               <div class="kf-inline-value" @pointerdown.stop @click.stop @dblclick.stop>
                 <template v-if="getTweenableField(row.node.type, row.track.fieldKey)?.valueKind === 'color'">
-                  <input type="color" :aria-label="`${fieldLabel(row.node, row.track)} 当前颜色`" :value="trackColorHex(row.track)" @input="changeTrackColor(row.track, ($event.target as HTMLInputElement).value)" />
-                  <ScrubbableNumberInput :model-value="trackColor(row.track).a" :min="0" :max="1" :step="0.01" :scrub-speed="0.01" :animated="true" :aria-label="`${fieldLabel(row.node, row.track)} 当前透明度`" @update:model-value="$event !== null && emit('edit-track-value', row.track.id, { ...trackColor(row.track), a: $event })" />
+                  <input type="color" :aria-label="t('clientUIAnimationEditor.ui.timeline.currentColorLabel', { value: fieldLabel(row.node, row.track) })" :value="trackColorHex(row.track)" @input="changeTrackColor(row.track, ($event.target as HTMLInputElement).value)" />
+                  <ScrubbableNumberInput :model-value="trackColor(row.track).a" :min="0" :max="1" :step="0.01" :scrub-speed="0.01" :animated="true" :aria-label="t('clientUIAnimationEditor.ui.keyframes.currentOpacity', { value: fieldLabel(row.node, row.track) })" @update:model-value="$event !== null && emit('edit-track-value', row.track.id, { ...trackColor(row.track), a: $event })" />
                 </template>
-                <select v-else-if="getTweenableField(row.node.type, row.track.fieldKey)?.valueKind === 'boolean'" :value="String(trackValue(row.track))" :aria-label="`${fieldLabel(row.node, row.track)} 当前值`" @change="emit('edit-track-value', row.track.id, ($event.target as HTMLSelectElement).value === 'true')"><option value="null" disabled>未设置</option><option value="true">显示</option><option value="false">隐藏</option></select>
-                <ScrubbableNumberInput v-else :model-value="trackNumber(row.track)" :animated="true" :step="getTweenableField(row.node.type, row.track.fieldKey)?.step ?? 0.01" :scrub-speed="getTweenableField(row.node.type, row.track.fieldKey)?.scrubSpeed ?? 0.1" :min="getTweenableField(row.node.type, row.track.fieldKey)?.min" :max="getTweenableField(row.node.type, row.track.fieldKey)?.max" :aria-label="`${fieldLabel(row.node, row.track)} 当前值`" @update:model-value="$event !== null && emit('edit-track-value', row.track.id, $event)" />
+                <select v-else-if="getTweenableField(row.node.type, row.track.fieldKey)?.valueKind === 'boolean'" :value="String(trackValue(row.track))" :aria-label="t('clientUIAnimationEditor.ui.keyframes.currentValue', { value: fieldLabel(row.node, row.track) })" @change="emit('edit-track-value', row.track.id, ($event.target as HTMLSelectElement).value === 'true')"><option value="null" disabled>{{ t('clientUIAnimationEditor.ui.properties.unset') }}</option><option value="true">{{ t('clientUIAnimationEditor.ui.actions.show') }}</option><option value="false">{{ t('clientUIAnimationEditor.ui.controls.hide') }}</option></select>
+                <ScrubbableNumberInput v-else :model-value="trackNumber(row.track)" :animated="true" :step="getTweenableField(row.node.type, row.track.fieldKey)?.step ?? 0.01" :scrub-speed="getTweenableField(row.node.type, row.track.fieldKey)?.scrubSpeed ?? 0.1" :min="getTweenableField(row.node.type, row.track.fieldKey)?.min" :max="getTweenableField(row.node.type, row.track.fieldKey)?.max" :aria-label="t('clientUIAnimationEditor.ui.keyframes.currentValue', { value: fieldLabel(row.node, row.track) })" @update:model-value="$event !== null && emit('edit-track-value', row.track.id, $event)" />
               </div>
-              <button class="kf-set-key" :aria-label="`为 ${fieldLabel(row.node, row.track)} 在播放头添加关键帧`" title="在当前时间添加 / 更新关键帧" @click.stop="addKey(row.track, currentTime)">◇</button>
+              <button class="kf-set-key" :aria-label="t('clientUIAnimationEditor.ui.keyframes.addAtPlayheadLabel', { value: fieldLabel(row.node, row.track) })" :title="t('clientUIAnimationEditor.ui.keyframes.addOrUpdateCurrent')" @click.stop="addKey(row.track, currentTime)">◇</button>
             </div>
             <div class="kf-lane" :class="{ 'kf-node-lane': row.kind === 'node' }">
               <div class="kf-track-content" @pointerdown.self="startRowSeek($event, row)" @dblclick.self="row.kind === 'track' && addKey(row.track, pointerTime($event.currentTarget as HTMLElement, $event.clientX))" @contextmenu.prevent.stop="row.kind === 'track' && openMenu($event, row.track)">
                 <span v-for="tick in ticks" :key="tick" class="kf-gridline" :style="{ left: percent(tick) }" />
                 <template v-if="row.kind === 'track'">
                   <span v-for="segment in segments(row.track)" :key="segment.id" class="kf-segment" :class="{ 'is-step': segment.step }" :style="{ left: percent(segment.start), width: percent(segment.end - segment.start) }" />
-                  <button v-for="key in sortedKeys(row.track)" :key="key.id" class="kf-key" :class="{ selected: key.id === selection?.key.id, 'is-step': key.interpolation === 'step' }" :style="{ left: percent(key.time) }" :aria-label="`${fieldLabel(row.node, row.track)} · ${formatTime(key.time)} 秒关键帧`" :title="`${formatTime(key.time)}s · ${key.relative ? '增量 ' : ''}${formatValue(key.value)} · ${key.interpolation === 'step' ? '阶跃' : key.easeType}`" @pointerdown.stop="startKeyDrag($event, row.track, key)" @click.stop="selectKey(row.track, key)" @dblclick.stop @contextmenu.prevent.stop="openMenu($event, row.track, key)"><span /></button>
+                  <button v-for="key in sortedKeys(row.track)" :key="key.id" class="kf-key" :class="{ selected: key.id === selection?.key.id, 'is-step': key.interpolation === 'step' }" :style="{ left: percent(key.time) }" :aria-label="t('clientUIAnimationEditor.ui.keyframes.keyframeTimeSummary', { value: fieldLabel(row.node, row.track), time: formatTime(key.time) })" :title="t('clientUIAnimationEditor.ui.timeline.keyframeDetails', { time: formatTime(key.time), value: key.relative ? t('clientUIAnimationEditor.ui.timeline.deltaTag') : '', value2: formatValue(key.value), value3: key.interpolation === 'step' ? t('clientUIAnimationEditor.ui.keyframes.stepInterpolation') : key.easeType })" @pointerdown.stop="startKeyDrag($event, row.track, key)" @click.stop="selectKey(row.track, key)" @dblclick.stop @contextmenu.prevent.stop="openMenu($event, row.track, key)"><span /></button>
                 </template>
               </div>
             </div>
           </div>
           <div class="kf-row kf-filler"><div class="kf-name" /><div class="kf-lane"><div class="kf-track-content" @pointerdown="startSeek"><span v-for="tick in ticks" :key="tick" class="kf-gridline" :style="{ left: percent(tick) }" /></div></div></div>
           <!-- Only the ruler handle accepts pointers. The full-height line must never cover keys. -->
-          <div class="kf-playhead-area" aria-hidden="true"><div class="kf-playhead" :style="{ left: percent(currentTime) }"><button class="kf-playhead-handle" tabindex="-1" title="拖动播放进度" @pointerdown.stop="startSeek($event, ruler)" /></div></div>
-          <div v-if="!nodes.length" class="kf-empty">先创建或导入控件，再添加属性关键帧。</div>
+          <div class="kf-playhead-area" aria-hidden="true"><div class="kf-playhead" :style="{ left: percent(currentTime) }"><button class="kf-playhead-handle" tabindex="-1" :title="t('clientUIAnimationEditor.ui.timeline.seekLabel')" @pointerdown.stop="startSeek($event, ruler)" /></div></div>
+          <div v-if="!nodes.length" class="kf-empty">{{ t('clientUIAnimationEditor.ui.keyframes.createControlsFirst') }}</div>
         </div>
       </div>
-      <aside class="kf-inspector" aria-label="关键帧参数">
+      <aside class="kf-inspector" :aria-label="t('clientUIAnimationEditor.ui.keyframes.parameters')">
         <template v-if="selection">
-          <header><span>◆ 关键帧</span><button aria-label="删除所选关键帧" title="删除关键帧" @click="removeSelectedKey"><EditorIcon name="trash" :size="14" /></button></header>
+          <header><span>{{ t('clientUIAnimationEditor.ui.keyframes.markerLabel') }}</span><button :aria-label="t('clientUIAnimationEditor.ui.timeline.deleteSelectedKeyframes')" :title="t('clientUIAnimationEditor.ui.keyframes.delete')" @click="removeSelectedKey"><EditorIcon name="trash" :size="14" /></button></header>
           <div class="kf-selection-name">{{ selection.node.name }} / {{ fieldLabel(selection.node, selection.track) }}</div>
-          <p v-if="selection.key.value === null" role="status">当前帧尚未设置属性值，请填写后再导出。</p>
-          <label class="kf-field">时间 <span class="kf-with-unit"><ScrubbableNumberInput :model-value="selection.key.time" :animated="true" :min="0" :max="safeDuration" :step="0.01" :scrub-speed="0.01" aria-label="关键帧时间" @update:model-value="changeKeyTime" /><i>s</i></span></label>
-          <ColorRGBAField v-if="selection.field?.valueKind === 'color'" label="关键帧颜色" :model-value="selectedColor" :animated="true" @update:model-value="patchSelected({ value: $event })" />
-          <label v-else-if="selection.field?.valueKind === 'boolean'" class="kf-field">控件显隐<select class="is-animated" data-animated="true" :value="String(selection.key.value)" aria-label="关键帧显隐" @change="patchSelected({ value: ($event.target as HTMLSelectElement).value === 'true' })"><option v-if="selection.key.value === null" value="null" disabled>未设置</option><option value="true">显示</option><option value="false">隐藏</option></select></label>
-          <label v-else class="kf-field">{{ selection.key.relative ? '增量值' : '属性值' }}<ScrubbableNumberInput :model-value="typeof selection.key.value === 'number' ? selection.key.value : null" :animated="true" :min="selection.key.relative ? undefined : selection.field?.min" :max="selection.key.relative ? undefined : selection.field?.max" :step="selection.field?.step ?? 0.01" :scrub-speed="selection.field?.scrubSpeed ?? 0.1" aria-label="关键帧属性值" @update:model-value="patchSelected({ value: $event })" /></label>
-          <button v-if="isRelativeTweenField(selection.track.fieldKey)" class="kf-relative is-animated" data-animated="true" :class="{ active: selection.key.relative }" :aria-pressed="!!selection.key.relative" @click="patchSelected({ relative: !selection.key.relative })">{{ selection.key.relative ? '✓ ' : '' }}相对前帧增量</button>
+          <p v-if="selection.key.value === null" role="status">{{ t('clientUIAnimationEditor.ui.keyframes.valueRequiredBeforeExport') }}</p>
+          <label class="kf-field">{{ t('clientUIAnimationEditor.ui.events.time') }}<span class="kf-with-unit"><ScrubbableNumberInput :model-value="selection.key.time" :animated="true" :min="0" :max="safeDuration" :step="0.01" :scrub-speed="0.01" :aria-label="t('clientUIAnimationEditor.ui.keyframes.time')" @update:model-value="changeKeyTime" /><i>s</i></span></label>
+          <ColorRGBAField v-if="selection.field?.valueKind === 'color'" :label="t('clientUIAnimationEditor.ui.timeline.keyframeColor')" :model-value="selectedColor" :animated="true" @update:model-value="patchSelected({ value: $event })" />
+          <label v-else-if="selection.field?.valueKind === 'boolean'" class="kf-field">{{ t('clientUIAnimationEditor.ui.keyframes.controlVisibility') }}<select class="is-animated" data-animated="true" :value="String(selection.key.value)" :aria-label="t('clientUIAnimationEditor.ui.timeline.keyframeVisibility')" @change="patchSelected({ value: ($event.target as HTMLSelectElement).value === 'true' })"><option v-if="selection.key.value === null" value="null" disabled>{{ t('clientUIAnimationEditor.ui.properties.unset') }}</option><option value="true">{{ t('clientUIAnimationEditor.ui.actions.show') }}</option><option value="false">{{ t('clientUIAnimationEditor.ui.controls.hide') }}</option></select></label>
+          <label v-else class="kf-field">{{ selection.key.relative ? t('clientUIAnimationEditor.ui.keyframes.relativeOffset') : t('clientUIAnimationEditor.ui.keyframes.propertyValue') }}<ScrubbableNumberInput :model-value="typeof selection.key.value === 'number' ? selection.key.value : null" :animated="true" :min="selection.key.relative ? undefined : selection.field?.min" :max="selection.key.relative ? undefined : selection.field?.max" :step="selection.field?.step ?? 0.01" :scrub-speed="selection.field?.scrubSpeed ?? 0.1" :aria-label="t('clientUIAnimationEditor.ui.timeline.keyframeValue')" @update:model-value="patchSelected({ value: $event })" /></label>
+          <button v-if="isRelativeTweenField(selection.track.fieldKey)" class="kf-relative is-animated" data-animated="true" :class="{ active: selection.key.relative }" :aria-pressed="!!selection.key.relative" @click="patchSelected({ relative: !selection.key.relative })">{{ t('clientUIAnimationEditor.ui.timeline.previousFrameDeltaLabel', { value: selection.key.relative ? '✓ ' : '' }) }}</button>
           <template v-if="selection.field?.valueKind !== 'boolean'">
-            <label class="kf-field">到下一帧<select class="is-animated" data-animated="true" :value="selection.key.interpolation" aria-label="关键帧插值方式" @change="changeInterpolation"><option value="tween">补间</option><option value="step">阶跃（保持当前值）</option></select></label>
-            <div class="kf-field">缓动<EasePicker :key="selection.key.id" :model-value="selection.key.easeType" :disabled="selection.key.interpolation === 'step'" @update:model-value="changeEase" /></div>
-            <p>缓动与补间作用于当前帧 → 下一帧。最后一帧之后保持该帧值。</p>
+            <label class="kf-field">{{ t('clientUIAnimationEditor.ui.keyframes.toNextKeyframe') }}<select class="is-animated" data-animated="true" :value="selection.key.interpolation" :aria-label="t('clientUIAnimationEditor.ui.keyframes.interpolation')" @change="changeInterpolation"><option value="tween">{{ t('clientUIAnimationEditor.ui.timeline.interpolation') }}</option><option value="step">{{ t('clientUIAnimationEditor.ui.keyframes.stepHold') }}</option></select></label>
+            <div class="kf-field">{{ t('clientUIAnimationEditor.ui.keyframes.easing') }}<EasePicker :key="selection.key.id" :model-value="selection.key.easeType" :disabled="selection.key.interpolation === 'step'" @update:model-value="changeEase" /></div>
+            <p>{{ t('clientUIAnimationEditor.ui.timeline.easingSegmentHint') }}</p>
           </template>
-          <p v-else>到达此帧立即切换显隐，之后保持该状态。第一帧之前保留初始可见性；隐藏父控件时子级随之隐藏。</p>
+          <p v-else>{{ t('clientUIAnimationEditor.ui.keyframes.visibilityPlaybackHint') }}</p>
         </template>
-        <div v-else class="kf-inspector-empty"><span>◇</span>选择菱形关键帧<p>编辑时间、属性值与下一段补间。<br />右键属性轨道可添加关键帧。</p></div>
+        <div v-else class="kf-inspector-empty"><span>◇</span>{{ t('clientUIAnimationEditor.ui.timeline.selectDiamondKeyframe') }}<p>{{ t('clientUIAnimationEditor.ui.keyframes.inspectorHint') }}<br />{{ t('clientUIAnimationEditor.ui.timeline.addKeyframeContextMenuHint') }}</p></div>
       </aside>
     </div>
-    <footer class="kf-status" role="status">{{ notice || 'Ctrl+C / Ctrl+V 复制粘贴关键帧 · Delete 删除所选关键帧' }}</footer>
+    <footer class="kf-status" role="status">{{ notice || t('clientUIAnimationEditor.ui.timeline.keyframeKeyboardHint') }}</footer>
     <Teleport to="body"><div v-if="menu" class="kf-context-menu" role="menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @pointerdown.stop @contextmenu.prevent>
-      <button role="menuitem" @click="menuAddKey">在 {{ formatTime(menu.time) }} 秒添加关键帧</button>
-      <button v-if="menu.keyId" role="menuitem" @click="menuDeleteKey">删除此关键帧</button>
-      <button class="danger" role="menuitem" @click="menuDeleteTrack">删除属性轨道</button>
+      <button role="menuitem" @click="menuAddKey">{{ t('clientUIAnimationEditor.ui.keyframes.addAtTime', { time: formatTime(menu.time) }) }}</button>
+      <button v-if="menu.keyId" role="menuitem" @click="menuDeleteKey">{{ t('clientUIAnimationEditor.ui.keyframes.deleteCurrent') }}</button>
+      <button class="danger" role="menuitem" @click="menuDeleteTrack">{{ t('clientUIAnimationEditor.ui.keyframes.deletePropertyTrack') }}</button>
     </div></Teleport>
   </section>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import EditorIcon from "./EditorIcon.vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
@@ -113,7 +114,7 @@ const root = ref<HTMLElement | null>(null);
 const ruler = ref<HTMLElement | null>(null);
 const scrollArea = ref<HTMLElement | null>(null);
 const collapsed = ref(new Set<string>());
-const notice = ref("");
+const notice = ref<string>('');
 const menu = ref<{ trackId: string; keyId?: string; time: number; x: number; y: number } | null>(null);
 const clipboard = ref<{ trackId: string; key: UIKeyframe } | null>(null);
 let stopDrag: (() => void) | null = null;
@@ -160,8 +161,8 @@ function changeTrackColor(track: UIKeyframeTrack, hex: string) { if (!/^#[0-9a-f
 function percent(time: number) { return `${Math.max(0, Math.min(100, time / safeDuration.value * 100))}%`; }
 function clampTime(time: number) { return Math.round(Math.max(0, Math.min(safeDuration.value, time)) * 1e6) / 1e6; }
 function sortedKeys(track: UIKeyframeTrack) { return [...track.keyframes].sort((a, b) => a.time - b.time); }
-function fieldLabel(node: UINode, track: UIKeyframeTrack) { return getTweenableField(node.type, track.fieldKey)?.label ?? track.fieldKey; }
-function formatValue(value: UITweenValue) { return value === null ? "未设置" : typeof value === "boolean" ? value ? "显示" : "隐藏" : typeof value === "number" ? String(value) : `RGBA(${value.r}, ${value.g}, ${value.b}, ${Math.round(value.a * 100)}%)`; }
+function fieldLabel(node: UINode, track: UIKeyframeTrack) { const field = getTweenableField(node.type, track.fieldKey); return field ? t(field.label) : track.fieldKey; }
+function formatValue(value: UITweenValue) { return value === null ? t('clientUIAnimationEditor.ui.properties.unset') : typeof value === "boolean" ? value ? t('clientUIAnimationEditor.ui.actions.show') : t('clientUIAnimationEditor.ui.controls.hide') : typeof value === "number" ? String(value) : `RGBA(${value.r}, ${value.g}, ${value.b}, ${Math.round(value.a * 100)}%)`; }
 function segments(track: UIKeyframeTrack) { const keys = sortedKeys(track); return keys.slice(0, -1).map((key, index) => ({ id: key.id, start: key.time, end: keys[index + 1].time, step: key.interpolation === "step" })); }
 function toggleCollapsed(id: string) { const next = new Set(collapsed.value); next.has(id) ? next.delete(id) : next.add(id); collapsed.value = next; }
 function selectKey(track: UIKeyframeTrack, key: UIKeyframe) { emit("select-node", track.nodeId); emit("select-keyframe", track.id, key.id); }
@@ -210,7 +211,7 @@ function startKeyDrag(event: PointerEvent, track: UIKeyframeTrack, key: UIKeyfra
     const current = props.tracks.find((item) => item.id === track.id);
     if (!current?.keyframes.some((item) => item.id === key.id)) { stopDrag?.(); return; }
     const time = snapTime(initialTime + (next.clientX - startX) / width * safeDuration.value, current, key.id, width, playheadAtStart);
-    if (occupied(current, time, key.id)) { notice.value = "同一属性轨道的关键帧不能位于同一时间。"; return; }
+    if (occupied(current, time, key.id)) { notice.value = t('clientUIAnimationEditor.ui.timeline.duplicateKeyframeTime'); return; }
     notice.value = ""; emit("move-keyframe", track.id, key.id, time);
   }, true);
 }
@@ -218,7 +219,7 @@ function changeDuration(value: number | null) { if (value !== null && Number.isF
 function changeKeyTime(value: number | null) {
   const selected = selection.value; if (!selected || value === null || !Number.isFinite(value)) return;
   const time = clampTime(value);
-  if (occupied(selected.track, time, selected.key.id)) { notice.value = "该时间已有关键帧。"; return; }
+  if (occupied(selected.track, time, selected.key.id)) { notice.value = t('clientUIAnimationEditor.ui.timeline.keyframeTimeOccupied'); return; }
   notice.value = ""; emit("move-keyframe", selected.track.id, selected.key.id, time);
 }
 function patchSelected(patch: Partial<UIKeyframe>) { const selected = selection.value; if (selected) emit("update-keyframe", selected.track.id, selected.key.id, patch); }
@@ -230,12 +231,12 @@ function openMenu(event: MouseEvent, track: UIKeyframeTrack, key?: UIKeyframe) {
 function menuAddKey() { const current = menu.value; const track = props.tracks.find((item) => item.id === current?.trackId); if (track && current) addKey(track, current.time); }
 function menuDeleteKey() { const current = menu.value; menu.value = null; if (current?.keyId) emit("remove-keyframe", current.trackId, current.keyId); }
 function menuDeleteTrack() { const current = menu.value; menu.value = null; if (current) emit("remove-track", current.trackId); }
-function copyKey() { const selected = selection.value; if (!selected) return; clipboard.value = { trackId: selected.track.id, key: { ...selected.key, value: typeof selected.key.value === "object" && selected.key.value !== null ? { ...selected.key.value } : selected.key.value } }; notice.value = "已复制关键帧；移动播放头后按 Ctrl+V 粘贴到原属性轨道。"; }
+function copyKey() { const selected = selection.value; if (!selected) return; clipboard.value = { trackId: selected.track.id, key: { ...selected.key, value: typeof selected.key.value === "object" && selected.key.value !== null ? { ...selected.key.value } : selected.key.value } }; notice.value = t('clientUIAnimationEditor.ui.keyframes.copiedNotice'); }
 async function pasteKey() {
   const copied = clipboard.value; if (!copied) return;
   const track = props.tracks.find((item) => item.id === copied.trackId); const time = clampTime(props.currentTime);
-  if (!track) { notice.value = "原属性轨道已删除，无法粘贴。"; return; }
-  if (occupied(track, time)) { notice.value = "该时间已有关键帧，请先移动播放头。"; return; }
+  if (!track) { notice.value = t('clientUIAnimationEditor.ui.timeline.deletedTrackPasteForbidden'); return; }
+  if (occupied(track, time)) { notice.value = t('clientUIAnimationEditor.ui.keyframes.addTimeOccupied'); return; }
   const revision = ++pasteRevision; emit("begin-edit");
   try {
     emit("upsert-keyframe", track.id, time); await nextTick();
@@ -244,7 +245,7 @@ async function pasteKey() {
     if (!created) return;
     const { value, relative, easeType, interpolation } = copied.key;
     emit("update-keyframe", track.id, created.id, { value: value && typeof value === "object" ? { ...value } : value, relative: Boolean(relative), easeType, interpolation });
-    emit("select-keyframe", track.id, created.id); notice.value = `已在 ${formatTime(time)} 秒粘贴关键帧。`;
+    emit("select-keyframe", track.id, created.id); notice.value = t('clientUIAnimationEditor.ui.timeline.keyframePasted', { time: formatTime(time) });
   } finally { emit("end-edit"); }
 }
 function handleKeyDown(event: KeyboardEvent) {
@@ -268,14 +269,15 @@ onBeforeUnmount(() => { pasteRevision += 1; stopDrag?.(); window.removeEventList
 .kf-timeline button { display: inline-flex; justify-content: center; align-items: center; gap: 5px; min-width: 24px; padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .kf-timeline button:hover { background: #354050; color: #fff; }
 .kf-timeline button:focus-visible { outline: 1px solid #8ab5ff; }
-.kf-toolbar { display: flex; flex: 0 0 39px; gap: 6px; align-items: center; padding: 0 10px; border-bottom: 1px solid #38414f; }
+.kf-toolbar { display: flex; flex-wrap: wrap; flex: 0 0 auto; min-height: 39px; box-sizing: border-box; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid #38414f; }
+.kf-toolbar > * { flex-shrink: 0; }
 .kf-title { display: flex; align-items: center; gap: 7px; margin-right: 10px; color: #e1e8f2; font-weight: 600; white-space: nowrap; }
 .kf-animation-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .kf-toolbar output { min-width: 67px; color: #d9e5ff; font-variant-numeric: tabular-nums; }
 .kf-toolbar .active, .kf-relative.active { background: #345378; color: #a9d2ff; border-color: #4d77a5; }
 .kf-duration { display: flex; align-items: center; gap: 5px; margin-left: 10px; white-space: nowrap; }
 .kf-duration :deep(input) { width: 58px !important; height: 25px; padding: 3px 5px !important; border: 1px solid #424d5e !important; border-radius: 4px; background: #181d25 !important; color: #e1e9f4 !important; font-size: 11px !important; }
-.kf-toolbar-hint { margin-left: auto; color: #7c899a; white-space: nowrap; font-size: 10px; }
+.kf-toolbar-hint { flex: 1 1 220px; min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; color: #7c899a; white-space: nowrap; font-size: 10px; }
 .kf-workspace { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .kf-scroll { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; }
 .kf-grid { position: relative; display: flex; flex-direction: column; min-width: 800px; min-height: 100%; }

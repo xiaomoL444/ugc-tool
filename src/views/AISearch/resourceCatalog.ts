@@ -1,73 +1,17 @@
-import { parseAssetFeatureSidecar, normalizeAssetFeatureResources, computeLexicalFeatureHash } from "../../../tools/ai-search-service/asset-features.mjs";
-import { OSS_BASE_URL } from "../../utils/oss";
-import { assetFeatureUrl } from "../../utils/assetFeatures";
-import { supportedLocales } from "../../i18n/preferences";
+import { normalizeAssetFeatureResources } from "../../../tools/ai-search-service/asset-features.mjs";
+import type { parseAssetFeatureSidecar } from "../../../tools/ai-search-service/asset-features.mjs";
 import type { ResourceKind, SearchResource, SearchScope, SearchMatchOn } from "./types";
 
 type Row = Record<string, unknown>;
 export interface CatalogSource { kind: ResourceKind; project: string; namespace: string; data: Row; dictionaries: Record<string, Record<string, string>>; features?: ReturnType<typeof parseAssetFeatureSidecar> }
 export interface CatalogSnapshot { sources: CatalogSource[]; failures: string[]; featureFailures?: string[]; featureHashes?: { sound?: string; effect?: string; bgm?: string } }
-const sourceDefinitions = [
+export const sourceDefinitions = [
   { kind: "sound" as const, project: "SoundEffectPlayer", namespace: "soundEffectPlayer" },
   { kind: "effect" as const, project: "EffectPlayer", namespace: "effectPlayer" },
   { kind: "bgm" as const, project: "BgmPlayer", namespace: "bgmPlayer" },
 ];
 export function record(value: unknown): Row { return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {}; }
 const string = (value: unknown) => typeof value === "string" ? value : "";
-function dictionary(raw: unknown, namespace: string): Record<string, string> {
-  const input = record(raw);
-  const wrapped = record(input.translations);
-  return Object.fromEntries(Object.entries(Object.keys(wrapped).length ? wrapped : input)
-    .filter(([key, value]) => typeof value === "string" && !key.split(".").some(part => ["__proto__", "constructor", "prototype"].includes(part)))
-    .map(([key, value]) => [key.startsWith(`${namespace}.`) ? key : `${namespace}.${key}`, value as string]));
-}
-export async function loadResourceCatalog(fetcher: typeof fetch = fetch, base = OSS_BASE_URL): Promise<CatalogSnapshot> {
-  const get = async (url: string, maxLength = 40000000) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
-    try {
-      const response = await fetcher(url, { signal: controller.signal, cache: "no-store" });
-      if (!response.ok) throw new Error("CATALOG_HTTP");
-      const raw = await response.text();
-      if (raw.length > maxLength) throw new Error("CATALOG_TOO_LARGE");
-      return JSON.parse(raw) as unknown;
-    } finally { clearTimeout(timer); }
-  };
-  const failures: string[] = [];
-  const featureFailures: string[] = [];
-  const featureHashes: NonNullable<CatalogSnapshot["featureHashes"]> = {};
-  const settled = await Promise.allSettled(sourceDefinitions.map(async (source) => {
-    const root = `${base.replace(/\/$/, "")}/${source.project}`;
-    const [index, feature, ...translations] = await Promise.allSettled([
-      get(`${root}/data.json?_t=${Date.now()}`),
-      get(`${assetFeatureUrl(source.project as "SoundEffectPlayer" | "EffectPlayer" | "BgmPlayer", base)}?_t=${Date.now()}`),
-      ...supportedLocales.map(({ value }) => get(`${root}/i18n/${value.toLowerCase()}.json?_t=${Date.now()}`)),
-    ]);
-    if (index.status !== "fulfilled" || !Object.keys(record(index.value)).length) throw new Error(source.project);
-    const dictionaries: CatalogSource["dictionaries"] = {};
-    translations.forEach((result, index) => {
-      const locale = supportedLocales[index].value;
-      if (result.status === "fulfilled") dictionaries[locale] = dictionary(result.value, source.namespace);
-      else failures.push(`${source.project}/${locale}`);
-    });
-    let features: CatalogSource["features"];
-    try {
-      if (feature.status !== "fulfilled") throw new Error("FEATURES_MISSING");
-      const data = record(index.value);
-      const rows = source.kind === "effect" ? Object.values(record(data.effectData)) : Array.isArray(data.data) ? data.data : Array.isArray(data.musicData) ? data.musicData : [];
-      const identities = rows.map(raw => ({ id: String(record(raw).id ?? ""), resourceId: `${source.kind}:${String(record(raw).id ?? "")}`, kind: source.kind, titles: {}, hasAudio: source.kind !== "effect" || record(raw).hasAudio === true && !!string(record(raw).audioPath) }));
-      features = parseAssetFeatureSidecar(feature.value, { project: source.project, kind: source.kind, identities, dictionaries, requireCompiled: false });
-      featureHashes[source.kind] = await computeLexicalFeatureHash(features);
-    } catch { featureFailures.push(source.project); }
-    return { ...source, data: record(index.value), dictionaries, features };
-  }));
-  const sources: CatalogSource[] = [];
-  settled.forEach((result, index) => {
-    if (result.status === "fulfilled") sources.push(result.value);
-    else failures.push(sourceDefinitions[index].project);
-  });
-  return { sources, failures, featureFailures, featureHashes };
-}
 export function resourceHref(kind: ResourceKind, id: string): string {
   if (!/^\d{1,12}$/.test(id)) throw new Error("INVALID_ASSET_ID");
   const project = sourceDefinitions.find(source => source.kind === kind)?.project;

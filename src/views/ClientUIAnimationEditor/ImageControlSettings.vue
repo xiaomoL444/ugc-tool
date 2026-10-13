@@ -1,17 +1,18 @@
 <template>
   <div class="image-settings">
-    <label class="image-field"><span>图片源</span><select aria-label="图片源" disabled><option>静态引用</option></select></label>
-    <span class="field-label">引用素材资产</span>
+    <label class="image-field"><span>{{ t('clientUIAnimationEditor.ui.imageControls.source') }}</span><select :aria-label="t('clientUIAnimationEditor.ui.imageControls.source')" disabled><option>{{ t('clientUIAnimationEditor.ui.controls.staticReference') }}</option></select></label>
+    <span class="field-label">{{ t('clientUIAnimationEditor.ui.imageControls.referenceAsset') }}</span>
     <div class="asset-card">
-      <button class="asset-picker" aria-label="选择图片素材" @click="$emit('open-library')"><span class="asset-thumbnail"><img v-if="asset?.src && !asset.missing" :src="asset.src" alt="" @error="asset.missing = true" /></span><span><b>{{ assetName }}</b><small>{{ modelValue.imageId ?? '无图片' }}</small></span></button>
-      <button class="clear-asset" aria-label="清空图片" title="清空图片" @click="$emit('select', null)"><EditorIcon name="trash" :size="17" /></button>
+      <button class="asset-picker" :aria-label="t('clientUIAnimationEditor.ui.images.selectAsset')" @click="$emit('open-library')"><span class="asset-thumbnail"><img v-if="asset?.src && !asset.missing" :src="asset.src" alt="" @error="asset.missing = true" /></span><span><b>{{ assetName }}</b><small>{{ modelValue.imageId ?? t('clientUIAnimationEditor.ui.imageLibrary.noImage') }}</small></span></button>
+      <button class="clear-asset" :aria-label="t('clientUIAnimationEditor.ui.images.clearSelection')" :title="t('clientUIAnimationEditor.ui.images.clearSelection')" @click="$emit('select', null)"><EditorIcon name="trash" :size="17" /></button>
     </div>
-    <label class="image-field"><span>图片 ID</span><ScrubbableNumberInput :model-value="modelValue.imageId ?? ''" :allow-empty="true" :min="0" :step="1" aria-label="图片 ID" placeholder="未设置" @update:model-value="$emit('select', $event)" /></label>
-    <ColorRGBAField label="填充颜色" :model-value="modelValue.imageColor ?? white" :animated="animated" @update:model-value="$emit('update:modelValue', { ...modelValue, imageColor: $event })" />
-    <label class="image-field"><span>图片类型</span><div class="image-type"><select aria-label="图片类型" :value="modelValue.imageType ?? 'basic'" @change="$emit('update:modelValue', { ...modelValue, imageType: ($event.target as HTMLSelectElement).value })"><option value="basic">基础</option><option value="stretch">拉伸</option></select><button title="恢复图片原始尺寸" aria-label="恢复图片原始尺寸" :disabled="!asset?.src || asset.missing" @click="$emit('reset-size')">1:1</button></div></label>
+    <label class="image-field"><span>{{ t('clientUIAnimationEditor.ui.imageControls.imageId') }}</span><ScrubbableNumberInput :model-value="modelValue.imageId ?? ''" :allow-empty="true" :min="0" :step="1" :aria-label="t('clientUIAnimationEditor.ui.imageControls.imageId')" :placeholder="t('clientUIAnimationEditor.ui.properties.unset')" @update:model-value="$emit('select', $event)" /></label>
+    <ColorRGBAField :label="t('clientUIAnimationEditor.ui.imageControls.fillColor')" :model-value="modelValue.imageColor ?? white" :animated="animated" @update:model-value="$emit('update:modelValue', { ...modelValue, imageColor: $event })" />
+    <label class="image-field"><span>{{ t('clientUIAnimationEditor.ui.imageControls.imageType') }}</span><div class="image-type"><select :aria-label="t('clientUIAnimationEditor.ui.imageControls.imageType')" :value="modelValue.imageType ?? 'basic'" @change="$emit('update:modelValue', { ...modelValue, imageType: ($event.target as HTMLSelectElement).value })"><option value="basic">{{ t('clientUIAnimationEditor.ui.properties.basicTab') }}</option><option value="stretch">{{ t('clientUIAnimationEditor.ui.controls.stretch') }}</option></select><button :title="t('clientUIAnimationEditor.ui.imageControls.restoreSize')" :aria-label="t('clientUIAnimationEditor.ui.imageControls.restoreSize')" :disabled="!asset?.src || asset.missing" @click="$emit('reset-size')">1:1</button></div></label>
   </div>
 </template>
 <script setup lang="ts">
+import { t } from '../../i18n';
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import ColorRGBAField from "./ColorRGBAField.vue";
@@ -23,7 +24,7 @@ const props = defineProps<{ modelValue: ClientUIImageControlProperties; asset: U
 defineEmits<{ (event: "update:modelValue", value: Record<string, unknown>): void; (event: "select", id: number | null): void; (event: "open-library"): void; (event: "reset-size"): void }>();
 const { locale } = useI18n();
 const white = { r: 255, g: 255, b: 255, a: 1 };
-const assetName = computed(() => props.asset?.categories.length ? imageCategoryLabel(props.asset.categories[0], locale.value) : props.modelValue.imageId === null ? "选择图片" : "图片资源");
+const assetName = computed(() => props.asset?.categories.length ? imageCategoryLabel(props.asset.categories[0], locale.value) : props.modelValue.imageId === null ? t('clientUIAnimationEditor.ui.imageControls.selectImage') : t('clientUIAnimationEditor.ui.primitiveResources.title'));
 </script>
 <style scoped>
 .image-field { display: block; margin-top: 10px; } .image-field > span, .field-label { display: block; margin: 8px 0 6px; color: #c9ced8; font-size: 11px; }

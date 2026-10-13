@@ -155,9 +155,8 @@ import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import { Clipboard } from "@/utils/clipboard";
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useRoute } from "vue-router";
-import { createCachedText } from "@/i18n/cachedText";
 import { useI18n } from "vue-i18n";
-import { loadOssTranslations } from "@/i18n";
+import { useOssTranslations } from "@/i18n/useOssTranslations";
 import { toast } from "vue-sonner";
 import { VVirtualList } from "vueuc";
 import EffectMedia from "./EffectMedia.vue";
@@ -166,7 +165,7 @@ import { buildEffectTagGroups, matchesEffectTagGroups } from "./tagFilters";
 import { buildEffectSearchIndex } from "./searchIndex";
 import { effectNameKey, effectTagKey } from "./resourceKeys";
 import { createOss } from "@/utils/oss";
-import { loadAssetFeatures, type AssetFeatureCollection } from "@/utils/assetFeatures";
+import { useAssetFeatures } from "@/utils/useAssetFeatures";
 import AssetFeatureSummary from "@/components/AssetFeatures/AssetFeatureSummary.vue";
 import AssetFeaturePanel from "@/components/AssetFeatures/AssetFeaturePanel.vue";
 import {
@@ -176,15 +175,17 @@ import {
   EffectRow,
 } from "./types/EffectData";
 
-const composer = useI18n({ useScope: "global" });
 const route = useRoute();
-const { t, messages, locale } = composer;
-const resourceText = createCachedText(composer);
+const { t, messages, locale } = useI18n({ useScope: "global" });
 const oss = createOss("EffectPlayer");
 const CARD_TAG_LIMIT = 4;
 const itemSize = 318;
-const assetFeatures = shallowRef<AssetFeatureCollection | null>(null);
-const featuresLoading = ref(true);
+const { assetFeatures, featuresLoading, loadFeatures } = useAssetFeatures("EffectPlayer", () => effects.value);
+const loadTranslations = useOssTranslations("EffectPlayer", "effectPlayer", "i18n", (results) => {
+  for (const result of results) {
+    if (result.status === "failed") console.warn(`Effect translations could not be loaded (${result.locale})`, result.error);
+  }
+});
 const featureStatus = computed(() => featuresLoading.value ? "loading" : assetFeatures.value?.status ?? "unavailable");
 const featureParts = (id: string) => assetFeatures.value?.get(id, locale.value) ?? [];
 
@@ -222,7 +223,7 @@ const rawTagGroups = computed(() => buildEffectTagGroups(tagData.value, tagCateg
 const tagGroups = computed(() => rawTagGroups.value
   .map((group) => ({
     ...group,
-    name: resourceText(group.id === "uncategorized" ? "effectPlayer.filter.uncategorized" : group.name),
+    name: t(group.id === "uncategorized" ? "effectPlayer.filter.uncategorized" : group.name),
     tags: group.tags.map((tag) => ({ ...tag, name: tagName(tag.id) })),
   })));
 
@@ -310,15 +311,9 @@ onMounted(async () => {
     tagData.value = data.TagData ?? {};
     sourceTagData.value = data.sourceTagData ?? {};
     tagCategories.value = data.category ?? {};
-    void loadAssetFeatures("EffectPlayer", effects.value).then((features) => {
-      assetFeatures.value = features;
-    }).catch(() => { assetFeatures.value = null; }).finally(() => { featuresLoading.value = false; });
+    void loadFeatures();
     // Resource translations are optional and do not block the data/media list.
-    void loadOssTranslations("EffectPlayer", "effectPlayer").then((results) => {
-      for (const result of results) {
-        if (result.status === "failed") console.warn(`Effect translations could not be loaded (${result.locale})`, result.error);
-      }
-    });
+    void loadTranslations();
   } catch (error) {
     toast.error(t("effectPlayer.loadFailed"));
     console.error(error);
@@ -334,11 +329,11 @@ onUnmounted(() => {
 });
 
 function effectName(item: EffectItem) {
-  return resourceText(effectNameKey(item));
+  return t(effectNameKey(item));
 }
 
 function tagName(tagId: number) {
-  return resourceText(effectTagKey(tagId, tagData.value[String(tagId)]));
+  return t(effectTagKey(tagId, tagData.value[String(tagId)]));
 }
 
 function formatDuration(item: EffectItem) {

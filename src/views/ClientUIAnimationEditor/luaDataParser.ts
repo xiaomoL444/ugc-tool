@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 /** Parse exported Lua data without evaluating any Lua or JavaScript. */
 export const MAX_LUA_DATA_LENGTH = 2 * 1024 * 1024;
 
@@ -20,7 +21,7 @@ interface Token {
 }
 
 function fail(message: string, position: { line: number; column: number }): never {
-  throw new Error(`Lua Data 第 ${position.line} 行，第 ${position.column} 列：${message}`);
+  throw new Error(t("clientUIAnimationEditor.ui.luaParser.errorLocation", { line: position.line, column: position.column, message: message }));
 }
 
 class Lexer {
@@ -63,7 +64,7 @@ class Lexer {
     const start = this.offset;
     const close = `]${open.slice(1, -1)}]`;
     const end = this.source.indexOf(close, start);
-    if (end < 0) fail(comment ? "块注释未结束。" : "长字符串未结束。", position);
+    if (end < 0) fail(comment ? t("clientUIAnimationEditor.ui.luaParser.unterminatedBlockComment") : t("clientUIAnimationEditor.ui.luaParser.unterminatedLongString"), position);
     while (this.offset < end + close.length) this.advance();
     return comment ? "" : this.source.slice(start, end).replace(/\r\n|\n\r|\r/g, "\n");
   }
@@ -84,17 +85,17 @@ class Lexer {
         try {
           return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes));
         } catch {
-          fail("字符串包含无效的 UTF-8 字节。", position);
+          fail(t("clientUIAnimationEditor.ui.luaParser.invalidUtfEncoding"), position);
         }
       }
-      if (character === "\n" || character === "\r") fail("字符串中的换行必须转义。", position);
+      if (character === "\n" || character === "\r") fail(t("clientUIAnimationEditor.ui.luaParser.unescapedStringLineBreak"), position);
       if (character !== "\\") {
         this.advance();
         continue;
       }
       appendText(this.source.slice(rawStart, this.offset));
       this.advance();
-      if (this.offset >= this.source.length) fail("字符串未结束。", position);
+      if (this.offset >= this.source.length) fail(t("clientUIAnimationEditor.ui.luaParser.unterminatedString"), position);
       const escaped = this.advance();
       const escapes: Record<string, number> = {
         a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11, "\\": 92, '"': 34, "'": 39,
@@ -110,29 +111,29 @@ class Lexer {
         let digits = escaped;
         while (digits.length < 3 && /\d/.test(this.source[this.offset] ?? "")) digits += this.advance();
         const byte = Number(digits);
-        if (byte > 255) fail("十进制字符串转义必须在 0–255 之间。", position);
+        if (byte > 255) fail(t("clientUIAnimationEditor.ui.luaParser.decimalEscapeOutOfRange"), position);
         bytes.push(byte);
       } else if (escaped === "x") {
         const digits = this.source.slice(this.offset, this.offset + 2);
-        if (!/^[\da-fA-F]{2}$/.test(digits)) fail("十六进制字符串转义需要两位数字。", position);
+        if (!/^[\da-fA-F]{2}$/.test(digits)) fail(t("clientUIAnimationEditor.ui.luaParser.hexEscapeRequiresTwoDigits"), position);
         this.advance();
         this.advance();
         bytes.push(parseInt(digits, 16));
       } else if (escaped === "u") {
         const match = /^\{([\da-fA-F]{1,8})\}/.exec(this.source.slice(this.offset, this.offset + 10));
-        if (!match) fail("Unicode 字符串转义格式应为 \\u{十六进制码点}。", position);
+        if (!match) fail(t("clientUIAnimationEditor.ui.luaParser.invalidUnicodeEscape"), position);
         const codePoint = parseInt(match[1], 16);
         if (codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
-          fail("Unicode 字符串转义码点无效。", position);
+          fail(t("clientUIAnimationEditor.ui.luaParser.invalidUnicodeCodePoint"), position);
         }
         for (let index = 0; index < match[0].length; index += 1) this.advance();
         appendText(String.fromCodePoint(codePoint));
       } else {
-        fail(`不支持的字符串转义 \\${escaped}。`, position);
+        fail(t("clientUIAnimationEditor.ui.luaParser.unsupportedStringEscape", { escaped: escaped }), position);
       }
       rawStart = this.offset;
     }
-    fail("字符串未结束。", position);
+    fail(t("clientUIAnimationEditor.ui.luaParser.unterminatedString"), position);
   }
 
   next(): Token {
@@ -151,7 +152,7 @@ class Lexer {
       }
     }
     const token: Token = { kind: "eof", value: "", line: this.line, column: this.column };
-    if (++this.count > MAX_TOKENS) fail("数据符号数量超过限制。", token);
+    if (++this.count > MAX_TOKENS) fail(t("clientUIAnimationEditor.ui.luaParser.tokenLimitExceeded"), token);
     if (this.offset >= this.source.length) return token;
     const character = this.source[this.offset];
     if (character === '"' || character === "'") {
@@ -166,17 +167,17 @@ class Lexer {
     }
     if (/\d/.test(character) || (character === "." && /\d/.test(this.source[this.offset + 1] ?? ""))) {
       const match = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(this.source.slice(this.offset));
-      if (!match) fail("数字格式无效。", token);
+      if (!match) fail(t("clientUIAnimationEditor.ui.luaParser.invalidNumber"), token);
       for (let index = 0; index < match[0].length; index += 1) this.advance();
       const value = Number(match[0]);
-      if (!Number.isFinite(value)) fail("数字必须是有限值。", token);
+      if (!Number.isFinite(value)) fail(t("clientUIAnimationEditor.ui.luaParser.numberMustBeFinite"), token);
       return { ...token, kind: "number", value };
     }
     if ("{}[]=,;-".includes(character)) {
       this.advance();
       return { ...token, kind: "symbol", value: character };
     }
-    fail(`不支持的符号「${character}」；只能导入静态 Lua 数据表。`, token);
+    fail(t("clientUIAnimationEditor.ui.luaParser.unsupportedSymbol", { character: character }), token);
   }
 }
 
@@ -200,13 +201,13 @@ class Parser {
   }
 
   private expect(value: string): void {
-    if (!this.is(value)) fail(`预期「${value}」。`, this.current);
+    if (!this.is(value)) fail(t("clientUIAnimationEditor.ui.luaParser.expectedToken", { value: value }), this.current);
     this.take();
   }
 
   private identifier(): string {
     if (this.current.kind !== "identifier" || KEYWORDS.has(String(this.current.value))) {
-      fail("预期普通标识符。", this.current);
+      fail(t("clientUIAnimationEditor.ui.luaParser.expectedIdentifier"), this.current);
     }
     return String(this.take().value);
   }
@@ -214,7 +215,7 @@ class Parser {
   private number(): number {
     const negative = this.is("-");
     if (negative) this.take();
-    if (this.current.kind !== "number") fail("预期数字字面量。", this.current);
+    if (this.current.kind !== "number") fail(t("clientUIAnimationEditor.ui.luaParser.expectedNumberLiteral"), this.current);
     const value = Number(this.take().value);
     return negative ? -value : value;
   }
@@ -227,11 +228,11 @@ class Parser {
       const value = this.take().value;
       return value === "nil" ? null : value === "true";
     }
-    fail("只允许表、字符串、数字、boolean 或 nil 字面量。", this.current);
+    fail(t("clientUIAnimationEditor.ui.luaParser.onlyLiteralValuesAllowed"), this.current);
   }
 
   private table(depth: number): unknown {
-    if (depth > MAX_DEPTH) fail(`表嵌套不能超过 ${MAX_DEPTH} 层。`, this.current);
+    if (depth > MAX_DEPTH) fail(t("clientUIAnimationEditor.ui.luaParser.tableDepthLimit", { MAX_DEPTH: MAX_DEPTH }), this.current);
     this.expect("{");
     const array: unknown[] = [];
     const object: Record<string, unknown> = Object.create(null);
@@ -240,7 +241,7 @@ class Parser {
     let nextIndex = 1;
     while (!this.is("}")) {
       const position = this.current;
-      if (++this.entries > MAX_ENTRIES) fail("数据条目数量超过限制。", position);
+      if (++this.entries > MAX_ENTRIES) fail(t("clientUIAnimationEditor.ui.luaParser.entryLimit"), position);
       let key: string | number;
       if (this.is("[")) {
         this.take();
@@ -255,19 +256,19 @@ class Parser {
         key = nextIndex++;
       }
       const fieldMode = typeof key === "number" ? "array" : "object";
-      if (mode && mode !== fieldMode) fail("同一张表不能混用数字键和命名键。", position);
+      if (mode && mode !== fieldMode) fail(t("clientUIAnimationEditor.ui.luaParser.mixedTableKeyTypes"), position);
       mode = fieldMode;
       if (typeof key === "number" && (!Number.isSafeInteger(key) || key < 1 || key > MAX_ARRAY_SLOTS)) {
-        fail(`数字键必须是 1–${MAX_ARRAY_SLOTS} 之间的整数。`, position);
+        fail(t("clientUIAnimationEditor.ui.luaParser.invalidNumericKey", { MAX_ARRAY_SLOTS: MAX_ARRAY_SLOTS }), position);
       }
-      if (typeof key === "string" && UNSAFE_KEYS.has(key)) fail(`不允许使用键「${key}」。`, position);
-      if (keys.has(key)) fail(`重复的表键「${key}」。`, position);
+      if (typeof key === "string" && UNSAFE_KEYS.has(key)) fail(t("clientUIAnimationEditor.ui.luaParser.forbiddenKey", { key: key }), position);
+      if (keys.has(key)) fail(t("clientUIAnimationEditor.ui.luaParser.duplicateTableKey", { key: key }), position);
       keys.add(key);
       const value = this.value(depth);
       if (typeof key === "number") {
         const extraSlots = Math.max(0, key - array.length);
         this.arraySlots += extraSlots;
-        if (this.arraySlots > MAX_ARRAY_SLOTS) fail("数组总长度超过限制。", position);
+        if (this.arraySlots > MAX_ARRAY_SLOTS) fail(t("clientUIAnimationEditor.ui.luaParser.arrayLengthLimit"), position);
         // Preserve Lua nil and explicit numeric-key gaps so columns never shift.
         while (array.length < key) array.push(null);
         array[key - 1] = value;
@@ -275,7 +276,7 @@ class Parser {
         object[key] = value;
       }
       if (this.is(",") || this.is(";")) this.take();
-      else if (!this.is("}")) fail("表条目之间需要逗号或分号。", this.current);
+      else if (!this.is("}")) fail(t("clientUIAnimationEditor.ui.luaParser.tableSeparatorRequired"), this.current);
     }
     this.expect("}");
     return mode === "object" ? object : array;
@@ -290,22 +291,22 @@ class Parser {
     } else if (this.is("return")) {
       this.take();
     }
-    if (!this.is("{")) fail("文件必须包含静态 Lua 数据表。", this.current);
+    if (!this.is("{")) fail(t("clientUIAnimationEditor.ui.luaParser.staticDataRequired"), this.current);
     const data = this.table(1);
     if (this.is(";")) this.take();
     if (variable !== undefined) {
       this.expect("return");
       const position = this.current;
-      if (this.identifier() !== variable) fail("return 必须返回前面声明的数据变量。", position);
+      if (this.identifier() !== variable) fail(t("clientUIAnimationEditor.ui.luaParser.returnVariableRequired"), position);
       if (this.is(";")) this.take();
     }
-    if (this.current.kind !== "eof") fail("数据表之后含有额外代码。", this.current);
+    if (this.current.kind !== "eof") fail(t("clientUIAnimationEditor.ui.luaParser.trailingCode"), this.current);
     return data;
   }
 }
 
 /** Accept a bare table, `return { ... }`, or one local table followed by its return. */
 export function parseLuaData(source: string): unknown {
-  if (source.length > MAX_LUA_DATA_LENGTH) fail("文件超过 2 MiB 长度限制。", { line: 1, column: 1 });
+  if (source.length > MAX_LUA_DATA_LENGTH) fail(t("clientUIAnimationEditor.ui.luaParser.fileTooLarge"), { line: 1, column: 1 });
   return new Parser(new Lexer(source)).parse();
 }
