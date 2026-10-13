@@ -29,8 +29,8 @@ function changeSource(event: Event) {
   </fieldset>
 </template>
 <style scoped>
-.condition-value { display: grid; grid-template-columns: minmax(100px, .85fr) minmax(90px, 1fr); gap: 7px; min-width: 0; margin: 0; padding: 10px; border: 1px solid #dce2ee; border-radius: 8px; }
-legend { color: #778299; font-size: 11px; padding: 0 4px; }
+.condition-value { display: grid; grid-template-columns: minmax(132px, .95fr) minmax(90px, 1fr); gap: 7px; min-width: 0; margin: 0; padding: 10px; border: 1px solid #dce2ee; border-radius: 8px; }
+legend { color: #52627b; font-size: 11px; padding: 0 4px; }
 select, input { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px; border: 1px solid #d8dfeb; border-radius: 5px; background: #fff; color: #34435b; font: inherit; }
-@media (max-width: 650px) { .condition-value { grid-template-columns: 1fr; } }
+@container (max-width: 360px) { .condition-value { grid-template-columns: minmax(0, 1fr); } }
 </style>

@@ -74,27 +74,20 @@ onMounted(refreshHandles);
   <article class="condition-branch-node" :class="{ selected }">
     <header class="condition-header">
       <span v-if="exportIndex !== undefined" class="export-index" :aria-label="`TimeLineGroup 索引 ${exportIndex}`" title="导出后的 TimeLineGroup 全局索引，从 0 开始，可用于播放调试">#{{ exportIndex }}</span>
-      <span class="condition-kind">CONDITION</span>
-      <input class="nodrag graph-node-annotation" :value="annotation" aria-label="节点备注（仅编辑器显示，不参与导出）" title="节点备注仅保存在工程中，不参与演出导出" placeholder="备注…"
+      <input class="nodrag condition-kind graph-node-annotation" :value="annotation" aria-label="节点备注（仅编辑器显示，不参与导出）" :title="annotation || '点击填写节点备注，仅保存在工程中'" :placeholder="node.name || '条件判断'"
         @input="emit('update:annotation', ($event.target as HTMLInputElement).value)" @pointerdown.stop @mousedown.stop @click.stop @keydown.stop />
-      <button
-        type="button"
-        class="nodrag add-output-button"
-        title="新增出口"
-        @click.stop="addOutput"
-      >
-        ＋ 出口
-      </button>
+      <div class="condition-header-meta">
+        <span class="output-count">{{ node.outputs.length }} 个出口</span>
+        <button
+          type="button"
+          class="nodrag add-output-button"
+          title="新增出口"
+          @click.stop="addOutput"
+        >
+          ＋ 出口
+        </button>
+      </div>
     </header>
-
-    <div class="condition-title-row">
-      <input
-        v-model="node.name"
-        class="nodrag condition-name"
-        aria-label="条件分支名称"
-      />
-      <span>{{ node.outputs.length }} 个出口</span>
-    </div>
 
     <div class="condition-ports">
       <div
@@ -222,27 +215,33 @@ onMounted(refreshHandles);
 }
 
 .condition-kind {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.11em;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .graph-node-annotation {
   box-sizing: border-box;
-  width: 58px;
-  min-width: 40px;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
   padding: 3px 5px;
   color: #705b86;
-  background: #ffffffa8;
+  background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
   outline: 0;
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
 }
-.graph-node-annotation::placeholder { color: #9687a8; }
-.graph-node-annotation:hover, .graph-node-annotation:focus { width: 112px; background: #fff; border-color: #cbb9df; }
+.graph-node-annotation::placeholder { color: inherit; opacity: 1; }
+.graph-node-annotation:hover, .graph-node-annotation:focus { background: #fff; border-color: #cbb9df; }
 .graph-node-annotation:focus-visible { outline: 2px solid #9770c5; outline-offset: 1px; }
+
+.condition-header-meta { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
+.output-count { color: #7b6d8f; font-size: 9px; white-space: nowrap; }
 
 .add-output-button {
   padding: 4px 7px;
@@ -256,32 +255,6 @@ onMounted(refreshHandles);
 
 .add-output-button:hover {
   background: #fff;
-}
-
-.condition-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 11px 7px;
-}
-
-.condition-name {
-  min-width: 0;
-  flex: 1;
-  padding: 0;
-  color: #475569;
-  background: transparent;
-  border: 0;
-  outline: 0;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.condition-title-row > span {
-  color: #7b6d8f;
-  font-size: 9px;
-  white-space: nowrap;
 }
 
 .condition-field {
@@ -424,7 +397,7 @@ onMounted(refreshHandles);
 
 .condition-header { color: #79569e; border-bottom: 1px solid #d8cbe9; }
 .condition-branch-node button { font-family: inherit; }
-.condition-branch-node button:focus-visible, .condition-name:focus-visible, .condition-output-name:focus-visible { outline: 2px solid #9770c5; outline-offset: 2px; }
+.condition-branch-node button:focus-visible, .condition-output-name:focus-visible { outline: 2px solid #9770c5; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .condition-branch-node { transition: none; } }
 
 </style>

@@ -49,8 +49,12 @@ Ctrl+Enter 插入下一句，Enter 在台词内换行。台词左侧仅显示序
 
 右侧「默认对话」在所选出口后创建默认 Dialogue Group；在纯对话集合末尾添加时会合并回当前集合。「添加选项卡」创建独立的 Select-only Group（两个选项），不转换或修改前一句 Dialogue，也不预先生成分支台词。「添加条件分支」同样创建独立节点。若出口已有去向，则把旧去向保留到新节点的第一个出口。选择选项出口后再添加默认对话，可以建立对应的后续集合。「增加一个选项」仅增加选项，不自动生成对话。条件出口可直接点击“编辑条件”，使用可视化比较行、且／或及嵌套括号组，或保留表达式原文编辑。只有保存才提交项目，取消不改变数据；无法转换的旧表达式不会自动覆盖。详细 Clip 配置仍通过节点图 / Timeline 编辑。
 
+条件编辑弹窗只滚动内容区，保存／取消固定在底部。下拉菜单仍挂在弹窗根节点，根卡片不设置 overflow 裁剪，保证窗口较矮或滚到最后一条条件时菜单完整可选，并保留弹窗内的键盘焦点。且／或菜单保持紧凑宽度；比较行与嵌套组按实际容器宽度换行。
+
 编辑自动保存到当前工作区，不提供编辑器 JSON 下载快捷键。节点图布局坐标保持独立；新增对话、选项卡或条件分支会同步创建对应的可见节点。
 
 每个选项显示图标缩略图与可编辑的 ID，新选项默认 `100160`，已有 ID 保留。点击缩略图打开与客户端动画编辑器共用的图片资源库，支持分类、搜索 ID、选择图片及清空（ID `0`）。两个编辑器共用 `Public/CustomUIImage/data.json`，其中 img 和 border 路径相对于 data.json 所在目录解析；对话选项不加载 border。打开图库时重新获取索引，也可点击“刷新”获取原址更新的数据。文本编辑和节点图的 Select Clip 参数面板共用此控件与选项数据。
 
 回归检查：`node scripts/test-dsfg-text-preview.cjs`、`node scripts/test-dsfg-text-preview-layout.cjs`、`node scripts/test-dsfg-text-editing.cjs`、`node scripts/test-dsfg-text-actions.cjs`、`node scripts/test-dsfg-text-navigation.cjs`。
+
+条件弹窗浏览器回归：`node scripts/test-dsfg-condition-editor-browser.cjs <playwright 包路径>`，`DSFG_TEST_URL` 指向开发服务器。截图与结果保存在 `H:/Code/ugc-web/ugc-ai-search-file/verification/browser/dsfg-condition-editor`。

@@ -25,9 +25,9 @@ function remove(index: number) {
 <template>
   <div v-if="modelValue.kind === 'group'" class="condition-group">
     <header><strong>{{ depth ? '（ 条件组 ）' : '条件组合' }}</strong>
-      <StudioSelectField :value="modelValue.operator" aria-label="条件组连接方式" @change="emit('update:modelValue', { ...modelValue, operator: ($event.target as HTMLSelectElement).value as 'and' | 'or' })">
+      <div class="group-operator"><StudioSelectField :value="modelValue.operator" aria-label="条件组连接方式" @change="emit('update:modelValue', { ...modelValue, operator: ($event.target as HTMLSelectElement).value as 'and' | 'or' })">
         <option value="and">且：全部满足</option><option value="or">或：任一满足</option>
-      </StudioSelectField>
+      </StudioSelectField></div>
     </header>
     <div v-for="(child, index) in modelValue.children" :key="child.id" class="condition-child">
       <span v-if="index" class="connector">{{ modelValue.operator === 'and' ? '且 AND' : '或 OR' }}</span>
@@ -47,16 +47,19 @@ function remove(index: number) {
   </div>
 </template>
 <style scoped>
-.condition-group { min-width: 0; padding: 14px; border: 1px solid #d9c9ea; border-left: 3px solid #aa83cb; border-radius: 9px; background: #fcfaff; }
+.condition-group { container-type: inline-size; min-width: 0; padding: 14px; border: 1px solid #d9c9ea; border-left: 3px solid #aa83cb; border-radius: 9px; background: #fcfaff; }
 header, footer { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-header { margin-bottom: 12px; } header strong { font-size: 12px; color: #70528f; }
+header { margin-bottom: 12px; justify-content: space-between; } header strong { font-size: 12px; color: #60477e; }
+.group-operator { width: 190px; max-width: 100%; flex: 0 1 190px; }
 select, button { padding: 7px 9px; font: inherit; border: 1px solid #d7cde3; border-radius: 5px; background: #fff; color: #604a79; }
 button { cursor: pointer; } footer { margin-top: 12px; }
 .child-row { display: flex; align-items: flex-start; gap: 8px; } .child-row > :first-child { flex: 1; min-width: 0; }
 .remove { margin-top: 13px; border: 0; color: #a66c7a; background: transparent; }
 .connector { display: block; margin: 9px 0; color: #8a6aa9; font-size: 11px; }
 .condition-comparison { display: grid; grid-template-columns: minmax(0, 1fr) 125px minmax(0, 1fr); gap: 8px; }
-.comparison-label { display: grid; align-content: end; gap: 7px; padding-bottom: 10px; color: #778299; font-size: 11px; }
+.comparison-label { display: grid; align-content: end; gap: 7px; padding-bottom: 10px; color: #52627b; font-size: 11px; }
 .comparison-label select { width: 100%; color: #34435b; } .empty { color: #9a738b; }
-@media (max-width: 900px) { .condition-comparison { grid-template-columns: 1fr; } .comparison-label { padding: 0; } }
+@container (max-width: 720px) { .condition-comparison { grid-template-columns: minmax(0, 1fr); } .comparison-label { padding: 0; max-width: 190px; } }
+@container (max-width: 600px) { .child-row { display: grid; grid-template-columns: minmax(0, 1fr); } .remove { justify-self: end; margin-top: 0; } }
+@container (max-width: 360px) { .condition-group { padding: 8px; } }
 </style>
