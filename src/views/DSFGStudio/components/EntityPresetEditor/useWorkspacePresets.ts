@@ -2,7 +2,7 @@ import { computed, inject, onBeforeUnmount, onMounted, readonly, ref, toRaw, wat
 import type { StorageClass } from "@/services/storage/storage";
 import { ProjectID } from "../../constant/constant";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
-import { workspacePresetHistoryKey } from "./useWorkspacePresetHistory";
+import { workspacePresetHistoryKey, type WorkspacePresetHistoryContext } from "./useWorkspacePresetHistory";
 
 /** Every preset category must declare its system defaults, codec and workspace file. */
 export interface WorkspacePresetDefinition<T extends { id: string }> {
@@ -22,6 +22,7 @@ const savedPresetListeners = new WeakMap<StorageClass, Map<string, Set<(raw: str
 export function useWorkspacePresets<T extends { id: string }>(definition: WorkspacePresetDefinition<T>) {
   const storage = inject<StorageClass>("storage")!;
   const workspace = inject<Ref<string>>("selectedWorkspaceId")!;
+  let presetHistory = inject(workspacePresetHistoryKey, undefined);
   const path = `/${workspace.value}/${definition.fileName}`;
   const presets = ref([]) as Ref<T[]>;
   const ready = ref(false);
@@ -134,6 +135,8 @@ export function useWorkspacePresets<T extends { id: string }>(definition: Worksp
       ready.value = true;
       status.value = loadedStatus;
       error.value = "";
+      // A saved external snapshot becomes the baseline, including in hidden editors.
+      presetHistory?.reset(definition.fileName);
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : "读取预设失败";
       status.value = "读取失败";
@@ -185,7 +188,25 @@ export function useWorkspacePresets<T extends { id: string }>(definition: Worksp
     if (listeners?.size === 0) files?.delete(path);
     void saveQueue.flush().catch(() => undefined);
   });
-  inject(workspacePresetHistoryKey, undefined)?.register(definition.fileName, presets, ready);
+  presetHistory?.register(definition.fileName, presets, ready);
+  // A provider's own stores cannot inject its context; bind them explicitly.
+  function bindHistory(history: WorkspacePresetHistoryContext) {
+    presetHistory = history;
+    history.register(definition.fileName, presets, ready);
+  }
+  /** Apply an explicit import without retaining a failed snapshot after the dialog is cancelled. */
+  async function saveSnapshot(items: T[]) {
+    if (!ready.value) throw new Error(error.value || "预设尚未读取完成。");
+    await saveQueue.flush();
+    const previous = presets.value;
+    try { presets.value = items; await saveQueue.flush(); }
+    catch (cause) {
+      loading = true;
+      try { presets.value = previous; }
+      finally { loading = false; saveQueue.discard(path); }
+      throw cause;
+    }
+  }
   return { presets, systemPresets, customPresets, defaultPresets, availablePresets, ready, error, status,
-    retry: () => ready.value ? saveQueue.flush() : load(), flush: () => saveQueue.flush() };
+    bindHistory, saveSnapshot, retry: () => ready.value ? saveQueue.flush() : load(), flush: () => saveQueue.flush() };
 }

@@ -133,7 +133,7 @@ async function openStructSettings() {
   switchingEditor.value = true;
   try {
     sessionHistory.finishRegistered();
-    await activeEditor()?.prepareToLeave();
+    for (const editor of editorSessions.values()) await editor.prepareToLeave();
     await readStructSettings(selectedWorkspaceId.value);
     structSettingsOpen.value = true;
   } catch (error) { toast.error(error instanceof Error ? error.message : "暂时无法打开设置"); }

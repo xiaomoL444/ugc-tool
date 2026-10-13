@@ -12,6 +12,8 @@
 
 开发者统一在 `systemPresetConfig.ts` 维护初始配置：`newItem` 为新增自定义条目的字段默认值，`presets` 为系统默认种子列表；UI 不另写一套默认值。人物系统项“玩家自身”的代号固定，默认 `talker="{1:ps.NICKNAME}"`、`subtitle=""`，实际人物信息及实体参数可编辑。技能动画默认包含交谈-持续（1098907649）、交谈-后摇（1098907651）、抱胸-持续（1098907652）、抱胸-后摇（1098907654）等真实配置 ID；系统动画名称固定，配置 ID 可编辑。
 
+工作区「… → 设置结构体 ID → 读取 GIL」也可按技能名称同步技能动画配置 ID。弹窗先展示识别结果，点击保存后才通过 `useSkillAnimationPresets` 更新现有系统项和自定义项；未匹配项保留原值，同名多个 ID 可选候选或保留现有值，不自动新增技能。保存继续使用 `system-overrides` 格式和工作区隔离；成功接收外部保存快照的缓存预设编辑器重置该分类历史基线，避免之后撤销恢复导入前的旧 ID。已有动作的技能参数仍保留复制时的值，需要重新选择动画。
+
 对话类型默认提供 `NOLOC_Default`、`NOLOC_BlackScreen`、`NOLOC_BottomCG`、`NOLOC_BottomDialog`、`NOLOC_Clear`，任务样式默认提供 `NOLOC_Mainline`，边走边说类型默认提供 `NOLOC_Default`。三类均在预设设置中管理实际类型值，系统显示名称固定，自定义条目可同时管理显示名称；分别保存到工作区 `dialogueStyles.json`、`questStyles.json`、`walkTalkStyles.json`。对话文本和 Timeline 共用一份工作区选项，任务保留手填入口。预设变更不会重写已有内容的类型值；空值草稿不进入下拉，重复类型值优先显示系统项，其次为第一项自定义预设。新建内容的原有默认值保持兼容，预设仅管理候选列表。
 
 例如人物项的格式是 `{ id: "system-person-a", name: "网页代号", talker: "人物名", subtitle: "副标题" }`；技能动画项是 `{ id: "system-animation-a", name: "动画名", configId: "真实配置ID" }`。人物的 `name` 只用于网页显示，添加对话仍复制 Talker 和 Subtitle；代号为空时显示 Talker，旧文件缺少代号时以原 Talker 补齐。技能 ID 必须替换为有效的非负 Int32 整数文本。默认条目的 id 应稳定且在同类列表内唯一。

@@ -1,8 +1,9 @@
 import { computed, provide, shallowReactive, watch, type InjectionKey, type Ref } from "vue";
 import { useStudioHistory } from "../useStudioHistory";
 
-interface WorkspacePresetHistoryContext {
+export interface WorkspacePresetHistoryContext {
   register<T extends { id: string }>(fileName: string, presets: Ref<T[]>, ready: Ref<boolean>): void;
+  reset(fileName: string): void;
 }
 export const workspacePresetHistoryKey: InjectionKey<WorkspacePresetHistoryContext> = Symbol("workspacePresetHistory");
 
@@ -30,10 +31,12 @@ export function useWorkspacePresetHistory(options: {
       watch(ready, () => history.reset(), { flush: "sync" });
       histories.set(fileName, history);
     },
+    reset: fileName => histories.get(fileName)?.reset(),
   };
   provide(workspacePresetHistoryKey, context);
   return {
     register: context.register,
+    reset: context.reset,
     current: computed(() => histories.get(options.activeFile())),
     finish: () => histories.forEach(history => history.finish()),
   };

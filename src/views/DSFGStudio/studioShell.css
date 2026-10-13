@@ -74,6 +74,7 @@
 #app .dsfg-studio .scene-browser .tree-main { border-color: var(--studio-line); }
 #app .dsfg-studio .category-nav { display: flex; flex-direction: column; box-sizing: border-box; min-height: 100%; padding: 0; border: 0; background: transparent; gap: 4px; }
 #app .dsfg-studio .category-nav button { min-height: 44px; padding: 10px; border-radius: 8px; }
+#app .dsfg-studio .studio-sidebar .category-nav .other-nav-title { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--studio-line); }
 #app .dsfg-studio .studio-sidebar :is(.studio-file-select, .tree-item, .scene-browser .tree-node, .category-nav button) { color: var(--sidebar-text); font-size: 13px; font-weight: 500; line-height: 20px; }
 #app .dsfg-studio .studio-sidebar :is(.studio-file-row, .tree-row, .scene-browser .tree-node, .category-nav button):hover { background: var(--sidebar-hover); }
 #app .dsfg-studio .studio-sidebar :is(.studio-file-row.selected, .tree-row.selected, .scene-browser .tree-node.active, .category-nav button.active) { background: var(--sidebar-selected); box-shadow: inset 2px 0 var(--studio-blue); border-radius: 8px; }

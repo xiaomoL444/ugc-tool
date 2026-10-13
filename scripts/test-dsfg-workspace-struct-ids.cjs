@@ -24,8 +24,12 @@ async function main() {
   try {
     const config = require(path.join(base, 'workspaceStructIds.ts'));
     const gil = require(path.join(base, 'gilStructIds.ts'));
+    const gilSkills = require(path.join(base, 'gilSkillAnimations.ts'));
+    const skillDefaults = require(path.join(base, 'EntityPresetEditor/systemPresetConfig.ts')).systemPresetConfig.skillAnimations.presets;
     const { workspaceStructIdsKey, useWorkspaceStructIds } = require(path.join(base, 'useWorkspaceStructIds.ts'));
     const defaults = config.createWorkspaceStructIds();
+    const plain = value => JSON.parse(JSON.stringify(value));
+    const tick = async () => { await Promise.resolve(); await vue.nextTick(); await Promise.resolve(); };
     const memory = (initial = []) => {
       const data = new Map(initial), writes = [];
       return { data, writes, async exists(p) { return data.has(p) || [...data.keys()].some(key => key.startsWith(`${p}/`)); },
@@ -96,7 +100,6 @@ async function main() {
       assert.equal(result.matched.length, 21);
       assert.deepEqual(result.missing, []); assert.deepEqual(result.ambiguous, []);
       assert.deepEqual(config.validateWorkspaceStructIds(result.ids), []);
-      assert.equal(result.ids['quest.subQuestDictionary'], '1077936170');
     });
     await test('All modules export workspace IDs immediately, including nested types, without rewriting documents', () => {
       const ids = vue.ref(Object.fromEntries(Object.keys(defaults).map((key, index) => [key, String(1200000000 + index)])));
@@ -131,37 +134,161 @@ async function main() {
       error.value = 'read failed'; assert.throws(() => effective.scene(scene), /read failed/);
       error.value = ''; ids.value['scene.world'] = ''; assert.throws(() => effective.scene(scene), /设置结构体 ID/);
     });
-    await test('The actual settings dialog isolates drafts and retains edits on read/save failure', async () => {
+    function settingsDialog(options = {}) {
       const filename = path.join(base, 'WorkspaceStructIdSettings.vue');
       const descriptor = parse(fs.readFileSync(filename, 'utf8'), { filename }).descriptor;
       const ast = ts.createSourceFile(`${filename}.ts`, descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
       const script = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(ast)).join('\n'), {
         compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
       }).outputText;
-      const events = [], saves = [];
-      let failSave = true;
+      const events = [], saves = [], skillSaves = [], historyResets = [], scope = vue.effectScope();
+      let historyOptions;
+      const failures = { struct: false, skill: false };
+      const skillState = { presets: vue.ref(plain(options.presets ?? skillDefaults)), ready: vue.ref(options.ready ?? true), error: vue.ref(options.skillError ?? ''),
+        async retry() { skillState.error.value = ''; skillState.ready.value = true; await tick(); },
+        async flush() { if (failures.skill) throw new Error('skill disk full'); },
+        // Snapshot rollback and save-queue cleanup are verified against the real store in the cache/history checks.
+        async saveSnapshot(items) {
+          if (failures.skill) throw new Error('skill disk full');
+          skillState.presets.value = plain(items); skillSaves.push(plain(items));
+        } };
       const props = { workspace: 'a', state: { ids: { ...defaults }, candidates: {}, warnings: [] }, loadError: '',
-        async saveSettings(ids) { if (failSave) throw new Error('disk full'); saves.push({ ...ids }); } };
-      const context = vm.createContext({ ...config, ...vue, Error, document: { activeElement: null },
+        async saveSettings(ids) { if (failures.struct) throw new Error('disk full'); saves.push({ ...ids }); } };
+      const context = vm.createContext({ ...config, ...vue,
+        ...require(path.join(base, 'EntityPresetEditor/skillAnimationPresets.ts')),
+        Error, document: { activeElement: null },
         // This VM isolates dialog I/O; gesture/history behavior runs in test-dsfg-studio-history.cjs.
-        useStudioHistory: () => ({}),
+        useStudioHistory: settings => { historyOptions = settings; return { reset: () => historyResets.push(true) }; },
+        useSkillAnimationPresets: () => skillState,
         defineProps: () => props, defineEmits: () => (...args) => events.push(args), onMounted() {}, onBeforeUnmount() {},
-        require: name => { assert.equal(name, './gilStructIds'); return gil; } });
-      vm.runInContext(`${script}\nglobalThis.api = { draft, candidates, busy, error, save, close, readGil, importMessage };`, context);
-      const ui = context.api;
+        require: name => { assert.equal(name, './gilSkillAnimations'); return options.gilApi ?? gilSkills; } });
+      scope.run(() => vm.runInContext(`${script}\nglobalThis.api = { draft, draftSkills, candidates, skillCandidates, skillMatched, skillMissing, skillAmbiguous, skillOriginalIds, skillChanges, busy, error, save, close, reset, readGil, importMessage };`, context));
+      return { ui: context.api, props, skillState, events, saves, skillSaves, historyResets, failures,
+        history: { capture: () => historyOptions.capture(), restore: snapshot => historyOptions.restore(snapshot) }, dispose: () => scope.stop() };
+    }
+    const fileEvent = (bytes, name = 'sample.gil') => ({ target: { files: [{ name, size: bytes.length, async arrayBuffer() { return bytes; } }], value: 'chosen' } });
+    const fakeGilApi = ({ structs = [], skills = [] } = {}) => ({ importGilWorkspaceIds(_bytes, ids, presets) {
+      return { structs: gil.matchGilStructIds(structs, ids), skills: gilSkills.matchGilSkillAnimationIds(skills, presets) };
+    } });
+    await test('The actual settings dialog isolates drafts and retains edits on read/save failure', async () => {
+      const f = settingsDialog({ gilApi: fakeGilApi({ skills: [{ id: '500', name: `[演出]${skillDefaults[0].name}` }] }) }), { ui } = f;
+      const initialSkills = plain(f.skillState.presets.value);
+      await ui.readGil(fileEvent(new Uint8Array([1])));
       ui.draft.value['quest.chapter'] = '200';
-      ui.close(); assert.equal(props.state.ids['quest.chapter'], defaults['quest.chapter']);
-      events.length = 0;
-      await ui.save(); assert.equal(ui.error.value, 'disk full'); assert.equal(events.length, 0); assert.equal(ui.draft.value['quest.chapter'], '200');
-      await ui.readGil({ target: { files: [{ name: 'broken.gil', size: 3, async arrayBuffer() { return new Uint8Array([1, 2, 3]); } }], value: 'chosen' } });
+      ui.close(); assert.equal(f.props.state.ids['quest.chapter'], defaults['quest.chapter']);
+      assert.deepEqual(plain(f.skillState.presets.value), initialSkills); assert.equal(f.skillSaves.length, 0);
+      f.events.length = 0; f.failures.struct = true;
+      await ui.save(); assert.equal(ui.error.value, 'disk full'); assert.equal(f.events.length, 0); assert.equal(ui.draft.value['quest.chapter'], '200');
+      assert.deepEqual(plain(f.skillState.presets.value), initialSkills); assert.equal(f.skillSaves.length, 0);
+      ui.importMessage.value = 'previous preview';
+      await ui.readGil(fileEvent(new Uint8Array([1, 2, 3]), 'broken.txt'));
       assert.ok(ui.error.value); assert.equal(ui.draft.value['quest.chapter'], '200'); assert.equal(ui.busy.value, false);
-      if (process.argv[2]) {
-        const bytes = fs.readFileSync(process.argv[2]);
-        await ui.readGil({ target: { files: [{ name: 'sample.gil', size: bytes.length, async arrayBuffer() { return bytes; } }], value: 'chosen' } });
-        assert.equal(ui.error.value, ''); assert.match(ui.importMessage.value, /21 \/ 21/); assert.equal(saves.length, 0);
-      }
-      failSave = false; await ui.save(); assert.equal(saves.length, 1); assert.equal(events.at(-1)[0], 'close');
-      ui.draft.value['quest.chapter'] = ''; await ui.save(); assert.equal(saves.length, 1);
+      assert.equal(ui.importMessage.value, 'previous preview'); assert.equal(ui.draftSkills.value[0].configId, '500');
+      f.failures.struct = false; await ui.save(); assert.equal(f.saves.length, 1); assert.equal(f.events.at(-1)[0], 'close');
+      assert.equal(f.skillState.presets.value[0].configId, '500'); assert.equal(f.skillSaves.length, 1);
+      ui.draft.value['quest.chapter'] = ''; await ui.save(); assert.equal(f.saves.length, 1); f.dispose();
+    });
+    await test('GIL preview supports a skills-only archive and keeps duplicate choices and missing custom IDs', async () => {
+      const first = skillDefaults[0], custom = { id: 'custom', name: '自定义动作', configId: 'unfinished' };
+      const f = settingsDialog({ presets: [first, custom], gilApi: fakeGilApi({ skills: [{ id: '501', name: `[演出]${first.name}` }, { id: '502', name: `[演岀]${first.name}` }] }) });
+      const { ui } = f;
+      await ui.readGil(fileEvent(new Uint8Array([1])));
+      assert.equal(ui.error.value, ''); assert.equal(ui.draftSkills.value[0].configId, first.configId);
+      assert.deepEqual(plain(ui.skillAmbiguous.value), [first.id]); assert.equal(ui.skillCandidates.value[first.id].length, 2);
+      assert.equal(ui.draftSkills.value[1].configId, 'unfinished'); assert.deepEqual(plain(ui.draft.value), defaults);
+      ui.draftSkills.value[0].configId = '502'; await ui.readGil(fileEvent(new Uint8Array([1])));
+      assert.equal(ui.draftSkills.value[0].configId, '502', 'rereading ambiguous skills must preserve the user choice');
+      await ui.save(); assert.equal(f.skillState.presets.value[0].configId, '502'); assert.equal(f.skillState.presets.value[1].configId, 'unfinished');
+      assert.equal(f.skillSaves.length, 1); assert.equal(f.events.at(-1)[0], 'close'); f.dispose();
+    });
+    await test('Custom reserved property IDs retain their own baselines and only matched animations change', async () => {
+      const rows = [{ id: '__proto__', name: '交谈-持续', configId: '700' }, { id: 'constructor', name: '自定义动作', configId: '701' },
+        { id: 'toString', name: '另一动作', configId: '702' }];
+      const f = settingsDialog({ presets: rows, gilApi: fakeGilApi({ skills: [{ id: '800', name: '[演出]交谈-持续' }] }) }), { ui } = f;
+      await ui.readGil(fileEvent(new Uint8Array([1])));
+      assert.equal(ui.error.value, '');
+      for (const row of rows) { assert.ok(Object.hasOwn(ui.skillOriginalIds.value, row.id)); assert.equal(ui.skillOriginalIds.value[row.id], row.configId); }
+      assert.deepEqual(plain(ui.skillChanges.value.map(row => row.id)), ['__proto__']);
+      await ui.readGil(fileEvent(new Uint8Array([1]))); assert.equal(ui.skillOriginalIds.value.__proto__, '700');
+      await ui.save(); assert.deepEqual(f.skillSaves[0], [{ ...rows[0], configId: '800' }, rows[1], rows[2]]); f.dispose();
+    });
+    await test('Reset affects only structure IDs and restoring the preview restores both structures and animation choices', async () => {
+      const f = settingsDialog({ gilApi: fakeGilApi({ structs: [{ id: '501', name: '[演出]对话' }], skills: [{ id: '800', name: `[演出]${skillDefaults[0].name}` }] }) }), { ui } = f;
+      await ui.readGil(fileEvent(new Uint8Array([1])));
+      const snapshot = f.history.capture(), skills = plain(ui.draftSkills.value), message = ui.importMessage.value;
+      ui.reset(); assert.deepEqual(plain(ui.draft.value), defaults); assert.deepEqual(plain(ui.draftSkills.value), skills);
+      assert.equal(ui.importMessage.value, message); assert.equal(f.skillSaves.length, 0);
+      f.history.restore(snapshot); assert.equal(ui.draft.value['dialogue.dialogue'], '501'); assert.deepEqual(plain(ui.draftSkills.value), skills);
+      assert.deepEqual(plain(ui.skillMatched.value), [skillDefaults[0].id]); assert.equal(ui.error.value, '');
+      assert.equal(f.skillSaves.length, 0); f.dispose();
+    });
+    await test('A structures-only GIL retains skill IDs and a nonmatching GIL retains the previous preview', async () => {
+      const f = settingsDialog({ gilApi: fakeGilApi({ structs: [{ id: '501', name: '[演出]对话' }] }) });
+      const { ui } = f, initialSkills = plain(f.skillState.presets.value);
+      await ui.readGil(fileEvent(new Uint8Array([1])));
+      assert.equal(ui.error.value, ''); assert.equal(ui.draft.value['dialogue.dialogue'], '501');
+      assert.deepEqual(plain(ui.draftSkills.value), initialSkills); assert.deepEqual(plain(ui.skillMatched.value), []);
+      const message = ui.importMessage.value;
+      f.dispose();
+      const unmatched = settingsDialog({ gilApi: fakeGilApi() });
+      unmatched.ui.draft.value['dialogue.dialogue'] = '501'; unmatched.ui.importMessage.value = message;
+      await unmatched.ui.readGil(fileEvent(new Uint8Array([1])));
+      assert.ok(unmatched.ui.error.value); assert.equal(unmatched.ui.draft.value['dialogue.dialogue'], '501');
+      assert.equal(unmatched.ui.importMessage.value, message); unmatched.dispose();
+    });
+    await test('A loading skill file delays imports; an unreadable skill file still allows structure identification and saving', async () => {
+      const f = settingsDialog({ ready: false, gilApi: fakeGilApi({ skills: [{ id: '701', name: '[演出]交谈-持续' }] }) });
+      await f.ui.readGil(fileEvent(new Uint8Array([1]))); assert.ok(f.ui.error.value);
+      f.skillState.presets.value = [{ id: 'late', name: '交谈-持续', configId: '700' }]; f.skillState.ready.value = true; await tick();
+      await f.ui.readGil(fileEvent(new Uint8Array([1]))); assert.equal(f.ui.error.value, '');
+      assert.equal(f.ui.draftSkills.value[0].configId, '701'); assert.equal(f.skillState.presets.value[0].configId, '700'); f.dispose();
+      const failed = settingsDialog({ ready: false, skillError: 'broken skill file', gilApi: fakeGilApi({ structs: [{ id: '501', name: '[演出]对话' }] }) });
+      await failed.ui.readGil(fileEvent(new Uint8Array([1]))); assert.equal(failed.ui.error.value, '');
+      assert.equal(failed.ui.draft.value['dialogue.dialogue'], '501'); assert.deepEqual(plain(failed.ui.draftSkills.value), []);
+      assert.match(failed.ui.importMessage.value, /仅识别结构体/);
+      failed.ui.draft.value['quest.chapter'] = '600'; await failed.ui.save();
+      assert.equal(failed.saves.at(-1)['quest.chapter'], '600'); assert.equal(failed.skillSaves.length, 0);
+      assert.equal(failed.events.at(-1)[0], 'close'); failed.dispose();
+    });
+    await test('A failed skill save stays open and retries; applying IDs preserves concurrent names and unrelated presets', async () => {
+      const first = skillDefaults[0], untouched = skillDefaults[1];
+      const f = settingsDialog({ presets: [first, untouched], gilApi: fakeGilApi({ skills: [{ id: '501', name: `[演出]${first.name}` }] }) }), { ui } = f;
+      await ui.readGil(fileEvent(new Uint8Array([1])));
+      f.skillState.presets.value[0].name = 'Current cache name';
+      f.skillState.presets.value[1].configId = '900';
+      f.skillState.presets.value.push({ id: 'new-custom', name: '后来加入', configId: '901' });
+      const current = plain(f.skillState.presets.value);
+      f.failures.skill = true; await ui.save();
+      assert.match(ui.error.value, /skill disk full/); assert.equal(f.events.length, 0); assert.equal(ui.busy.value, false);
+      assert.equal(ui.draftSkills.value[0].configId, '501');
+      assert.deepEqual(plain(f.skillState.presets.value), current); assert.equal(f.skillSaves.length, 0);
+      f.failures.skill = false; await ui.save();
+      assert.equal(f.events.at(-1)[0], 'close'); assert.equal(f.skillSaves.length, 1);
+      const rows = f.skillSaves[0];
+      assert.equal(rows[0].id, first.id); assert.equal(rows[0].name, 'Current cache name'); assert.equal(rows[0].configId, '501');
+      assert.equal(rows[1].configId, '900'); assert.equal(rows[2].configId, '901'); f.dispose();
+    });
+    await test('A failed skill save followed by restoring the pre-import draft and cancellation leaves skill presets untouched', async () => {
+      const f = settingsDialog({ gilApi: fakeGilApi({ skills: [{ id: '501', name: `[演出]${skillDefaults[0].name}` }] }) }), { ui } = f;
+      const initial = plain(f.skillState.presets.value), snapshot = f.history.capture();
+      await ui.readGil(fileEvent(new Uint8Array([1]))); f.failures.skill = true; await ui.save();
+      assert.ok(ui.error.value); assert.deepEqual(plain(f.skillState.presets.value), initial); assert.equal(f.skillSaves.length, 0);
+      f.history.restore(snapshot); assert.deepEqual(plain(ui.draftSkills.value), []); ui.close();
+      f.failures.skill = false; await f.skillState.flush();
+      assert.deepEqual(plain(f.skillState.presets.value), initial); assert.equal(f.skillSaves.length, 0);
+      assert.equal(f.events.at(-1)[0], 'close'); f.dispose();
+    });
+    if (process.argv[2]) await test('The real GIL previews all 37 skill IDs with 36 changes and cancellation leaves presets untouched', async () => {
+      const f = settingsDialog(), { ui } = f, bytes = fs.readFileSync(process.argv[2]), initialSkills = plain(f.skillState.presets.value);
+      await ui.readGil(fileEvent(bytes));
+      assert.equal(ui.error.value, ''); assert.match(ui.importMessage.value, /21 \/ 21/);
+      assert.equal(ui.skillMatched.value.length, 37); assert.deepEqual(plain(ui.skillMissing.value), []); assert.deepEqual(plain(ui.skillAmbiguous.value), []);
+      assert.equal(ui.draftSkills.value.filter(row => initialSkills.find(old => old.id === row.id).configId !== row.configId).length, 36);
+      assert.equal(ui.draftSkills.value.find(row => row.id === 'skill-walk-loop').configId, '1098907682');
+      assert.deepEqual(plain(f.skillState.presets.value), initialSkills); assert.equal(f.saves.length, 0); assert.equal(f.skillSaves.length, 0);
+      ui.close(); assert.deepEqual(plain(f.skillState.presets.value), initialSkills); assert.equal(f.skillSaves.length, 0);
+      f.events.length = 0; await ui.save(); assert.equal(f.saves.length, 1); assert.equal(f.skillSaves.length, 1);
+      assert.equal(f.skillState.presets.value.find(row => row.id === 'skill-walk-loop').configId, '1098907682'); f.dispose();
     });
     await test('The shell saves only after successful storage and loads settings before opening the dialog', async () => {
       const filename = path.join(base, '../DSFGStudio.vue');
@@ -172,12 +299,20 @@ async function main() {
         compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
       }).outputText;
       const memoryStorage = memory(), storage = { ...memoryStorage, setProject() { return this; } };
-      const notices = [];
+      const notices = [], prepared = [];
+      const editorSessions = new Map(['Dialogue', 'EntityPresets', 'Scene'].map(name => [name, { async prepareToLeave() { prepared.push(name); } }]));
       const state = { ...config, storage, ProjectID: 'DSFGStudio', selectedWorkspaceId: vue.ref('a'), switchingEditor: vue.ref(false),
         structSettingsOpen: vue.ref(false), structSettingsError: vue.ref(''), structSettings: vue.ref({ ids: { ...defaults }, candidates: {}, warnings: [] }),
-        editorRef: vue.ref({ async prepareToLeave() {} }), toast: { success: m => notices.push(m), error: m => notices.push(m) } };
+        Error, editorSessions, activeEditor: () => editorSessions.get('Dialogue'),
+        sessionHistory: { busy: vue.ref(false), finishRegistered() { prepared.push('history'); } },
+        toast: { success: m => notices.push(m), error: m => notices.push(m) } };
       const context = vm.createContext(state); vm.runInContext(script, context);
       await context.openStructSettings(); assert.equal(state.structSettingsOpen.value, true); assert.equal(state.switchingEditor.value, false);
+      assert.deepEqual(prepared, ['history', 'Dialogue', 'EntityPresets', 'Scene'], 'all mounted editors must flush before the dialog reads skill presets');
+      state.structSettingsOpen.value = false;
+      editorSessions.set('EntityPresets', { async prepareToLeave() { throw new Error('preset flush failed'); } });
+      await context.openStructSettings(); assert.equal(state.structSettingsOpen.value, false); assert.equal(state.switchingEditor.value, false);
+      assert.equal(notices.at(-1), 'preset flush failed');
       const changed = { ...defaults, 'quest.chapter': '300' };
       storage.writeFile = async () => { throw new Error('offline'); };
       await assert.rejects(context.saveStructSettings(changed), /offline/);

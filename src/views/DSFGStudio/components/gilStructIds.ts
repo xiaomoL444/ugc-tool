@@ -6,7 +6,7 @@ const list = (value: unknown): unknown[] => value == null ? [] : Array.isArray(v
 const text = (value: unknown) => typeof value === "string" ? value.replace(/^string:/, "") : "";
 export interface GilStruct { id: string; name: string }
 /** GIL 10/6 is the structure definition table; 1 and 2 are editable/runtime snapshots, not node-graph references. */
-export function readGilStructTable(document: { json: unknown }): GilStruct[] {
+export function readGilStructTable(document: { json: unknown }, requireEntries = true): GilStruct[] {
   const root = record(document.json) ? document.json : {};
   const section = record(root["10"]) ? root["10"] : {};
   const structs = new Map<string, GilStruct>();
@@ -19,7 +19,7 @@ export function readGilStructTable(document: { json: unknown }): GilStruct[] {
       structs.set(`${id}:${name}`, { id, name });
     }
   }
-  if (!structs.size) throw new Error("GIL 中没有找到可识别的结构体定义，请确认存档包含 DSFG 结构体。");
+  if (requireEntries && !structs.size) throw new Error("GIL 中没有找到可识别的结构体定义，请确认存档包含 DSFG 结构体。");
   return [...structs.values()];
 }
 export function matchGilStructIds(structs: GilStruct[], current: WorkspaceStructIds) {

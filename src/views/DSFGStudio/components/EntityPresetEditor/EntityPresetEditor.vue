@@ -13,6 +13,7 @@ import StylePresetSection from "./StylePresetSection.vue";
 import PresetEntryBrowser from "./PresetEntryBrowser.vue";
 import { stylePresetCategories } from "./stylePresets";
 import CustomPresetSection from "./CustomPresetSection.vue";
+import MultilingualTextManager from "../MultilingualTextManager.vue";
 import { useCustomPresets } from "./customPresets";
 import { referenceSources, compatibleReference } from "./presetReferences";
 const activeCategory = ref("publicEvents");
@@ -27,6 +28,9 @@ const presetHistory = useWorkspacePresetHistory({
 });
 const custom = useCustomPresets();
 const categories = [{ key: "publicEvents", title: "公共事件" }, { key: "entities", title: "实体" }, { key: "skills", title: "技能动画" }, ...stylePresetCategories, { key: "custom", title: "自定义配置" }];
+const otherCategories = [{ key: "multilingualTexts", title: "多语言文本管理" }];
+const isOtherCategory = computed(() => otherCategories.some(category => category.key === activeCategory.value));
+const activeCategoryTitle = computed(() => [...categories, ...otherCategories].find(category => category.key === activeCategory.value)?.title);
 const sources = computed(() => referenceSources(custom.availablePresets.value));
 const styleSections = ref<InstanceType<typeof StylePresetSection>[]>([]);
 import { createEntityPreset } from "./entityPresets";
@@ -38,9 +42,9 @@ import { createSkillAnimationPreset, getSkillAnimationConfigId } from "./skillAn
 
 withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "EntityPresets" });
 const emit = defineEmits<{ "update:editorKind": [value: StudioEditorKind] }>();
-const { presets, customPresets: customEntities, systemPresets: systemEntities, ready, error, status, retry, flush: flushEntities } = useEntityPresets();
-const { presets: skillPresets, customPresets: customSkills, systemPresets: systemSkills, ready: skillsReady, error: skillsError, status: skillsStatus, retry: retrySkills, flush: flushSkills } = useSkillAnimationPresets();
-const { presets: publicPresets, customPresets: customPublicEvents, systemPresets: systemPublicEvents, ready: publicReady, error: publicError, status: publicStatus, retry: retryPublic, flush: flushPublic } = usePublicEventPresets();
+const { customPresets: customEntities, systemPresets: systemEntities, ready, error, status, retry, flush: flushEntities, bindHistory: bindEntityHistory } = useEntityPresets();
+const { customPresets: customSkills, systemPresets: systemSkills, ready: skillsReady, error: skillsError, status: skillsStatus, retry: retrySkills, flush: flushSkills, bindHistory: bindSkillHistory } = useSkillAnimationPresets();
+const { customPresets: customPublicEvents, systemPresets: systemPublicEvents, ready: publicReady, error: publicError, status: publicStatus, retry: retryPublic, flush: flushPublic, bindHistory: bindPublicHistory } = usePublicEventPresets();
 const entityGroups = computed(() => [
   { system: true, title: "系统默认", label: "系统人物", items: systemEntities.value },
   { system: false, title: "自定义预设", label: "人物", items: customEntities.value },
@@ -88,10 +92,10 @@ async function selectPresetEntry(category: string, id: string) {
     target.focus({ preventScroll: true });
   }
 }
-// Vue inject reads ancestors; stores created in this provider register directly.
-presetHistory.register("EntityPresets.json", presets, ready);
-presetHistory.register("SkillAnimationPresets.json", skillPresets, skillsReady);
-presetHistory.register("PublicEventPresets.json", publicPresets, publicReady);
+// Vue inject reads ancestors; this provider binds its own stores explicitly.
+bindEntityHistory(presetHistory);
+bindSkillHistory(presetHistory);
+bindPublicHistory(presetHistory);
 presetHistory.register("CustomPresets.json", custom.presets, custom.ready);
 function addPublicPreset() { customPublicEvents.value = [...customPublicEvents.value, createPublicEventPreset()]; }
 async function flush() { presetHistory.finish(); await Promise.all([flushEntities(), flushSkills(), flushPublic(), custom.flush(), ...styleSections.value.map(section => section.flush())]); }
@@ -111,19 +115,27 @@ defineExpose({ prepareToLeave: flush });
 <template>
   <SectionLayout title="预设设置" class="entity-editor">
     <div ref="historyElement" class="settings-layout">
-    <StudioSidebarContent><nav class="category-nav" aria-label="预设分类"><div class="nav-title">预设配置</div><button v-for="category in categories" :key="category.key" :class="{ active: activeCategory === category.key }" :aria-current="activeCategory === category.key ? 'page' : undefined" @click="activeCategory = category.key">{{ category.title }}</button><p>当前工作区<br />修改后自动保存</p></nav></StudioSidebarContent>
-    <div class="preset-workbench" :class="{ 'browser-collapsed': browserCollapsed }">
+    <StudioSidebarContent>
+      <nav class="category-nav" aria-label="预设分类">
+        <div class="nav-title">预设配置</div>
+        <button v-for="category in categories" :key="category.key" type="button" :class="{ active: activeCategory === category.key }" :aria-current="activeCategory === category.key ? 'page' : undefined" @click="activeCategory = category.key">{{ category.title }}</button>
+        <div class="nav-title other-nav-title">其他</div>
+        <button v-for="category in otherCategories" :key="category.key" type="button" :class="{ active: activeCategory === category.key }" :aria-current="activeCategory === category.key ? 'page' : undefined" @click="activeCategory = category.key">{{ category.title }}</button>
+        <p>当前工作区<br />修改后自动保存</p>
+      </nav>
+    </StudioSidebarContent>
+    <div class="preset-workbench" :class="{ 'browser-collapsed': browserCollapsed || isOtherCategory }">
       <header class="settings-header">
         <div class="settings-heading">
-          <button type="button" class="browser-toggle" :aria-label="browserToggleLabel" :title="browserToggleLabel" :aria-expanded="!browserCollapsed" :aria-controls="browserId" @click="browserCollapsed = !browserCollapsed">
+          <button v-show="!isOtherCategory" type="button" class="browser-toggle" :aria-label="browserToggleLabel" :title="browserToggleLabel" :aria-expanded="!browserCollapsed" :aria-controls="browserId" @click="browserCollapsed = !browserCollapsed">
             <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="2" /><path d="M7 3v14" /><path v-if="!browserCollapsed" d="M4.5 6v8" class="browser-icon-active" /></svg>
             <span>词条</span><span class="browser-count">{{ browserGroups[0]?.entries.length ?? 0 }}</span>
           </button>
-          <div><h2>{{ categories.find(category => category.key === activeCategory)?.title }}</h2><p>管理当前工作区共用的预设，修改后自动保存。</p></div>
+          <div><h2>{{ activeCategoryTitle }}</h2><p>{{ isOtherCategory ? '查看客户端多语言文本，下载所需的语言文件。' : '管理当前工作区共用的预设，修改后自动保存。' }}</p></div>
         </div>
-        <StudioHistoryToolbar :history="presetHistory.current.value" :disabled="activeCategory === 'entityGetMethods'" />
+        <StudioHistoryToolbar v-show="!isOtherCategory" :history="presetHistory.current.value" :disabled="activeCategory === 'entityGetMethods'" />
       </header>
-    <PresetEntryBrowser :id="browserId" :groups="browserGroups" :active-category="activeCategory" :selected-entry="selectedEntry" :collapsed="browserCollapsed" @select="selectPresetEntry" />
+    <PresetEntryBrowser :id="browserId" :groups="browserGroups" :active-category="activeCategory" :selected-entry="selectedEntry" :collapsed="browserCollapsed || isOtherCategory" @select="selectPresetEntry" />
     <main class="preset-content">
       <section v-show="activeCategory === 'entities'" class="preset-section" data-preset-category="entities" aria-labelledby="entity-presets-title">
       <header><div><h3 id="entity-presets-title">预设实体</h3><p>保存常用人物，以及公共事件使用的 guid 和实体查询。</p></div></header>
@@ -230,6 +242,7 @@ defineExpose({ prepareToLeave: flush });
       </section>
       <CustomPresetSection v-show="activeCategory === 'custom'" :presets="custom.presets.value" :system-presets="custom.systemPresets.value" :ready="custom.ready.value" :status="custom.status.value" :error="custom.error.value" @retry="custom.retry().catch(() => undefined)" />
       <StylePresetSection v-for="category in stylePresetCategories" v-show="activeCategory === category.key" :key="category.key" ref="styleSections" :category="category.key" :title="category.title" />
+      <MultilingualTextManager v-show="activeCategory === 'multilingualTexts'" />
     </main>
     </div>
     </div>
@@ -315,6 +328,7 @@ button:disabled { opacity: .4; cursor: default; }
 .preset-content :deep([data-preset-selected="true"]) { outline: 2px solid #72b8ef; outline-offset: 3px; }
 .category-nav { padding:24px 14px; border-right:1px solid #dbe4ef; background:#fff; overflow:auto; display:flex; flex-direction:column; gap:6px; }
 .nav-title { font-size:12px; font-weight:600; color:#7c899c; padding:0 12px 14px; }
+.category-nav .other-nav-title { margin-top: 16px; padding-top: 16px; border-top: 1px solid #d4d8f4; }
 .category-nav button { text-align:left; padding:12px; border-color:transparent; background:transparent; color:#60718a; }
 .category-nav button.active { background:#eaf2ff; color:#245aa2; font-weight:600; }
 .category-nav p { margin:22px 12px 0; color:#94a0b1; font-size:11px; }
