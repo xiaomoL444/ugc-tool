@@ -14,25 +14,31 @@ import PresetEntryBrowser from "./PresetEntryBrowser.vue";
 import { stylePresetCategories } from "./stylePresets";
 import CustomPresetSection from "./CustomPresetSection.vue";
 import MultilingualTextManager from "../MultilingualTextManager.vue";
+import SaveModuleSection from "./SaveModuleSection.vue";
 import { useCustomPresets } from "./customPresets";
 import { referenceSources, compatibleReference } from "./presetReferences";
 const activeCategory = ref("publicEvents");
 const historyElement = ref<HTMLElement>();
 const presetHistory = useWorkspacePresetHistory({
   element: historyElement,
-  activeFile: () => (({ entities: "EntityPresets.json", skills: "SkillAnimationPresets.json", publicEvents: "PublicEventPresets.json", custom: "CustomPresets.json" } as Record<string, string>)[activeCategory.value] ?? `${activeCategory.value}.json`),
+  activeFile: () => (({ entities: "EntityPresets.json", skills: "SkillAnimationPresets.json", publicEvents: "PublicEventPresets.json", custom: "CustomPresets.json", saveModules: "SaveModules.json" } as Record<string, string>)[activeCategory.value] ?? `${activeCategory.value}.json`),
   activateFile: fileName => {
-    activeCategory.value = ({ "EntityPresets.json": "entities", "SkillAnimationPresets.json": "skills", "PublicEventPresets.json": "publicEvents", "CustomPresets.json": "custom" } as Record<string, string>)[fileName] ?? fileName.replace(/\.json$/, "");
+    activeCategory.value = ({ "EntityPresets.json": "entities", "SkillAnimationPresets.json": "skills", "PublicEventPresets.json": "publicEvents", "CustomPresets.json": "custom", "SaveModules.json": "saveModules" } as Record<string, string>)[fileName] ?? fileName.replace(/\.json$/, "");
   },
   onError: error => toast.error(error instanceof Error ? error.message : "预设恢复失败"),
 });
 const custom = useCustomPresets();
 const categories = [{ key: "publicEvents", title: "公共事件" }, { key: "entities", title: "实体" }, { key: "skills", title: "技能动画" }, ...stylePresetCategories, { key: "custom", title: "自定义配置" }];
-const otherCategories = [{ key: "multilingualTexts", title: "多语言文本管理" }];
+const otherCategories = [{ key: "multilingualTexts", title: "多语言文本管理" }, { key: "saveModules", title: "存档模块" }];
 const isOtherCategory = computed(() => otherCategories.some(category => category.key === activeCategory.value));
 const activeCategoryTitle = computed(() => [...categories, ...otherCategories].find(category => category.key === activeCategory.value)?.title);
+const activeCategoryDescription = computed(() => activeCategory.value === "multilingualTexts"
+  ? "查看客户端多语言文本，下载所需的语言文件。"
+  : activeCategory.value === "saveModules" ? "按顺序拼接 100 个整数的二进制，为可跨整数的位段填写说明。"
+  : "管理当前工作区共用的预设，修改后自动保存。");
 const sources = computed(() => referenceSources(custom.availablePresets.value));
 const styleSections = ref<InstanceType<typeof StylePresetSection>[]>([]);
+const saveModuleSection = ref<InstanceType<typeof SaveModuleSection>>();
 import { createEntityPreset } from "./entityPresets";
 import { useEntityPresets } from "./useEntityPresets";
 import { usePublicEventPresets } from "./usePublicEventPresets";
@@ -98,7 +104,7 @@ bindSkillHistory(presetHistory);
 bindPublicHistory(presetHistory);
 presetHistory.register("CustomPresets.json", custom.presets, custom.ready);
 function addPublicPreset() { customPublicEvents.value = [...customPublicEvents.value, createPublicEventPreset()]; }
-async function flush() { presetHistory.finish(); await Promise.all([flushEntities(), flushSkills(), flushPublic(), custom.flush(), ...styleSections.value.map(section => section.flush())]); }
+async function flush() { presetHistory.finish(); await Promise.all([flushEntities(), flushSkills(), flushPublic(), custom.flush(), saveModuleSection.value?.flush(), ...styleSections.value.map(section => section.flush())]); }
 async function addSkillPreset() {
   customSkills.value = [...customSkills.value, createSkillAnimationPreset()];
   await nextTick();
@@ -131,9 +137,9 @@ defineExpose({ prepareToLeave: flush });
             <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="2" /><path d="M7 3v14" /><path v-if="!browserCollapsed" d="M4.5 6v8" class="browser-icon-active" /></svg>
             <span>词条</span><span class="browser-count">{{ browserGroups[0]?.entries.length ?? 0 }}</span>
           </button>
-          <div><h2>{{ activeCategoryTitle }}</h2><p>{{ isOtherCategory ? '查看客户端多语言文本，下载所需的语言文件。' : '管理当前工作区共用的预设，修改后自动保存。' }}</p></div>
+          <div><h2>{{ activeCategoryTitle }}</h2><p>{{ activeCategoryDescription }}</p></div>
         </div>
-        <StudioHistoryToolbar v-show="!isOtherCategory" :history="presetHistory.current.value" :disabled="activeCategory === 'entityGetMethods'" />
+        <StudioHistoryToolbar v-show="activeCategory !== 'multilingualTexts'" :history="presetHistory.current.value" :disabled="activeCategory === 'entityGetMethods'" />
       </header>
     <PresetEntryBrowser :id="browserId" :groups="browserGroups" :active-category="activeCategory" :selected-entry="selectedEntry" :collapsed="browserCollapsed || isOtherCategory" @select="selectPresetEntry" />
     <main class="preset-content">
@@ -241,8 +247,9 @@ defineExpose({ prepareToLeave: flush });
         <div class="preset-footer"><button type="button" :disabled="!publicReady" @click="addPublicPreset">＋ 新建公共事件预设</button></div>
       </section>
       <CustomPresetSection v-show="activeCategory === 'custom'" :presets="custom.presets.value" :system-presets="custom.systemPresets.value" :ready="custom.ready.value" :status="custom.status.value" :error="custom.error.value" @retry="custom.retry().catch(() => undefined)" />
-      <StylePresetSection v-for="category in stylePresetCategories" v-show="activeCategory === category.key" :key="category.key" ref="styleSections" :category="category.key" :title="category.title" />
+      <StylePresetSection v-for="category in stylePresetCategories" v-show="activeCategory === category.key" :key="category.key" ref="styleSections" :category="category.key" :title="category.title" :reference-sources="sources" />
       <MultilingualTextManager v-show="activeCategory === 'multilingualTexts'" />
+      <SaveModuleSection v-show="activeCategory === 'saveModules'" ref="saveModuleSection" />
     </main>
     </div>
     </div>

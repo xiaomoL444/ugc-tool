@@ -153,7 +153,7 @@ async function main() {
       assert.deepEqual(normalizeDialogueProject(source).dialogue.nodes[node.id].select.params, []);
       assert.deepEqual(table(exported(source).parsed.value.DialogueSelectData)[0].value.params.value, []);
     });
-    test("Select editor compiles and reorders integer drafts without changing option contents", () => {
+    test("Select editor applies ordered preset defaults without changing option contents", () => {
       const { parse, compileScript, compileTemplate, compileStyle } = require('@vue/compiler-sfc');
       const vm = require('node:vm');
       const filename = path.join(editorDirectory, 'components/clip-editors/SelectClipEditor.vue');
@@ -166,11 +166,19 @@ async function main() {
       const script = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(ast)).join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
       const clip = createSelectClip(), before = structuredClone(clip.options);
       clip.params = ['1', '', '-2'];
-      const context = vm.createContext({ defineProps: () => ({ clip }), getSelectStyles: () => [] });
+      const parameterStyles = [{ id: 'Preset_UI', parameters: [
+        { id: 'role', name: '角色', type: 'Int32', defaultValue: '42' },
+        { id: 'state', name: '状态', type: 'Int32', defaultValue: '-2' },
+      ] }];
+      const { applyStyleParameters, syncStyleParameters } = require(path.join(editorDirectory, 'utils/styleParameters.ts'));
+      const context = vm.createContext({ defineProps: () => ({ clip }), getSelectStyles: () => parameterStyles,
+        computed: require('vue').computed, watchEffect: effect => effect(),
+        inject: (_, fallback) => fallback, applyStyleParameters, syncStyleParameters });
       vm.runInContext(script, context);
-      context.moveParam(0, -1); context.moveParam(2, 1); assert.deepEqual(clip.params, ['1', '', '-2']);
-      context.moveParam(0, 1); assert.deepEqual(clip.params, ['', '1', '-2']);
-      context.moveParam(2, -1); assert.deepEqual(clip.params, ['', '-2', '1']);
+      assert.deepEqual(clip.params, ['1', '', '-2'], 'Unknown styles retain existing integer drafts');
+      vm.runInContext("selectedStyle.value = 'Preset_UI'", context);
+      assert.deepEqual(clip.params, ['42', '-2']);
+      assert.deepEqual(clip.parameterPreset.parameters, parameterStyles[0].parameters);
       assert.deepEqual(clip.options, before);
     });
     test("Dialogue params preserve ordered integer inputs through reload and reject invalid slots", () => {

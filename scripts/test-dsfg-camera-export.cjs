@@ -200,7 +200,7 @@ async function main() {
           assert.equal(space.visibleWhen, undefined);
         } else {
           assert.equal(fields, CAMERA_VIEWPOINT_SLOT_PROPERTIES);
-          assert.deepEqual(fields.find(field => field.key === 'space').visibleWhen, { key: 'pointType', values: ['NOLOC_Rot'] });
+          assert.deepEqual(fields.find(field => field.key === 'space').visibleWhen, { key: 'pointType', values: [] });
           assert.equal(isClipPropertyVisible(fields.find(field => field.key === 'space'), { pointType: 'NOLOC_Vector3' }), false);
         }
       }
@@ -221,13 +221,14 @@ async function main() {
       assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.find(field => field.key === 'pointType').options.map(item => item.value), ['NOLOC_Vector3', 'NOLOC_Rot']);
       assert.ok(!CAMERA_SLOT_PROPERTIES.find(field => field.key === 'pointType').options.some(item => item.value === 'NOLOC_Rot'));
       const target = createClipPropertyValues(CAMERA_VIEWPOINT_SLOT_PROPERTIES, slot({ pointType: 'NOLOC_Rot', vector3: '10,20,-30' }));
-      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(field => isClipPropertyVisible(field, target)).map(field => field.key), ['space', 'pointType', 'vector3']);
+      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(field => isClipPropertyVisible(field, target)).map(field => field.key), ['pointType', 'vector3']);
       const decoded = decodeDialogueProject(encodeDialogueProject(project([camera({ rotationData: { type: 'NOLOC_Fixed', slot: [target], snapToTarget: false } })])));
       const restored = decoded.dialogue.nodes.group.lines[0].clips[0].components[0].properties.rotationData.slot[0];
       assert.deepEqual(restored, target);
       const output = table(exported(decoded).parsed.value.CameraMovementData)[0].value.rotationData.value.slot.value[0].value;
       assert.equal(output.pointType.value, 'NOLOC_Rot');
       assert.equal(output.vector3.value, '10,20,-30');
+      assert.equal(output.space.value, String(target.space));
       assert.deepEqual(Object.keys(output), CAMERA_SLOT_PROPERTIES.map(field => field.key));
       const switched = updateClipStructField(CAMERA_VIEWPOINT_SLOT_PROPERTIES, target, 'pointType', 'NOLOC_Entity');
       assert.equal(switched.vector3, '10,20,-30');

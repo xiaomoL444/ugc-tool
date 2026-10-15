@@ -122,7 +122,7 @@ async function main() {
       await history.undo(); assert.deepEqual(plain(state.presets.value), initial);
       assert.deepEqual(plain(state.defaultPresets.value), system);
       await history.redo(); const withCustom = [...initial, entry]; assert.deepEqual(plain(state.presets.value), withCustom);
-      const field = 'parameters' in initial[0] ? 'name' : 'configId' in initial[0] ? 'configId' : 'talker' in initial[0] ? 'talker' : 'value';
+      const field = 'alias' in initial[0] ? 'name' : 'configId' in initial[0] ? 'configId' : 'talker' in initial[0] ? 'talker' : 'value';
       state.systemPresets.value[0][field] = '工作区默认修改'; await tick(); const editedDefault = plain(state.presets.value);
       await history.undo(); assert.deepEqual(plain(state.presets.value), withCustom);
       await history.redo(); assert.deepEqual(plain(state.presets.value), editedDefault);
@@ -155,6 +155,75 @@ async function main() {
     f.fire('pointerup'); await tick(); await f.history.current.value.undo(); assert.deepEqual(plain(state.presets.value), initial);
     editedPreset().parameters.splice(1, 1); await tick(); await f.history.current.value.undo();
     assert.deepEqual(plain(state.presets.value), initial); f.close();
+  });
+  await test('Select-style custom CRUD undo and redo preserve fixed style identity and save custom rows separately', async () => {
+    const f = presetSession(), state = f.run(() => styles.useStylePresets('selectStyles'));
+    f.activeFile.value = 'selectStyles.json'; await f.mount();
+    const defaults = plain(state.systemPresets.value);
+    assert.deepEqual(plain(state.presets.value), defaults, 'The complete history state includes mandatory system styles');
+    const entry = { ...styles.createStylePreset('selectStyles'), label: '自定义选项', value: 'Custom_UI' };
+    state.customPresets.value = [entry]; await tick(); const history = f.history.current.value;
+    await history.undo(); assert.deepEqual(plain(state.customPresets.value), []);
+    assert.deepEqual(plain(state.availablePresets.value), defaults);
+    await history.redo(); assert.deepEqual(plain(state.customPresets.value), [entry]);
+    state.customPresets.value[0].value = 'Custom_UI_v2'; await tick();
+    await history.undo(); assert.equal(state.customPresets.value[0].value, 'Custom_UI');
+    await history.redo(); assert.equal(state.customPresets.value[0].value, 'Custom_UI_v2');
+    state.customPresets.value = []; await tick(); await history.undo();
+    assert.equal(state.customPresets.value[0].value, 'Custom_UI_v2');
+    assert.deepEqual(plain(state.systemPresets.value), defaults);
+    await state.flush();
+    const saved = JSON.parse(f.files.get('/A/selectStyles.json'));
+    assert.equal(saved.presetStorage, 'system-overrides'); assert.deepEqual(saved.systemOverrides, []);
+    assert.deepEqual(saved.presets, [{ ...entry, value: 'Custom_UI_v2' }]);
+    await history.redo(); await state.flush();
+    assert.deepEqual(JSON.parse(f.files.get('/A/selectStyles.json')).presets, []);
+    assert.deepEqual(plain(state.availablePresets.value), defaults);
+    assert.deepEqual(f.errors, []); f.close();
+  });
+  await test('Dialogue and option style parameter CRUD, references and ordering undo and redo while system option identity stays fixed', async () => {
+    for (const category of ['dialogueStyles', 'selectStyles']) {
+      const f = presetSession(), state = f.run(() => styles.useStylePresets(category));
+      f.activeFile.value = `${category}.json`; await f.mount();
+      const seed = plain(state.defaultPresets.value), initial = plain(state.presets.value), history = f.history.current.value;
+      const first = { ...styles.createStyleParameter(), name: '次数', defaultValue: '3' };
+      const second = { ...styles.createStyleParameter(), name: '配置编号', defaultValue: '42', reference: 'skillAnimations.configId' };
+      state.systemPresets.value[0].parameters.push(first); await tick();
+      await history.undo(); assert.deepEqual(plain(state.presets.value), initial);
+      await history.redo(); assert.deepEqual(plain(state.systemPresets.value[0].parameters), [first]);
+      state.systemPresets.value[0].parameters.push(second); await tick();
+      const added = plain(state.presets.value);
+      state.systemPresets.value[0].parameters.reverse(); await tick();
+      await history.undo(); assert.deepEqual(plain(state.presets.value), added);
+      await history.redo(); assert.deepEqual(state.systemPresets.value[0].parameters.map(param => param.id), [second.id, first.id]);
+      const reordered = plain(state.presets.value);
+      state.systemPresets.value[0].parameters[0].reference = 'entityGetMethods.value'; await tick();
+      await history.undo(); assert.deepEqual(plain(state.presets.value), reordered);
+      await history.redo(); assert.equal(state.systemPresets.value[0].parameters[0].reference, 'entityGetMethods.value');
+      state.systemPresets.value[0].parameters[1].name = '新的次数'; await tick();
+      await history.undo(); assert.equal(state.systemPresets.value[0].parameters[1].name, '次数');
+      await history.redo(); assert.equal(state.systemPresets.value[0].parameters[1].name, '新的次数');
+      state.systemPresets.value[0].parameters[1].defaultValue = '9'; await tick();
+      await history.undo(); assert.equal(state.systemPresets.value[0].parameters[1].defaultValue, '3');
+      await history.redo(); assert.equal(state.systemPresets.value[0].parameters[1].defaultValue, '9');
+      const edited = plain(state.presets.value);
+      state.systemPresets.value[0].parameters.splice(0, 1); await tick();
+      await history.undo(); assert.deepEqual(plain(state.presets.value), edited);
+      await history.redo(); assert.deepEqual(state.systemPresets.value[0].parameters.map(param => param.id), [first.id]);
+      await history.undo();
+      if (category === 'selectStyles') {
+        state.systemPresets.value[0].label = '不允许改名'; state.systemPresets.value[0].value = 'Invalid_UI'; await tick();
+        assert.equal(state.systemPresets.value[0].label, seed[0].label);
+        assert.equal(state.systemPresets.value[0].value, seed[0].value);
+        assert.deepEqual(plain(state.presets.value), edited, 'Fixed identity enforcement preserves the edited parameter history');
+      }
+      await state.flush();
+      const saved = JSON.parse(f.files.get(`/A/${category}.json`));
+      assert.equal(saved.presetStorage, 'system-overrides'); assert.deepEqual(saved.presets, []);
+      assert.deepEqual(saved.systemOverrides[0].parameters, edited[0].parameters);
+      assert.deepEqual(plain(state.defaultPresets.value), seed, 'Parameter edits cannot mutate the central defaults');
+      assert.deepEqual(f.errors, []); f.close();
+    }
   });
   await test('Typing groups per input, checkbox changes remain separate, and category switches finish old input sessions', async () => {
     const f = presetSession(); const state = f.run(() => styles.useStylePresets('dialogueStyles')); await f.mount();
@@ -256,7 +325,7 @@ async function main() {
   });
   await test('All editor toolbars, shared history and settings compile as Vue SFCs', () => {
     for (const file of ['StudioHistoryToolbar.vue', 'EntityPresetEditor/EntityPresetEditor.vue', 'EntityPresetEditor/CustomPresetSection.vue',
-      'EntityPresetEditor/StylePresetSection.vue', 'QuestEditor/QuestEditor.vue', 'QuestEditor/QuestPanel.vue', 'CameraEditor/CameraEditor.vue',
+      'EntityPresetEditor/StylePresetSection.vue', 'EntityPresetEditor/StyleParameterSettings.vue', 'QuestEditor/QuestEditor.vue', 'QuestEditor/QuestPanel.vue', 'CameraEditor/CameraEditor.vue',
       'SceneEditor/SceneEditor.vue', 'WalkTalkEditor/WalkTalkEditor.vue', 'WorkspaceStructIdSettings.vue']) {
       const filename = path.join(base, file), source = fs.readFileSync(filename, 'utf8');
       const { descriptor, errors } = sfc.parse(source, { filename }); assert.deepEqual(errors, [], file);

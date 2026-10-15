@@ -1,3 +1,5 @@
+import type { StyleParameter, StyleParameterPreset } from "../../EntityPresetEditor/styleParameters";
+
 /** 一个节点就是一句台词及其配套演出。 */
 export interface DialogueNode {
   id: string;
@@ -33,6 +35,7 @@ export interface DialogueStyleDefinition {
   id: DialogueStyleId;
   label: string;
   showTitle?: boolean;
+  parameters?: StyleParameter[];
   description?: string;
 }
 
@@ -41,6 +44,7 @@ export type SelectStyleId = string;
 export interface SelectStyleDefinition {
   id: SelectStyleId;
   label: string;
+  parameters?: StyleParameter[];
   description?: string;
 }
 
@@ -61,6 +65,8 @@ export interface DialogueClip {
   /** 自动播放的推进等待秒数；-1 表示不自动推进。 */
   autoContinue: number;
   nodeGraphEvent: string[];
+  /** 复制应用时的参数定义，后续预设更新不会覆盖本台词的草稿。 */
+  parameterPreset?: StyleParameterPreset;
 }
 
 export interface FocusPushClip {
@@ -80,6 +86,7 @@ export interface SelectClip {
   options: SelectOption[];
   /** 选项卡整数入参，保留输入草稿，导出为 params: Int32List。 */
   params: string[];
+  parameterPreset?: StyleParameterPreset;
 }
 
 /** 编辑时将 content/icon 成对保存，导出时再拆成两个平行列表。 */

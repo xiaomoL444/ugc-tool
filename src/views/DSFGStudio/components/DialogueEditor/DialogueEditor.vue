@@ -49,6 +49,7 @@ import { applyDialogueTextEdit, applyDialogueOptionIconEdit, type DialogueTextEd
 import { useEntityPresets } from "../EntityPresetEditor/useEntityPresets";
 import { usePublicEventPresets } from "../EntityPresetEditor/usePublicEventPresets";
 import { syncDialoguePublicEventVisibility } from "./utils/publicEventParameters";
+import { syncStyleParameters } from "./utils/styleParameters";
 import { useStylePresets } from "../EntityPresetEditor/stylePresets";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
 import { bindWorkspaceSaveLifecycle } from "../QuestEditor/workspaceSaveLifecycle";
@@ -86,8 +87,12 @@ const editorActive = inject(studioEditorActiveKey, () => true);
 const studioSession = inject(studioSessionHistoryKey, undefined);
 const { availablePresets: entityPresets, error: entityPresetsError, retry: retryEntityPresets } = useEntityPresets();
 const dialogueStylePresets = useStylePresets("dialogueStyles");
+const selectStylePresets = useStylePresets("selectStyles");
 const publicEventPresets = usePublicEventPresets();
 provide("dialogueStyleOptions", dialogueStylePresets.options);
+provide("selectStyleOptions", selectStylePresets.options);
+provide("dialogueStylePresetsReady", dialogueStylePresets.ready);
+provide("selectStylePresetsReady", selectStylePresets.ready);
 
 const {
   onConnect, onNodesChange, getSelectedNodes, getSelectedEdges, nodesSelectionActive,
@@ -100,6 +105,21 @@ watchEffect(() => {
     syncDialoguePublicEventVisibility(dialogueProject.value, publicEventPresets.availablePresets.value);
   }
 }, { flush: "sync" });
+function syncProjectStyleParameters() {
+  const project = dialogueProject.value;
+  if (!project) return;
+  for (const node of Object.values(project.dialogue.nodes)) {
+    if (dialogueStylePresets.ready.value) {
+      for (const clip of [node.dialogue, ...(node.additionalDialogues ?? [])]) {
+        if (clip) syncStyleParameters(clip, dialogueStylePresets.options.value);
+      }
+    }
+    if (node.select && selectStylePresets.ready.value) {
+      syncStyleParameters(node.select, selectStylePresets.options.value);
+    }
+  }
+}
+watchEffect(syncProjectStyleParameters);
 const exportedGroupIndices = computed(() => new Map(
   dialogueProject.value ? resolveGroupOrder(dialogueProject.value).map((id, index) => [id, index] as const) : [],
 ));
@@ -520,11 +540,16 @@ async function DownloadQxqyPerformanceFile() {
       await dialogueStylePresets.retry();
       if (!dialogueStylePresets.ready.value) throw new Error(dialogueStylePresets.error.value || "对话样式预设正在读取，请稍后重试导出。");
     }
+    if (!selectStylePresets.ready.value) {
+      await selectStylePresets.retry();
+      if (!selectStylePresets.ready.value) throw new Error(selectStylePresets.error.value || "选项卡样式预设正在读取，请稍后重试导出。");
+    }
     if (!publicEventPresets.ready.value) {
       await publicEventPresets.retry();
       if (!publicEventPresets.ready.value) throw new Error(publicEventPresets.error.value || "公共事件预设正在读取，请稍后重试导出。");
     }
     syncDialoguePublicEventVisibility(dialogueProject.value, publicEventPresets.availablePresets.value);
+    syncProjectStyleParameters();
     result = exportQxqyPerformance(workspaceIds.dialogue(dialogueProject.value), dialogueStylePresets.options.value);
   } catch (error) {
     const message = error instanceof Error ? error.message : "结构体 ID 配置无效";
@@ -679,6 +704,7 @@ onBeforeUnmount(() => {
             </div>
 
             <p v-if="dialogueStylePresets.error.value" role="alert">{{ dialogueStylePresets.error.value }} <button type="button" @click="dialogueStylePresets.retry().catch(() => undefined)">重试对话类型预设</button></p>
+            <p v-if="selectStylePresets.error.value" role="alert">{{ selectStylePresets.error.value }} <button type="button" @click="selectStylePresets.retry().catch(() => undefined)">重试选项卡样式预设</button></p>
             <DialogueTextPreview v-if="editorView === 'text'" :key="selectedDialogueFile" :project="dialogueProject" managed-history :entity-presets="entityPresets" :presets-error="entityPresetsError" @retry-presets="retryEntityPresets().catch(() => undefined)" @navigate="NavigateToPreviewNode"
               @edit="EditDialogueText" @option="EditDialogueOption" @option-icon="EditDialogueOptionIcon" @replace="dialogueProject = $event" />
 

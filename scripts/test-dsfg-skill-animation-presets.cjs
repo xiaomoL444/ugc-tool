@@ -125,7 +125,8 @@ async function main() {
   systemPresetConfig.skillAnimations.newItem.name = '';
   console.log('PASS entity and skill system values are editable while aliases and mandatory system rows stay fixed');
 
-  const { useStylePresets, encodeStylePresets, decodeStylePresets, getStylePresetOptions, supportsCustomStylePresets } = require(path.join(base, 'stylePresets.ts'));
+  const { useStylePresets, encodeStylePresets, decodeStylePresets, getStylePresetOptions, supportsCustomStylePresets,
+    supportsEditableSystemStylePresets, getStylePresetValueType, createStylePreset } = require(path.join(base, 'stylePresets.ts'));
   const legacyDialogueStyles = systemPresetConfig.dialogueStyles.presets.map(({ showTitle, ...item }) => item);
   assert.deepEqual(decodeStylePresets('dialogueStyles', encodeStylePresets('dialogueStyles', legacyDialogueStyles)), systemPresetConfig.dialogueStyles.presets);
   const titleDefaults = decodeStylePresets('dialogueStyles', encodeStylePresets('dialogueStyles', [
@@ -152,6 +153,44 @@ async function main() {
     assert.equal(files.get(file), original, 'Loading fixed presets must preserve the legacy file');
   }
   console.log('PASS fixed categories expose only system choices and preserve legacy custom files');
+  assert.equal(supportsCustomStylePresets('movementMethods'), true);
+  assert.equal(supportsEditableSystemStylePresets('movementMethods'), false);
+  assert.equal(getStylePresetValueType('movementMethods'), 'Int32');
+  assert.equal(getStylePresetValueType('entityGetMethods'), 'Int32');
+  assert.equal(getStylePresetValueType('questStyles'), 'String');
+  assert.deepEqual(systemPresetConfig.movementMethods.presets.map(item => [item.label, item.value]), [['行走', '0'], ['跑步', '1'], ['冲刺', '2']]);
+  const movementSeed = JSON.stringify(systemPresetConfig.movementMethods);
+  const movementDraft = createStylePreset('movementMethods');
+  assert.equal(movementDraft.label, ''); assert.equal(movementDraft.value, '');
+  async function openMovement(workspace = 'movement-methods') {
+    context = { storage, selectedWorkspaceId: vue.ref(workspace), mount: [], unmount: [] };
+    const instance = useStylePresets('movementMethods'), hooks = context;
+    await hooks.mount[0]();
+    return { instance, close: () => hooks.unmount[0]() };
+  }
+  const movement = await openMovement();
+  assert.equal(files.has('/movement-methods/movementMethods.json'), false, 'Reading movement defaults does not create a workspace file');
+  assert.ok(vue.isReadonly(movement.instance.systemPresets.value[0]));
+  assert.deepEqual(movement.instance.presets.value, []);
+  movement.instance.customPresets.value = [{ ...movementDraft, label: '自定义移动', value: '3' }];
+  await movement.instance.flush(); movement.close();
+  const movementStored = JSON.parse(files.get('/movement-methods/movementMethods.json'));
+  assert.equal(movementStored.presetStorage, 'custom-only');
+  assert.deepEqual(movementStored.presets.map(item => [item.label, item.value]), [['自定义移动', '3']]);
+  assert.equal(movementStored.systemOverrides, undefined);
+  const savedMovement = await openMovement();
+  assert.deepEqual(savedMovement.instance.options.value.map(item => item.value), ['0', '1', '2', '3']);
+  const otherMovement = await openMovement('other-movement-methods');
+  assert.deepEqual(otherMovement.instance.options.value.map(item => item.value), ['0', '1', '2']);
+  otherMovement.close();
+  savedMovement.instance.customPresets.value = [];
+  await savedMovement.instance.flush(); savedMovement.close();
+  const emptyMovement = await openMovement();
+  assert.deepEqual(emptyMovement.instance.options.value.map(item => item.value), ['0', '1', '2']);
+  assert.deepEqual(emptyMovement.instance.customPresets.value, []);
+  emptyMovement.close();
+  assert.equal(JSON.stringify(systemPresetConfig.movementMethods), movementSeed);
+  console.log('PASS independent movement methods keep system choices read-only and custom integers persistent, isolated and removable');
   for (const category of ['dialogueStyles', 'questStyles', 'walkTalkStyles', 'cameras']) {
     assert.equal(supportsCustomStylePresets(category), true);
     async function openStyles() {

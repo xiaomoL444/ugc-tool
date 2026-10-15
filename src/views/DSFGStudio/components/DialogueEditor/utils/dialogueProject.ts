@@ -35,6 +35,7 @@ import {
   MIN_CLIP_DURATION,
 } from "./groupTimeline";
 import { getDialogueClips } from "./dialogueClips";
+import { normalizeStyleParameterPreset } from "../../EntityPresetEditor/styleParameters";
 import {
   createDefaultQxqyStructIds,
   normalizeQxqyStructIds,
@@ -333,6 +334,7 @@ function normalizeConditionBranchOutput(
 function normalizeDialogueClip(value: unknown): DialogueClip {
   const source = isRecord(value) ? value : {};
   const fallback = createDialogueClip();
+  const parameterPreset = normalizeStyleParameterPreset(source.parameterPreset);
 
   return {
     id:
@@ -366,12 +368,14 @@ function normalizeDialogueClip(value: unknown): DialogueClip {
           (event): event is string => typeof event === "string",
         )
       : [],
+    ...(parameterPreset ? { parameterPreset } : {}),
   };
 }
 
 function normalizeSelectClip(value: unknown): SelectClip {
   const source = isRecord(value) ? value : {};
   const fallback = createSelectClip();
+  const parameterPreset = normalizeStyleParameterPreset(source.parameterPreset);
   return {
     id:
       typeof source.id === "string" && source.id ? source.id : fallback.id,
@@ -390,6 +394,7 @@ function normalizeSelectClip(value: unknown): SelectClip {
     params: Array.isArray(source.params)
       ? source.params.filter((param): param is string => typeof param === "string")
       : [],
+    ...(parameterPreset ? { parameterPreset } : {}),
   };
 }
 

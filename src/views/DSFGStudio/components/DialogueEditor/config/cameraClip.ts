@@ -44,7 +44,7 @@ const CAMERA_FOLLOW_SLOT_PROPERTIES = CAMERA_POSITION_SLOT_PROPERTIES.map(proper
 
 /** 固定角度只提供 Vector3 与旋转；保留隐藏字段用于存档和导出。 */
 export const CAMERA_VIEWPOINT_SLOT_PROPERTIES: ClipPropertyDefinition[] = CAMERA_SLOT_PROPERTIES.map(property => {
-  if (property.key === "space") return { ...property, visibleWhen: { key: "pointType", values: ["NOLOC_Rot"] } };
+  if (property.key === "space") return { ...property, visibleWhen: { key: "pointType", values: [] } };
   if (property.key === "pointType") return { ...property, options: [
     ...(property.options ?? []).filter(option => option.value === "NOLOC_Vector3"),
     { label: "NOLOC_Rot（旋转）", value: "NOLOC_Rot" },

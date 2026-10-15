@@ -153,6 +153,10 @@ async function main() {
   assert.deepEqual(refs.options('booleans.value', 'String'), []);
   assert.deepEqual(refs.options('entityGetMethods.value', 'Int32'), [{ label: 'GUID', value: '0' }, { label: 'String', value: '1' }]);
   assert.deepEqual(refs.options('entityGetMethods.value', 'String'), []);
+  assert.deepEqual(refs.sources.value.find(source => source.value === 'movementMethods.value'), { value: 'movementMethods.value', label: '移动方式 / 值', type: 'Int32' });
+  assert.deepEqual(refs.options('movementMethods.value', 'Int32'), [{ label: '行走', value: '0' }, { label: '跑步', value: '1' }, { label: '冲刺', value: '2' }]);
+  assert.deepEqual(refs.options('movementMethods.value', 'String'), []);
+  assert.equal(refs.sources.value.some(source => source.value.startsWith('custom:movement-methods:')), false, 'Movement methods use their own preset category');
   context.unmount.forEach(hook => hook());
   context = { storage, selectedWorkspaceId: vue.ref('Custom'), mount: [], unmount: [] };
   const customState = customApi.useCustomPresets();
@@ -184,6 +188,28 @@ async function main() {
   assert.deepEqual(objectForward.parameters.map(item => item.reference), [undefined, 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery', 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery']);
   assert.equal(objectForward.parameters[0].defaultValue, 'False');
   const { getPublicEventArgumentReference, applyPublicEventPreset, getPublicEventArguments, isPublicEventArgumentVisible, syncPublicEventVisibility, compilePublicEventArguments } = require(path.join(base, '../DialogueEditor/utils/publicEventParameters.ts'));
+  const playerMove = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_PlayerMoveToPoint');
+  assert.equal(playerMove.alias, '玩家移动到指定位置');
+  assert.deepEqual(playerMove.parameters.map(item => [item.name, item.type, item.reference, item.defaultValue]), [
+    ['方式', 'Int32', 'movementMethods.value', '0'], ['X轴', 'Float', undefined, '0'], ['Z轴', 'Float', undefined, '0'],
+  ]);
+  assert.deepEqual(decode(encode([playerMove])), [playerMove]);
+  const movementClip = { components: [{ templateId: 'public.event', properties: {} }] };
+  applyPublicEventPreset(movementClip, playerMove);
+  const movementArgs = getPublicEventArguments(movementClip);
+  assert.deepEqual(movementArgs.map(item => item.value), ['0', '0', '0']);
+  movementArgs[1].value = '-12.5'; movementArgs[2].value = '40.25';
+  for (const method of ['0', '1', '2']) {
+    movementArgs[0].value = method;
+    const compiled = compilePublicEventArguments(playerMove.name, movementArgs);
+    assert.deepEqual(compiled.stringParams, [playerMove.name]);
+    assert.deepEqual(compiled.intParams, [method]);
+    assert.deepEqual(compiled.floatParams, ['-12.5', '40.25'], 'Movement coordinates retain X/Z order in the Float list');
+  }
+  assert.equal(JSON.parse(JSON.stringify(movementClip)).components[0].properties.parameters[0].reference, 'movementMethods.value', 'Saved actions retain the independent movement source');
+  applyPublicEventPreset(movementClip, playerMove);
+  assert.deepEqual(getPublicEventArguments(movementClip).map(item => item.value), ['2', '-12.5', '40.25'], 'Reapplying preserves all movement values');
+  console.log('PASS movement-method source, movement defaults, all three methods and independent Int32/Float runtime lists');
   const clip = { components: [{ templateId: 'public.event', properties: {} }] };
   applyPublicEventPreset(clip, objectForward);
   const args = getPublicEventArguments(clip);
@@ -278,7 +304,7 @@ async function main() {
     extended.presets.value.push(overlay);
     await extended.flush();
     assert.deepEqual(customApi.decodeCustomPresets(files.get('/Extended/CustomPresets.json')), [overlay]);
-    assert.deepEqual(extended.availablePresets.value, merged);
+    assert.deepEqual(extended.availablePresets.value, [...systemPresetConfig.customTables.presets.slice(0, -1), ...merged]);
     context.unmount.forEach(hook => hook());
     context = { storage, selectedWorkspaceId: vue.ref('Extended'), mount: [], unmount: [] };
     const extendedRefs = referencesApi.usePresetReferences();

@@ -22,6 +22,7 @@ const stubs = new Map([
   ['StudioSidebarContent.vue', container('sidebar-stub')],
   ['StudioHistoryToolbar.vue', container('history-stub')],
   ['CustomPresetSection.vue', container('custom-stub')],
+  ['SelectOptionIcon.vue', container('option-icon-stub')],
 ]);
 Module._load = function(request, parent, isMain) {
   if (request === 'vue-sonner') return { toast: { error: error => { throw Error(String(error)); } } };
@@ -35,6 +36,9 @@ Module._load = function(request, parent, isMain) {
     },
   }) };
   if (path.basename(request).replace(/\.ts$/, '') === 'useWorkspacePresetHistory') return history;
+  if (path.basename(request).replace(/\.ts$/, '') === 'dialogueProject' && parent?.filename.endsWith('SelectClipEditor.vue')) {
+    return { createSelectOption: () => ({ id: 'new-option', content: '', icon: 0 }) };
+  }
   if (stubs.has(path.basename(request))) return { default: stubs.get(path.basename(request)), __esModule: true };
   return originalLoad.call(this, request.startsWith('@/') ? path.resolve(__dirname, '../src', request.slice(2)) : request, parent, isMain);
 };
@@ -171,7 +175,11 @@ async function main() {
   const { decodePublicEventPresets } = require(path.join(base, 'EntityPresetEditor/publicEventPresets.ts'));
   const { decodeEntityPresets } = require(path.join(base, 'EntityPresetEditor/entityPresets.ts'));
   const { decodeSkillAnimationPresets } = require(path.join(base, 'EntityPresetEditor/skillAnimationPresets.ts'));
-  const { decodeStylePresets, stylePresetCategories } = require(path.join(base, 'EntityPresetEditor/stylePresets.ts'));
+  const { decodeStylePresets, encodeStylePresets, stylePresetCategories, supportsCustomStylePresets,
+    supportsEditableSystemStylePresets, getStylePresetValueType, useStylePresets } = require(path.join(base, 'EntityPresetEditor/stylePresets.ts'));
+  const customStyleCategories = stylePresetCategories.filter(category => supportsCustomStylePresets(category.key));
+  const editableStyleCategories = stylePresetCategories.filter(category => supportsEditableSystemStylePresets(category.key));
+  const customStyleValue = category => getStylePresetValueType(category.key) === 'Int32' ? '3' : `NOLOC_Custom_${category.key}`;
   const seeds = JSON.stringify(config);
   const files = new Map(), writes = [];
   const storage = {
@@ -200,6 +208,8 @@ async function main() {
     };
     assert.equal(navigation.includes('布尔值'), false);
     assert.ok(navigation.includes('实体获取方式'));
+    assert.ok(navigation.includes('移动方式'), 'Movement methods must be a peer preset category');
+    assert.equal(navigation[navigation.indexOf('对话类型') + 1], '选项卡样式', 'Select styles belong beside dialogue styles in preset navigation');
     const card = (surface, label) => find(surface, node => node.tag === 'article' && node.props['aria-label'] === label);
     const click = async (surface, label, byAria = false) => {
       const button = find(surface, node => node.tag === 'button' && (byAria ? node.props['aria-label'] === label : text(node) === label));
@@ -234,7 +244,7 @@ async function main() {
       { title: '实体', rows: config.entities.presets, label: row => row.name },
       { title: '技能动画', rows: config.skillAnimations.presets, label: row => row.name },
       ...stylePresetCategories.map(category => ({ title: category.title, rows: config[category.key].presets, label: row => row.label })),
-      { title: '自定义配置', rows: [], label: row => row.name },
+      { title: '自定义配置', rows: config.customTables.presets, label: row => row.name },
     ];
     for (const group of expectedCategories) {
       await activate(group.title);
@@ -375,7 +385,7 @@ async function main() {
     await enter(input(root, '系统人物 1 guid'), '1234567890');
     await activate('技能动画');
     await enter(input(root, '系统技能动画 1 配置 ID'), '42');
-    for (const category of stylePresetCategories.filter(item => item.key !== 'entityGetMethods')) {
+    for (const category of editableStyleCategories) {
       await activate(category.title);
       const valueLabel = category.key === 'cameras' ? '相机名称' : '类型值';
       const systemStyle = card(root, `系统${category.title}预设 1`);
@@ -383,12 +393,79 @@ async function main() {
       assert.ok(text(systemStyle).includes(config[category.key].presets[0].label));
       assert.equal(all(systemStyle, node => node.tag === 'button' && /\bdelete\b/.test(node.props.class ?? '')).length, 0, 'System style rows must not expose preset deletion');
       assert.equal(input(root, `系统${category.title} 1 显示名称`), undefined, 'System style labels are fixed');
-      assert.equal(input(root, `系统${category.title} 1 ${valueLabel}`).value, config[category.key].presets[0].value);
-      await enter(input(root, `系统${category.title} 1 ${valueLabel}`), `NOLOC_Workspace_${category.key}`);
+      if (category.key === 'selectStyles') {
+        assert.equal(input(root, `系统${category.title} 1 ${valueLabel}`), undefined, 'System option style values remain fixed even when their parameters are editable');
+      } else {
+        assert.equal(input(root, `系统${category.title} 1 ${valueLabel}`).value, config[category.key].presets[0].value);
+        await enter(input(root, `系统${category.title} 1 ${valueLabel}`), `NOLOC_Workspace_${category.key}`);
+      }
     }
+    await activate('选项卡样式');
+    const systemSelectStyle = card(root, '系统选项卡样式预设 1');
+    assert.ok(systemSelectStyle);
+    assert.ok(text(systemSelectStyle).includes(config.selectStyles.presets[0].label));
+    assert.ok(text(systemSelectStyle).includes('Default_UI'));
+    assert.equal(input(systemSelectStyle, '系统选项卡样式 1 显示名称'), undefined);
+    assert.equal(input(systemSelectStyle, '系统选项卡样式 1 类型值'), undefined);
+    assert.equal(all(systemSelectStyle, node => node.tag === 'button' && node.parent === systemSelectStyle).length, 0, 'System option styles never expose preset delete or restore controls');
+    const stylePanel = surface => find(surface, node => node.tag === 'details' && hasClass(node, 'style-parameters'));
+    const styleRows = surface => all(surface, node => node.tag === 'div' && hasClass(node, 'parameter-row'));
+    // The host renderer models native details state; native summary clicks only
+    // change the element's open property and do not write a Vue preset field.
+    const foldStyle = async panel => { panel.open = !panel.open; dispatch(panel, 'toggle'); await vue.nextTick(); };
+    const expectedStyleParameters = new Map();
+    for (const [title, manualName, sourceName, sourceLabel, manualDefault, sourceDefault] of [
+      ['对话类型', '次数', '配置编号', '技能动画 / 配置 ID', '12', '42'],
+      ['选项卡样式', '选项数量', '获取方式', '实体获取方式 / 值', '3', '0'],
+    ]) {
+      await activate(title);
+      const systemStyle = card(root, `系统${title}预设 1`), panel = stylePanel(systemStyle), label = `系统${title} 1`;
+      assert.ok(panel, 'Both system style categories need a full-width parameter editor');
+      assert.equal(panel.open, false, 'Style parameter definitions start collapsed');
+      assert.equal(styleRows(panel).length, 0);
+      await foldStyle(panel); await click(panel, '＋ 添加参数');
+      await enter(input(panel, `${label} 参数 1 名称`), manualName);
+      await enter(input(panel, `${label} 参数 1 默认值`), manualDefault);
+      const integerInput = input(panel, `${label} 参数 1 默认值`);
+      integerInput.value = '1.5'; dispatch(integerInput, 'input'); await vue.nextTick();
+      assert.equal(integerInput.value, manualDefault, 'Integer defaults reject decimal input without rewriting the accepted value');
+      assert.ok(text(styleRows(panel)[0]).includes('整数（Int32）'));
+      assert.equal(all(panel, node => node.tag === 'select-stub').length, 1, 'Integer parameter type is fixed text, with only the source selectable');
+      await click(panel, '＋ 添加参数');
+      await enter(input(panel, `${label} 参数 2 名称`), sourceName);
+      await enter(input(panel, `${label} 参数 2 默认值`), sourceDefault);
+      const sourceField = select(panel, `${label} 参数 2 值来源`);
+      assert.ok(sourceField.props.options.some(option => option.label === '技能动画 / 配置 ID'), 'ConfigReference sources are compatible with integer parameters');
+      assert.ok(sourceField.props.options.some(option => option.label === '实体获取方式 / 值'));
+      assert.ok(sourceField.props.options.some(option => option.label === '移动方式 / 值'), 'Movement methods are an integer reference source');
+      assert.equal(sourceField.props.options.some(option => option.label === '实体 / 人名' || option.label === '公共事件 / 事件名' || option.label === '对话类型 / 值'), false, 'String sources are excluded from integer parameter definitions');
+      await chooseLabel(sourceField, sourceLabel);
+      await click(panel, '＋ 添加参数');
+      await enter(input(panel, `${label} 参数 3 名称`), '待删除参数');
+      await click(panel, `${label} 下移参数 1`, true);
+      assert.equal(input(panel, `${label} 参数 1 名称`).value, sourceName);
+      assert.equal(input(panel, `${label} 参数 2 名称`).value, manualName);
+      await click(panel, `${label} 删除参数 3`, true);
+      assert.equal(styleRows(panel).length, 2, 'Deleting one definition preserves the others');
+      await click(panel, `${label} 上移参数 2`, true);
+      await click(panel, `${label} 下移参数 1`, true);
+      await foldStyle(panel); await foldStyle(panel);
+      assert.equal(input(panel, `${label} 参数 1 默认值`).value, sourceDefault);
+      assert.equal(input(panel, `${label} 参数 2 默认值`).value, manualDefault);
+      assert.match(text(find(panel, node => node.tag === 'summary')), /2 \/ 100/);
+      expectedStyleParameters.set(title, { names: [sourceName, manualName], defaults: [sourceDefault, manualDefault] });
+    }
+    console.log('PASS dialogue and option style definition cards edit integer names, defaults and compatible sources, reorder/delete parameters and retain edits when folded');
     await activate('实体获取方式');
     const fixed = find(root, node => node.tag === 'section' && node.props['aria-label'] === '实体获取方式预设');
     assert.equal(all(fixed, node => node.tag === 'input').length, 0, 'Entity-get methods remain fixed');
+    await activate('移动方式');
+    for (const [index, preset] of config.movementMethods.presets.entries()) {
+      const systemMethod = card(root, `系统移动方式预设 ${index + 1}`);
+      assert.ok(systemMethod);
+      assert.ok(text(systemMethod).includes(preset.label));
+      assert.equal(all(systemMethod, node => node.tag === 'input' || node.tag === 'button').length, 0, 'System movement methods remain read-only');
+    }
 
     await activate('公共事件'); await click(root, '＋ 新建公共事件预设');
     const customPublic = card(root, '公共事件预设 1');
@@ -404,11 +481,25 @@ async function main() {
     await activate('技能动画'); await click(root, '＋ 新建技能动画预设');
     await enter(input(root, '技能动画 1 名称'), '自定义动画');
     await enter(input(root, '技能动画 1 配置 ID'), '88');
-    for (const category of stylePresetCategories.filter(item => item.key !== 'entityGetMethods')) {
+    for (const category of customStyleCategories) {
       await activate(category.title); await click(root, `＋ 新建${category.title}预设`);
       const valueLabel = category.key === 'cameras' ? '相机名称' : '类型值';
       await enter(input(root, `${category.title} 1 显示名称`), `自定义${category.title}`);
-      await enter(input(root, `${category.title} 1 ${valueLabel}`), `NOLOC_Custom_${category.key}`);
+      const valueField = input(root, `${category.title} 1 ${valueLabel}`);
+      await enter(valueField, customStyleValue(category));
+      if (getStylePresetValueType(category.key) === 'Int32') {
+        assert.equal(valueField.props.inputmode, 'numeric');
+        for (const invalid of ['1.5', 'bad']) {
+          valueField.value = invalid; dispatch(valueField, 'input'); await vue.nextTick();
+          assert.equal(valueField.value, customStyleValue(category), 'Integer preset values reject decimal and text input');
+        }
+      }
+      if (category.key === 'dialogueStyles' || category.key === 'selectStyles') {
+        const panel = stylePanel(card(root, `${category.title}预设 1`));
+        await foldStyle(panel); await click(panel, '＋ 添加参数');
+        await enter(input(panel, `${category.title} 1 参数 1 名称`), '自定义参数');
+        await enter(input(panel, `${category.title} 1 参数 1 默认值`), '7');
+      }
     }
     await activate('公共事件');
     await enter(input(browser, '搜索词条或代号'), '自定义技能事件');
@@ -459,28 +550,48 @@ async function main() {
     assert.equal(decodeSkillAnimationPresets(files.get('/preset-editor-test/SkillAnimationPresets.json'))[0].configId, '88');
     assert.equal(skillFile.systemOverrides[0].name, config.skillAnimations.presets[0].name);
     assert.equal(skillFile.systemOverrides[0].configId, '42');
-    for (const category of stylePresetCategories.filter(item => item.key !== 'entityGetMethods')) {
+    for (const category of customStyleCategories) {
       const raw = files.get(`/preset-editor-test/${category.key}.json`), saved = decodeStylePresets(category.key, raw);
       assert.equal(saved[0].label, `自定义${category.title}`);
-      assert.equal(saved[0].value, `NOLOC_Custom_${category.key}`);
-      assert.equal(JSON.parse(raw).systemOverrides[0].label, config[category.key].presets[0].label);
-      assert.equal(JSON.parse(raw).systemOverrides[0].value, `NOLOC_Workspace_${category.key}`);
+      assert.equal(saved[0].value, customStyleValue(category));
+      const file = JSON.parse(raw);
+      if (supportsEditableSystemStylePresets(category.key)) {
+        assert.equal(file.presetStorage, 'system-overrides');
+        assert.equal(file.systemOverrides[0].label, config[category.key].presets[0].label);
+        assert.equal(file.systemOverrides[0].value, category.key === 'selectStyles' ? 'Default_UI' : `NOLOC_Workspace_${category.key}`);
+        if (category.key === 'dialogueStyles' || category.key === 'selectStyles') {
+          const expected = expectedStyleParameters.get(category.title);
+          assert.deepEqual(file.systemOverrides[0].parameters.map(param => param.name), expected.names);
+          assert.deepEqual(file.systemOverrides[0].parameters.map(param => param.defaultValue), expected.defaults);
+          assert.ok(file.systemOverrides[0].parameters.every(param => param.type === 'Int32'));
+          assert.equal(saved[0].parameters[0].name, '自定义参数');
+          assert.equal(saved[0].parameters[0].defaultValue, '7');
+        }
+      } else {
+        assert.equal(file.presetStorage, 'custom-only');
+        assert.equal(file.systemOverrides, undefined, 'Read-only movement system rows are never saved as overrides');
+      }
     }
-    assert.equal(files.size, 7, 'Only modified categories should be persisted');
-    for (const raw of files.values()) assert.equal(JSON.parse(raw).presetStorage, 'system-overrides');
+    assert.equal(files.size, 3 + customStyleCategories.length, 'Every modified category, including select styles, must be flushed before leaving');
     console.log('PASS real v-model saves editable system values separately from fully editable custom entries while preserving fixed labels and central seeds');
 
     await activate('公共事件'); await click(root, '删除公共事件预设 1', true);
     await activate('实体'); await click(root, '删除人物预设 1', true);
     await activate('技能动画'); await click(root, '删除技能动画预设 1', true);
-    for (const category of stylePresetCategories.filter(item => item.key !== 'entityGetMethods')) {
+    for (const category of customStyleCategories) {
       await activate(category.title); await click(root, `删除${category.title}预设 1`, true);
     }
     await instance.prepareToLeave(); await settle();
-    for (const raw of files.values()) {
+    for (const [file, raw] of files) {
       const saved = JSON.parse(raw);
       assert.deepEqual(saved.presets, [], 'Deleting custom rows must leave the custom list empty');
-      assert.equal(saved.systemOverrides.length, 1, 'Custom deletion must retain edited system values');
+      if (file.endsWith('/movementMethods.json')) {
+        assert.equal(saved.presetStorage, 'custom-only');
+        assert.equal(saved.systemOverrides, undefined);
+      } else {
+        assert.equal(saved.presetStorage, 'system-overrides');
+        assert.equal(saved.systemOverrides.length, 1, 'Custom deletion must retain edited system values and parameter definitions');
+      }
     }
     assert.ok(card(root, '系统公共事件预设 1'));
     assert.ok(card(root, '系统人物预设 1'));
@@ -502,6 +613,17 @@ async function main() {
     assert.equal(input(reopened.root, '系统人物 1 guid').value, '1234567890');
     assert.equal(input(reopened.root, '系统技能动画 1 配置 ID').value, '42');
     assert.equal(input(reopened.root, '系统对话类型 1 类型值').value, 'NOLOC_Workspace_dialogueStyles');
+    assert.ok(text(card(reopened.root, '系统选项卡样式预设 1')).includes('Default_UI'), 'An empty saved select-style custom list must retain the built-in default');
+    assert.ok(text(card(reopened.root, '系统移动方式预设 1')).includes('行走'), 'An empty movement custom list must retain read-only system choices');
+    assert.equal(input(reopened.root, '移动方式 1 显示名称'), undefined);
+    assert.equal(input(reopened.root, '选项卡样式 1 显示名称'), undefined);
+    for (const title of ['对话类型', '选项卡样式']) {
+      const panel = stylePanel(card(reopened.root, `系统${title}预设 1`)), expected = expectedStyleParameters.get(title);
+      assert.equal(panel.open, false, 'Reopening resets only the parameter fold state');
+      assert.deepEqual(styleRows(panel).map((row, index) => input(row, `系统${title} 1 参数 ${index + 1} 名称`).value), expected.names);
+      assert.deepEqual(styleRows(panel).map((row, index) => input(row, `系统${title} 1 参数 ${index + 1} 默认值`).value), expected.defaults);
+      assert.equal(input(card(reopened.root, '系统选项卡样式预设 1'), '系统选项卡样式 1 类型值'), undefined);
+    }
     const reopenedPanel = all(reopened.root, node => node.tag === 'div' && hasClass(node, 'public-parameters'))[0];
     assert.equal(reopenedPanel.style.display, 'none');
     assert.equal(input(reopenedPanel, '公共事件参数默认值').value, '120');
@@ -515,6 +637,128 @@ async function main() {
     await toggleParameters(reopenedPanel);
     assert.equal(writes.length, savedWrites, 'Reopening the editor must not rewrite saved snapshots');
     console.log('PASS reopening restores fixed system labels, edited values and collapsed parameter settings, with deleted custom entries absent');
+
+    const SelectEditor = require(path.join(base, 'DialogueEditor/components/clip-editors/SelectClipEditor.vue')).default;
+    const newClip = style => vue.reactive({ id: 'test-select', style, options: [], params: [] });
+    function mountSelectConsumer(workspaceId, clip) {
+      let state;
+      const Consumer = vue.defineComponent({ setup() {
+        state = useStylePresets('selectStyles');
+        vue.provide('selectStyleOptions', state.options);
+        vue.provide('selectStylePresetsReady', state.ready);
+        return () => vue.h(SelectEditor, { clip });
+      } });
+      const consumerRoot = element('root'), consumerApp = renderer.createApp(Consumer);
+      consumerApp.provide('storage', storage); consumerApp.provide('selectedWorkspaceId', vue.ref(workspaceId));
+      consumerApp.mount(consumerRoot); mounted.push(consumerApp);
+      return { app: consumerApp, root: consumerRoot, state };
+    }
+    const clip = newClip('Default_UI'), consumer = mountSelectConsumer(workspace.value, clip);
+    const other = mountSelectConsumer('other-select-workspace', newClip('Default_UI'));
+    await settle();
+    const selectField = surface => select(surface, '选项样式');
+    const optionLabels = surface => selectField(surface).props.options.map(option => option.label);
+    assert.deepEqual(optionLabels(consumer.root), ['默认样式（Default_UI）']);
+    const reopenedNav = find(reopened.root, node => node.tag === 'nav' && node.props['aria-label'] === '预设分类');
+    dispatch(find(reopenedNav, node => node.tag === 'button' && text(node) === '选项卡样式'), 'click'); await vue.nextTick();
+    assert.deepEqual([...clip.params], ['0', '3'], 'Opening a loaded system option style supplies its declared defaults');
+    assert.equal(input(consumer.root, '选项卡参数 选项数量').value, '3');
+    assert.equal(all(consumer.root, node => node.tag === 'button' && /添加入参|删除参数|上移参数|下移参数/.test(text(node) + (node.props['aria-label'] ?? ''))).length, 0, 'Nodes fill declared parameters without changing the parameter definition list');
+    const optionSource = select(consumer.root, '选项卡参数 获取方式预设值');
+    assert.ok(optionSource);
+    assert.deepEqual(optionSource.props.options.map(option => option.label), ['GUID', 'String']);
+    await chooseLabel(optionSource, 'String');
+    await enter(input(consumer.root, '选项卡参数 选项数量'), '9');
+    assert.deepEqual([...clip.params], ['1', '9'], 'Option manual fields and reference selections copy integer strings into the clip');
+    await enter(input(reopened.root, '系统选项卡样式 1 参数 2 默认值'), '6');
+    await reopened.instance.prepareToLeave(); await settle();
+    assert.deepEqual([...clip.params], ['1', '9'], 'Saving a preset retains a node parameter snapshot and its entered values');
+    await click(consumer.root, '应用预设参数（恢复默认值）');
+    assert.deepEqual([...clip.params], ['0', '6'], 'Explicit reapplication reads updated definitions and resets to their defaults');
+
+    const DialogueEditor = require(path.join(base, 'DialogueEditor/components/clip-editors/DialogueClipEditor.vue')).default;
+    const dialogueClip = vue.reactive({ id: 'test-dialogue', style: 'NOLOC_Workspace_dialogueStyles', nodeGraphEvent: [],
+      content: '', speaker: '', subtitle: '', advanceMode: 'PlayerInput', autoContinue: -1 });
+    let dialogueState;
+    const DialogueConsumer = vue.defineComponent({ setup() {
+      dialogueState = useStylePresets('dialogueStyles');
+      vue.provide('dialogueStyleOptions', dialogueState.options);
+      vue.provide('dialogueStylePresetsReady', dialogueState.ready);
+      return () => vue.h(DialogueEditor, { clip: dialogueClip });
+    } });
+    const dialogueRoot = element('root'), dialogueApp = renderer.createApp(DialogueConsumer);
+    dialogueApp.provide('storage', storage); dialogueApp.provide('selectedWorkspaceId', vue.ref(workspace.value));
+    dialogueApp.mount(dialogueRoot); mounted.push(dialogueApp); await settle();
+    assert.deepEqual([...dialogueClip.nodeGraphEvent], ['42', '12']);
+    assert.equal(input(dialogueRoot, '对话参数 次数').value, '12');
+    assert.equal(all(dialogueRoot, node => node.tag === 'button' && /添加入参|删除参数|上移参数|下移参数/.test(text(node) + (node.props['aria-label'] ?? ''))).length, 0);
+    const dialogueSource = select(dialogueRoot, '对话参数 配置编号预设值');
+    assert.ok(dialogueSource.props.options.some(option => option.value === '42'));
+    const alternateConfig = dialogueSource.props.options.find(option => option.value !== '42' && !option.disabled);
+    assert.ok(alternateConfig, 'Referenced skill presets provide other integer configuration records');
+    dialogueSource.props.choose(alternateConfig.value); await vue.nextTick();
+    await enter(input(dialogueRoot, '对话参数 次数'), '-5');
+    assert.deepEqual([...dialogueClip.nodeGraphEvent], [alternateConfig.value, '-5']);
+    dispatch(find(reopenedNav, node => node.tag === 'button' && text(node) === '对话类型'), 'click'); await vue.nextTick();
+    await enter(input(reopened.root, '系统对话类型 1 参数 1 默认值'), '120');
+    await reopened.instance.prepareToLeave(); await settle();
+    assert.deepEqual([...dialogueClip.nodeGraphEvent], [alternateConfig.value, '-5'], 'Dialogue values stay intact when the workspace preset changes');
+    await click(dialogueRoot, '应用预设参数（恢复默认值）');
+    assert.deepEqual([...dialogueClip.nodeGraphEvent], ['120', '12']);
+    assert.equal(dialogueClip.parameterPreset.parameters[0].defaultValue, '120');
+    assert.ok(select(dialogueRoot, '对话参数 配置编号预设值').props.options.some(option => option.value === '120' && option.disabled), 'An unmatched referenced default stays visible as the saved current value');
+    console.log('PASS dialogue and option nodes show named manual and referenced integer fields, copy defaults after loading, preserve entered snapshots and explicitly reapply changed definitions');
+    dispatch(find(reopenedNav, node => node.tag === 'button' && text(node) === '选项卡样式'), 'click'); await vue.nextTick();
+    await click(reopened.root, '＋ 新建选项卡样式预设');
+    assert.equal(input(reopened.root, '选项卡样式 1 显示名称').value, '', 'New select-style names come from blank central defaults');
+    assert.equal(input(reopened.root, '选项卡样式 1 类型值').value, '');
+    await enter(input(reopened.root, '选项卡样式 1 显示名称'), '工作区选项');
+    await enter(input(reopened.root, '选项卡样式 1 类型值'), 'Custom_UI');
+    const beforeBroadcast = writes.length;
+    await reopened.instance.prepareToLeave(); await settle();
+    assert.deepEqual(optionLabels(consumer.root), ['默认样式（Default_UI）', '工作区选项（Custom_UI）'], 'Saved select presets refresh an already mounted clip editor');
+    assert.deepEqual(optionLabels(other.root), ['默认样式（Default_UI）'], 'Select presets are isolated by workspace');
+    assert.equal(writes.length, beforeBroadcast + 1, 'Consumers must not write the received snapshot back');
+    await chooseLabel(selectField(consumer.root), '工作区选项（Custom_UI）');
+    assert.equal(clip.style, 'Custom_UI', 'Selecting a custom preset stores the actual style value in the clip');
+    await enter(input(reopened.root, '选项卡样式 1 类型值'), 'Custom_UI_v2');
+    await reopened.instance.prepareToLeave(); await settle();
+    assert.equal(clip.style, 'Custom_UI', 'Changing a preset never rewrites saved clip styles');
+    assert.ok(optionLabels(consumer.root).some(label => label.includes('Custom_UI（当前值）')), 'A saved value absent from presets remains selectable');
+    await chooseLabel(selectField(consumer.root), '工作区选项（Custom_UI_v2）');
+    assert.equal(clip.style, 'Custom_UI_v2');
+    await click(reopened.root, '删除选项卡样式预设 1', true);
+    await reopened.instance.prepareToLeave(); await settle();
+    assert.equal(clip.style, 'Custom_UI_v2');
+    assert.deepEqual(optionLabels(consumer.root), ['Custom_UI_v2（当前值）', '默认样式（Default_UI）']);
+    consumer.app.unmount(); mounted.splice(mounted.indexOf(consumer.app), 1);
+    const reopenedConsumer = mountSelectConsumer(workspace.value, clip); await settle();
+    assert.deepEqual(optionLabels(reopenedConsumer.root), ['Custom_UI_v2（当前值）', '默认样式（Default_UI）'], 'Reloading keeps unregistered historical styles and the immutable default');
+    console.log('PASS select presets refresh mounted clip editors, select actual values, isolate workspaces and retain historical values through edits, deletion and reload');
+
+    const legacyFile = '/legacy-select-workspace/selectStyles.json';
+    const seed = config.selectStyles.presets[0], editedSeed = { ...seed, label: '旧系统副本', value: 'Legacy_UI' };
+    const existingCustom = { id: `custom:${seed.id}`, label: '既有预设', value: 'Existing_UI' };
+    const legacyRaw = encodeStylePresets('selectStyles', [editedSeed, existingCustom]);
+    files.set(legacyFile, legacyRaw);
+    const legacy = mountSelectConsumer('legacy-select-workspace', newClip('Legacy_UI')); await settle();
+    assert.equal(files.get(legacyFile), legacyRaw, 'Reading a legacy snapshot must preserve its original bytes until edited');
+    assert.deepEqual(JSON.parse(JSON.stringify(legacy.state.systemPresets.value)), [seed]);
+    assert.deepEqual(JSON.parse(JSON.stringify(legacy.state.customPresets.value)), [
+      { ...editedSeed, id: `custom:${seed.id}:copy` }, { ...existingCustom, parameters: [] },
+    ], 'Edited legacy system snapshots migrate to custom rows without colliding with existing IDs');
+    assert.deepEqual(optionLabels(legacy.root), ['默认样式（Default_UI）', '旧系统副本（Legacy_UI）', '既有预设（Existing_UI）']);
+    legacy.state.customPresets.value[0].label = '保留旧值'; await legacy.state.flush();
+    const migrated = JSON.parse(files.get(legacyFile));
+    assert.equal(migrated.presetStorage, 'system-overrides'); assert.deepEqual(migrated.systemOverrides, []);
+    assert.deepEqual(migrated.presets.map(preset => preset.id), [`custom:${seed.id}:copy`, existingCustom.id]);
+    assert.equal(migrated.presets[0].value, 'Legacy_UI');
+    files.set('/corrupt-select-workspace/selectStyles.json', 'broken select preset bytes');
+    const corrupt = mountSelectConsumer('corrupt-select-workspace', newClip('Legacy_UI')); await settle();
+    assert.equal(corrupt.state.ready.value, false); assert.ok(corrupt.state.error.value);
+    await corrupt.state.flush();
+    assert.equal(files.get('/corrupt-select-workspace/selectStyles.json'), 'broken select preset bytes');
+    console.log('PASS select legacy edited snapshots migrate to custom entries with stable existing IDs, while corrupt files retain their bytes');
   } finally { for (const app of mounted.reverse()) app.unmount(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {

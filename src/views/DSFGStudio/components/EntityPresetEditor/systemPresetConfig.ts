@@ -2,6 +2,8 @@ import type { CustomPresetTable } from "./customPresets";
 import type { PublicEventPreset, PublicEventParameter } from "./publicEventPresets";
 import type { EntityPreset } from "./entityPresets";
 import type { SkillAnimationPreset } from "./skillAnimationPresets";
+import type { SaveModule, SaveModuleField } from "./saveModules";
+import type { StyleParameter } from "./styleParameters";
 
 /**
  * 所有预设的系统默认配置统一在这里修改。
@@ -10,11 +12,22 @@ import type { SkillAnimationPreset } from "./skillAnimationPresets";
  * 内置条目必须使用稳定、唯一的 id。未提供真实条目时保持空列表，不虚构技能 ID。
  */
 export const systemPresetConfig = {
+  styleParameters: {
+    newParameter: { name: "", type: "Int32" as const, defaultValue: "0" },
+  },
   entityGetMethods: {
     newItem: { label: "", value: "" },
     presets: [
       { id: "entity-get-guid", label: "GUID", value: "0" },
       { id: "entity-get-string", label: "String", value: "1" },
+    ],
+  },
+  movementMethods: {
+    newItem: { label: "", value: "" },
+    presets: [
+      { id: "movement-walk", label: "行走", value: "0" },
+      { id: "movement-run", label: "跑步", value: "1" },
+      { id: "movement-sprint", label: "冲刺", value: "2" },
     ],
   },
   customTables: {
@@ -23,19 +36,28 @@ export const systemPresetConfig = {
     newRecord: { name: "", values: {} },
     presets: [] as CustomPresetTable[],
   },
+  saveModules: {
+    newItem: { name: "", fields: [] as SaveModuleField[] },
+    newField: { name: "", startBit: 0, length: 1, min: "0", max: "1" },
+    presets: [] as SaveModule[],
+  },
   cameras: {
     newItem: { label: "", value: "" },
     presets: [{ id: "camera-default", label: "默认镜头", value: "NOLOC_Default" }],
   },
   dialogueStyles: {
-    newItem: { label: "", value: "", showTitle: false },
+    newItem: { label: "", value: "", showTitle: false, parameters: [] as StyleParameter[] },
     presets: [
-      { id: "dialogue-default", label: "默认样式", value: "NOLOC_Default", showTitle: true },
-      { id: "dialogue-black-screen", label: "黑幕对话", value: "NOLOC_BlackScreen", showTitle: false },
-      { id: "dialogue-bottom-cg", label: "底部CG文本", value: "NOLOC_BottomCG", showTitle: false },
-      { id: "dialogue-bottom-dialog", label: "底部对话文本", value: "NOLOC_BottomDialog", showTitle: true },
-      { id: "dialogue-clear", label: "清除效果", value: "NOLOC_Clear", showTitle: false },
+      { id: "dialogue-default", label: "默认样式", value: "NOLOC_Default", showTitle: true, parameters: [] as StyleParameter[] },
+      { id: "dialogue-black-screen", label: "黑幕对话", value: "NOLOC_BlackScreen", showTitle: false, parameters: [] as StyleParameter[] },
+      { id: "dialogue-bottom-cg", label: "底部CG文本", value: "NOLOC_BottomCG", showTitle: false, parameters: [] as StyleParameter[] },
+      { id: "dialogue-bottom-dialog", label: "底部对话文本", value: "NOLOC_BottomDialog", showTitle: true, parameters: [] as StyleParameter[] },
+      { id: "dialogue-clear", label: "清除效果", value: "NOLOC_Clear", showTitle: false, parameters: [] as StyleParameter[] },
     ],
+  },
+  selectStyles: {
+    newItem: { label: "", value: "", parameters: [] as StyleParameter[] },
+    presets: [{ id: "select-default", label: "默认样式", value: "Default_UI", parameters: [] as StyleParameter[] }],
   },
   questStyles: {
     newItem: { label: "", value: "" },
@@ -75,6 +97,15 @@ export const systemPresetConfig = {
         { id: "public-player-teleport-position-z", name: "位置 Z", type: "Float", defaultValue: "0", visibleWhen: [{ parameterId: "public-player-teleport-set-position", equals: "True" }] },
         { id: "public-player-teleport-set-rotation", name: "设置旋转", type: "Bool", defaultValue: "False" },
         { id: "public-player-teleport-rotation-y", name: "旋转 Y", type: "Float", defaultValue: "0", visibleWhen: [{ parameterId: "public-player-teleport-set-rotation", equals: "True" }] },
+      ],
+    }, {
+      id: "public-player-move-to-point",
+      alias: "玩家移动到指定位置",
+      name: "NOLOC_PlayerMoveToPoint",
+      parameters: [
+        { id: "public-player-move-to-point-method", name: "方式", type: "Int32", reference: "movementMethods.value", defaultValue: "0" },
+        { id: "public-player-move-to-point-x", name: "X轴", type: "Float", defaultValue: "0" },
+        { id: "public-player-move-to-point-z", name: "Z轴", type: "Float", defaultValue: "0" },
       ],
     }, {
       id: "public-simple-black-screen",

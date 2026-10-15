@@ -26,5 +26,5 @@ export function dialogueStyleShowsTitle(id: string, styles: readonly DialogueSty
 }
 
 for (const preset of systemPresetConfig.dialogueStyles.presets) {
-  registerDialogueStyle({ id: preset.value, label: preset.label, showTitle: preset.showTitle });
+  registerDialogueStyle({ id: preset.value, label: preset.label, showTitle: preset.showTitle, parameters: preset.parameters });
 }
