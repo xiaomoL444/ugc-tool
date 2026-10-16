@@ -34,7 +34,7 @@ const isOtherCategory = computed(() => otherCategories.some(category => category
 const activeCategoryTitle = computed(() => [...categories, ...otherCategories].find(category => category.key === activeCategory.value)?.title);
 const activeCategoryDescription = computed(() => activeCategory.value === "multilingualTexts"
   ? "查看客户端多语言文本，下载所需的语言文件。"
-  : activeCategory.value === "saveModules" ? "按顺序拼接 100 个整数的二进制，为可跨整数的位段填写说明。"
+  : activeCategory.value === "saveModules" ? "每项整数按低位在左显示，依次拼接 100 项，为可跨整数的位段填写说明。"
   : "管理当前工作区共用的预设，修改后自动保存。");
 const sources = computed(() => referenceSources(custom.availablePresets.value));
 const styleSections = ref<InstanceType<typeof StylePresetSection>[]>([]);

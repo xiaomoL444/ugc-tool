@@ -37,6 +37,7 @@ export function addWalkTalkEntry(project: WalkTalkProject, afterId?: string): Wa
   const entry = Object.fromEntries(WALK_TALK_FIELDS.map(key => [key, Array.isArray(defaults[key]) ? defaults[key].join(", ") : String(defaults[key])])) as unknown as WalkTalkEntry;
   entry.id = crypto.randomUUID();
   entry.style = DEFAULT_WALK_TALK_STYLE;
+  entry.continueDelay = "2.00";
   const afterIndex = afterId === undefined ? -1 : project.entries.findIndex(item => item.id === afterId);
   project.entries.splice(afterIndex < 0 ? project.entries.length : afterIndex + 1, 0, entry);
   return entry;

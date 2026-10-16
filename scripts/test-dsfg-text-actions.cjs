@@ -35,7 +35,7 @@ async function main() {
       return { project: c.project, ids: [a.nodeId, b.nodeId, c.nodeId] };
     }
     const lineIds = (project) => preview(project).blocks.filter((block) => block.lines.length).map((block) => block.lines.map((line) => line.nodeId));
-    test('Speaker picker searches preset aliases and Talkers, and changes only the selected sentence name through save/reload', () => {
+    test('Speaker picker copies Talker and Subtitle into only the selected sentence through save/reload', () => {
       const vue = require('vue');
       const vm = require('node:vm');
       const { parse, compileScript, compileTemplate, compileStyle } = require('@vue/compiler-sfc');
@@ -75,22 +75,37 @@ async function main() {
       picker.search.value = 'missing';
       assert.equal(picker.results.value.length, 0);
       assert.equal(events.length, 0, 'Searching never changes the dialogue');
-      picker.select(props.presets[0]);
-      assert.deepEqual(events, [['select', 'NOLOC_Paimon']]);
-      assert.equal(closed, 1);
-      assert.equal(JSON.stringify(props), before, 'Selecting never mutates a shared preset');
       const { applyDialogueTextEdit } = require(path.join(base, 'dialogueTextEditing.ts'));
       const { project, ids } = sequence();
-      project.dialogue.nodes[ids[1]].dialogue.subtitle = '原有副标题';
-      project.dialogue.nodes[ids[1]].dialogue.content = '原有台词';
-      const expected = decode(encode(project));
-      expected.dialogue.nodes[ids[1]].dialogue.speaker = events[0][1];
-      assert.equal(applyDialogueTextEdit(project, { nodeId: ids[1], field: 'speaker', value: events[0][1] }), true);
-      assert.deepEqual(decode(encode(project)), expected);
+      const node = project.dialogue.nodes[ids[1]];
+      node.dialogue.subtitle = '原有副标题';
+      node.dialogue.content = '原有台词';
+      const additional = { ...createDialogueClip(), startTime: 2, speaker: 'NOLOC_Paimon', subtitle: '同名角色的旧副标题', content: '第二句保持不变' };
+      node.additionalDialogues = [additional];
+      node.lines[0].clips.push(createPerformanceClip('Camera'));
+      const selections = [[node.dialogue.id, props.presets[0]], [additional.id, props.presets[0]], [additional.id, props.presets[1]]];
+      for (const [clipId, preset] of selections) {
+        const expected = decode(encode(project));
+        const expectedClip = getDialogueClips(expected.dialogue.nodes[ids[1]]).find(clip => clip.id === clipId);
+        expectedClip.speaker = preset.talker;
+        expectedClip.subtitle = preset.subtitle;
+        picker.select(preset);
+        const selection = events.at(-1);
+        assert.deepEqual(selection, ['select', preset.talker, preset.subtitle]);
+        const selectedClip = getDialogueClips(node).find(clip => clip.id === clipId);
+        for (const [field, value] of [['speaker', selection[1]], ['subtitle', selection[2]]]) {
+          const changed = selectedClip[field] !== value;
+          assert.equal(applyDialogueTextEdit(project, { nodeId: ids[1], clipId, field, value }), changed);
+        }
+        assert.deepEqual(decode(encode(project)), expected, 'Preset selection preserves sibling sentences, text and Clip settings');
+      }
+      assert.equal(additional.subtitle, '', 'An empty preset subtitle clears the previous subtitle');
+      assert.equal(closed, selections.length);
+      assert.equal(JSON.stringify(props), before, 'Selecting never mutates a shared preset');
       active.value = false;
-      assert.equal(closed, 2); assert.deepEqual(events.at(-1), ['close']);
+      assert.equal(closed, selections.length + 1); assert.deepEqual(events.at(-1), ['close']);
       unmounted.forEach(fn => fn()); scope.stop();
-      assert.equal(closed, 3);
+      assert.equal(closed, selections.length + 2);
     });
     test('Deleting one of multiple dialogue Clips keeps the Group, other sentences, performances and graph connections', () => {
       const { project, ids } = sequence(); const node = project.dialogue.nodes[ids[1]];

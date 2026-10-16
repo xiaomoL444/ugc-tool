@@ -3,7 +3,7 @@ import { systemPresetConfig } from "./systemPresetConfig";
 export const SAVE_INTEGER_COUNT = 100;
 export const SAVE_BIT_COUNT = SAVE_INTEGER_COUNT * 32;
 
-/** Global, zero-based positions in [0] MSB first, then [1] MSB first, through [99]. */
+/** Global, zero-based positions in [0] LSB first, then [1] LSB first, through [99]. */
 export interface SaveModuleField {
   id: string;
   name: string;
@@ -95,7 +95,7 @@ export function decodeSaveModules(raw: string): SaveModule[] {
           const valid = Number.isInteger(integerIndex) && integerIndex >= 0 && integerIndex < SAVE_INTEGER_COUNT
             && Number.isInteger(startBit) && Number.isInteger(endBit) && startBit >= 0 && endBit <= 31 && startBit <= endBit;
           if (valid) {
-            result.startBit = integerIndex * 32 + (31 - endBit);
+            result.startBit = integerIndex * 32 + startBit;
             result.length = endBit - startBit + 1;
           } else {
             result.startBit = -1;
@@ -116,6 +116,12 @@ export function decodeSaveModules(raw: string): SaveModule[] {
             };
           }
         }
+        // Migrate only the former full-width default; keep custom bounds and invalid drafts intact.
+        if (hasValidBits(result) && result.length === 32 && result.min === "0" && result.max === "4294967295") {
+          const range = getSaveFieldRange(result);
+          result.min = range.min;
+          result.max = range.max;
+        }
         return result;
       }),
     };
@@ -132,9 +138,16 @@ function fieldLocationMessages(field: SaveModuleField): string[] {
   return hasValidBits(field) ? [] : [`起始位必须是 0–${SAVE_BIT_COUNT - 1} 内的整数，长度必须为正整数且不能超出 ${SAVE_BIT_COUNT} 位。`];
 }
 
-/** Maximum unsigned value representable by this global span, as exact decimal text. */
+/** Exactly 32 bits use signed Int32; all other span lengths are unsigned. */
+export function getSaveFieldRange(field: SaveModuleField): { min: string; max: string } {
+  const length = getSaveFieldBitLength(field);
+  if (length === 32) return { min: "-2147483648", max: "2147483647" };
+  return { min: "0", max: ((1n << BigInt(length)) - 1n).toString() };
+}
+
+/** Maximum numeric value representable by this global span, as exact decimal text. */
 export function getSaveFieldCapacity(field: SaveModuleField): string {
-  return ((1n << BigInt(getSaveFieldBitLength(field))) - 1n).toString();
+  return getSaveFieldRange(field).max;
 }
 
 /** Number of source bits in a global field interval, including cross-integer spans. */
@@ -145,16 +158,20 @@ export function getSaveFieldBitLength(field: SaveModuleField): number {
 }
 
 function decimalValue(value: unknown): bigint | undefined {
-  return typeof value === "string" && value.length > 0 && !/[^0-9]/.test(value) ? BigInt(value) : undefined;
+  if (typeof value !== "string") return undefined;
+  const digits = value.startsWith("-") ? value.slice(1) : value;
+  return digits.length > 0 && !/[^0-9]/.test(digits) ? BigInt(value) : undefined;
 }
 
 function fieldMessages(field: SaveModuleField): string[] {
   const messages = fieldLocationMessages(field);
   const min = decimalValue(field.min), max = decimalValue(field.max);
   if (min === undefined || max === undefined || max < min) {
-    messages.push("数值范围必须是非负十进制整数，最小值不能大于最大值。");
-  } else if (hasValidBits(field) && max > BigInt(getSaveFieldCapacity(field))) {
-    messages.push(`最大值不能超过此位段可存储的 ${getSaveFieldCapacity(field)}。`);
+    messages.push("数值范围必须是十进制整数，最小值不能大于最大值。");
+  } else if (hasValidBits(field)) {
+    const range = getSaveFieldRange(field);
+    if (min < BigInt(range.min)) messages.push(`最小值不能小于此位段可存储的 ${range.min}。`);
+    if (max > BigInt(range.max)) messages.push(`最大值不能超过此位段可存储的 ${range.max}。`);
   }
   return messages;
 }
@@ -232,10 +249,14 @@ function assertValues(values: number[]) {
   for (const value of values) assertInt32(value);
 }
 
-/** Show a signed game Int32 as all 32 source bits, highest bit first. */
+function reverseBinary(bits: string): string {
+  return bits.split("").reverse().join("");
+}
+
+/** Show a signed game Int32 as all 32 source bits, lowest bit first. */
 export function formatSaveIntegerBinary(value: number): string {
   assertInt32(value);
-  return BigInt.asUintN(32, BigInt(value)).toString(2).padStart(32, "0");
+  return reverseBinary(BigInt.asUintN(32, BigInt(value)).toString(2).padStart(32, "0"));
 }
 
 /** Concatenate the complete 32 bits of every integer in list order. */
@@ -244,15 +265,16 @@ export function formatSaveBinary(values: number[]): string {
   return values.map(formatSaveIntegerBinary).join("");
 }
 
-/** Show actual source bits, including leading zeros, independently of the declared numeric range. */
+/** Show actual source bits with the field's lowest bit first, independently of its numeric range. */
 export function getSaveFieldBinary(values: number[], field: SaveModuleField): string {
   const length = getSaveFieldBitLength(field);
   return formatSaveBinary(values).slice(field.startBit, field.startBit + length);
 }
 
-/** Read an unsigned global span as exact decimal text, even for more than 53 source bits. */
+/** Read exact decimal text: signed Int32 for exactly 32 bits, unsigned for other lengths. */
 export function readSaveFieldValue(values: number[], field: SaveModuleField): string {
-  return BigInt(`0b${getSaveFieldBinary(values, field)}`).toString();
+  const value = BigInt(`0b${reverseBinary(getSaveFieldBinary(values, field))}`);
+  return (field.length === 32 ? BigInt.asIntN(32, value) : value).toString();
 }
 
 /** Replace only this global span and return 100 signed game Int32 values without mutating the input. */
@@ -268,13 +290,15 @@ export function writeSaveFieldValue(values: number[], field: SaveModuleField, ne
     throw new Error(`字段值必须是 ${field.min}–${field.max} 内的整数；超过安全整数范围时请使用十进制字符串。`);
   }
   const source = formatSaveBinary(values);
-  const binary = replacement.toString(2).padStart(field.length, "0");
+  const storedValue = field.length === 32 ? BigInt.asUintN(32, replacement) : replacement;
+  const binary = reverseBinary(storedValue.toString(2).padStart(field.length, "0"));
   const next = source.slice(0, field.startBit) + binary + source.slice(field.startBit + field.length);
   const result = values.slice();
   const firstInteger = Math.floor(field.startBit / 32);
   const lastInteger = Math.floor((field.startBit + field.length - 1) / 32);
   for (let index = firstInteger; index <= lastInteger; index++) {
-    result[index] = Number(BigInt.asIntN(32, BigInt(`0b${next.slice(index * 32, (index + 1) * 32)}`)));
+    const integerBits = reverseBinary(next.slice(index * 32, (index + 1) * 32));
+    result[index] = Number(BigInt.asIntN(32, BigInt(`0b${integerBits}`)));
   }
   return result;
 }

@@ -248,29 +248,34 @@ async function main() {
     assert.equal(renderedBits(root).length, 3200, 'Sidebar filtering must preserve zero integers and global offsets in the concatenated stream');
     zeroFilter.checked = false; dispatch(zeroFilter, 'change'); await settle();
 
-    await typeNumber(raw(), 5);
-    assert.equal(binary(root), '0'.repeat(29) + '101', 'Decimal edits must immediately update all 32 bits');
+    await typeNumber(raw(), 1); assert.equal(binary(root), '1' + '0'.repeat(31), 'Integer bit zero must appear at the far left');
+    await chooseEndpoints(root, 0, 0); assert.equal(selectedBinary(root), '1');
+    assert.match(text(find(root, node => hasClass(node, 'selected-span'))), /= 1$/);
+    await typeNumber(raw(), 2); assert.equal(binary(root), '01' + '0'.repeat(30));
+    await typeNumber(raw(), 3); assert.equal(binary(root), '11' + '0'.repeat(30));
+    await click(root, '新建位段'); await typeNumber(raw(), 5);
+    assert.equal(binary(root), '101' + '0'.repeat(29), 'Decimal edits must immediately update all 32 LSB-first bits');
     await typeNumber(raw(), -1); assert.equal(binary(root), '1'.repeat(32));
-    await typeNumber(raw(), -2147483648); assert.equal(binary(root), '1' + '0'.repeat(31));
-    await typeNumber(raw(), 2147483647); assert.equal(binary(root), '0' + '1'.repeat(31));
+    await typeNumber(raw(), -2147483648); assert.equal(binary(root), '0'.repeat(31) + '1');
+    await typeNumber(raw(), 2147483647); assert.equal(binary(root), '1'.repeat(31) + '0');
     for (const invalid of ['', '-', '1e', '1.5', '2147483648', '-2147483649']) {
       await typeNumber(raw(), invalid);
-      assert.equal(binary(root), '0' + '1'.repeat(31), 'Invalid decimal drafts must preserve the previous preview');
+      assert.equal(binary(root), '1'.repeat(31) + '0', 'Invalid decimal drafts must preserve the previous preview');
       await change(raw(), invalid); assert.equal(Number(raw().value), 2147483647);
     }
     await change(raw(), 5);
 
-    // Global positions increase left-to-right; the last four bits of integer 0
-    // still decode its low nibble, including a reversed two-click selection.
-    await chooseEndpoints(root, 31, 28); await assertSelection(root, 28, 4);
-    assert.equal(selectedBinary(root), '0101');
+    // Global positions increase left-to-right; the first four bits of integer 0
+    // decode its low nibble, including a reversed two-click selection.
+    await chooseEndpoints(root, 3, 0); await assertSelection(root, 0, 4);
+    assert.equal(selectedBinary(root), '1010');
     await writeDescription(root, '任务阶段'); await click(root, '保存位段');
     let saved = await snapshot(), [low] = fields(saved);
     assert.equal(saved.presetStorage, 'custom-only'); assert.equal(saved.schemaVersion, 2);
-    assert.deepEqual(low, { id: low.id, name: '任务阶段', startBit: 28, length: 4, min: '0', max: '15' });
-    await click(root, '新建位段'); await chooseEndpoints(root, 24, 27); await assertSelection(root, 24, 4);
+    assert.deepEqual(low, { id: low.id, name: '任务阶段', startBit: 0, length: 4, min: '0', max: '15' });
+    await click(root, '新建位段'); await chooseEndpoints(root, 4, 7); await assertSelection(root, 4, 4);
     await writeDescription(root, '角色等级'); await click(root, '保存位段');
-    await click(root, '新建位段'); await chooseEndpoints(root, 0, 0); await assertSelection(root, 0, 1);
+    await click(root, '新建位段'); await chooseEndpoints(root, 31, 31); await assertSelection(root, 31, 1);
     await writeDescription(root, '完成标记'); await click(root, '保存位段');
     assert.equal(Number(raw().value), 5, 'Saving definitions must preserve the decimal preview');
 
@@ -288,13 +293,13 @@ async function main() {
     assert.deepEqual([crossing.startBit, crossing.length, crossing.max], [60, 8, '255']);
     for (const position of [60, 63, 64, 67]) assert.ok(hasClass(bit(root, position), 'defined'), 'Both integer rows must mark the saved crossing');
     assert.equal(hasClass(bit(root, 59), 'defined'), false); assert.equal(hasClass(bit(root, 68), 'defined'), false);
-    await change(raw(), 10); await selectInteger(root, 2); await change(raw(), -2147483648);
-    assert.equal(selectedBinary(root), '10101000', 'Cross-integer decoding must concatenate the first tail before the second head');
+    await change(raw(), -2147483648); await selectInteger(root, 2); await change(raw(), 10);
+    assert.equal(selectedBinary(root), '00010101', 'Cross-integer decoding must keep each row LSB first and preserve list order');
     assert.match(text(segment(root, '跨整数状态')), /= 168/);
     await selectInteger(root, 99); assert.ok(segment(root, '跨整数状态'));
     assert.equal(Number(input(root, '起始位').value), 60); assert.equal(Number(input(root, '位段长度').value), 8);
     dispatch(segment(root, '跨整数状态'), 'click'); await settle(); await assertSelection(root, 60, 8);
-    assert.equal(selectedBinary(root), '10101000', 'Selecting a saved crossing must not truncate it to an active integer');
+    assert.equal(selectedBinary(root), '00010101', 'Selecting a saved crossing must not truncate it to an active integer');
 
     await selectInteger(root, 2); await click(root, '新建位段'); await chooseEndpoints(root, 80, 83);
     await writeDescription(root, '临时选择'); await click(root, '保存位段'); await snapshot();
@@ -328,13 +333,13 @@ async function main() {
     });
     assert.deepEqual(afterPendingSave.filter(field => field.id !== low.id), beforePendingSave.filter(field => field.id !== low.id),
       'Saving the preserved A draft must update only A');
-    await unrelatedHistory.undo(); await settle(); await assertSelection(root, 28, 4);
+    await unrelatedHistory.undo(); await settle(); await assertSelection(root, 0, 4);
     assert.equal(control(root, '位段说明').value, '任务阶段');
     assert.equal(String(input(root, '位段最小值').value), '0'); assert.equal(String(input(root, '位段最大值').value), '15');
     await unrelatedHistory.redo(); await settle(); await assertSelection(root, 40, 5);
     assert.equal(control(root, '位段说明').value, '任务未保存草稿');
     assert.equal(String(input(root, '位段最小值').value), '1'); assert.equal(String(input(root, '位段最大值').value), '17');
-    await unrelatedHistory.undo(); await settle(); await assertSelection(root, 28, 4);
+    await unrelatedHistory.undo(); await settle(); await assertSelection(root, 0, 4);
     assert.equal(control(root, '位段说明').value, '任务阶段');
     await selectInteger(root, 0); await click(root, '新建位段'); await chooseEndpoints(root, 26, 33);
     await writeDescription(root, '跨边界重叠'); assert.ok(saveButton(root).props.disabled); assert.match(text(root), /重叠/);
@@ -366,13 +371,13 @@ async function main() {
     assert.match(text(segment(root, '完整64位')), /= 18446744073709551615/);
 
     await selectInteger(root, 99); await typeNumber(raw(), -2147483648);
-    assert.equal(binary(root, 99), '1' + '0'.repeat(31));
-    await click(root, '新建位段'); await chooseEndpoints(root, 3168, 3168); await assertSelection(root, 3168, 1);
+    assert.equal(binary(root, 99), '0'.repeat(31) + '1');
+    await click(root, '新建位段'); await chooseEndpoints(root, 3199, 3199); await assertSelection(root, 3199, 1);
     await writeDescription(root, '末项符号'); await click(root, '保存位段');
     assert.ok(segment(root, '任务阶段')); assert.ok(segment(root, '完整64位')); assert.ok(segment(root, '末项符号'));
     await selectInteger(root, 0); assert.equal(Number(raw().value), 5);
-    dispatch(segment(root, '任务阶段'), 'click'); await settle(); await assertSelection(root, 28, 4);
-    assert.equal(control(root, '位段说明').value, '任务阶段'); assert.equal(selectedBinary(root), '0101');
+    dispatch(segment(root, '任务阶段'), 'click'); await settle(); await assertSelection(root, 0, 4);
+    assert.equal(control(root, '位段说明').value, '任务阶段'); assert.equal(selectedBinary(root), '1010');
     await change(input(root, '位段最大值'), '9'); await writeDescription(root, '任务进度'); await click(root, '保存位段');
     saved = await snapshot(); assert.equal(fields(saved).length, 6);
     assert.equal(fields(saved)[0].name, '任务进度'); assert.equal(fields(saved)[0].max, '9');
@@ -389,8 +394,8 @@ async function main() {
     const history = vue.unref(instance.history.current); history.finish();
     const historyBeforePreview = history.entries.value.length;
     await typeNumber(raw(), -2147483483);
-    assert.equal(binary(root), '10000000000000000000000010100101'); assert.equal(selectedBinary(root), '0101');
-    dispatch(segment(root, '完成标记'), 'click'); await settle(); await assertSelection(root, 0, 1); assert.equal(selectedBinary(root), '1');
+    assert.equal(binary(root), '10100101000000000000000000000001'); assert.equal(selectedBinary(root), '1010');
+    dispatch(segment(root, '完成标记'), 'click'); await settle(); await assertSelection(root, 31, 1); assert.equal(selectedBinary(root), '1');
 
     async function loadFile(marker, name) {
       const fileInput = input(root, '导入存档 GIA 文件'); fileInput.value = 'selected';
@@ -399,20 +404,20 @@ async function main() {
     }
     await loadFile(1, '测试存档.gia');
     assert.equal(importCalls, 1); assert.equal(Number(raw().value), -2147483643);
-    assert.equal(binary(root), '1' + '0'.repeat(28) + '101');
+    assert.equal(binary(root), '101' + '0'.repeat(28) + '1');
     assert.equal(select(root, '选择存档实例').props.options.length, 4);
     assert.ok(segment(root, '跨整数状态')); assert.ok(segment(root, '完整64位'));
-    await selectInteger(root, 99); assert.equal(Number(raw().value), 1); assert.equal(binary(root, 99), '0'.repeat(31) + '1');
+    await selectInteger(root, 99); assert.equal(Number(raw().value), 1); assert.equal(binary(root, 99), '1' + '0'.repeat(31));
     select(root, '选择存档实例').props.choose(3); await settle();
-    assert.equal(Number(raw().value), -2147483648); assert.equal(binary(root, 99), '1' + '0'.repeat(31));
+    assert.equal(Number(raw().value), -2147483648); assert.equal(binary(root, 99), '0'.repeat(31) + '1');
     assert.match(text(segment(root, '完整64位')), /= 18446744073709551615/, 'GIA values must produce an exact long-span decimal');
     dispatch(segment(root, '完整64位'), 'click'); await settle(); await assertSelection(root, 96, 64);
     assert.equal(selectedBinary(root), '1'.repeat(64));
     await selectInteger(root, 0); assert.equal(Number(raw().value), -1);
     select(root, '选择存档实例').props.choose(1); await settle();
-    assert.equal(Number(raw().value), 42); assert.equal(binary(root), '0'.repeat(26) + '101010');
+    assert.equal(Number(raw().value), 42); assert.equal(binary(root), '010101' + '0'.repeat(26));
     await selectInteger(root, 1); assert.equal(Number(raw().value), -1); assert.equal(binary(root, 1), '1'.repeat(32));
-    assert.match(text(segment(root, '跨整数状态')), /= 240/);
+    assert.match(text(segment(root, '跨整数状态')), /= 15/);
     select(root, '选择存档实例').props.choose(0); await settle();
     await selectInteger(root, 0); await change(raw(), 123); await click(root, '恢复导入值'); assert.equal(Number(raw().value), -2147483643);
     await change(raw(), 77); await loadFile(2, '坏存档.gia');
@@ -446,8 +451,8 @@ async function main() {
     dispatch(segment(reopened.root, '完整64位'), 'click'); await settle(); await assertSelection(reopened.root, 96, 64);
     assert.equal(selectedBinary(reopened.root), '0'.repeat(64), 'Reopening retains long definitions with a fresh integer preview');
 
-    // v1 bit 0 means a local low bit. Migration flips its position into the
-    // global left-to-right numbering without changing the bits it describes.
+    // v1 bit 0 means a local low bit. Migration retains that low-bit offset
+    // inside the global LSB-first stream without changing the bits it describes.
     const legacy = { kind: 'DSFGSaveModules', schemaVersion: 1, presetStorage: 'custom-only', presets: [
       { id: 'legacy-quest', name: '旧任务模块', fields: [{ id: 'legacy-low', name: '历史任务', integerIndex: 0, startBit: 0, endBit: 3, min: 0, max: 9 }] },
       { id: 'legacy-role', name: '旧角色模块', fields: [{ id: 'legacy-high', name: '历史角色', integerIndex: 1, startBit: 4, endBit: 7, min: 0, max: 15 }] },
@@ -456,12 +461,12 @@ async function main() {
     const existing = mount('legacy-save-workspace'); await settle();
     assert.ok(segment(existing.root, '历史任务')); assert.ok(segment(existing.root, '历史角色')); assert.equal(forbiddenLabels.test(text(existing.root)), false);
     await existing.instance.section.flush(); assert.equal(files.get('/legacy-save-workspace/SaveModules.json'), legacyBytes, 'Loading migration must not write the old file');
-    dispatch(segment(existing.root, '历史任务'), 'click'); await settle(); await assertSelection(existing.root, 28, 4);
-    await change(input(existing.root, '十进制整数'), 5); assert.equal(selectedBinary(existing.root), '0101');
+    dispatch(segment(existing.root, '历史任务'), 'click'); await settle(); await assertSelection(existing.root, 0, 4);
+    await change(input(existing.root, '十进制整数'), 5); assert.equal(selectedBinary(existing.root), '1010');
     await writeDescription(existing.root, '历史任务新版'); await click(existing.root, '保存位段'); await existing.instance.section.flush();
     const resaved = JSON.parse(files.get('/legacy-save-workspace/SaveModules.json')); assert.equal(resaved.schemaVersion, 2);
     assert.deepEqual(resaved.presets.map(module => [module.id, module.name]), legacy.presets.map(module => [module.id, module.name]));
-    assert.deepEqual(resaved.presets[1].fields[0], { id: 'legacy-high', name: '历史角色', startBit: 56, length: 4, min: '0', max: '15' });
+    assert.deepEqual(resaved.presets[1].fields[0], { id: 'legacy-high', name: '历史角色', startBit: 36, length: 4, min: '0', max: '15' });
 
     // Semantic invalid legacy entries stay repairable, including a fractional
     // integer index that must never become a valid global offset by accident.
@@ -504,14 +509,107 @@ async function main() {
     await orphanHistory.undo(); await settle(); await orphans.instance.section.flush();
     assert.equal(JSON.stringify(JSON.parse(files.get(orphanFile)).presets[0].fields), beforeOrphanDelete, 'Deleting invalid spans must support exact history restoration');
 
+    // Existing schema2 coordinates stay intact: the saved start-0 field now
+    // reads integer zero's actual low bit, with no redefinition or save needed.
+    const lowBitFile = '/lsb-bit-workspace/SaveModules.json';
+    const lowBitBytes = JSON.stringify({ kind: 'DSFGSaveModules', schemaVersion: 2, presetStorage: 'custom-only', presets: [
+      { id: 'low-bit-module', name: '已有定义', fields: [
+        { id: 'low-bit-field', name: '最低位', startBit: 0, length: 1, min: '0', max: '1' },
+      ] },
+    ] });
+    files.set(lowBitFile, lowBitBytes);
+    const lowBitEditor = mount('lsb-bit-workspace'); await settle();
+    await change(input(lowBitEditor.root, '十进制整数'), 1);
+    assert.equal(binary(lowBitEditor.root), '1' + '0'.repeat(31)); assert.match(text(segment(lowBitEditor.root, '最低位')), /= 1$/);
+    dispatch(segment(lowBitEditor.root, '最低位'), 'click'); await settle(); await assertSelection(lowBitEditor.root, 0, 1);
+    await change(input(lowBitEditor.root, '十进制整数'), 2);
+    assert.equal(binary(lowBitEditor.root), '01' + '0'.repeat(30)); assert.match(text(segment(lowBitEditor.root, '最低位')), /= 0$/);
+    await change(input(lowBitEditor.root, '位段长度'), 2); await change(input(lowBitEditor.root, '十进制整数'), 3);
+    assert.equal(selectedBinary(lowBitEditor.root), '11');
+    assert.match(text(find(lowBitEditor.root, node => hasClass(node, 'selected-span'))), /= 3$/);
+    await lowBitEditor.instance.section.flush(); assert.equal(files.get(lowBitFile), lowBitBytes, 'LSB display changes must not rewrite saved schema2 coordinates');
+
+    // Exactly 32 selected bits use signed Int32, including spans which begin
+    // inside one source integer and end inside the next. Other lengths retain
+    // unsigned values and their exact decimal ranges.
+    const signedFile = '/signed-save-workspace/SaveModules.json';
+    const oldSignedBytes = JSON.stringify({ kind: 'DSFGSaveModules', schemaVersion: 2, presetStorage: 'custom-only', presets: [
+      { id: 'signed-module', name: '旧32位存档', fields: [
+        { id: 'signed-field', name: '旧32位范围', startBit: 0, length: 32, min: '0', max: '4294967295' },
+      ] },
+    ] }, null, 3);
+    files.set(signedFile, oldSignedBytes);
+    const signedEditor = mount('signed-save-workspace'); await settle();
+    const signedRoot = signedEditor.root;
+    const signedRange = () => [String(input(signedRoot, '位段最小值').value), String(input(signedRoot, '位段最大值').value)];
+    const signedValue = expected => assert.match(text(find(signedRoot, node => hasClass(node, 'selected-span'))), new RegExp('= ' + expected + '$'));
+    dispatch(segment(signedRoot, '旧32位范围'), 'click'); await settle();
+    assert.deepEqual(signedRange(), ['-2147483648', '2147483647']);
+    await signedEditor.instance.section.flush(); assert.equal(files.get(signedFile), oldSignedBytes, 'Displaying migrated signed full range must not write source bytes');
+    await change(input(signedRoot, '十进制整数'), -1); await chooseEndpoints(signedRoot, 0, 31);
+    await assertSelection(signedRoot, 0, 32); assert.equal(selectedBinary(signedRoot), '1'.repeat(32)); signedValue('-1');
+    assert.deepEqual(signedRange(), ['-2147483648', '2147483647']);
+    const signedSummary = find(signedRoot, node => node.tag === 'summary');
+    assert.equal(signedSummary.props.title, '-2147483648–2147483647'); assert.match(text(signedSummary), /-2147483648–2147483647/);
+    for (const [length, min, max, value] of [
+      [1, '0', '1', '1'], [31, '0', '2147483647', '2147483647'],
+      [32, '-2147483648', '2147483647', '-1'], [33, '0', '8589934591', '4294967295'],
+      [64, '0', '18446744073709551615', '4294967295'], [32, '-2147483648', '2147483647', '-1'],
+    ]) {
+      await change(input(signedRoot, '位段长度'), length); await assertSelection(signedRoot, 0, length);
+      assert.deepEqual(signedRange(), [min, max], 'Full range must follow both physical boundaries when changing to ' + length + ' bits');
+      signedValue(value); assert.ok(!saveButton(signedRoot).props.disabled);
+    }
+    await change(input(signedRoot, '位段最小值'), '3'); await change(input(signedRoot, '位段最大值'), '9');
+    await change(input(signedRoot, '位段长度'), 33); assert.deepEqual(signedRange(), ['3', '9'], 'Valid custom ranges survive length changes');
+    await change(input(signedRoot, '位段长度'), 32); assert.deepEqual(signedRange(), ['3', '9']);
+    await change(input(signedRoot, '位段最小值'), '-2147483649'); assert.ok(saveButton(signedRoot).props.disabled);
+    await change(input(signedRoot, '位段最小值'), '-2147483648');
+    for (const max of ['2147483648', '4294967295']) {
+      await change(input(signedRoot, '位段最大值'), max); assert.ok(saveButton(signedRoot).props.disabled, '32-bit range must reject unsigned/out-of-bounds maximum');
+    }
+    await change(input(signedRoot, '位段最大值'), '2147483647'); assert.ok(!saveButton(signedRoot).props.disabled);
+    for (const value of [-2147483648, -1, 0, 2147483647]) {
+      await change(input(signedRoot, '十进制整数'), value); signedValue(String(value));
+    }
+    await change(input(signedRoot, '十进制整数'), -1); await writeDescription(signedRoot, '完整32位');
+    await signedEditor.instance.section.flush(); assert.equal(files.get(signedFile), oldSignedBytes, 'Preview and draft changes must not persist migrated definitions');
+    await click(signedRoot, '保存位段'); await signedEditor.instance.section.flush();
+    assert.deepEqual(fields(JSON.parse(files.get(signedFile)))[0], {
+      id: 'signed-field', name: '完整32位', startBit: 0, length: 32, min: '-2147483648', max: '2147483647',
+    });
+    assert.match(text(segment(signedRoot, '完整32位')), /= -1$/);
+    await change(input(signedRoot, '位段最小值'), '-10'); await change(input(signedRoot, '位段最大值'), '10'); await click(signedRoot, '保存位段');
+    await change(input(signedRoot, '十进制整数'), -11); assert.match(text(segment(signedRoot, '完整32位').parent), /值 -11 超出范围 -10–10/);
+    await change(input(signedRoot, '十进制整数'), -1); assert.equal(/超出范围/.test(text(segment(signedRoot, '完整32位').parent)), false);
+    await change(input(signedRoot, '位段长度'), 33); assert.deepEqual(signedRange(), ['0', '10'], 'Unsigned lengths clamp a negative custom minimum to zero');
+    await change(input(signedRoot, '位段最小值'), '-1'); assert.ok(saveButton(signedRoot).props.disabled, 'Non-32-bit fields still reject negative ranges');
+
+    await selectInteger(signedRoot, 1); await change(input(signedRoot, '十进制整数'), -268435456);
+    await selectInteger(signedRoot, 2); await change(input(signedRoot, '十进制整数'), 268435455);
+    await click(signedRoot, '新建位段'); await chooseEndpoints(signedRoot, 91, 60); await assertSelection(signedRoot, 60, 32);
+    assert.deepEqual(signedRange(), ['-2147483648', '2147483647']); assert.equal(selectedBinary(signedRoot), '1'.repeat(32)); signedValue('-1');
+    await writeDescription(signedRoot, '跨整数32位'); await click(signedRoot, '保存位段');
+    assert.match(text(segment(signedRoot, '跨整数32位')), /= -1$/);
+    await selectInteger(signedRoot, 1); await change(input(signedRoot, '十进制整数'), 0);
+    await selectInteger(signedRoot, 2); await change(input(signedRoot, '十进制整数'), 134217728); signedValue('-2147483648');
+    await selectInteger(signedRoot, 1); await change(input(signedRoot, '十进制整数'), -268435456);
+    await selectInteger(signedRoot, 2); await change(input(signedRoot, '十进制整数'), 134217727); signedValue('2147483647');
+    await signedEditor.instance.section.flush();
+    assert.equal(fields(JSON.parse(files.get(signedFile))).length, 2);
+    assert.deepEqual(fields(JSON.parse(files.get(signedFile)))[1], {
+      id: fields(JSON.parse(files.get(signedFile)))[1].id, name: '跨整数32位', startBit: 60, length: 32, min: '-2147483648', max: '2147483647',
+    });
+
     files.set('/corrupt-save-workspace/SaveModules.json', 'not JSON'); const corrupt = mount('corrupt-save-workspace'); await settle();
     assert.match(text(corrupt.root), /存档模块数据不完整.*原文件已保留/); assert.ok(saveButton(corrupt.root).props.disabled);
     await corrupt.instance.section.flush(); assert.equal(files.get('/corrupt-save-workspace/SaveModules.json'), 'not JSON');
-    assert.ok(writes.every(file => ['/save-module-editor-test/SaveModules.json', '/legacy-save-workspace/SaveModules.json', orphanFile].includes(file)));
-    console.log('PASS signed decimal-to-32-bit binary previews and invalid decimal drafts');
+    assert.ok(writes.every(file => ['/save-module-editor-test/SaveModules.json', '/legacy-save-workspace/SaveModules.json', orphanFile, signedFile].includes(file)));
+    console.log('PASS LSB-first 1/2/3 and signed decimal-to-32-bit binary previews, bit-zero reads and invalid decimal drafts');
     console.log('PASS global left-to-right positions, reversed endpoints and drag crossing integers, pending draft preservation and cross-row highlights');
     console.log('PASS pending saved-span description/position/range survive unrelated deletion and history; saving and undo/redo refresh only the changed definition');
     console.log('PASS spans longer than 32 bits, exact 64-bit values/ranges, overlap and 3200-bit boundary validation');
+    console.log('PASS exactly-32-bit signed previews/ranges, cross-integer negative/boundary values, full-range length transitions and old full-range migration without load writes');
     console.log('PASS all-span listing, four GIA candidates, exact long-span GIA decode, restore and failed-import preservation without storage/history changes');
     console.log('PASS persistence, crossing undo/redo, save retry, isolation, reopen, v1 migration, invalid-span repair/deletion and corrupt-file preservation');
   } finally {

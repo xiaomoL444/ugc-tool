@@ -159,7 +159,7 @@ async function main() {
       }
       if (path.basename(filename) === '测试存档模版数据导出.gia') {
         assert.equal(result.candidates.length, 4);
-        assert.deepEqual(result.candidates[0].values, [...Array(99).fill(0), 1]);
+        assert.deepEqual(result.candidates[0].values, [1, ...Array(99).fill(0)]);
         result.candidates.slice(1).forEach(candidate => assert.deepEqual(candidate.values, zeros()));
       }
       console.log(`PASS ${path.basename(filename)}: ${result.candidates.length} lists, each 100 signed int32 values`);

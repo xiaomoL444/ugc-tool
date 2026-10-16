@@ -4,7 +4,7 @@ import type { EntityPreset } from "../../EntityPresetEditor/entityPresets";
 import { studioEditorActiveKey } from "../../studioSessionHistory";
 
 const props = defineProps<{ presets: EntityPreset[]; speaker: string; error: string }>();
-const emit = defineEmits<{ select: [talker: string]; close: []; retry: [] }>();
+const emit = defineEmits<{ select: [talker: string, subtitle: string]; close: []; retry: [] }>();
 const dialog = ref<HTMLDialogElement>();
 const editorActive = inject(studioEditorActiveKey, () => true);
 const search = ref("");
@@ -19,7 +19,7 @@ watch(editorActive, active => {
 }, { flush: "sync" });
 onBeforeUnmount(() => dialog.value?.close());
 function select(preset: EntityPreset) {
-  emit("select", preset.talker);
+  emit("select", preset.talker, preset.subtitle);
   dialog.value?.close();
 }
 </script>
@@ -38,7 +38,7 @@ function select(preset: EntityPreset) {
           </button>
           <p v-if="!results.length" class="empty-message">{{ namedPresets.length ? '没有匹配的实体，试试其他代号或人名。' : '暂无已填写人名的预设实体，可在「预设」中添加。' }}</p>
         </div>
-        <p class="picker-hint">选择后填入人名，副标题保持不变。</p>
+        <p class="picker-hint">选择后覆盖说话人和副标题；预设副标题为空时清空原副标题。</p>
       </div>
     </dialog>
   </Teleport>

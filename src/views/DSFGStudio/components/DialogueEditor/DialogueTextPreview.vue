@@ -41,8 +41,9 @@ function openSpeakerPicker(line: TextPreviewLine) {
   speakerPickerNodeId.value = line.nodeId;
   speakerPickerClipId.value = line.clipId;
 }
-function selectSpeaker(talker: string) {
+function selectSpeaker(talker: string, subtitle: string) {
   emit("edit", { nodeId: speakerPickerNodeId.value, clipId: speakerPickerClipId.value, field: "speaker", value: talker });
+  emit("edit", { nodeId: speakerPickerNodeId.value, clipId: speakerPickerClipId.value, field: "subtitle", value: subtitle });
 }
 const speakerAliases = computed(() => {
   const aliases = new Map<string, string>();

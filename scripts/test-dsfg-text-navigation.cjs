@@ -162,13 +162,15 @@ async function main() {
     for (const clipId of ["primary", "secondary"]) {
       context.line = { nodeId: "B", clipId };
       vm.runInContext(directive(lineElement, "on", "pick-speaker").exp.content, context);
-      context.selectSpeaker(`speaker-${clipId}`);
+      context.selectSpeaker(`speaker-${clipId}`, clipId === "primary" ? "预设副标题" : "");
       vm.runInContext(directive(lineElement, "on", "remove").exp.content, context);
       keys.push(vm.runInContext(directive(slot, "bind", "key").exp.content, context));
     }
     assert.deepEqual(events, [
       ["edit", { nodeId: "B", clipId: "primary", field: "speaker", value: "speaker-primary" }],
+      ["edit", { nodeId: "B", clipId: "primary", field: "subtitle", value: "预设副标题" }],
       ["edit", { nodeId: "B", clipId: "secondary", field: "speaker", value: "speaker-secondary" }],
+      ["edit", { nodeId: "B", clipId: "secondary", field: "subtitle", value: "" }],
     ]);
     assert.deepEqual(actions, [
       { type: "delete", nodeId: "B", clipId: "primary" },

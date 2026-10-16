@@ -251,6 +251,24 @@ async function main() {
       assert.equal(model.decodeWalkTalkProject(h.data.get(aPath)).entries[0].continueDelay, "-");
       assert.equal(h.saveStatus.value, "已自动保存");
     });
+    await test("appended and inserted defaults survive save, reopen and export alongside legacy values", async () => {
+      const h = await open();
+      const legacy = h.project.value.entries[0];
+      Object.assign(legacy, { style: "Default", continueDelay: "0.50" });
+      const appended = model.addWalkTalkEntry(h.project.value);
+      const inserted = model.addWalkTalkEntry(h.project.value, legacy.id);
+      assert.deepEqual(h.project.value.entries.map(entry => entry.id), [legacy.id, inserted.id, appended.id]);
+      await h.flush();
+      await h.selectFile("b.json"); await h.selectFile("a.json");
+      assert.deepEqual(h.project.value.entries.map(entry => [entry.style, entry.continueDelay]), [
+        ["Default", "0.50"], ["NOLOC_Default", "2.00"], ["NOLOC_Default", "2.00"],
+      ]);
+      h.exportVariables();
+      const rows = JSON.parse(h.downloads[0][0]).value[0].value.value;
+      assert.deepEqual(rows.map(row => [row.value.value[0].value, row.value.value[4].value]), [
+        ["Default", "0.50"], ["NOLOC_Default", "2.00"], ["NOLOC_Default", "2.00"],
+      ]);
+    });
     await test("switch flushes old content before reading new file and retains immutable workspace paths", async () => {
       const h = await open(); h.project.value.entries[0].content = "edited A";
       h.workspace.value = "other"; await h.selectFile("b.json");
@@ -303,7 +321,7 @@ async function main() {
       const event = { ctrlKey: true, metaKey: false, key: "s", repeat: false, preventDefault: () => prevented++ };
       h.active.value = false;
       await h.saveShortcut(event); assert.equal(prevented, 0);
-      assert.equal(JSON.parse(h.data.get(aPath)).entries[0].continueDelay, "0.00");
+      assert.equal(JSON.parse(h.data.get(aPath)).entries[0].continueDelay, "2.00");
       h.active.value = true;
       await h.saveShortcut(event); assert.equal(prevented, 1); assert.equal(h.downloads.length, 0);
       assert.equal(JSON.parse(h.data.get(aPath)).entries[0].continueDelay, "7.25");

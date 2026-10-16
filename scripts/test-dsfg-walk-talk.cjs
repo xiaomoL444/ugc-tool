@@ -48,34 +48,38 @@ async function main() {
       assert.equal(output.type, "Struct"); assert.equal(output.structId, sample.structId);
       assert.deepEqual(output.value, [{ param_type: "StructList", value: { structId: "1077936168", value: [] } }]);
     });
-    test("new dialogue has all six fields and exact source timing defaults", () => {
+    test("new dialogue has all six fields with the editor's default style and two-second delay", () => {
       const project = source();
       assert.deepEqual(model.WALK_TALK_FIELDS, definition.value.map(field => field.key));
-      assert.equal(project.entries[0].continueDelay, "0.00");
+      assert.equal(project.entries[0].continueDelay, "2.00");
       assert.equal(project.entries[0].autoContinue, undefined);
       assert.equal(project.entries[0].params, "");
-      assert.equal(project.entries[0].style, "Default");
+      assert.equal(project.entries[0].style, "NOLOC_Default");
       const expected = JSON.parse(JSON.stringify(sample.value[0].value.value[0].value));
-      expected.value[0].value = "Default";
+      expected.value[0].value = "NOLOC_Default";
+      expected.value[4].value = "2.00";
       assert.deepEqual(items(exported(project))[0], expected);
     });
-    test("walk-talk has its own Default option and uses it for append and insert", () => {
-      assert.equal(styles.DEFAULT_WALK_TALK_STYLE, "Default");
-      assert.deepEqual(styles.WALK_TALK_STYLE_OPTIONS, [{ value: "Default", label: "Default" }]);
+    test("walk-talk uses NOLOC_Default and a two-second delay for append and insert", () => {
+      assert.equal(styles.DEFAULT_WALK_TALK_STYLE, "NOLOC_Default");
+      assert.deepEqual(styles.WALK_TALK_STYLE_OPTIONS, [{ value: "NOLOC_Default", label: "默认样式" }]);
       const project = source();
       model.addWalkTalkEntry(project, project.entries[0].id);
       model.addWalkTalkEntry(project);
-      assert.ok(project.entries.every(entry => entry.style === "Default"));
-      assert.ok(items(exported(project)).every(entry => entry.value[0].value === "Default"));
+      assert.ok(project.entries.every(entry => entry.style === "NOLOC_Default" && entry.continueDelay === "2.00"));
+      assert.ok(items(exported(project)).every(entry => entry.value[0].value === "NOLOC_Default" && entry.value[4].value === "2.00"));
     });
-    test("style save/reload preserves Default and existing legacy values without silently replacing them", () => {
-      const project = source(4);
-      const values = ["Default", "", "Default_UI", "自定义旧样式"];
-      project.entries.forEach((entry, index) => { entry.style = values[index]; });
+    test("save/reload preserves new defaults, legacy styles and previously configured delays", () => {
+      const project = source(5);
+      const values = ["NOLOC_Default", "Default", "", "Default_UI", "自定义旧样式"];
+      const delays = ["2.00", "0.00", "0.50", "7.25", "-1.00"];
+      project.entries.forEach((entry, index) => { entry.style = values[index]; entry.continueDelay = delays[index]; });
       const saved = model.encodeWalkTalkProject(project);
       const restored = model.decodeWalkTalkProject(saved);
       assert.deepEqual(restored.entries.map(entry => entry.style), values);
+      assert.deepEqual(restored.entries.map(entry => entry.continueDelay), delays);
       assert.deepEqual(items(exported(restored)).map(entry => entry.value[0].value), values);
+      assert.deepEqual(items(exported(restored)).map(entry => entry.value[4].value), delays);
       assert.equal(model.encodeWalkTalkProject(project), saved);
     });
     test("styles, Unicode, multiline text, floats and integer lists populate the ordered fields", () => {
@@ -180,13 +184,18 @@ async function main() {
         assert.deepEqual(model.decodeWalkTalkProject(model.encodeWalkTalkProject(migrated)), migrated);
         const fields = items(exported(migrated))[0].value;
         assert.equal(fields.length, 6);
+        assert.equal(fields[0].value, "Default");
+        assert.equal(fields[4].value, "0.50");
         assert.deepEqual(fields[5].value, ["1", "2"]);
         assert.ok(!JSON.stringify(exported(migrated)).includes("legacyAutoContinue"));
       }
     });
     test("new wrapper uses the actual datas field and supplied variable shape", () => {
       const project = source(2);
-      project.entries.forEach(entry => { entry.style = ""; });
+      project.entries.forEach((entry, index) => {
+        entry.style = "";
+        entry.continueDelay = sample.value[0].value.value[index].value.value[4].value;
+      });
       assert.deepEqual(exported(project), sample);
       const parsed = createWalkTalkStructWorkspace(project.structIds).createDefault(project.structIds.sequence);
       assert.equal(parsed.value.datas.itemCount, 0);

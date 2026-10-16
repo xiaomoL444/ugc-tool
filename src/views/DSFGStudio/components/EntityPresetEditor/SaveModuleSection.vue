@@ -4,7 +4,7 @@ import StudioSelectField from "../StudioSelectField.vue";
 import { useSaveModules } from "./useSaveModules";
 import {
   SAVE_INTEGER_COUNT, SAVE_BIT_COUNT, createSaveModule, createSaveModuleField,
-  formatSaveIntegerBinary, getSaveFieldBinary, getSaveFieldBitLength, getSaveFieldCapacity,
+  formatSaveIntegerBinary, getSaveFieldBinary, getSaveFieldBitLength, getSaveFieldRange,
   readSaveFieldValue, validateSaveModules, type SaveModule, type SaveModuleField,
 } from "./saveModules";
 import { importSaveModuleGia, type SaveModuleGiaCandidate } from "./saveModuleGia";
@@ -37,7 +37,7 @@ const editingEntry = computed(() => entries.value.find(entry => entry.key === ed
 const draft = ref<SaveModuleField>(createSaveModuleField());
 const draftTouched = ref(false), selectionAnchor = ref<number | null>(null);
 let dragAnchor: number | null = null, dragMoved = false, suppressClick = false;
-const draftCapacity = computed(() => { try { return getSaveFieldCapacity(draft.value); } catch { return null; } });
+const draftRange = computed(() => { try { return getSaveFieldRange(draft.value); } catch { return null; } });
 const draftBinary = computed(() => { try { return getSaveFieldBinary(previewValues.value, draft.value); } catch { return ""; } });
 const draftValue = computed(() => { try { return readSaveFieldValue(previewValues.value, draft.value); } catch { return null; } });
 const draftIssues = computed(() => {
@@ -50,7 +50,7 @@ const draftIssues = computed(() => {
 });
 const canSave = computed(() => ready.value && draft.value.name.trim() && !draftIssues.value.length && (!editingEntry.value || editingEntry.value.editable));
 const causeMessage = (cause: unknown) => cause instanceof Error ? cause.message : "无法读取存档，请检查文件内容。";
-const unsignedText = (value: string) => /^\d+$/.test(value);
+const integerText = (value: string) => /^-?\d+$/.test(value);
 function compactNumber(value: string) { return value.length > 35 ? `${value.slice(0, 18)}…${value.slice(-10)}` : value; }
 function firstFreeBit(start: number) {
   for (let offset = 0; offset < SAVE_BIT_COUNT; offset++) {
@@ -97,13 +97,16 @@ function repairSegment(key: string) {
   draftTouched.value = true;
 }
 function setSpan(start: number, length: number) {
-  const oldCapacity = draftCapacity.value;
+  const oldRange = draftRange.value;
   draft.value.startBit = start; draft.value.length = length; draftTouched.value = true;
-  const capacity = draftCapacity.value;
-  if (capacity !== null) {
+  const range = draftRange.value;
+  if (range !== null) {
     delete draft.value.legacyLocation;
-    if (draft.value.max === oldCapacity || (unsignedText(draft.value.max) && BigInt(draft.value.max) > BigInt(capacity))) draft.value.max = capacity;
-    if (unsignedText(draft.value.min) && unsignedText(draft.value.max) && BigInt(draft.value.min) > BigInt(draft.value.max)) draft.value.min = "0";
+    for (const key of ["min", "max"] as const) {
+      const value = draft.value[key];
+      if (value === oldRange?.[key] || (integerText(value) && (BigInt(value) < BigInt(range.min) || BigInt(value) > BigInt(range.max)))) draft.value[key] = range[key];
+    }
+    if (integerText(draft.value.min) && integerText(draft.value.max) && BigInt(draft.value.min) > BigInt(draft.value.max)) draft.value.min = range.min;
   }
 }
 function chooseBit(bit: number, event: MouseEvent) {
@@ -128,7 +131,7 @@ onMounted(() => { if (typeof window !== "undefined") { window.addEventListener("
 onBeforeUnmount(() => { if (typeof window !== "undefined") { window.removeEventListener("pointerup", finishDrag); window.removeEventListener("pointercancel", cancelDrag); window.removeEventListener("blur", cancelDrag); } });
 function selectedBit(bit: number) { return bit >= draft.value.startBit && bit <= endBit(draft.value); }
 function definedBit(bit: number) { return entries.value.some(entry => validLocation(entry.field) && bit >= entry.field.startBit && bit <= endBit(entry.field)); }
-function bitTitle(bit: number) { return [`全局位 ${bit} · 整数 [${Math.floor(bit / 32)}] 的第 ${bit % 32} 位（从左数）`, ...entries.value.filter(entry => validLocation(entry.field) && bit >= entry.field.startBit && bit <= endBit(entry.field)).map(entry => entry.field.name)].join(" · "); }
+function bitTitle(bit: number) { return [`全局位 ${bit} · 整数 [${Math.floor(bit / 32)}] 的 bit ${bit % 32}（bit 0 为最低位，bit 31 为符号位）`, ...entries.value.filter(entry => validLocation(entry.field) && bit >= entry.field.startBit && bit <= endBit(entry.field)).map(entry => entry.field.name)].join(" · "); }
 function integerInput(event: Event) { const text = (event.target as HTMLInputElement).value; return text.trim() && Number.isSafeInteger(Number(text)) ? Number(text) : null; }
 function updateDecimal(event: Event, commit = false) {
   const value = integerInput(event);
@@ -142,7 +145,7 @@ function updatePosition(key: "startBit" | "length", event: Event, commit = false
 }
 function updateRange(key: "min" | "max", event: Event, commit = false) {
   const value = (event.target as HTMLInputElement).value.trim();
-  if (unsignedText(value)) { draft.value[key] = value; draftTouched.value = true; }
+  if (integerText(value)) { draft.value[key] = value; draftTouched.value = true; }
   else if (commit) (event.target as HTMLInputElement).value = draft.value[key];
 }
 function saveSegment() {
@@ -161,10 +164,10 @@ function entryBinary(field: SaveModuleField) { try { return getSaveFieldBinary(p
 function entryValue(field: SaveModuleField) { try { return readSaveFieldValue(previewValues.value, field); } catch { return null; } }
 function entryLocation(field: SaveModuleField) {
   if (!validLocation(field)) return "范围无效";
-  return `整数 [${Math.floor(field.startBit / 32)}] 第 ${field.startBit % 32} 位 → 整数 [${Math.floor(endBit(field) / 32)}] 第 ${endBit(field) % 32} 位`;
+  return `整数 [${Math.floor(field.startBit / 32)}] bit ${field.startBit % 32} → 整数 [${Math.floor(endBit(field) / 32)}] bit ${endBit(field) % 32}`;
 }
 function entryIssues(module: SaveModule, field: SaveModuleField) { return savedIssues.value.filter(issue => issue.moduleId === module.id && issue.fieldId === field.id); }
-function outOfRange(field: SaveModuleField) { const value = entryValue(field); return value !== null && unsignedText(field.min) && unsignedText(field.max) && (BigInt(value) < BigInt(field.min) || BigInt(value) > BigInt(field.max)); }
+function outOfRange(field: SaveModuleField) { const value = entryValue(field); return value !== null && integerText(field.min) && integerText(field.max) && (BigInt(value) < BigInt(field.min) || BigInt(value) > BigInt(field.max)); }
 function restorePreview() { previewValues.value = sourceCandidate.value ? [...sourceCandidate.value.values] : Array<number>(SAVE_INTEGER_COUNT).fill(0); previewError.value = ""; }
 async function importFile(event: Event) {
   const input = event.target as HTMLInputElement, file = input.files?.[0];
@@ -187,7 +190,7 @@ defineExpose({ flush });
     <p v-if="error" class="error" role="alert">{{ error }} <button type="button" @click="retry().catch(() => undefined)">重试</button></p>
     <p v-if="importError" class="error" role="alert">{{ importError }} 原有整数值已保留。</p>
     <div v-if="candidates.length" class="source-select"><label>存档实例<StudioSelectField v-model="selectedCandidate" aria-label="选择存档实例" @update:model-value="restorePreview"><option v-for="candidate in candidates" :key="candidate.id" :value="candidate.id">{{ candidate.name }}</option></StudioSelectField></label><span class="hint">{{ fileName }} · 100 个整数</span></div>
-    <p class="join-hint">[0] → [1] → … → [99]，每项补齐 32 位，共 {{ SAVE_BIT_COUNT }} 位。从左到右编号 0–3199，位段可跨整数。</p>
+    <p class="join-hint">[0] → [1] → … → [99]，每项 32 位，最低位 bit 0 在左、符号位 bit 31 在右，共 {{ SAVE_BIT_COUNT }} 位。全局编号 0–3199，位段可跨整数。</p>
     <div class="binary-workbench">
       <aside class="integer-list" aria-label="100 个存档整数">
         <header><h3>整数列表 <small>{{ SAVE_INTEGER_COUNT }}</small></h3><label class="nonzero-toggle"><input v-model="nonzeroOnly" type="checkbox" aria-label="只看非零整数" />只看非零</label></header>
@@ -196,7 +199,7 @@ defineExpose({ flush });
       </aside>
       <div class="integer-workbench">
         <section class="binary-card" aria-labelledby="binary-integer-title">
-          <header><h3 id="binary-integer-title">拼接后的二进制串</h3><label class="decimal-input">整数 [{{ previewIndex }}] 十进制<input :value="previewValues[previewIndex]" type="number" step="1" min="-2147483648" max="2147483647" aria-label="十进制整数" @input="updateDecimal($event)" @change="updateDecimal($event, true)" /></label></header>
+          <header><h3 id="binary-integer-title">拼接后的二进制串（低位在左）</h3><label class="decimal-input">整数 [{{ previewIndex }}] 十进制<input :value="previewValues[previewIndex]" type="number" step="1" min="-2147483648" max="2147483647" aria-label="十进制整数" @input="updateDecimal($event)" @change="updateDecimal($event, true)" /></label></header>
           <div ref="binaryRowsElement" class="binary-rows" role="region" aria-label="3200 位连续二进制串">
             <div v-for="row in binaryRows" :key="row.index" class="binary-integer-row" :class="{ active: previewIndex === row.index }" :data-binary-integer="row.index">
               <div class="binary-row-label"><button type="button" :aria-label="`查看整数 ${row.index}`" @click="chooseInteger(row.index)">整数 [{{ row.index }}] = {{ row.value }}</button><span>全局位 {{ row.index * 32 }}–{{ row.index * 32 + 31 }}</span></div>
@@ -208,10 +211,10 @@ defineExpose({ flush });
           <section class="segment-editor" aria-labelledby="segment-editor-title">
             <header><h3 id="segment-editor-title">{{ editingEntry ? '编辑位段说明' : '为选中的位段添加说明' }}</h3><button type="button" :disabled="!ready" @click="newSegment">新建位段</button></header>
             <div class="span-inputs"><label>全局起始位<input :value="draft.startBit" type="number" min="0" :max="SAVE_BIT_COUNT - 1" step="1" aria-label="起始位" :disabled="!ready || (!!editingEntry && !editingEntry.editable)" @input="updatePosition('startBit', $event)" @change="updatePosition('startBit', $event, true)" /></label><label>长度（位）<input :value="draft.length" type="number" min="1" :max="SAVE_BIT_COUNT" step="1" aria-label="位段长度" :disabled="!ready || (!!editingEntry && !editingEntry.editable)" @input="updatePosition('length', $event)" @change="updatePosition('length', $event, true)" /></label><div class="span-location">全局 {{ draft.startBit }}–{{ endBit(draft) }}<small v-if="validLocation(draft)">跨 {{ Math.floor(endBit(draft) / 32) - Math.floor(draft.startBit / 32) + 1 }} 个整数</small><small v-else>范围需在 0–3199 内</small></div></div>
-            <p class="hint">{{ entryLocation(draft) }}（每项从左数，0 起始）</p>
-            <div class="selected-span"><span>选中位段</span><code role="status" aria-label="选中位段二进制">{{ draftBinary || '—' }}</code><span class="selected-value">= {{ draftValue ?? '—' }}</span></div>
+            <p class="hint">{{ entryLocation(draft) }}（起始位为该段最低位，向右位权递增）</p>
+            <div class="selected-span"><span>选中位段（低位 → 高位）</span><code role="status" aria-label="选中位段二进制">{{ draftBinary || '—' }}</code><span class="selected-value">= {{ draftValue ?? '—' }}</span></div>
             <label class="description-input">说明字符串<input v-model="draft.name" type="text" aria-label="位段说明" :disabled="!ready || (!!editingEntry && !editingEntry.editable)" placeholder="例如：跨整数保存的任务进度" @input="draftTouched = true" /></label>
-            <details class="range-settings"><summary :title="draftCapacity ?? ''">数值范围{{ draftCapacity !== null ? ` · 可存 0–${compactNumber(draftCapacity)}` : '' }}</summary><div class="range-inputs"><label>最小值<input :value="draft.min" type="text" inputmode="numeric" aria-label="位段最小值" :disabled="!ready || (!!editingEntry && !editingEntry.editable)" @input="updateRange('min', $event)" @change="updateRange('min', $event, true)" /></label><label>最大值<input :value="draft.max" type="text" inputmode="numeric" aria-label="位段最大值" :disabled="!ready || (!!editingEntry && !editingEntry.editable)" @input="updateRange('max', $event)" @change="updateRange('max', $event, true)" /></label></div></details>
+            <details class="range-settings"><summary :title="draftRange ? `${draftRange.min}–${draftRange.max}` : ''">数值范围{{ draftRange ? ` · 可存 ${compactNumber(draftRange.min)}–${compactNumber(draftRange.max)}` : '' }}</summary><div class="range-inputs"><label>最小值<input :value="draft.min" type="text" :inputmode="draft.length === 32 ? 'text' : 'numeric'" aria-label="位段最小值" :disabled="!ready || (!!editingEntry && !editingEntry.editable)" @input="updateRange('min', $event)" @change="updateRange('min', $event, true)" /></label><label>最大值<input :value="draft.max" type="text" :inputmode="draft.length === 32 ? 'text' : 'numeric'" aria-label="位段最大值" :disabled="!ready || (!!editingEntry && !editingEntry.editable)" @input="updateRange('max', $event)" @change="updateRange('max', $event, true)" /></label></div></details>
             <ul v-if="draftIssues.length" class="error field-errors" role="alert"><li v-for="issue in draftIssues" :key="issue.message">{{ issue.message }}</li></ul>
             <footer><button type="button" class="primary" :disabled="!canSave" @click="saveSegment">保存位段</button></footer>
           </section>
