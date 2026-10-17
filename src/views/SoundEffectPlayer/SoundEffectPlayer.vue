@@ -27,6 +27,8 @@
                     <span class="category-count">{{ group.ids.length }}</span>
                   </button>
                 </div>
+                <DurationFilter v-model="durationRange" :max-duration="maxSoundDuration"
+                  :disabled="dataLoading || dataLoadError" />
                 <select v-model="selectedVersion" class="version-filter"
                   :aria-label="t('soundEffectPlayer.ui.versionFilter')" :disabled="dataLoading || dataLoadError">
                   <option value="">{{ t('soundEffectPlayer.ui.allVersions') }}</option>
@@ -228,7 +230,7 @@
   z-index: 1;
   display: flex;
   flex-wrap: wrap;
-  align-items: start;
+  align-items: center;
   gap: 4px;
   flex: 0 0 auto;
 }
@@ -256,7 +258,7 @@
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
-  flex: 1 1 700px;
+  flex: 1 1 560px;
   min-width: 0;
 }
 
@@ -506,6 +508,8 @@ import SplitterPanel from "primevue/splitterpanel";
 
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import AudioWaveform from "./AudioWaveform.vue";
+import DurationFilter from "./DurationFilter.vue";
+import type { DurationRange } from "./types/DurationRange";
 import { Clipboard } from "@/utils/clipboard";
 
 import { SoundEffectData } from "./types/SoundEffectData";
@@ -538,6 +542,17 @@ const selectedFeatureParts = computed(() => featureParts(selectedId.value));
 
 const search = ref("");
 const selectedVersion = ref("");
+const durationRange = ref<DurationRange>({ min: null, max: null });
+const hasDurationFilter = computed(() => durationRange.value.min !== null || durationRange.value.max !== null);
+function parseSoundDuration(value: unknown): number | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !value.trim()) return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+const maxSoundDuration = computed(() => soundData.value.data.reduce(
+  (maximum, item) => Math.max(maximum, parseSoundDuration(item.duration) ?? 0), 0,
+));
 const availableVersions = computed(() =>
   [...new Set(soundData.value.data.flatMap((item) => item.giVersion ? [item.giVersion] : []))]
     .sort((left, right) => right.localeCompare(left, "en", { numeric: true })),
@@ -621,7 +636,7 @@ const keys = computed(() =>
 
 const filteredCategories = computed(() => {
   const query = search.value.trim().toLocaleLowerCase();
-  const groups = !query && !selectedVersion.value
+  const groups = !query && !selectedVersion.value && !hasDurationFilter.value
     ? orderedCategories.value
     : orderedCategories.value
       .map((group) => ({
@@ -629,6 +644,12 @@ const filteredCategories = computed(() => {
         ids: group.ids.filter((id) => {
           const item = dataJson.value[id];
           if (selectedVersion.value && item.giVersion !== selectedVersion.value) return false;
+          if (hasDurationFilter.value) {
+            const seconds = parseSoundDuration(item.duration);
+            if (seconds === null
+              || (durationRange.value.min !== null && seconds < durationRange.value.min)
+              || (durationRange.value.max !== null && seconds > durationRange.value.max)) return false;
+          }
           return !query || item?.name?.toLocaleLowerCase().includes(query) || id.toLocaleLowerCase().includes(query)
             || featureSearchText.value.get(id)?.includes(query);
         }),
@@ -674,7 +695,12 @@ onMounted(async () => {
   }
 });
 
-watch([search, selectedVersion, orderedCategories, assetFeatures], () => {
+// Duration changes only filter the library; keep the user's category expansion state.
+watch([search, selectedVersion], () => {
+  expandedCategories.value = filteredCategories.value.map((group) => group.category.toString());
+});
+
+watch([orderedCategories, assetFeatures], () => {
   if (!search.value.trim()) return;
   expandedCategories.value = filteredCategories.value.map((group) => group.category.toString());
 });
@@ -743,6 +769,7 @@ watch([() => route.query.id, dataLoading], ([id, isLoading]) => {
   }
   search.value = "";
   selectedVersion.value = "";
+  if (hasDurationFilter.value) durationRange.value = { min: null, max: null };
   void SelectSound(id, true, { autoplay: false, scrollBehavior: "auto" });
 }, { immediate: true, flush: "post" });
 
