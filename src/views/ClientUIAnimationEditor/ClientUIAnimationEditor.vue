@@ -3233,6 +3233,14 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+@font-face {
+  font-family: "HYWenHei-85J";
+  src: url("@/assets/ClientUIAnimationEditor/HYWenHei-85J.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 .primitive-display-mode { display: flex; gap: 5px; margin-top: 7px; }
 .primitive-display-mode button { padding: 5px 7px; border: 1px solid #596780; border-radius: 5px; background: #343e51; color: #dce6f9; font-size: 11px; cursor: pointer; }
 .primitive-display-mode button[aria-pressed=true] { background: #675084; border-color: #b590dd; }
@@ -3926,6 +3934,7 @@ button, select, input, textarea { font: inherit; }
   overflow: hidden;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font-family: "HYWenHei-85J", "Microsoft YaHei", sans-serif;
   font-weight: 700;
   line-height: 1.2;
   text-shadow: none;

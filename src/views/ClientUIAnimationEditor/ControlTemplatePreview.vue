@@ -57,6 +57,6 @@ function textStyle(node: TemplateSceneNode): CSSProperties {
 .template-preview { position: relative; width: 100%; height: 100%; pointer-events: none; }
 .template-scene { position: absolute; transform-origin: 0 0; }
 .template-node { position: absolute; border: 0; }
-.template-text { display: flex; width: 100%; height: 100%; white-space: pre-wrap; overflow: hidden; }
+.template-text { display: flex; width: 100%; height: 100%; white-space: pre-wrap; overflow: hidden; font-family: "HYWenHei-85J", "Microsoft YaHei", sans-serif; }
 .template-placeholder { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; font-size: 12px; color: #a9b6d0; }
 </style>
