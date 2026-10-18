@@ -120,10 +120,17 @@ function ossSource(project: string, namespace: string, directory: string, option
     url: createOss(project, options.baseUrl).path(directory, `${locale.toLowerCase()}.json`) };
 }
 
+function ossLoadOptions(project: string, options: OssTranslationLoadOptions): OssTranslationLoadOptions {
+  // Player dictionaries include asset descriptions and can be several MB. Apply
+  // the same deadline to name-first consumers sharing the in-flight request.
+  const assetDictionary = ["SoundEffectPlayer", "EffectPlayer", "BgmPlayer"].includes(project);
+  return assetDictionary && options.timeoutMs === undefined ? { ...options, timeoutMs: 60_000 } : options;
+}
+
 /** Reuse the current language snapshot; refresh only when explicitly requested. */
 export function loadOssTranslations(project: string, namespace: string, directory = "i18n",
   options: OssTranslationLoadOptions = {}) {
-  return Promise.all([ossLoader(options).load(ossSource(project, namespace, directory, options), options)]);
+  return Promise.all([ossLoader(options).load(ossSource(project, namespace, directory, options), ossLoadOptions(project, options))]);
 }
 
 /** The same request/cache as display translations, with raw text for data consumers. */
@@ -131,7 +138,7 @@ export async function loadOssTranslationDictionary(project: string, namespace: s
   options: OssTranslationLoadOptions = {}) {
   const loader = ossLoader(options);
   const source = ossSource(project, namespace, directory, options);
-  const result = await loader.load(source, options);
+  const result = await loader.load(source, ossLoadOptions(project, options));
   if (options.maxBytes !== undefined && loader.getDictionaryBytes(namespace, source.locale) > options.maxBytes) {
     return { result: { status: "failed" as const, namespace, locale: source.locale,
       error: new Error("Translation file exceeds the consumer size limit") }, dictionary: undefined };

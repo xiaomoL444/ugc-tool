@@ -59,6 +59,7 @@
   "effectPlayer.deepLink.notFound": "The linked effect was not found",
   "effectPlayer.media.startPreview": "Play preview",
   "effectPlayer.features.loading": "Loading asset descriptions…",
+  "effectPlayer.features.retry": "Retry loading descriptions",
   "effectPlayer.features.unavailable": "Descriptions are temporarily unavailable. Name and ID search and previews still work.",
   "effectPlayer.features.stale": "The description update could not be checked. Previously loaded descriptions are shown.",
   "effectPlayer.features.empty": "Descriptions have not been generated for this asset yet."

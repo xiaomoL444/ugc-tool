@@ -137,6 +137,9 @@
             <p v-if="featureStatus !== 'ready'" class="feature-status" role="status">
               {{ t(`soundEffectPlayer.ui.features${featureStatus === 'loading' ? 'Loading' : featureStatus === 'stale' ? 'Stale' : 'Unavailable'}`) }}
             </p>
+            <button v-if="featureStatus === 'unavailable' || featureStatus === 'stale'" class="feature-retry" type="button" :disabled="featuresLoading" @click="loadFeatures(true)">
+              {{ t('soundEffectPlayer.ui.featuresRetry') }}
+            </button>
           </div>
 
           <!-- 音频元素 -->
@@ -426,6 +429,9 @@
 .sound-details { position: absolute; right: 8px; bottom: 0; display: flex; align-items: center; height: 23px; }
 .sound-feature-details { text-align: left; }
 .feature-status { margin: 6px 0 0; color: #6e7a8c; font-size: 12px; line-height: 1.5; }
+.feature-retry { margin-top: 8px; padding: 4px 10px; border: 1px solid #b9cee8; border-radius: 6px; background: #fff; color: #31689e; font-size: 12px; cursor: pointer; }
+.feature-retry:hover { background: #eaf3ff; }
+.feature-retry:focus-visible { outline: 2px solid #31689e; outline-offset: 2px; }
 
 .item .subtitle {
   flex: 0 0 auto;

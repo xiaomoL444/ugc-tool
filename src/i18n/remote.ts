@@ -207,33 +207,49 @@ export class RemoteI18nLoader {
     const controller = new AbortController();
     const bounded = (value: number | undefined, fallback: number, limit: number) =>
       value !== undefined && Number.isFinite(value) ? Math.min(limit, Math.max(1, value)) : fallback;
-    const timeout = setTimeout(() => controller.abort(), bounded(options.timeoutMs, this.timeoutMs, 60_000));
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const stopped = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort(new DOMException("Translation request timed out", "AbortError"));
+        reject(controller.signal.reason);
+      }, bounded(options.timeoutMs, this.timeoutMs, 60_000));
+    });
     const maxBytes = bounded(options.maxBytes, this.maxBytes, 90_000_000);
     try {
-      const separator = source.url.includes("?") ? "&" : "?";
-      const response = await this.request(`${source.url}${separator}_t=${Date.now()}`, {
-        cache: "no-store", credentials: "omit", signal: controller.signal,
-      });
-      if (response.status === 404) {
-        this.apply(source, {});
-        this.dictionaries.delete(`${source.namespace}:${source.locale}`);
-        this.dictionaryBytes.delete(`${source.namespace}:${source.locale}`);
-        return { status: "missing", namespace: source.namespace, locale: source.locale };
-      }
-      if (!response.ok) throw new Error(`Translation request failed (${response.status}): ${source.url}`);
-      const contentType = response.headers?.get("Content-Type") || "";
-      if (contentType && !/application\/(?:[\w.+-]+\+)?json(?:;|$)/i.test(contentType)) throw new Error("Expected a JSON translation response");
-      const body = await this.readJson(response, controller.signal, maxBytes);
-      const table = parseTranslationTable(body.input, source.namespace, source.locale, source.keyPrefix);
-      this.apply(source, table.messages);
-      this.dictionaries.set(`${source.namespace}:${source.locale}`, table.dictionary);
-      this.dictionaryBytes.set(`${source.namespace}:${source.locale}`, body.bytes);
-      return { status: "loaded", namespace: source.namespace, locale: source.locale, entries: table.entries };
+      const work = async (): Promise<RemoteTranslationResult> => {
+        const separator = source.url.includes("?") ? "&" : "?";
+        const response = await this.request(`${source.url}${separator}_t=${Date.now()}`, {
+          cache: "no-store", credentials: "omit", signal: controller.signal,
+        });
+        if (controller.signal.aborted) {
+          void response.body?.cancel().catch(() => undefined);
+          throw controller.signal.reason;
+        }
+        if (response.status === 404) {
+          this.apply(source, {});
+          this.dictionaries.delete(`${source.namespace}:${source.locale}`);
+          this.dictionaryBytes.delete(`${source.namespace}:${source.locale}`);
+          return { status: "missing", namespace: source.namespace, locale: source.locale };
+        }
+        if (!response.ok) throw new Error(`Translation request failed (${response.status}): ${source.url}`);
+        const contentType = response.headers?.get("Content-Type") || "";
+        if (contentType && !/application\/(?:[\w.+-]+\+)?json(?:;|$)/i.test(contentType)) throw new Error("Expected a JSON translation response");
+        const body = await this.readJson(response, controller.signal, maxBytes);
+        if (controller.signal.aborted) throw controller.signal.reason;
+        const table = parseTranslationTable(body.input, source.namespace, source.locale, source.keyPrefix);
+        this.apply(source, table.messages);
+        this.dictionaries.set(`${source.namespace}:${source.locale}`, table.dictionary);
+        this.dictionaryBytes.set(`${source.namespace}:${source.locale}`, body.bytes);
+        return { status: "loaded", namespace: source.namespace, locale: source.locale, entries: table.entries };
+      };
+      // AbortSignal alone cannot bound a transport or body reader that ignores it.
+      // Late work checks the signal before publishing a dictionary snapshot.
+      return await Promise.race([work(), stopped]);
     } catch (error) {
       controller.abort();
       return { status: "failed", namespace: source.namespace, locale: source.locale, error: error instanceof Error ? error : new Error(String(error)) };
     } finally {
-      clearTimeout(timeout);
+      if (timeout !== undefined) clearTimeout(timeout);
     }
   }
 

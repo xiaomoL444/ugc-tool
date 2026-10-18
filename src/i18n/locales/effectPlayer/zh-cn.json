@@ -59,6 +59,7 @@
   "effectPlayer.deepLink.notFound": "没有找到链接指向的特效",
   "effectPlayer.media.startPreview": "播放预览",
   "effectPlayer.features.loading": "正在读取资产描述…",
+  "effectPlayer.features.retry": "重试加载描述",
   "effectPlayer.features.unavailable": "描述文件暂不可用，仍可按名称、ID 搜索和预览。",
   "effectPlayer.features.stale": "描述更新检查失败，暂时显示上次读取的内容。",
   "effectPlayer.features.empty": "此资产暂没有生成描述。"

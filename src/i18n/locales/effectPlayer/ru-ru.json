@@ -59,6 +59,7 @@
   "effectPlayer.deepLink.notFound": "Эффект по этой ссылке не найден",
   "effectPlayer.media.startPreview": "Воспроизвести предпросмотр",
   "effectPlayer.features.loading": "Загрузка описаний ресурсов…",
+  "effectPlayer.features.retry": "Повторить загрузку описаний",
   "effectPlayer.features.unavailable": "Описания временно недоступны. Поиск по названию и ID, а также предпросмотр доступны.",
   "effectPlayer.features.stale": "Не удалось проверить обновление описаний. Показаны ранее загруженные описания.",
   "effectPlayer.features.empty": "Для этого ресурса ещё не созданы описания."

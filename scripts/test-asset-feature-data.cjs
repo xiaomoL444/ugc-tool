@@ -8,7 +8,34 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
 }).outputText, filename);
 const { createFeatureSidecar } = require('./ai-search-feature-fixtures.cjs');
 const { buildAssetFeatureCollection, loadAssetFeatures, assetFeaturePath, assetFeatureUrl } = require('../src/utils/assetFeatures.ts');
-const { loadOssTranslations } = require('../src/i18n/index.ts');
+const { loadOssTranslations, loadOssTranslationDictionary, remoteI18n } = require('../src/i18n/index.ts');
+
+const deferred = () => { let resolve; const promise = new Promise(accept => { resolve = accept; }); return { promise, resolve }; };
+const flush = async () => { for (let round = 0; round < 4; round++) await new Promise(resolve => setImmediate(resolve)); };
+class FakeClock {
+  constructor() { this.now = 0; this.sequence = 0; this.timers = new Map(); this.original = { setTimeout, clearTimeout, now: Date.now }; }
+  install() {
+    global.setTimeout = (callback, delay = 0, ...args) => {
+      const id = ++this.sequence;
+      this.timers.set(id, { at: this.now + Math.max(0, Number(delay) || 0), callback, args });
+      return id;
+    };
+    global.clearTimeout = id => this.timers.delete(id);
+    Date.now = () => 1_800_000_000_000 + this.now;
+  }
+  async advance(milliseconds) {
+    const target = this.now + milliseconds;
+    for (;;) {
+      const next = [...this.timers].filter(([, timer]) => timer.at <= target)
+        .sort((a, b) => a[1].at - b[1].at || a[0] - b[0])[0];
+      if (!next) break;
+      this.now = next[1].at; this.timers.delete(next[0]); next[1].callback(...next[1].args);
+      await flush();
+    }
+    this.now = target; await flush();
+  }
+  restore() { global.setTimeout = this.original.setTimeout; global.clearTimeout = this.original.clearTimeout; Date.now = this.original.now; }
+}
 
 const multilingual = { 'zh-cn': '低沉敲击', 'zh-tw': '低沉敲擊', 'en-us': 'low knock', 'ja-jp': '低い打撃音', 'ru-ru': 'низкий стук' };
 const effects = createFeatureSidecar('EffectPlayer', {
@@ -231,6 +258,116 @@ const sound = createFeatureSidecar('SoundEffectPlayer', { 7: { audio: { short: m
   assert.equal(firstDescription.get(8, 'zh-CN')[0].short, 'new-zh-cn');
   assert.equal(updateRequests.length, namesOnlyRequests + 2, 'Dangling references cause just one shared dictionary refresh');
 
+  // The large player dictionaries also supply names. A name-first caller must give
+  // a shared request the same budget as its later description consumer.
+  const clock = new FakeClock();
+  clock.install();
+  const originalFetch = global.fetch;
+  try {
+    const metadataGate = deferred(), dictionaryGate = deferred(), slowRequests = [];
+    const slowFetcher = (url, input) => {
+      const pathname = new URL(url).pathname;
+      slowRequests.push({ pathname, signal: input.signal });
+      return pathname.endsWith('/features.json') ? metadataGate.promise : dictionaryGate.promise;
+    };
+    const slowOptions = { baseUrl: 'https://slow-first-fixture.invalid/data', fetcher: slowFetcher, locale: 'en-US', cached: true };
+    const slowNames = loadOssTranslations('SoundEffectPlayer', 'soundEffectPlayer', 'i18n', slowOptions);
+    let firstFinished = false;
+    const slowDescriptions = loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], slowOptions).then(value => { firstFinished = true; return value; });
+    await flush();
+    assert.deepEqual(slowRequests.map(item => item.pathname).sort(), [
+      '/data/SoundEffectPlayer/features.json', '/data/SoundEffectPlayer/i18n/en-us.json',
+    ], 'Names and metadata download in parallel and only request the selected language');
+    await clock.advance(12_000);
+    assert.equal(firstFinished, false, 'A first description request remains pending beyond the former 10-second deadline');
+    assert.ok(slowRequests.every(item => !item.signal.aborted), 'Neither the metadata nor the name-first dictionary aborts at 12 seconds');
+    metadataGate.resolve(Response.json(external));
+    dictionaryGate.resolve(Response.json(dictionaryInput['en-us']));
+    const slowResult = await slowDescriptions;
+    assert.equal((await slowNames)[0].status, 'loaded');
+    assert.equal(slowResult.status, 'ready');
+    assert.equal(slowResult.get(7, 'en-US')[0].short, 'low knock');
+    assert.equal(slowRequests.length, 2, 'Descriptions join the existing name request without a second dictionary download');
+
+    for (const [project, namespace] of [['EffectPlayer', 'effectPlayer'], ['BgmPlayer', 'bgmPlayer']]) {
+      const gate = deferred(); let signal;
+      const loading = loadOssTranslationDictionary(project, namespace, 'i18n', {
+        locale: 'ja-JP', baseUrl: 'https://slow-player-fixture.invalid/data',
+        fetcher: (_url, input) => { signal = input.signal; return gate.promise; },
+      });
+      await clock.advance(12_000);
+      assert.equal(signal.aborted, false, `${project} shares the longer default dictionary timeout`);
+      gate.resolve(Response.json({ version: 1, namespace, locale: 'ja-JP', translations: { 'data.7': '遅い名前' } }));
+      const result = await loading;
+      assert.equal(result.result.status, 'loaded');
+      assert.equal(result.dictionary[`${namespace}.data.7`], '遅い名前');
+    }
+
+    const lateMetadata = deferred(); let metadataAttempts = 0, metadataSignal, metadataFinished = false;
+    const deadlineOptions = { baseUrl: 'https://metadata-deadline-fixture.invalid/data', cached: true,
+      fetcher: (_url, input) => {
+        metadataAttempts++; metadataSignal = input.signal;
+        return metadataAttempts === 1 ? lateMetadata.promise : Promise.resolve(Response.json(sound));
+      } };
+    const stalledMetadata = loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], deadlineOptions)
+      .then(value => { metadataFinished = true; return value; });
+    await clock.advance(59_999);
+    assert.equal(metadataFinished, false);
+    await clock.advance(1);
+    const metadataTimeout = await stalledMetadata;
+    assert.equal(metadataTimeout.errorCode, 'ASSET_FEATURES_TIMEOUT');
+    assert.equal(metadataSignal.aborted, true, 'The default metadata deadline aborts at 60 seconds');
+    const lateSidecar = createFeatureSidecar('SoundEffectPlayer', { 7: { audio: { short: 'late metadata must not win' } } });
+    lateMetadata.resolve(Response.json(lateSidecar));
+    await flush();
+    const metadataRetry = await loadAssetFeatures('SoundEffectPlayer', [{ id: 7 }], deadlineOptions);
+    assert.equal(metadataAttempts, 2, 'A late response cannot turn a failed metadata request into a cached success');
+    assert.equal(metadataRetry.get(7, 'en-US')[0].short, 'low knock');
+
+    // Exercise the public production store, with all network calls intercepted, so
+    // a late non-cooperative response can be checked without starting another load.
+    const lateDictionary = deferred(); let dictionarySignal, dictionaryAttempt = 0, dictionaryFinished = false;
+    global.fetch = (_url, input) => {
+      dictionaryAttempt++; dictionarySignal = input.signal;
+      return dictionaryAttempt === 1 ? Promise.resolve(Response.json(dictionaryInput['ru-ru'])) : lateDictionary.promise;
+    };
+    const publicOptions = { locale: 'ru-RU' };
+    await loadOssTranslationDictionary('SoundEffectPlayer', 'soundEffectPlayer', 'i18n', publicOptions);
+    const stalledDictionary = loadOssTranslationDictionary('SoundEffectPlayer', 'soundEffectPlayer', 'i18n', { ...publicOptions, refresh: true })
+      .then(value => { dictionaryFinished = true; return value; });
+    await clock.advance(59_999);
+    assert.equal(dictionaryFinished, false);
+    await clock.advance(1);
+    const dictionaryTimeout = await stalledDictionary;
+    assert.equal(dictionaryTimeout.result.status, 'failed', 'A non-cooperative fetch still ends at the 60-second dictionary deadline');
+    assert.equal(dictionarySignal.aborted, true);
+    assert.equal(dictionaryTimeout.dictionary['soundEffectPlayer.search.7.audio.short'], multilingual['ru-ru'], 'A timed-out refresh preserves its last-good dictionary');
+    const changedDictionary = structuredClone(dictionaryInput['ru-ru']);
+    changedDictionary.translations['search.7.audio.short'] = 'late dictionary must not win';
+    lateDictionary.resolve(Response.json(changedDictionary));
+    await flush();
+    assert.equal(remoteI18n.getDictionary('soundEffectPlayer', 'ru-RU')['soundEffectPlayer.search.7.audio.short'], multilingual['ru-ru'],
+      'A late response cannot overwrite the public translation snapshot after timeout');
+
+    for (const [project, namespace, timeoutMs, deadline] of [
+      ['EffectPlayer', 'effectPlayer', 25, 25],
+      ['StructViewer', 'structViewer', undefined, 8_000],
+    ]) {
+      const gate = deferred(); let signal, finished = false;
+      const loading = loadOssTranslations(project, namespace, 'i18n', {
+        locale: 'en-US', baseUrl: 'https://short-deadline-fixture.invalid/data', timeoutMs,
+        fetcher: (_url, input) => { signal = input.signal; return gate.promise; },
+      }).then(value => { finished = true; return value; });
+      await clock.advance(deadline - 1);
+      assert.equal(finished, false);
+      await clock.advance(1);
+      assert.equal((await loading)[0].status, 'failed');
+      assert.equal(signal.aborted, true, timeoutMs ? 'An explicit short timeout overrides the player default' : 'Other projects retain the 8-second default');
+      gate.resolve(Response.json({ version: 1, namespace, locale: 'en-US', translations: { 'data.7': 'late' } }));
+      await flush();
+    }
+  } finally { global.fetch = originalFetch; clock.restore(); }
+
   for (const [fetcher, options, code] of [
     [async () => new Response('', { status: 404 }), {}, 'ASSET_FEATURES_UNAVAILABLE'],
     [async () => new Response('<html>gateway failed</html>', { headers: { 'Content-Type': 'text/html' } }), {}, 'ASSET_FEATURES_INVALID'],
@@ -245,5 +382,5 @@ const sound = createFeatureSidecar('SoundEffectPlayer', { 7: { audio: { short: m
     assert.equal(missing.status, 'unavailable'); assert.equal(missing.errorCode, code);
     assert.equal(missing.get(7, 'zh-CN').length, 0); assert.equal(missing.searchText.size, 0);
   }
-  console.log('Asset feature binding, shared current-language dictionaries, metadata revision coherence, central cache and refresh, embedded multilingual data, evidence separation, limits, timeout and fallback passed.');
+  console.log('Asset feature binding, shared current-language dictionaries, metadata revision coherence, central cache and refresh, embedded multilingual data, evidence separation, limits, 60-second deadlines, late-response isolation, explicit timeouts and fallback passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -179,7 +179,8 @@ const bounded = (value: number | undefined, fallback: number, limit: number) =>
 async function fetchMetadata(project: AssetFeatureProject, url: string, options: AssetFeatureLoadOptions,
   previous?: CachedMetadata): Promise<CachedMetadata> {
   const controller = new AbortController();
-  const timeoutMs = bounded(options.timeoutMs, 10_000, 60_000);
+  // Published metadata is currently 10–20 MB; allow slow connections to finish.
+  const timeoutMs = bounded(options.timeoutMs, 60_000, 60_000);
   const maxBytes = bounded(options.maxBytes, project === 'SoundEffectPlayer' ? 40_000_000 : 70_000_000, 90_000_000);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

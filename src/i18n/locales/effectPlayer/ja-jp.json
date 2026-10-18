@@ -59,6 +59,7 @@
   "effectPlayer.deepLink.notFound": "リンク先のエフェクトが見つかりません",
   "effectPlayer.media.startPreview": "プレビューを再生",
   "effectPlayer.features.loading": "アセットの説明を読み込み中…",
+  "effectPlayer.features.retry": "説明の読み込みを再試行",
   "effectPlayer.features.unavailable": "説明は一時的に利用できません。名前・IDでの検索とプレビューは利用できます。",
   "effectPlayer.features.stale": "説明の更新を確認できませんでした。前回読み込んだ説明を表示しています。",
   "effectPlayer.features.empty": "このアセットの説明はまだ生成されていません。"

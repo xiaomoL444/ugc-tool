@@ -55,6 +55,7 @@
   "soundEffectPlayer.ui.waveformFailed": "Waveform unavailable. Click or drag to seek.",
   "soundEffectPlayer.ui.copyHint": "Click to copy",
   "soundEffectPlayer.ui.featuresLoading": "Loading asset descriptions…",
+  "soundEffectPlayer.ui.featuresRetry": "Retry loading descriptions",
   "soundEffectPlayer.ui.featuresUnavailable": "Descriptions are temporarily unavailable. Name and ID search and previews still work.",
   "soundEffectPlayer.ui.featuresStale": "The description update could not be checked. Previously loaded descriptions are shown.",
   "soundEffectPlayer.ui.featuresEmpty": "Descriptions have not been generated for this asset yet."

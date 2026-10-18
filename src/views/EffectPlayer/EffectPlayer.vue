@@ -142,6 +142,9 @@
               <p v-if="featureStatus !== 'ready'" class="feature-status" role="status">
                 {{ t(`effectPlayer.features.${featureStatus === 'loading' ? 'loading' : featureStatus === 'stale' ? 'stale' : 'unavailable'}`) }}
               </p>
+              <button v-if="featureStatus === 'unavailable' || featureStatus === 'stale'" class="feature-retry" type="button" :disabled="featuresLoading" @click="loadFeatures(true)">
+                {{ t('effectPlayer.features.retry') }}
+              </button>
             </div>
           </div>
         </div>
@@ -602,6 +605,9 @@ function updateColumns() {
 .effect-description { height: 20px; flex: 0 0 20px; color: #596b82; font-size: 11px; }
 .effect-feature-details { margin-top: 14px; padding: 12px 14px; border-radius: 9px; background: #f4f8fe; text-align: left; }
 .feature-status { margin: 6px 0 0; color: #6e7a8c; font-size: 12px; line-height: 1.5; }
+.feature-retry { margin-top: 8px; padding: 4px 10px; border: 1px solid #b9cee8; border-radius: 6px; background: #fff; color: #31689e; font-size: 12px; cursor: pointer; }
+.feature-retry:hover { background: #eaf3ff; }
+.feature-retry:focus-visible { outline: 2px solid #31689e; outline-offset: 2px; }
 
 .mini-tag {
   padding: 2px 7px;

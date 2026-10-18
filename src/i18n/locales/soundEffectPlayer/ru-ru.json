@@ -55,6 +55,7 @@
   "soundEffectPlayer.ui.waveformFailed": "Волна недоступна. Нажмите или перетащите для перемотки.",
   "soundEffectPlayer.ui.copyHint": "Нажмите, чтобы скопировать",
   "soundEffectPlayer.ui.featuresLoading": "Загрузка описаний ресурсов…",
+  "soundEffectPlayer.ui.featuresRetry": "Повторить загрузку описаний",
   "soundEffectPlayer.ui.featuresUnavailable": "Описания временно недоступны. Поиск по названию и ID, а также предпросмотр доступны.",
   "soundEffectPlayer.ui.featuresStale": "Не удалось проверить обновление описаний. Показаны ранее загруженные описания.",
   "soundEffectPlayer.ui.featuresEmpty": "Для этого ресурса ещё не созданы описания."

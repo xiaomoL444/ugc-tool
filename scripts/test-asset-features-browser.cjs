@@ -35,13 +35,18 @@ async function install(context, state) {
   await context.addInitScript(() => localStorage.setItem('ugc-tools.locale', 'zh-CN'));
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
+    if (route.request().isNavigationRequest()) state.navigationRequests?.push(url.pathname + url.search);
     const asset = url.pathname.split('/ugc-tool-data/')[1];
     if (asset) {
+      if (asset.endsWith('/data.json')) state.dataRequests?.push(asset);
+      if (/\.(?:wav|mp3|m4a|opus|mp4|webm)$/u.test(asset)) state.mediaRequests?.push(asset);
       if (asset === 'SoundEffectPlayer/data.json') return route.fulfill({ json: { data: soundRows, category: [{ id: 1, nameI18nKey: 'soundEffectPlayer.category.1' }] } });
       if (asset === 'EffectPlayer/data.json') return route.fulfill({ json: { effectData: effectRows, TagData: {}, category: {} } });
       const featureProject = Object.keys(features).find(project => asset === `${project}/features.json`);
       if (featureProject) {
         state.featureRequests.push(asset);
+        state.featureRequestStarted?.();
+        if (state.featureResponseGate) await state.featureResponseGate;
         if (state.missing) return route.fulfill({ status: 404, body: '' });
         const { i18n, ...metadata } = features[featureProject];
         return route.fulfill({ json: { ...metadata, i18nSource: 'project-i18n-v1' } });
@@ -150,16 +155,57 @@ async function main() {
     assert.equal(await touchPage.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
     await touchPage.screenshot({ path: path.join(output, 'mobile-descriptions.png') });
     await touchContext.close();
-    const missingContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-    await install(missingContext, { featureRequests: [], missing: true });
-    const missingPage = await missingContext.newPage();
-    currentPage = missingPage;
-    await missingPage.goto(`${base}/EffectPlayer?id=1`);
-    await missingPage.locator('.feature-status').waitFor();
-    assert.match(await missingPage.locator('.feature-status').innerText(), /暂不可用/u);
-    assert.ok(await missingPage.locator('.modal-title').innerText());
-    await missingContext.close();
-    console.log('PASS asset descriptions: current-language requests, live language switching and search, separated visual/tail/audio, truthful audio gate, playback-stable hover dismissal, touch, missing-file fallback');
+    for (const scenario of [
+      { project: 'EffectPlayer', details: '.effect-feature-details', description: '光环缓慢扩大后淡出', prefix: 'effect' },
+      { project: 'SoundEffectPlayer', details: '.sound-feature-details', description: '空心敲击后迅速衰减', prefix: 'sound' },
+    ]) {
+      const missingContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+      const missingState = { featureRequests: [], dataRequests: [], mediaRequests: [], navigationRequests: [], missing: true };
+      await install(missingContext, missingState);
+      const missingPage = await missingContext.newPage();
+      currentPage = missingPage;
+      missingPage.on('pageerror', e => { if (!e.message.includes('ResizeObserver')) errors.push(e.message); });
+      await missingPage.goto(`${base}/${scenario.project}?id=1`);
+      const details = missingPage.locator(scenario.details);
+      await details.getByText(/描述文件暂不可用/u).waitFor();
+      const retry = details.getByRole('button', { name: '重试加载描述', exact: true });
+      await retry.waitFor();
+      await missingPage.waitForLoadState('networkidle');
+      assert.deepEqual(missingState.featureRequests, [`${scenario.project}/features.json`]);
+      assert.deepEqual(missingState.dataRequests, [`${scenario.project}/data.json`]);
+      assert.ok(missingState.mediaRequests.length > 0, 'The selected asset media loaded before retry');
+      const previousDataRequests = [...missingState.dataRequests];
+      const previousMediaRequests = [...missingState.mediaRequests];
+      const previousNavigations = [...missingState.navigationRequests];
+      const mediaElements = await missingPage.locator('audio, video').elementHandles();
+      assert.ok(mediaElements.length > 0, 'The page has media elements to preserve');
+      await missingPage.screenshot({ path: path.join(output, `${scenario.prefix}-missing-descriptions.png`) });
+
+      missingState.missing = false;
+      let releaseFeatureResponse;
+      const featureRequestStarted = new Promise(resolve => { missingState.featureRequestStarted = resolve; });
+      missingState.featureResponseGate = new Promise(resolve => { releaseFeatureResponse = resolve; });
+      try {
+        await retry.click();
+        await featureRequestStarted;
+        await details.getByText('正在读取资产描述…', { exact: true }).waitFor();
+        assert.ok(await retry.count() === 0 || await retry.isDisabled(), 'Retry is hidden or disabled while loading');
+        assert.deepEqual(missingState.featureRequests, [`${scenario.project}/features.json`, `${scenario.project}/features.json`], 'One click starts exactly one new description request');
+      } finally {
+        releaseFeatureResponse();
+      }
+      await details.getByText(scenario.description, { exact: true }).waitFor();
+      assert.equal(await retry.count(), 0, 'A successful retry removes the retry button');
+      await missingPage.waitForLoadState('networkidle');
+      assert.deepEqual(missingState.navigationRequests, previousNavigations, 'Retry does not reload or navigate the page');
+      assert.deepEqual(missingState.dataRequests, previousDataRequests, 'Retry does not download the asset list again');
+      assert.deepEqual(missingState.mediaRequests, previousMediaRequests, 'Retry does not download media again');
+      for (const media of mediaElements) assert.equal(await media.evaluate(element => element.isConnected), true, 'Retry preserves the media elements');
+      await missingPage.screenshot({ path: path.join(output, `${scenario.prefix}-retried-descriptions.png`) });
+      await missingContext.close();
+    }
+    assert.deepEqual(errors, []);
+    console.log('PASS asset descriptions: current-language requests, live language switching and search, separated visual/tail/audio, truthful audio gate, playback-stable hover dismissal, touch, missing-file fallback and successful retry without page, data or media reload');
   } catch (error) {
     console.error(JSON.stringify({ errors, consoleErrors, requests: state }, null, 2));
     if (currentPage && !currentPage.isClosed()) {

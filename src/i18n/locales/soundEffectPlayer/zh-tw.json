@@ -55,6 +55,7 @@
   "soundEffectPlayer.ui.waveformFailed": "波形載入失敗，仍可點擊或拖曳定位",
   "soundEffectPlayer.ui.copyHint": "點擊複製內容",
   "soundEffectPlayer.ui.featuresLoading": "正在讀取資產描述…",
+  "soundEffectPlayer.ui.featuresRetry": "重試載入描述",
   "soundEffectPlayer.ui.featuresUnavailable": "描述檔案暫不可用，仍可依名稱、ID 搜尋與預覽。",
   "soundEffectPlayer.ui.featuresStale": "描述更新檢查失敗，暫時顯示上次讀取的內容。",
   "soundEffectPlayer.ui.featuresEmpty": "此資產暫未產生描述。"
