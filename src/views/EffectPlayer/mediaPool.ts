@@ -11,25 +11,29 @@ export function createMediaPool<T extends { dispose(): void }>(maxIdle = 64) {
       entry.value.dispose();
     }
   }
+  function lease(entry: Entry) {
+    idleEntries.delete(entry);
+    let released = false;
+    return {
+      value: entry.value,
+      release() {
+        if (released) return;
+        released = true;
+        idleEntries.add(entry);
+        trim();
+      },
+    };
+  }
+  function tryAcquireCached(key: string) {
+    for (const entry of idleEntries) {
+      if (entry.key === key) return lease(entry);
+    }
+    return null;
+  }
   return {
+    tryAcquireCached,
     acquire(key: string, create: () => T) {
-      let entry: Entry | undefined;
-      for (const candidate of idleEntries) {
-        if (candidate.key === key) { entry = candidate; break; }
-      }
-      entry ??= { key, value: create() };
-      idleEntries.delete(entry);
-      const leasedEntry = entry;
-      let released = false;
-      return {
-        value: leasedEntry.value,
-        release() {
-          if (released) return;
-          released = true;
-          idleEntries.add(leasedEntry);
-          trim();
-        },
-      };
+      return tryAcquireCached(key) ?? lease({ key, value: create() });
     },
   };
 }

@@ -39,6 +39,11 @@ import zhTWClientUIAnimationEditor from "./locales/clientUIAnimationEditor/zh-tw
 import enUSClientUIAnimationEditor from "./locales/clientUIAnimationEditor/en-us.json";
 import jaJPClientUIAnimationEditor from "./locales/clientUIAnimationEditor/ja-jp.json";
 import ruRUClientUIAnimationEditor from "./locales/clientUIAnimationEditor/ru-ru.json";
+import zhCNAnimationViewer from "./locales/animationViewer/zh-cn.json";
+import zhTWAnimationViewer from "./locales/animationViewer/zh-tw.json";
+import enUSAnimationViewer from "./locales/animationViewer/en-us.json";
+import jaJPAnimationViewer from "./locales/animationViewer/ja-jp.json";
+import ruRUAnimationViewer from "./locales/animationViewer/ru-ru.json";
 
 import zhTWCommon from "./locales/common/zh-tw.json";
 import zhTWEffectPlayer from "./locales/effectPlayer/zh-tw.json";
@@ -65,11 +70,11 @@ export function createAppI18n(locale: AppLocale = defaultLocale) {
     missingWarn: false,
     fallbackWarn: false,
     messages: {
-      "zh-CN": { ...zhCNCommon, ...zhCNStructViewer, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer, ...zhCNHomePage, ...zhCNBgmPlayer, ...zhCNAiSearch, ...zhCNClientUIAnimationEditor },
-      "en-US": { ...enUSCommon, ...enUSStructViewer, ...enUSEffectPlayer, ...enUSSoundEffectPlayer, ...enUSHomePage, ...enUSBgmPlayer, ...enUSAiSearch, ...enUSClientUIAnimationEditor },
-      "zh-TW": { ...zhTWCommon, ...zhTWStructViewer, ...zhTWEffectPlayer, ...zhTWSoundEffectPlayer, ...zhTWHomePage, ...zhTWBgmPlayer, ...zhTWAiSearch, ...zhTWClientUIAnimationEditor },
-      "ja-JP": { ...jaJPCommon, ...jaJPStructViewer, ...jaJPEffectPlayer, ...jaJPSoundEffectPlayer, ...jaJPHomePage, ...jaJPBgmPlayer, ...jaJPAiSearch, ...jaJPClientUIAnimationEditor },
-      "ru-RU": { ...ruRUCommon, ...ruRUStructViewer, ...ruRUEffectPlayer, ...ruRUSoundEffectPlayer, ...ruRUHomePage, ...ruRUBgmPlayer, ...ruRUAiSearch, ...ruRUClientUIAnimationEditor },
+      "zh-CN": { ...zhCNCommon, ...zhCNStructViewer, ...zhCNEffectPlayer, ...zhCNSoundEffectPlayer, ...zhCNHomePage, ...zhCNBgmPlayer, ...zhCNAiSearch, ...zhCNClientUIAnimationEditor, ...zhCNAnimationViewer },
+      "en-US": { ...enUSCommon, ...enUSStructViewer, ...enUSEffectPlayer, ...enUSSoundEffectPlayer, ...enUSHomePage, ...enUSBgmPlayer, ...enUSAiSearch, ...enUSClientUIAnimationEditor, ...enUSAnimationViewer },
+      "zh-TW": { ...zhTWCommon, ...zhTWStructViewer, ...zhTWEffectPlayer, ...zhTWSoundEffectPlayer, ...zhTWHomePage, ...zhTWBgmPlayer, ...zhTWAiSearch, ...zhTWClientUIAnimationEditor, ...zhTWAnimationViewer },
+      "ja-JP": { ...jaJPCommon, ...jaJPStructViewer, ...jaJPEffectPlayer, ...jaJPSoundEffectPlayer, ...jaJPHomePage, ...jaJPBgmPlayer, ...jaJPAiSearch, ...jaJPClientUIAnimationEditor, ...jaJPAnimationViewer },
+      "ru-RU": { ...ruRUCommon, ...ruRUStructViewer, ...ruRUEffectPlayer, ...ruRUSoundEffectPlayer, ...ruRUHomePage, ...ruRUBgmPlayer, ...ruRUAiSearch, ...ruRUClientUIAnimationEditor, ...ruRUAnimationViewer },
     },
   });
 }

@@ -102,4 +102,13 @@ export const appRoutes: AppRoute[] = [
     description:
       `AI搜索`,
   },
+    {
+    path: "/AnimationViewer",
+    name: "AnimationViewer",
+    title: "角色动画查看器",
+    titleKey: "animationViewer.title",
+    descriptionKey: "animationViewer.pageDescription",
+    description:
+      `角色动画查看器`,
+  },
 ];

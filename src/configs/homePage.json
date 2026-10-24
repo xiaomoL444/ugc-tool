@@ -6,7 +6,8 @@
       "titleKey": "homePage.categories.resources",
       "color": "#6279d9",
       "background": "#eef0ff",
-      "cards": [{
+      "cards": [
+        {
           "id": "aisearch",
           "href": "/AISearch",
           "title": "AI搜索",
@@ -49,6 +50,17 @@
           "icon": "✦",
           "previewImages": [],
           "badge": "v7.1 Update"
+        },
+        {
+          "id": "animation",
+          "href": "/AnimationViewer",
+          "title": "角色动画查看器",
+          "titleKey": "animationViewer.title",
+          "description": "查看和预览角色动画",
+          "descriptionKey": "animationViewer.pageDescription",
+          "icon": "✦",
+          "previewImages": [],
+          "badge": "beta"
         }
       ]
     },
@@ -175,12 +187,14 @@
       "name": "Genshin-Impact-UGC-File-Converter",
       "description": "客户端UI动画编辑器参考该项目实现导入导出gia功能",
       "href": "https://github.com/Nyagamon/Genshin-Impact-UGC-File-Converter"
-    },{
+    },
+    {
       "id": "contributor",
       "name": "@Damien",
       "description": "Assisted in completing the update of special effect assets for version 7.1.",
       "href": "https://wiki.miliastra.dev/"
-    },{
+    },
+    {
       "id": "repositories",
       "name": "qianxing-audio-library",
       "description": "参考项目，提供了如何能够听音效的思路",
