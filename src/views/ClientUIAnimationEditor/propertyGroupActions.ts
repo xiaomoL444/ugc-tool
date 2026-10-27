@@ -75,10 +75,11 @@ export function resetPropertyGroup(node: UINode, group: PropertyGroup): boolean 
   switch (group) {
     case "transform": {
       const definition = getControlDefinition(node.type);
+      const stretch = node.type === "fullscreenAnimation";
       Object.assign(node, {
-        anchorMinX: 0.5, anchorMinY: 0.5, anchorMaxX: 0.5, anchorMaxY: 0.5,
+        anchorMinX: stretch ? 0 : 0.5, anchorMinY: stretch ? 0 : 0.5, anchorMaxX: stretch ? 1 : 0.5, anchorMaxY: stretch ? 1 : 0.5,
         pivotX: 0.5, pivotY: 0.5, anchorOffsetX: 0, anchorOffsetY: 0,
-        sizeDeltaX: definition.defaultWidth, sizeDeltaY: definition.defaultHeight,
+        sizeDeltaX: stretch ? 0 : definition.defaultWidth, sizeDeltaY: stretch ? 0 : definition.defaultHeight,
         scaleX: 1, scaleY: 1, scaleZ: 1, rotationX: 0, rotationY: 0, rotation: 0,
       });
       break;

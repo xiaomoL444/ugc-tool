@@ -259,7 +259,11 @@ export function normalizeGiaExportSource(value: unknown): GiaExportSource | null
   if (!source.document || source.document.filetype !== "gia" || !source.document.json || typeof source.document.dtype_csv !== "string"
     || !Number.isInteger(source.deviceIndex) || source.deviceIndex < 0 || source.deviceIndex > 3
     || source.baseline !== undefined && !Array.isArray(source.baseline)) throw new Error(t("clientUIAnimationEditor.ui.giaExport.invalidOriginalData"));
-  return clone(source);
+  const normalized = clone(source);
+  for (const node of normalized.baseline ?? []) {
+    if (node?.type === "uiAnimation" && node.properties) node.properties.layer = node.properties.layer === "belowAllControls" ? "belowAllControls" : "aboveAllControls";
+  }
+  return normalized;
 }
 
 /** Repair the default-false masks in projects imported before native mask support. */

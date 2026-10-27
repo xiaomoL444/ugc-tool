@@ -23,7 +23,7 @@ async function main() {
   assert.equal(watches.length, 1);
   const exposed = ["updateTimelineEvents", "advanceTimelinePlayback", "eventPreviewLog", "rewindPlayback", "togglePlayback", "updateKeyframeDuration", "nodes", "selectedId", "selectedNode", "selectedKeyframeId", "selectedProperties", "inspectorNode", "animatedPropertyFields",
     "toggleAnchorPopover", "closeAnchorPopover", "anchorPopoverStyle", "anchorMenuOpen", "timelineTrackValues", "editTimelineTrackValue", "frameRate", "currentTime", "playing", "zoom", "duration", "canvasWidth", "canvasHeight", "selectedWorldPosition", "selectedRuntimeLayoutValues", "previewWorldTransforms",
-    "tweenTracks", "keyframeTracks", "makeNode", "getHierarchyOrder", "applyNodeLayout", "getRuntimeLayoutValues", "readTweenFieldValue",
+    "tweenTracks", "keyframeTracks", "makeNode", "addNode", "getHierarchyOrder", "applyNodeLayout", "getRuntimeLayoutValues", "readTweenFieldValue",
     "selectKeyframeTrack", "addKeyframeTrackPair", "tweenFieldPickerCombos", "tweenFieldPickerNodeId", "tweenFieldSearch", "addKeyframeTrack", "insertKeyframeAtTime", "selectKeyframe", "moveKeyframe", "updateKeyframe", "removeKeyframe", "removeKeyframeTrack", "removeSelected",
     "normalizeRotationAngle", "hasAnimatedField", "writeAnimatedValue", "updateAnimatedBaseValue", "updateGeometry", "updateRuntimeLayoutValue", "seekKeyframeTime",
     "buildKeyframePreviewNodes", "buildTweenPreviewNodes", "startMove", "startResize", "keyframePreviousValue",
@@ -37,7 +37,8 @@ async function main() {
     "controlTemplates", "saveControlTemplate", "selectControlTemplate", "selectedControlTemplate", "templateLibraryOpen", "primitiveResourceById",
     "createGiaProject", "giaSource", "attachGiaSource", "giaExportOpen", "giaExportError",
     "animations", "activeAnimationId", "activeAnimation", "animationNotice", "animationsPanelCollapsed", "selectAnimation", "createAnimation", "duplicateAnimation", "renameAnimation", "removeAnimation",
-    "openTimelineDataImport", "timelineDataImportMode", "timelineDataSource", "confirmTimelineDataImport", "exportSelectedNodeKeyframeData"];
+    "openTimelineDataImport", "timelineDataImportMode", "timelineDataSource", "confirmTimelineDataImport", "exportSelectedNodeKeyframeData",
+    "vfxReplayTokens", "replayVfx", "canvasVfx", "vfxPlacement", "selectVfxAsset", "resetVfxScale", "previewVfxAsset"];
   const script = ts.transpileModule(`${declarations}\n${watches.join("\n")}\nglobalThis.api={${exposed.join(",")}};`, {
     compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
   }).outputText;
@@ -293,6 +294,139 @@ async function main() {
       api.updateTimelineEvents([]); api.openTimelineDataImport(); api.timelineDataSource.value = source;
       api.confirmTimelineDataImport(); assert.equal(api.activeAnimation.value.events.length,1);
       assert.equal(api.activeAnimation.value.events[0].nodeId,'image'); assert.equal(api.keyframeTracks.value.length,0);
+    });
+    await test("UI VFX selection preserves project data, follows hierarchy transforms and honors layer selection", () => {
+      const api = fixture();
+      const asset = { id: 10001001, scope: 'ui', isLoop: true, width: 182, height: 182 };
+      imports.uiVfxAssets.value = [asset, { id: 10002001, scope: 'screen', isLoop: true }];
+      api.nodes.value.push(api.makeNode('uiAnimation', 'Effect', { id: 'vfx', parentId: 'group' }));
+      assert.equal(node(api, 'vfx').properties.layer, 'aboveAllControls');
+      api.selectedId.value = 'vfx'; api.selectVfxAsset(asset);
+      assert.equal(node(api, 'vfx').properties.animationId, asset.id);
+      const entry = api.canvasVfx.value.find(entry => entry.node.id === 'vfx');
+      assert.equal(entry.enabled, true); assert.equal(entry.asset.id, asset.id);
+      const style = api.vfxPlacement(node(api, 'vfx'));
+      assert.equal(style.zIndex, 2); assert.ok(style.transform.startsWith('matrix(2, 0, 0, 3'));
+      node(api, 'vfx').properties.layer = 'belowAllControls';
+      assert.equal(api.vfxPlacement(node(api, 'vfx')).zIndex, 0);
+      node(api).active = false; assert.equal(api.canvasVfx.value.find(entry => entry.node.id === 'vfx').enabled, false);
+      node(api).active = true; node(api).visible = false; assert.equal(api.canvasVfx.value.find(entry => entry.node.id === 'vfx').enabled, false);
+      node(api).visible = true;
+      const saved = api.serializeProject(); api.applyProjectData(saved);
+      assert.equal(node(api, 'vfx').properties.animationId, asset.id); assert.equal(node(api, 'vfx').properties.layer, 'belowAllControls');
+      for (const legacyLayer of [null, undefined, 'obsolete']) {
+        const legacy = JSON.parse(saved), effect = legacy.nodes.find(item => item.id === 'vfx');
+        if (legacyLayer === undefined) delete effect.properties.layer;
+        else effect.properties.layer = legacyLayer;
+        api.applyProjectData(JSON.stringify(legacy));
+        assert.equal(node(api, 'vfx').properties.layer, 'aboveAllControls', 'old unset layers migrate to the default');
+        assert.equal(JSON.parse(api.serializeProject()).nodes.find(item => item.id === 'vfx').properties.layer, 'aboveAllControls');
+      }
+      node(api, 'vfx').properties.animationId = 10002001;
+      assert.equal(api.canvasVfx.value.some(entry => entry.node.id === 'vfx'), false, 'wrong-scope IDs cannot play');
+    });
+    await test("UI VFX defaults to a 100x100 control and its native footprint changes only with scale", () => {
+      const api = fixture();
+      const asset = { id: 10001001, scope: 'ui', isLoop: true, width: 182, height: 90 };
+      imports.uiVfxAssets.value = [asset];
+      const effect = api.makeNode('uiAnimation', 'Effect', { id: 'vfx', parentId: 'group', pivotX: .2, pivotY: .8 });
+      assert.equal(effect.width, 100); assert.equal(effect.height, 100);
+      api.nodes.value.push(effect); api.applyNodeLayout(effect); api.selectedId.value = 'vfx'; api.selectVfxAsset(asset);
+      assert.equal(effect.width, 100); assert.equal(effect.height, 100, 'selection does not resize the control');
+      const original = plain(api.vfxPlacement(node(api, 'vfx')));
+      assert.equal(original.width, '182px'); assert.equal(original.height, '90px');
+      api.updateGeometry('width', 600); api.updateGeometry('height', 25);
+      assert.deepEqual(plain(api.vfxPlacement(node(api, 'vfx'))), original, 'changing the rectangle cannot stretch or offset the effect');
+      api.updateAnimatedBaseValue('localScaleX', 2); api.updateAnimatedBaseValue('localScaleY', .5);
+      assert.equal(api.vfxPlacement(node(api, 'vfx')).transform, 'matrix(4, 0, 0, 1.5, 0, 0)', 'local scale composes with parent scale');
+      api.resetVfxScale();
+      assert.deepEqual(plain(api.vfxPlacement(node(api, 'vfx'))), original);
+      assert.equal(node(api, 'vfx').width, 600); assert.equal(node(api, 'vfx').height, 25, 'reset scale preserves rectangle dimensions');
+      const size = addTrack(api, 'sizeDeltaX', 'vfx'), scale = addTrack(api, 'localScaleX', 'vfx');
+      size.keyframes = [100, 1000].map((value,time) => ({ id: 'size'+time, time, value, interpolation: 'tween', easeType: 'Linear' }));
+      scale.keyframes = [1, 3].map((value,time) => ({ id: 'scale'+time, time, value, interpolation: 'tween', easeType: 'Linear' }));
+      api.currentTime.value = .5;
+      const animated = api.vfxPlacement(node(api, 'vfx'));
+      assert.equal(animated.width, original.width); assert.equal(animated.height, original.height);
+      assert.equal(animated.transform, 'matrix(4, 0, 0, 3, 0, 0)', 'animated scale changes rendering while animated size does not');
+    });
+    await test("VFX picker previews on the canvas without editing the selection, stored state or undo history", () => {
+      const api = fixture();
+      const selected = {id:10001001,scope:'ui',width:182,height:182}, preview = {id:10001002,scope:'ui',width:220,height:100};
+      imports.uiVfxAssets.value = [selected,preview];
+      const effect = api.makeNode('uiAnimation','Effect',{id:'vfx',parentId:'group',properties:{animationId:selected.id},visible:false});
+      api.nodes.value.push(effect); api.applyNodeLayout(effect); api.selectedId.value=effect.id;
+      const saved = api.serializeProject(), snapshot = api.captureUndoState();
+      api.previewVfxAsset(preview);
+      assert.equal(api.canvasVfx.value.find(entry=>entry.node.id==='vfx').asset.id, preview.id);
+      assert.equal(api.canvasVfx.value.find(entry=>entry.node.id==='vfx').enabled, true, 'explicit preview also works for hidden controls');
+      assert.equal(api.vfxPlacement(node(api,'vfx')).width,'220px');
+      assert.equal(node(api,'vfx').properties.animationId,selected.id);
+      assert.equal(api.serializeProject(),saved); assert.equal(api.captureUndoState(),snapshot);
+      api.previewVfxAsset(null);
+      assert.equal(api.canvasVfx.value.find(entry=>entry.node.id==='vfx').asset.id,selected.id);
+      assert.equal(api.canvasVfx.value.find(entry=>entry.node.id==='vfx').enabled,false);
+      assert.equal(api.vfxPlacement(node(api,'vfx')).width,'182px');
+      api.previewVfxAsset(preview); api.selectVfxAsset(preview); api.previewVfxAsset(null);
+      assert.equal(node(api,'vfx').properties.animationId,preview.id,'only selecting a row commits the effect');
+    });
+    await test("Fullscreen VFX defaults match a centered canvas with stretch anchors, including other canvas ratios", () => {
+      const api = fixture();
+      const native = api.makeNode('fullscreenAnimation', 'Screen');
+      assert.deepEqual([native.x,native.y,native.width,native.height], [800,450,1600,900]);
+      assert.deepEqual([native.anchorMinX,native.anchorMinY,native.anchorMaxX,native.anchorMaxY,native.pivotX,native.pivotY], [0,0,1,1,.5,.5]);
+      assert.deepEqual([native.anchorOffsetX,native.anchorOffsetY,native.sizeDeltaX,native.sizeDeltaY], [0,0,0,0]);
+      for (const [width,height] of [[1600,900],[2100,900],[1280,720]]) {
+        api.applyProjectData(api.createBlankProject('Fullscreen defaults'));
+        api.canvasWidth.value = width; api.canvasHeight.value = height;
+        api.getHierarchyOrder().forEach(api.applyNodeLayout);
+        const root = api.nodes.value[0]; api.selectedId.value = root.id;
+        api.addNode('fullscreenAnimation');
+        const screen = api.selectedNode.value;
+        assert.deepEqual([screen.x,screen.y,screen.width,screen.height], [width/2,height/2,width,height]);
+        assert.deepEqual([screen.scaleX,screen.scaleY,screen.rotation], [1,1,0]);
+        assert.deepEqual([screen.anchorMinX,screen.anchorMinY,screen.anchorMaxX,screen.anchorMaxY,screen.pivotX,screen.pivotY], [0,0,1,1,.5,.5]);
+        assert.deepEqual([screen.anchorOffsetX,screen.anchorOffsetY,screen.sizeDeltaX,screen.sizeDeltaY], [0,0,0,0]);
+        screen.scaleX=2; screen.rotation=35; screen.anchorMinX=.3; screen.sizeDeltaX=200;
+        api.resetSelectedPropertyGroup('transform');
+        assert.deepEqual([api.selectedNode.value.width,api.selectedNode.value.height,api.selectedNode.value.scaleX,api.selectedNode.value.rotation], [width,height,1,0]);
+        const saved = api.serializeProject(); api.applyProjectData(saved);
+        const restored = api.nodes.value.find(node=>node.type==='fullscreenAnimation');
+        assert.deepEqual([restored.anchorMinX,restored.anchorMinY,restored.anchorMaxX,restored.anchorMaxY,restored.width,restored.height], [0,0,1,1,width,height]);
+      }
+    });
+    await test("Fullscreen VFX transforms move child controls while its own video placement stays fixed", () => {
+      const api = fixture(); api.applyProjectData(api.createBlankProject('Fullscreen children'));
+      api.selectedId.value = api.nodes.value[0].id; api.addNode('fullscreenAnimation');
+      const screen = api.selectedNode.value;
+      const child = api.makeNode('image', 'Child', {id:'screen-child',parentId:screen.id,anchorOffsetX:20,anchorOffsetY:10});
+      api.nodes.value.push(child); api.applyNodeLayout(child);
+      const before = api.previewWorldTransforms.value.get(child.id), placement = plain(api.vfxPlacement(screen));
+      screen.scaleX=2; screen.x+=100; screen.anchorOffsetX+=100;
+      const after = api.previewWorldTransforms.value.get(child.id);
+      near(after.x-before.x,120); near(after.y,before.y);
+      assert.deepEqual(plain(api.vfxPlacement(screen)), placement);
+    });
+    await test("Fullscreen VFX ignores node transforms and always covers the current canvas above controls", () => {
+      const api = fixture();
+      const screen = api.makeNode('fullscreenAnimation', 'Screen', { id: 'screen', parentId: 'group', x: 500, y: -50, rotation: 77, scaleX: 4 });
+      for (const [width, height] of [[1600,900], [1200,900], [2100,900]]) {
+        api.canvasWidth.value = width; api.canvasHeight.value = height;
+        assert.deepEqual(plain(api.vfxPlacement(screen)), { left: '0px', top: '0px', width: width+'px', height: height+'px', zIndex: 3 });
+      }
+    });
+    await test("Show keyframes replay descendant effects even when already visible, without replaying on seeks", () => {
+      const api = fixture();
+      api.nodes.value.push(api.makeNode('uiAnimation', 'Effect', { id: 'vfx', parentId: 'group' }));
+      const track = addTrack(api, 'visible');
+      track.keyframes = [0,1,2].map((time,i) => ({ id: 'show'+i, time, value: true, interpolation: 'step', easeType: 'Linear' }));
+      const snapshot = api.captureUndoState();
+      api.advanceTimelinePlayback(0); assert.equal(api.vfxReplayTokens.value.vfx, 1);
+      api.advanceTimelinePlayback(1.5); assert.equal(api.vfxReplayTokens.value.vfx, 2);
+      api.advanceTimelinePlayback(0); assert.equal(api.vfxReplayTokens.value.vfx, 2);
+      api.seekKeyframeTime(3); assert.equal(api.vfxReplayTokens.value.vfx, 2);
+      api.advanceTimelinePlayback(2); assert.equal(api.vfxReplayTokens.value.vfx, 3, 'zero show key fires on loop boundary');
+      assert.equal(api.captureUndoState(), snapshot, 'replay counters are not persistent data or undo operations');
     });
     await test("Hidden Z scale lanes load unchanged and remain editable without migration warnings", () => {
       const api = fixture(); addTrack(api, "sizeDeltaX");

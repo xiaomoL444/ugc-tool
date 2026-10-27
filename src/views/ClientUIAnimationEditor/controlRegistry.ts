@@ -8,6 +8,7 @@ export interface ControlPropertyField {
   label: string;
   kind: ControlPropertyFieldKind;
   options?: PropertyOption[];
+  allowUnset?: boolean;
   min?: number;
   max?: number;
   step?: number;
@@ -114,11 +115,11 @@ export const controlRegistry: { [T in ControlType]: ControlDefinition<T> } = {
     fields: [select("keyboardKeyCode", "clientUIAnimationEditor.ui.controls.keyboardMouseKeys", keyboardKeyOptions), select("controllerKeyCode", "clientUIAnimationEditor.ui.controls.keyHint.controllerButton", controllerKeyOptions)], createProperties: () => ({ keyboardKeyCode: "None", controllerKeyCode: "None" }),
   },
   uiAnimation: {
-    type: "uiAnimation", label: "clientUIAnimationEditor.ui.controls.uiAnimation", icon: "✦", description: "clientUIAnimationEditor.ui.controls.playUiAnimation", runtimeClass: "ClientUIAnimationControl", defaultName: "UIAnimation", defaultWidth: 240, defaultHeight: 140,
-    fields: [number("animationId", "clientUIAnimationEditor.ui.controls.effectId", { step: 1 }), boolean("playSoundEffect", "clientUIAnimationEditor.ui.controls.animation.playSound"), select("layer", "clientUIAnimationEditor.ui.controls.animationLayer", [option("aboveAllControls", "clientUIAnimationEditor.ui.controls.animation.layerAboveAll"), option("belowAllControls", "clientUIAnimationEditor.ui.controls.behindAllControls")])], createProperties: () => ({ animationId: null, playSoundEffect: true, layer: null }),
+    type: "uiAnimation", label: "clientUIAnimationEditor.ui.controls.uiAnimation", icon: "✦", description: "clientUIAnimationEditor.ui.controls.playUiAnimation", runtimeClass: "ClientUIAnimationControl", defaultName: "UIAnimation", defaultWidth: 100, defaultHeight: 100,
+    fields: [number("animationId", "clientUIAnimationEditor.ui.controls.effectId", { step: 1 }), boolean("playSoundEffect", "clientUIAnimationEditor.ui.controls.animation.playSound"), select("layer", "clientUIAnimationEditor.ui.controls.animationLayer", [option("aboveAllControls", "clientUIAnimationEditor.ui.controls.animation.layerAboveAll"), option("belowAllControls", "clientUIAnimationEditor.ui.controls.behindAllControls")], { allowUnset: false })], createProperties: () => ({ animationId: null, playSoundEffect: true, layer: "aboveAllControls" }),
   },
   fullscreenAnimation: {
-    type: "fullscreenAnimation", label: "clientUIAnimationEditor.ui.controls.fullscreenAnimation", icon: "✧", description: "clientUIAnimationEditor.ui.controls.fullscreenAnimationHint", runtimeClass: "ClientUIFullscreenAnimationControl", defaultName: "FullscreenAnimation", defaultWidth: 640, defaultHeight: 360,
+    type: "fullscreenAnimation", label: "clientUIAnimationEditor.ui.controls.fullscreenAnimation", icon: "✧", description: "clientUIAnimationEditor.ui.controls.fullscreenAnimationHint", runtimeClass: "ClientUIFullscreenAnimationControl", defaultName: "FullscreenAnimation", defaultWidth: 1600, defaultHeight: 900,
     fields: [number("animationId", "clientUIAnimationEditor.ui.controls.effectId", { step: 1 }), boolean("playSoundEffect", "clientUIAnimationEditor.ui.controls.animation.playSound")], createProperties: () => ({ animationId: null, playSoundEffect: true }),
   },
   reference: {

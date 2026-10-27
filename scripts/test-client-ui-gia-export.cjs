@@ -6,7 +6,7 @@ async function main() {
   Module._load = function (request, parent, isMain) { return request === "genshin-impact-ugc-file-converter-web" ? converter : oldLoad.call(this, request, parent, isMain); };
   Module._extensions[".ts"] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, esModuleInterop: true, resolveJsonModule: true } }).outputText, file);
   try {
-    const { exportGiaUI, originalGiaUIIndex, createGiaExportBaseline } = require("../src/views/ClientUIAnimationEditor/giaExporter.ts");
+    const { exportGiaUI, originalGiaUIIndex, createGiaExportBaseline, normalizeGiaExportSource } = require("../src/views/ClientUIAnimationEditor/giaExporter.ts");
     const { importGiaControls } = require("../src/views/ClientUIAnimationEditor/giaImporter.ts");
     const { createControlProperties } = require("../src/views/ClientUIAnimationEditor/controlRegistry.ts");
     const clone = value => JSON.parse(JSON.stringify(value));
@@ -103,6 +103,17 @@ async function main() {
     const referenceControls = importGiaControls(buffer(referenceOutput.bytes)).controls;
     assert.equal(referenceControls[1].type, "reference"); assert.equal(referenceControls[1].properties.referencedPrefabIndex, 1073746851);
     assert.equal(referenceControls[2].type, "uiAnimation"); assert.equal(referenceControls[2].properties.animationId, 10001145);
+    const nativeEffects = importGiaControls(buffer(referenceOutput.bytes)), effectNodes = importedNodes(nativeEffects);
+    for (const legacyLayer of [null, undefined]) {
+      const legacySource = {document:nativeEffects.sourceDocument,baseline:clone(effectNodes),deviceIndex:0};
+      const baselineEffect = legacySource.baseline.find(item=>item.type==='uiAnimation');
+      if (legacyLayer === undefined) delete baselineEffect.properties.layer;
+      else baselineEffect.properties.layer = legacyLayer;
+      const unchanged = JSON.stringify(legacySource), source = normalizeGiaExportSource(legacySource);
+      assert.equal(JSON.stringify(legacySource),unchanged,'migration never changes the original source');
+      const migrated = exportGiaUI({name:'Legacy UI effect',uiIndex:33,deviceIndex:0,nodes:effectNodes,source});
+      assert.equal(importGiaControls(buffer(migrated.bytes)).controls.find(item=>item.type==='uiAnimation').properties.animationId,10001145);
+    }
     console.log("PASS template reference indices and UI animation identifiers use their observed native components");
     const primitives = [node("container", "primitive-root"), node("primitive", "primitive", "primitive-root", { scaleX: 1.5, rotation: 35, anchorOffsetX: -20 }), node("text", "primitive-child", "primitive")];
     primitives[1].properties.imageUrl = "data:image/png;base64,CUSTOM_IMAGE_EDITOR_ONLY";

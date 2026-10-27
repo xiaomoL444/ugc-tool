@@ -100,15 +100,16 @@
                 </mask>
               </defs>
             </svg>
-            <CanvasMaskLayers :layers="canvasMaskLayers" v-slot="{ node }">
+            <div class="canvas-controls"><CanvasMaskLayers :layers="canvasMaskLayers" v-slot="{ node }">
             <div class="canvas-node" :class="[`type-${node.type}`, { selected: node.id === selectedId, locked: node.locked, 'bone-attach-hover': node.id === boneHoverTarget?.id }]" :style="nodeStyle(node)" @pointerdown.stop="startCanvasPress($event)">
               <SpriteImage v-if="node.type === 'image'" :mask-properties="(previewNode(node) as UINodeOf<'image'>).properties" :asset="getImageAsset(node.properties.imageId)" :width="previewNode(node).width" :height="previewNode(node).height" :image-type="node.properties.imageType" :color="safeColor((previewNode(node) as UINodeOf<'image'>).properties.imageColor, editorTypeColors.image)" />
               <PrimitiveImage v-else-if="node.type === 'primitive'" :image-url="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.imageUrl ?? ''" :preview-mode="node.properties.previewMode" :fit-data="primitiveResourceById.get(node.properties.imageResourceId ?? '')?.fitData" :width="previewNode(node).width" :height="previewNode(node).height" />
               <ControlTemplatePreview v-else-if="node.type === 'reference'" :asset="controlTemplateByIndex.get(node.properties.referencedPrefabIndex ?? -1) ?? null" :missing-index="node.properties.referencedPrefabIndex" :device-index="templateDeviceIndex" :width="previewNode(node).width" :height="previewNode(node).height" :alpha="previewNode(node).previewTemplateAlpha ?? 1" />
               <span v-else-if="node.type === 'text' || node.type === 'textWindow'" class="text-preview" :style="textRenderStyle(node)">{{ node.properties.text || node.name }}</span>
-              <span v-else-if="node.type !== 'container'" class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ t(controlLabels[node.type]) }}</small></span>
+              <span v-else-if="node.type !== 'container' && !vfxAsset(node)" class="generic-control-preview"><b>{{ nodeIcon(node.type) }}</b><small>{{ t(controlLabels[node.type]) }}</small></span>
             </div>
-            </CanvasMaskLayers>
+            </CanvasMaskLayers></div>
+            <div class="canvas-vfx"><UIVfxMedia v-for="effect in canvasVfx" :key="`${keyframeDocumentEpoch}:${effect.node.id}`" :asset="effect.asset" :enabled="effect.enabled && hasOpenDocument" :sound="effect.node.properties.playSoundEffect" :restart-token="vfxReplayTokens[effect.node.id] ?? 0" :placement="vfxPlacement(effect.node)" :cover="effect.node.type === 'fullscreenAnimation'" /></div>
             <template v-if="boneToolsEnabled">
             <ContainerDirectionGuide v-for="guide in renderContainerDirections" :key="guide.id" :data-node-id="guide.id" :length="guide.length" :selected="guide.id === selectedId" :style="guide.style" />
             </template>
@@ -165,6 +166,7 @@
           <div v-if="propertyActionFeedback?.nodeId === selectedId" class="property-action-feedback" role="status">{{ propertyActionFeedback.message }}</div>
           <div v-show="inspectorTab === 'basic'" id="inspector-basic" role="tabpanel" aria-labelledby="inspector-basic-tab">
           <PropertySection :title="t('clientUIAnimationEditor.ui.properties.transform')" icon="⌖" group="transform">
+            <p v-if="selectedNode.type === 'fullscreenAnimation'" class="vfx-transform-note">{{ t('clientUIAnimationEditor.ui.vfx.fullscreenTransformHint') }}</p>
             <div class="device-field"><span>{{ t('clientUIAnimationEditor.ui.controls.device') }}</span><div class="device-mode-switch" role="group" :aria-label="t('clientUIAnimationEditor.ui.canvas.previewDevice')"><button v-for="device in deviceModes" :key="device.id" :class="{ active: deviceMode === device.id }" :title="t(device.label)" :aria-label="t(device.label)" :aria-pressed="deviceMode === device.id" @click.stop="switchDevice(device.id)"><DevicePreviewIcon :mode="device.id" :size="22" /></button></div></div>
             <div class="coordinate-note"><span :title="t('clientUIAnimationEditor.ui.canvas.coordinateOriginHint')">{{ t('clientUIAnimationEditor.ui.properties.worldCoordinatesHint') }}</span></div>
             <div class="property-grid">
@@ -203,6 +205,9 @@
             <ImageControlSettings :model-value="(inspectorNode as UINodeOf<'image'>).properties" :asset="selectedImageAsset" :animated="hasAnimatedField('imageColor')" @update:model-value="selectedProperties = $event" @select="selectImageAsset" @open-library="imageLibraryOpen = true" @reset-size="resetSelectedImageSize" />
           </PropertySection>
           <ControlPropertiesInspector :key="selectedId ?? ''" v-model="selectedProperties" :definition="selectedInspectorDefinition" :animated-fields="animatedPropertyFields">
+            <template #field-animationId>
+              <UIVfxControlSettings v-if="selectedNode.type === 'uiAnimation' || selectedNode.type === 'fullscreenAnimation'" :scope="selectedNode.type === 'uiAnimation' ? 'ui' : 'screen'" :animation-id="selectedNode.properties.animationId" @select="selectVfxAsset" @preview="previewVfxAsset" @replay="replayVfx(selectedNode.id)" @reset-scale="resetVfxScale" />
+            </template>
             <template #field-imageResourceId>
               <div v-if="selectedNode?.type === 'primitive'" class="primitive-resource-reference">
                 <button class="template-reference-picker" :aria-label="t('clientUIAnimationEditor.ui.imageControls.selectPrimitiveImage')" @click.stop="openPrimitiveResourceLibrary">{{ selectedPrimitiveResource?.name ?? t('clientUIAnimationEditor.ui.images.noResourceSelected') }} <span>{{ t('clientUIAnimationEditor.ui.imageControls.selectResource') }}</span></button>
@@ -232,6 +237,7 @@
           <div v-show="inspectorTab === 'runtime'" id="inspector-runtime" role="tabpanel" aria-labelledby="inspector-runtime-tab">
             <div class="runtime-heading"><b>{{ selectedControlDefinition.runtimeClass }}</b><span>{{ t('clientUIAnimationEditor.ui.properties.baseLayoutHint') }}</span></div>
             <PropertySection :title="t('clientUIAnimationEditor.ui.properties.layoutAnchors')" group="transform">
+              <p v-if="selectedNode.type === 'fullscreenAnimation'" class="vfx-transform-note">{{ t('clientUIAnimationEditor.ui.vfx.fullscreenTransformHint') }}</p>
               <p class="api-layout-note">{{ t('clientUIAnimationEditor.ui.anchors.anchoredPositionHint') }}</p>
               <div class="api-layout-grid">
                 <label><code>anchoredPositionX</code><ScrubbableNumberInput :model-value="selectedRuntimeLayoutValues.anchoredPositionX" :animated="hasAnimatedField('anchoredPositionX')" :step="0.01" :scrub-speed="1" @update:model-value="updateRuntimeLayoutValue('anchoredPositionX', $event)" /></label>
@@ -383,6 +389,10 @@ import { isStretchable } from "./spriteGeometry";
 import ImageControlSettings from "./ImageControlSettings.vue";
 import ImageAssetLibrary from "./ImageAssetLibrary.vue";
 import SpriteImage from "./SpriteImage.vue";
+import UIVfxMedia from "./UIVfxMedia.vue";
+import UIVfxControlSettings from "./UIVfxControlSettings.vue";
+import { uiVfxById, loadUIVfxCatalog, isUIVfxEnabled } from "./uiVfxAssets";
+import type { UIVfxAsset } from "./uiVfxAssets";
 import CanvasMaskLayers from "./CanvasMaskLayers.vue";
 import ImageMaskCoverageFilter from "./ImageMaskCoverageFilter.vue";
 import { buildCanvasMaskLayers, canvasImageMaskId, canvasImageMaskTransform } from "./canvasMasks";
@@ -447,9 +457,11 @@ function makeNode(type: ControlType, name: string, overrides: NodeOverrides<Cont
   const { properties: propertyOverrides, editor: editorOverrides, ...baseOverrides } = overrides;
   const defaultWidth = definition.defaultWidth;
   const defaultHeight = definition.defaultHeight;
-  const node = { id: createId(), parentId: null, name, type, active: true, x: DEFAULT_CANVAS_WIDTH / 2, y: DEFAULT_CANVAS_HEIGHT / 2, width: defaultWidth, height: defaultHeight, scaleX: 1, scaleY: 1, scaleZ: 1, rotationX: 0, rotationY: 0, rotation: 0, anchorMinX: 0.5, anchorMinY: 0.5, anchorMaxX: 0.5, anchorMaxY: 0.5, pivotX: 0.5, pivotY: 0.5, anchorOffsetX: 0, anchorOffsetY: 0, sizeDeltaX: defaultWidth, sizeDeltaY: defaultHeight, canControllerFocus: false, visible: true, locked: false, properties: { ...createControlProperties(type), ...propertyOverrides }, ...baseOverrides } as UINode;
+  const stretch = type === "fullscreenAnimation";
+  const node = { id: createId(), parentId: null, name, type, active: true, x: DEFAULT_CANVAS_WIDTH / 2, y: DEFAULT_CANVAS_HEIGHT / 2, width: defaultWidth, height: defaultHeight, scaleX: 1, scaleY: 1, scaleZ: 1, rotationX: 0, rotationY: 0, rotation: 0, anchorMinX: stretch ? 0 : 0.5, anchorMinY: stretch ? 0 : 0.5, anchorMaxX: stretch ? 1 : 0.5, anchorMaxY: stretch ? 1 : 0.5, pivotX: 0.5, pivotY: 0.5, anchorOffsetX: 0, anchorOffsetY: 0, sizeDeltaX: defaultWidth, sizeDeltaY: defaultHeight, canControllerFocus: false, visible: true, locked: false, properties: { ...createControlProperties(type), ...propertyOverrides }, ...baseOverrides } as UINode;
   if (type === "container") node.editor = { directionArrowLength: normalizeDirectionArrowLength(editorOverrides?.directionArrowLength) };
   if (node.type === "primitive") node.properties = normalizePrimitiveProperties(node.properties);
+  if (node.type === "uiAnimation") node.properties.layer = node.properties.layer === "belowAllControls" ? "belowAllControls" : "aboveAllControls";
   if (node.type === "image") {
     // Older JSON projects represented the progress-fill switch by its shape.
     if ((propertyOverrides as Partial<ControlPropertiesMap["image"]> | undefined)?.enableFill === undefined) node.properties.enableFill = node.properties.fillType !== null && node.properties.fillType !== "unused";
@@ -533,6 +545,17 @@ const projectName = ref("Untitled UI Animation"); const deviceMode = ref<DeviceM
 const animations = ref<UIAnimation[]>([{ id: "animation-default", name: "默认动画", duration: 5, keyframeTracks: [] }]);
 const activeAnimationId = ref("animation-default");
 const eventPreviewLog = ref<string[]>([]);
+const vfxReplayTokens = ref<Record<string, number>>({});
+const vfxPreviewOverride = shallowRef<{ nodeId: string; asset: UIVfxAsset } | null>(null);
+function replayVfx(id: string) { vfxReplayTokens.value[id] = (vfxReplayTokens.value[id] ?? 0) + 1; }
+function replayShownVfx(from: number, to: number, includeStart: boolean) {
+  for (const track of keyframeTracks.value) {
+    if (track.fieldKey !== 'visible' || !track.keyframes.some(key => key.value === true && (includeStart ? key.time >= from : key.time > from) && key.time <= to)) continue;
+    for (const node of nodes.value) {
+      if ((node.type === 'uiAnimation' || node.type === 'fullscreenAnimation') && (node.id === track.nodeId || isDescendant(node.id, track.nodeId))) replayVfx(node.id);
+    }
+  }
+}
 let eventPlaybackStarted = false;
 function updateTimelineEvents(events: UITimelineEvent[]) {
   if (!hasOpenDocument.value) return;
@@ -540,6 +563,7 @@ function updateTimelineEvents(events: UITimelineEvent[]) {
   activeAnimation.value.events = normalizeTimelineEvents(events, nodes.value);
 }
 function previewEvents(from: number, to: number, includeStart = false) {
+  replayShownVfx(from, to, includeStart);
   const entries = crossedTimelineEvents(activeAnimation.value.events ?? [], from, to, includeStart);
   eventPreviewLog.value = [...eventPreviewLog.value, ...entries.map(e => t('clientUIAnimationEditor.ui.events.previewLogEntry', {
     time: e.time.toFixed(3), event: e.name,
@@ -743,6 +767,45 @@ const previewNodes = computed(() => keyframeTracks.value.length ? buildKeyframeP
 const inspectorNode = computed(() => selectedNode.value ? previewNode(selectedNode.value) : null);
 const animatedPropertyFields = computed(() => keyframeTracks.value.filter(track => track.nodeId === selectedId.value).map(track => track.fieldKey));
 const previewNodeMap = computed(() => new Map(previewNodes.value.map((node) => [node.id, node])));
+type VfxNode = UINodeOf<'uiAnimation'> | UINodeOf<'fullscreenAnimation'>;
+function vfxAsset(node: UINode): UIVfxAsset | null {
+  if (node.type !== 'uiAnimation' && node.type !== 'fullscreenAnimation') return null;
+  const asset = vfxPreviewOverride.value?.nodeId === node.id ? vfxPreviewOverride.value.asset : uiVfxById.value.get(node.properties.animationId ?? -1);
+  return asset?.scope === (node.type === 'uiAnimation' ? 'ui' : 'screen') ? asset : null;
+}
+const canvasVfx = computed(() => getCanvasRenderOrder().flatMap(node => {
+  const asset = vfxAsset(node);
+  return asset ? [{ node: node as VfxNode, asset, enabled: vfxPreviewOverride.value?.nodeId === node.id || isUIVfxEnabled(node.id, previewNodes.value) }] : [];
+}));
+function selectVfxAsset(asset: UIVfxAsset | null) {
+  const node = selectedNode.value;
+  if (!node || (node.type !== 'uiAnimation' && node.type !== 'fullscreenAnimation')) return;
+  node.properties.animationId = asset?.id ?? null;
+  replayVfx(node.id);
+}
+function previewVfxAsset(asset: UIVfxAsset | null) {
+  if (!asset) { vfxPreviewOverride.value = null; return; }
+  const node = selectedNode.value;
+  if (!node || (node.type !== 'uiAnimation' && node.type !== 'fullscreenAnimation') || asset.scope !== (node.type === 'uiAnimation' ? 'ui' : 'screen')) return;
+  vfxPreviewOverride.value = { nodeId: node.id, asset };
+  replayVfx(node.id);
+}
+function resetVfxScale() {
+  if (selectedNode.value?.type !== 'uiAnimation') return;
+  updateAnimatedBaseValue('localScaleX', 1); updateAnimatedBaseValue('localScaleY', 1);
+}
+function vfxPlacement(node: VfxNode): CSSProperties {
+  if (node.type === 'fullscreenAnimation') return { left: '0px', top: '0px', width: `${canvasWidth.value}px`, height: `${canvasHeight.value}px`, zIndex: 3 };
+  const pose = previewNode(node), asset = vfxAsset(node);
+  const world = previewWorldTransforms.value.get(node.id) ?? { x: pose.x, y: pose.y, matrix: localMatrix(pose) };
+  // The control rectangle is independent of the effect's native footprint.
+  // Its world matrix carries local and ancestor scale, including animated scale.
+  const width = asset?.width ?? 100, height = asset?.height ?? 100;
+  const { transform, transformOrigin } = nodeStyle(node);
+  return { width: `${width}px`, height: `${height}px`, left: `${world.x - width * pose.pivotX}px`,
+    top: `${canvasHeight.value - world.y - height * (1 - pose.pivotY)}px`, transform, transformOrigin,
+    zIndex: node.properties.layer === 'belowAllControls' ? 0 : 2 };
+}
 const automaticTimelineHeight = computed(() => Math.min(320, Math.max(210, 80 + (timelineNodes.value.length + keyframeTracks.value.length) * 33)));
 const timelineMaximumHeight = computed(() => editorHeight.value > 0 ? Math.max(MIN_TIMELINE_HEIGHT, editorHeight.value - EDITOR_TOOLBAR_HEIGHT - MIN_EDITOR_BODY_HEIGHT) : 520);
 const resolvedTimelineHeight = computed(() => Math.min(timelineMaximumHeight.value, Math.max(MIN_TIMELINE_HEIGHT, timelineHeight.value ?? automaticTimelineHeight.value)));
@@ -1752,7 +1815,20 @@ function startTweenTimingDrag(event: PointerEvent, row: TimelineTweenRow, mode: 
 }
 let syncingTimelineScroll = false;
 function syncTimelineScroll(source: "names" | "content") { if (syncingTimelineScroll) return; const from = source === "names" ? timelineTrackNames.value : timelineContent.value; const to = source === "names" ? timelineContent.value : timelineTrackNames.value; if (!from || !to || Math.abs(to.scrollTop - from.scrollTop) < 1) return; syncingTimelineScroll = true; to.scrollTop = from.scrollTop; requestAnimationFrame(() => { syncingTimelineScroll = false; }); }
-function addNode(type: ControlType) { let root = rootContainer.value; if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); rebaseNodeLayout(root); } const parent = selectedNode.value ?? root; const count = nodes.value.filter((node) => node.type === type).length + 1; const node = makeNode(type, `${t(controlLabels[type])}_${count}`, { parentId: parent.id, x: parent.width / 2 + (count - 2) * 40, y: parent.height / 2 - (count - 2) * 30 }); rebaseNodeLayout(node); nodes.value.push(node); selectedId.value = node.id; addMenuOpen.value = false; }
+function addNode(type: ControlType) {
+  let root = rootContainer.value;
+  if (!root) { root = makeRootContainer(canvasWidth.value, canvasHeight.value); nodes.value.unshift(root); rebaseNodeLayout(root); }
+  const parent = selectedNode.value ?? root;
+  const count = nodes.value.filter((node) => node.type === type).length + 1;
+  const fullscreen = type === 'fullscreenAnimation';
+  const node = makeNode(type, `${t(controlLabels[type])}_${count}`, {
+    parentId: parent.id,
+    x: parent.width / 2 + (fullscreen ? 0 : (count - 2) * 40),
+    y: parent.height / 2 - (fullscreen ? 0 : (count - 2) * 30),
+    ...(fullscreen ? { width: canvasWidth.value, height: canvasHeight.value } : {}),
+  });
+  rebaseNodeLayout(node); nodes.value.push(node); selectedId.value = node.id; addMenuOpen.value = false;
+}
 function removeSelected() { if (!selectedId.value || selectedId.value === rootContainer.value?.id) return; const remove = new Set<string>([selectedId.value]); let changed = true; while (changed) { changed = false; nodes.value.forEach((node) => { if (node.parentId && remove.has(node.parentId) && !remove.has(node.id)) { remove.add(node.id); changed = true; } }); } nodes.value = nodes.value.filter((node) => !remove.has(node.id)); tweenTracks.value = tweenTracks.value.filter((track) => !remove.has(track.nodeId)); animations.value.forEach(animation => { animation.keyframeTracks = animation.keyframeTracks.filter(track => !remove.has(track.nodeId)); animation.events = animation.events?.filter(event => event.nodeId === null || !remove.has(event.nodeId)); }); selectedKeyframeId.value = null; selectedTweenTrackId.value = null; selectedId.value = rootContainer.value?.id ?? null; }
 function anchorVisualStyle(values: AnchorValues): CSSProperties { return { "--anchor-min-x": `${values.anchorMinX * 100}%`, "--anchor-min-y": `${values.anchorMinY * 100}%`, "--anchor-max-x": `${values.anchorMaxX * 100}%`, "--anchor-max-y": `${values.anchorMaxY * 100}%`, "--pivot-x": `${values.pivotX * 100}%`, "--pivot-y": `${values.pivotY * 100}%` } as CSSProperties; }
 function clamp01(value: number) { return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)); }
@@ -1993,7 +2069,7 @@ function nodeStyle(node: UINode): CSSProperties {
   const world = previewWorldTransforms.value.get(node.id) ?? { x: displayNode.x, y: displayNode.y, matrix: localMatrix(displayNode) };
   const isText = displayNode.type === "text" || displayNode.type === "textWindow";
   const isContainer = displayNode.type === "container";
-  const hasVisual = displayNode.type === "image" || displayNode.type === "primitive" || displayNode.type === "reference" && controlTemplateByIndex.value.has(displayNode.properties.referencedPrefabIndex ?? -1);
+  const hasVisual = displayNode.type === "image" || displayNode.type === "primitive" || Boolean(vfxAsset(displayNode)) || displayNode.type === "reference" && controlTemplateByIndex.value.has(displayNode.properties.referencedPrefabIndex ?? -1);
   const typeColor = editorTypeColors[displayNode.type];
   const borderColor = isContainer || hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.fontColor, typeColor)) : colorToCss(typeColor);
   const backgroundColor = isContainer || hasVisual ? "transparent" : isText ? colorToCss(safeColor(displayNode.properties.bgColor, colorFromHex("#ffffff", 0))) : colorToCss(typeColor, 0.12);
@@ -2422,7 +2498,7 @@ function switchDevice(mode: DeviceMode) { deviceMode.value = mode; previewPreset
 function applyPreviewPreset() { const preset = currentPreset.value; canvasWidth.value = preset.width; canvasHeight.value = preset.height; getHierarchyOrder().forEach(applyNodeLayout); nextTick(fitCanvas); }
 function fitCanvas() { const viewport = viewportElement.value; if (!viewport) return; const availableWidth = Math.max(200, viewport.clientWidth - 90); const availableHeight = Math.max(160, viewport.clientHeight - 80); zoom.value = Math.max(0.01, Math.min(1.5, availableWidth / canvasWidth.value, availableHeight / canvasHeight.value)); panX.value = 0; panY.value = 0; }
 function formatTime(seconds: number) { const frames = Math.round((seconds % 1) * frameRate.value); return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`; }
-function rewindPlayback() { eventPlaybackStarted = false; eventPreviewLog.value = []; playing.value = false; currentTime.value = 0; }
+function rewindPlayback() { eventPlaybackStarted = false; eventPreviewLog.value = []; playing.value = false; currentTime.value = 0; nodes.value.forEach(node => { if (vfxAsset(node)) replayVfx(node.id); }); }
 function togglePlayback() { if (!playing.value && currentTime.value >= sequenceDurationValue()) { currentTime.value = 0; eventPlaybackStarted = false; } lastTime = 0; playing.value = !playing.value; }
 let timelineSpacePressed = false;
 function isTimelineTextEditing(target: EventTarget | null) {
@@ -2435,6 +2511,7 @@ function isTimelineTextEditing(target: EventTarget | null) {
 function handleTimelineKeyboardShortcut(event: KeyboardEvent) {
   if ((event.target as Element | null)?.closest?.('.ease-panel')) return;
   if ((event.target as Element | null)?.closest?.('.image-library')) return;
+  if ((event.target as Element | null)?.closest?.('.vfx-library')) return;
   if (timelineContextMenu.value || timelineDataImportOpen.value) return;
   const editor = editorElement.value;
   if (event.code !== "Space" || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || !editor?.isConnected || editor.inert || !editor.getClientRects().length || isTimelineTextEditing(event.target)) return;
@@ -2947,6 +3024,7 @@ async function loadProject(event: Event) {
 }
 function stopDocumentInteraction() {
   eventPreviewLog.value = []; eventPlaybackStarted = false;
+  vfxPreviewOverride.value = null;
   giaExportOpen.value = false;
   templateLibraryOpen.value = false;
   stopCanvasNodeDrag?.();
@@ -3180,6 +3258,7 @@ async function redoEditorOperation() {
 }
 function handleEditorHistoryKeyboard(event: KeyboardEvent) {
   if ((event.target as Element | null)?.closest?.('.ease-panel')) return;
+  if ((event.target as Element | null)?.closest?.('.vfx-library')) return;
   const key = event.key?.toLowerCase();
   const undo = key === "z" && !event.shiftKey;
   const redo = key === "y" || key === "z" && event.shiftKey;
@@ -3204,6 +3283,7 @@ watch(observeUndoSnapshot, handleEditorHistoryChange, { flush: "post" });
 watch(() => [archive?.ready.value, archive?.busy.value, archive?.loading.value, archive?.selectedWorkspace.value, archive?.selectedDocument.value], syncEditorHistoryDocument, { flush: "sync" });
 onMounted(() => {
   void loadImageCatalog();
+  void loadUIVfxCatalog();
   void loadImageTranslations();
   editorHistory.reset(captureUndoState());
   window.addEventListener("keydown", handleEditorHistoryKeyboard, true);
@@ -3604,6 +3684,7 @@ button, select, input, textarea { font: inherit; }
 
 .canvas-stage {
   position: absolute;
+  isolation: isolate;
   left: 50%;
   top: 50%;
   transform-origin: center;
@@ -3617,6 +3698,10 @@ button, select, input, textarea { font: inherit; }
 .device-preview-label { position: absolute; left: 0; top: -31px; height: 22px; display: flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid #3b485d; border-radius: 5px; background: #17202c; color: #95a4b9; font-size: 10px; white-space: nowrap; pointer-events: none; }
 .device-preview-label span { color: #65d4e2; font-size: 13px; }
 .safe-area { position: absolute; inset: 4.5%; border: 1px dashed #52627777; pointer-events: none; }
+.canvas-controls { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+/* C/T blending requires the opaque stage backdrop. Clip its passes to that
+   backdrop without isolating their stacking context or the selection handles. */
+.canvas-vfx { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; }
 .mobile-frame .safe-area { border-color: #67dbe277; border-radius: 18px; }
 
 .canvas-image-mask-defs { position: absolute; inset: 0; pointer-events: none; }
@@ -3651,6 +3736,7 @@ button, select, input, textarea { font: inherit; }
 .inline-switches input { accent-color: var(--accent); }
 .coordinate-note { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; padding: 6px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--input); color: #708097; font-size: 10px; }
 .coordinate-note span { color: #9ba8bb; }
+.vfx-transform-note { margin: 0 0 10px; padding: 8px; border-radius: 6px; background: var(--input); color: #b7bfcd; font-size: 11px; line-height: 1.6; }
 .coordinate-note b { color: #56c58c; font-weight: 500; }
 .coordinate-note i { margin-left: auto; color: #62bddd; font-style: normal; }
 .property-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

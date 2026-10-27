@@ -144,7 +144,7 @@ export interface ClientUIKeyHintControlProperties {
 export interface ClientUIAnimationControlProperties {
   animationId: number | null;
   playSoundEffect: boolean;
-  layer: UIAnimationLayer | null;
+  layer: UIAnimationLayer;
 }
 
 export interface ClientUIFullscreenAnimationControlProperties {

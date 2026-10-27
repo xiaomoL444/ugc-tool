@@ -21,7 +21,7 @@
       <ScrubbableNumberInput v-else-if="field.kind === 'number'" :aria-label="t(field.label)" :model-value="numberValue(modelValue[field.key])" :animated="isAnimated(field)" :min="field.min" :max="field.max" :step="field.step ?? 1" :allow-empty="!isAnimated(field)" :placeholder="t('clientUIAnimationEditor.ui.properties.unset')" @update:model-value="updateNumber(field.key, $event)" />
       <label v-else-if="field.kind === 'boolean'" class="boolean-control"><input :aria-label="t(field.label)" :checked="booleanValue(field.key)" type="checkbox" role="switch" @change="updateField(field.key, ($event.target as HTMLInputElement).checked)" /><i></i><span>{{ booleanValue(field.key) ? t('clientUIAnimationEditor.ui.controls.enabledState') : t('clientUIAnimationEditor.ui.controls.disabled') }}</span></label>
       <select v-else-if="field.kind === 'nullableBoolean'" :aria-label="t(field.label)" :value="nullableBooleanValue(modelValue[field.key])" @change="updateNullableBoolean(field.key, $event)"><option value="">{{ t('clientUIAnimationEditor.ui.properties.unset') }}</option><option value="true">true</option><option value="false">false</option></select>
-      <select v-else-if="field.kind === 'select'" :aria-label="t(field.label)" :value="selectValue(field)" @change="updateSelect(field.key, $event)"><option v-if="definition.type !== 'image' || modelValue[field.key] === null" value="">{{ t('clientUIAnimationEditor.ui.properties.unset') }}</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
+      <select v-else-if="field.kind === 'select'" :aria-label="t(field.label)" :value="selectValue(field)" @change="updateSelect(field.key, $event)"><option v-if="field.allowUnset !== false && (definition.type !== 'image' || modelValue[field.key] === null)" value="">{{ t('clientUIAnimationEditor.ui.properties.unset') }}</option><option v-for="item in field.options" :key="item.value" :value="item.value">{{ item.label }}</option></select>
       </slot>
     </div>
     </div>
@@ -61,14 +61,14 @@ function updateNumber(key: string, value: number | null) {
 }
 function updateNullableBoolean(key: string, event: Event) { const raw = (event.target as HTMLSelectElement).value; updateField(key, raw === "" ? null : raw === "true"); }
 function selectValue(field: ControlPropertyField) {
-  if (props.modelValue[field.key] === null) return '';
+  if (props.modelValue[field.key] === null && field.allowUnset !== false) return '';
   const value = stringValue(props.modelValue[field.key]);
-  return props.definition.type === 'image' && !field.options?.some(option => option.value === value) ? field.options?.[0]?.value ?? '' : value;
+  return (props.definition.type === 'image' || field.allowUnset === false) && !field.options?.some(option => option.value === value) ? field.options?.[0]?.value ?? '' : value;
 }
 function updateSelect(key: string, event: Event) {
   const raw = (event.target as HTMLSelectElement).value;
-  if (props.definition.type === 'image') {
-    const field = visibleFields.value.find(field => field.key === key);
+  const field = visibleFields.value.find(field => field.key === key);
+  if (props.definition.type === 'image' || field?.allowUnset === false) {
     if (!field?.options?.some(option => option.value === raw)) return;
   }
   updateField(key, raw === "" ? null : raw);

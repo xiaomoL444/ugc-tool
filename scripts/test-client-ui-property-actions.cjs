@@ -43,10 +43,11 @@ try {
       const identity = identityAndLayout(node);
       const properties = plain(node.properties);
       assert.equal(resetPropertyGroup(node, "transform"), true);
+      const fullscreen = type === "fullscreenAnimation";
       assert.deepEqual(capturePropertyGroup(node, "transform").values, {
-        anchorMinX: 0.5, anchorMinY: 0.5, anchorMaxX: 0.5, anchorMaxY: 0.5,
+        anchorMinX: fullscreen ? 0 : 0.5, anchorMinY: fullscreen ? 0 : 0.5, anchorMaxX: fullscreen ? 1 : 0.5, anchorMaxY: fullscreen ? 1 : 0.5,
         pivotX: 0.5, pivotY: 0.5, anchorOffsetX: 0, anchorOffsetY: 0,
-        sizeDeltaX: definition.defaultWidth, sizeDeltaY: definition.defaultHeight,
+        sizeDeltaX: fullscreen ? 0 : definition.defaultWidth, sizeDeltaY: fullscreen ? 0 : definition.defaultHeight,
         scaleX: 1, scaleY: 1, scaleZ: 1, rotationX: 0, rotationY: 0, rotation: 0,
       });
       assert.deepEqual(identityAndLayout(node), identity);
