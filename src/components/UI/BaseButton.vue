@@ -61,7 +61,8 @@ function onClick(event) { if (!props.disabled) emit('click', event) }
   background: rgba(255, 255, 255, 0.5);
 
   /* 柔和的阴影增强悬浮感 */
-  filter: drop-shadow(0 8px 32px rgba(0, 0, 0, 0.1));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+    filter: drop-shadow(0 8px 32px rgba(0, 0, 0, 0.1));
   overflow: hidden; /* 关键：保证内部背景跟着圆角裁切 */
 }
 

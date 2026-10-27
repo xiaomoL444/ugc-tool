@@ -412,7 +412,6 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   border-radius: 8px;
   cursor: pointer;
 }
