@@ -306,7 +306,8 @@
   "aiSearch.requestDiagnostics.hints.promptResponse": "公開プロンプトファイルの URL、アクセス権限、本文、サーバーの応答を確認してください。モデルを呼び出す前に失敗しています。",
   "aiSearch.errors.promptSize": "応答: {bytes} バイト、読み取り上限: {limit} バイト。",
   "aiSearch.errors.promptBytes": "{bytes} バイトを読み取りました。",
-  "aiSearch.errors.promptBudgetExceeded": "モデルへのリクエスト全体が現在の上限を超えています。システムプロンプトや会話の文脈を短くしてください。",
+  "aiSearch.errors.requestTooLarge": "リクエストが API のサイズ上限を超えています。質問、システムプロンプト、会話履歴を短くしてください。",
+  "aiSearch.errors.modelContextTooLarge": "モデル提供元が長すぎるコンテキストを拒否しました。システムプロンプトや会話履歴を短くするか、コンテキスト上限の大きいモデルを選択してください。",
   "aiSearch.output.providers.doubao": "Doubao",
   "aiSearch.output.qwenHint": "Qwen Responses の文書では text.format 対応を確認できないため、自動モードではプロンプトと検証を使います。対応するサービスでは JSON または Schema を手動選択できます。"
 }

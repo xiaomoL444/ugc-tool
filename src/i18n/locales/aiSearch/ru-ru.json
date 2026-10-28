@@ -306,7 +306,8 @@
   "aiSearch.requestDiagnostics.hints.promptResponse": "Проверьте адрес публичного файла промпта, права доступа, тело и ответ сервера. Ошибка возникла до вызова модели.",
   "aiSearch.errors.promptSize": "Ответ: {bytes} байт; лимит чтения: {limit} байт.",
   "aiSearch.errors.promptBytes": "Прочитано {bytes} байт.",
-  "aiSearch.errors.promptBudgetExceeded": "Полный запрос к модели превышает текущий лимит. Сократите системный промпт или контекст разговора.",
+  "aiSearch.errors.requestTooLarge": "Размер запроса превышает ограничение API. Сократите вопрос, системный промпт или историю диалога.",
+  "aiSearch.errors.modelContextTooLarge": "Поставщик модели отклонил слишком длинный контекст. Сократите системный промпт или историю диалога либо выберите модель с большим контекстным окном.",
   "aiSearch.output.providers.doubao": "Doubao",
   "aiSearch.output.qwenHint": "Документация Qwen Responses не указывает поддержку text.format. Автоматический режим использует инструкции и проверку; выбирайте JSON или Schema вручную только при поддержке провайдером."
 }

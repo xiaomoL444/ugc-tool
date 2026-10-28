@@ -306,7 +306,8 @@
   "aiSearch.requestDiagnostics.hints.promptResponse": "請檢查公開提示詞檔案的網址、存取權限、本文內容和伺服器回應。本次失敗發生於呼叫模型之前。",
   "aiSearch.errors.promptSize": "回應 {bytes} 位元組，讀取上限 {limit} 位元組。",
   "aiSearch.errors.promptBytes": "已讀取 {bytes} 位元組。",
-  "aiSearch.errors.promptBudgetExceeded": "完整模型請求超過目前預算，請精簡系統提示詞或對話上下文。",
+  "aiSearch.errors.requestTooLarge": "請求內容超過介面的大小限制，請縮短問題、系統提示詞或對話歷史。",
+  "aiSearch.errors.modelContextTooLarge": "模型服務商拒絕了過長的上下文，請縮短系統提示詞或對話歷史，或更換上下文容量更大的模型。",
   "aiSearch.output.providers.doubao": "豆包",
   "aiSearch.output.qwenHint": "千問 Responses 文件尚未列出 text.format 支援，自動模式使用提示詞約束和程式校驗；可依服務商實際能力手動選擇 JSON 模式或 Schema。"
 }

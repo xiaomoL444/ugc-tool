@@ -159,7 +159,7 @@ test("model prompts over the former limit load, execute and cache both workflows
         assert.equal(models, makeBody === agentBody ? 2 : 1);
         assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
         assert.equal(await storage.get(`budget:${periods().month}`), Math.ceil(((makeBody === agentBody ? 80000 : 40000) * 5
-          + (makeBody === agentBody ? 70 : 50) * 20) * 1.25));
+          + (makeBody === agentBody ? 70 : 50) * 20)));
       }
       assert.equal(reads, 1, "the large file and completed turn are cached without another model request");
     }
@@ -315,7 +315,7 @@ test("cached successful chat results also require a fresh balance check without 
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("a later agent-round balance failure preserves its safe reason and already allocated attempt and reservation", async () => {
+test("a later agent-round balance failure preserves its safe reason and charges only confirmed prior usage", async () => {
   const originalFetch = globalThis.fetch;
   try {
     for (const [failure, code, reason] of [
@@ -339,7 +339,7 @@ test("a later agent-round balance failure preserves its safe reason and already 
       assert.equal(data.error.reason, reason);
       assert.equal(queries, 2); assert.equal(modelCalls, 1);
       assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
-      assert.equal(await storage.get(`budget:${periods().month}`), reserved);
+      assert.equal(await storage.get(`budget:${periods().month}`), 100 * 5 + 20 * 20);
       assert.deepEqual(await storage.get("active"), {});
       const stored = await storage.get(`request:${visitor}:${agentBody().requestId}`);
       assert.deepEqual(stored.body.error, data.error);
@@ -393,7 +393,7 @@ test("free agent executes search then details then JSON, bills one attempt and s
     assert.deepEqual(data.usage, { inputTokens: 300, outputTokens: 55 }); assert.equal(data.agent.rounds, 3);
     assert.equal(data.mode, "keyword");
     assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
-    assert.equal(await storage.get(`budget:${periods().month}`), Math.ceil((300 * 5 + 55 * 20) * 1.25));
+    assert.equal(await storage.get(`budget:${periods().month}`), 300 * 5 + 55 * 20);
     assert.deepEqual(await (await service.fetch(req(agentBody()))).json(), data); assert.equal(calls, 3);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -414,7 +414,7 @@ test("agent reserves only its first actual round before any call and validates p
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("a later round exceeding the monthly budget stops before fetch and keeps one attempt and the incurred reservation", async () => {
+test("a later round exceeding the monthly budget stops before fetch and charges only incurred usage", async () => {
   const { service, storage } = ledger();
   const cfg = settings(service.env), normalized = normalizeAgentRequest(agentBody(), cfg, service.env);
   const prompt = buildAgentPrompt(normalized, cfg);
@@ -430,7 +430,7 @@ test("a later round exceeding the monthly budget stops before fetch and keeps on
     assert.equal(response.status, 503); assert.equal(data.error.code, "FREE_BUDGET_EXHAUSTED");
     assert.equal(calls, 1, "no paid retry or second model request is made when the extra reservation is rejected");
     assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
-    assert.equal(await storage.get(`budget:${periods().month}`), prompt.reservedMicros);
+    assert.equal(await storage.get(`budget:${periods().month}`), 100 * 5 + 20 * 20);
     assert.deepEqual(await storage.get("active"), {});
     assert.deepEqual(await (await service.fetch(req(agentBody()))).json(), data); assert.equal(calls, 1);
   } finally { globalThis.fetch = originalFetch; }
@@ -479,7 +479,7 @@ test("all rounds retain the first billing month and cumulative limits settle val
   assert.equal(await storage.get(`daily:2026-11-01:${visitor}`), undefined);
   await service.finish(reservation.key, { answer: "找到资源", matches: [] }, 200, cfg, initial,
     { prompt_tokens: 35000, completion_tokens: 1600 }, now + 3000);
-  assert.equal(await storage.get("budget:2026-10"), Math.ceil((35000 * 5 + 1600 * 20) * 1.25));
+  assert.equal(await storage.get("budget:2026-10"), 35000 * 5 + 1600 * 20);
   await assert.rejects(service.extendModelReservation(reservation.key, 3, 10000, 1400, cfg, now + 3000), error => error.code === "UPSTREAM_TIMEOUT");
 });
 
@@ -495,14 +495,14 @@ test("expired turns never allocate another model round or replace cached timeout
   assert.deepEqual(await storage.get("active"), {});
 });
 
-test("unsupported free agent tool APIs cache one safe error and retain unknown cost reservation", async () => {
+test("a rejected unsupported tool API releases its reservation and caches one safe error", async () => {
   const { service, storage } = ledger(); const originalFetch = globalThis.fetch; let calls = 0;
   globalThis.fetch = withPromptFetch(async () => { calls += 1; return new Response('{"error":{"message":"tools are not supported; mock-test-only"}}', { status: 400 }); });
   try {
     const cfg = settings(service.env), normalized = normalizeAgentRequest(agentBody(), cfg, service.env), prompt = buildAgentPrompt(normalized, cfg);
     const response = await service.fetch(req(agentBody())); const data = await response.json();
     assert.equal(response.status, 502); assert.equal(data.error.code, "TOOLS_UNSUPPORTED"); assert.equal(JSON.stringify(data).includes("mock-test-only"), false);
-    assert.equal(await storage.get(`budget:${periods().month}`), prompt.reservedMicros);
+    assert.equal(await storage.get(`budget:${periods().month}`), 0);
     assert.deepEqual(await (await service.fetch(req(agentBody()))).json(), data); assert.equal(calls, 1);
     assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
   } finally { globalThis.fetch = originalFetch; }
@@ -625,6 +625,102 @@ test("global budget is reserved atomically and rejection does not spend a daily 
   assert.equal(counts.reduce((sum, [, count]) => sum + count, 0), 1);
 });
 
+test("round settlement frees room for the next round, is idempotent and isolates unknown and unsent costs", async () => {
+  const { service, storage } = ledger({ MONTHLY_BUDGET_CNY: "0.08", INPUT_CACHED_CNY_PER_MILLION: "0.1" });
+  const cfg = settings(service.env), input = normalizeRequest(body(), cfg);
+  const prompt = { inputBytes: 10000, reservedMicros: 60000 };
+  const reservation = await service.reserve(visitor, input, prompt, cfg, "round-settlement");
+  await service.startModelRound(reservation.key, 1);
+  const usage = { prompt_tokens: 1000, prompt_cache_hit_tokens: 900, completion_tokens: 10 };
+  await Promise.all([1, 2].map(() => service.settleModelRound(reservation.key, 1, usage, cfg)));
+  assert.equal(await storage.get(`budget:${periods().month}`), 500 + 90 + 200);
+  // Two 60k reservations could not coexist in an 80k budget; the settled first round makes room.
+  const second = await service.extendModelReservation(reservation.key, 2, 4000, 1400, cfg);
+  await service.startModelRound(reservation.key, 2);
+  const unknownRoundCost = second.record.costRounds[1].reservedMicros;
+  await service.extendModelReservation(reservation.key, 3, 100, 100, cfg);
+  await service.finish(reservation.key, { error: { code: "UPSTREAM_TIMEOUT" } }, 503, cfg, prompt);
+  assert.equal(await storage.get(`budget:${periods().month}`), 790 + unknownRoundCost);
+  // Even a late confirmed report can reconcile an expired result without changing that cached result.
+  await service.settleModelRound(reservation.key, 2, { prompt_tokens: 100, completion_tokens: 10 }, cfg);
+  assert.equal(await storage.get(`budget:${periods().month}`), 790 + 700);
+  assert.equal((await storage.get(reservation.key)).body.error.code, "UPSTREAM_TIMEOUT");
+});
+
+test("each round validates usage against its own limits before releasing any reservation", async () => {
+  const { service, storage } = ledger(), cfg = settings(service.env);
+  const reservation = await service.reserve(visitor, normalizeRequest(body(), cfg),
+    { inputBytes: 100, reservedMicros: 40000 }, cfg, "bounded-round");
+  await service.startModelRound(reservation.key, 1);
+  await service.extendModelReservation(reservation.key, 2, 10000, 1400, cfg);
+  const before = await storage.get(`budget:${periods().month}`);
+  await service.settleModelRound(reservation.key, 1, { prompt_tokens: 101, completion_tokens: 0 }, cfg);
+  assert.equal(await storage.get(`budget:${periods().month}`), before, "A later round's input allowance cannot validate the first round");
+});
+
+test("a provider statement reconciles its named month exactly once and preserves an audit receipt", async () => {
+  const now = Date.parse("2026-10-29T00:00:00+08:00");
+  const { service, storage } = ledger({ BUDGET_RECONCILE_MONTH: "2026-10", BUDGET_RECONCILE_CNY: "9" });
+  const cfg = settings(service.env);
+  await storage.put("budget:2026-10", 49999000);
+  const info = await service.info(visitor, cfg, now);
+  assert.equal(info.available, true);
+  assert.deepEqual(info.budget, { limitCny: 50, allocatedCny: 9, remainingCny: 41,
+    resetAt: "2026-10-31T16:00:00.000Z", accounting: "usage-v2" });
+  assert.equal(await storage.get("budget:2026-10"), 9000000);
+  assert.deepEqual(await storage.get("budget-reconciliation:2026-10"), {
+    previousMicros: 49999000, baselineMicros: 9000000, appliedAt: now, source: "provider-statement" });
+  await storage.put("budget:2026-10", 9123456);
+  await service.info(visitor, cfg, now + 1000);
+  assert.equal(await storage.get("budget:2026-10"), 9123456, "Refresh and redeploy never reset subsequent usage");
+  await service.info(visitor, cfg, Date.parse("2026-11-01T00:00:00+08:00"));
+  assert.equal(await storage.get("budget:2026-11"), undefined, "The statement cannot carry forward into another month");
+});
+
+test("reconciliation waits for active work and ignores invalid statement amounts", async () => {
+  const now = Date.parse("2026-10-29T00:00:00+08:00");
+  for (const amount of ["", " ", "-1", "NaN", "1e2", "9.1234567"]) {
+    const { service, storage } = ledger({ BUDGET_RECONCILE_MONTH: "2026-10", BUDGET_RECONCILE_CNY: amount });
+    await storage.put("budget:2026-10", 49000000);
+    await service.info(visitor, settings(service.env), now);
+    assert.equal(await storage.get("budget:2026-10"), 49000000);
+    assert.equal(await storage.get("budget-reconciliation:2026-10"), undefined);
+  }
+  const { service, storage } = ledger({ BUDGET_RECONCILE_MONTH: "2026-10", BUDGET_RECONCILE_CNY: "9" });
+  const cfg = settings(service.env);
+  const active = await service.reserve(visitor, normalizeRequest(body(), cfg),
+    { inputBytes: 100, reservedMicros: 10000 }, cfg, "existing-work", now);
+  // Simulate enabling the statement while an older request is still in flight.
+  await storage.delete("budget-reconciliation:2026-10");
+  const pending = await service.info(visitor, cfg, now + 1000);
+  assert.equal(pending.available, false);
+  assert.equal(pending.error.code, "FREE_SERVICE_BUSY");
+  await assert.rejects(service.reserve("b".repeat(64), normalizeRequest(body("new-request"), cfg),
+    { inputBytes: 100, reservedMicros: 10000 }, cfg, "new-work", now + 1000), error => error.code === "FREE_SERVICE_BUSY");
+  assert.equal(await storage.get("budget-reconciliation:2026-10"), undefined);
+  await service.finish(active.key, result, 200, cfg, { inputBytes: 100 }, { prompt_tokens: 100, completion_tokens: 50 }, now + 2000);
+  await service.info(visitor, cfg, now + 3000);
+  assert.equal(await storage.get("budget:2026-10"), 9000000);
+});
+
+test("a late response from before reconciliation cannot refund the new provider baseline", async () => {
+  const now = Date.parse("2026-10-29T00:00:00+08:00");
+  const { service, storage } = ledger(), cfg = settings(service.env);
+  const prompt = { inputBytes: 10000, reservedMicros: 50000 };
+  const previous = await service.reserve(visitor, normalizeRequest(body(), cfg), prompt, cfg, "before-baseline", now);
+  await service.startModelRound(previous.key, 1, now);
+  service.env.BUDGET_RECONCILE_MONTH = "2026-10";
+  service.env.BUDGET_RECONCILE_CNY = "9";
+  const afterExpiry = now + cfg.timeoutMs + 10001;
+  await service.info(visitor, cfg, afterExpiry);
+  await service.settleModelRound(previous.key, 1, { prompt_tokens: 100, completion_tokens: 10 }, cfg);
+  assert.equal(await storage.get("budget:2026-10"), 9000000);
+  const current = await service.reserve(visitor, normalizeRequest(body("after-baseline"), cfg), prompt, cfg, "after-baseline", afterExpiry);
+  await service.startModelRound(current.key, 1, afterExpiry);
+  await service.settleModelRound(current.key, 1, { prompt_tokens: 100, completion_tokens: 10 }, cfg);
+  assert.equal(await storage.get("budget:2026-10"), 9000700);
+});
+
 test("concurrency refusal and request ID conflict never allocate another charge", async () => {
   const { service, storage } = ledger({ MAX_CONCURRENCY: "1" });
   const config = settings(service.env);
@@ -658,7 +754,41 @@ test("successful retries use stored result and complete usage releases unused bu
     const repeated = await service.fetch(req(body()));
     assert.deepEqual(await repeated.json(), firstBody);
     assert.equal(calls, 1);
-    assert.equal(await storage.get(`budget:${periods().month}`), Math.ceil((100 * 5 + 50 * 20) * 1.25));
+    assert.equal(await storage.get(`budget:${periods().month}`), 100 * 5 + 50 * 20);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("the free transport charges cached input and failed provider responses before validating the answer", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const failed of [false, true]) {
+      const { service, storage } = ledger({ INPUT_CNY_PER_MILLION: "2", INPUT_CACHED_CNY_PER_MILLION: "0.04", OUTPUT_CNY_PER_MILLION: "8" });
+      globalThis.fetch = withPromptFetch(async () => {
+        const raw = responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }],
+          usage: { prompt_tokens: 100, prompt_cache_hit_tokens: 90, completion_tokens: 50 } });
+        if (failed) { raw.status = "failed"; raw.error = { message: "private-provider-error" }; }
+        return new Response(JSON.stringify(raw));
+      });
+      const response = await service.fetch(req(body()));
+      assert.equal(response.status, failed ? 502 : 200);
+      assert.equal(await storage.get(`budget:${periods().month}`), 424);
+      const stored = await storage.get(`request:${visitor}:${body().requestId}`);
+      assert.equal(stored.costRounds[0].usage.prompt_cache_hit_tokens, 90);
+      assert.doesNotMatch(JSON.stringify(stored), /private-provider-error/);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("oversized upstream bodies are cancelled promptly without an unread cloned stream", { timeout: 1000 }, async () => {
+  const { service } = ledger(), originalFetch = globalThis.fetch;
+  let cancelled = false;
+  globalThis.fetch = withPromptFetch(async () => new Response(new ReadableStream({
+    pull(controller) { controller.enqueue(new Uint8Array(16384).fill(65)); },
+    cancel() { cancelled = true; },
+  })));
+  try {
+    assert.equal((await service.fetch(req(body()))).status, 502);
+    assert.equal(cancelled, true);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -974,7 +1104,7 @@ test("optional embedding calls have their own daily quota, shared budget and cro
     assert.equal(calls, 1);
     assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), undefined);
     assert.equal(await storage.get(`daily:${periods().day}:embedding-${visitor}`), 1);
-    assert.equal(await storage.get(`budget:${periods().month}`), Math.ceil(3 * 2 * 1.25));
+    assert.equal(await storage.get(`budget:${periods().month}`), 3 * 2);
     await assert.rejects(service.embedding({ query: "雷声" }, visitor), error => error.code === "FREE_QUOTA_EXHAUSTED");
     assert.equal(calls, 1);
   } finally { globalThis.fetch = originalFetch; }
@@ -999,12 +1129,12 @@ test("nested agent embeddings retain one chat concurrency slot and their own ato
     release(); const response = await embedding; assert.equal(response.status, 200);
     assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
     assert.equal(await storage.get(`daily:${periods().day}:embedding-${visitor}`), 1);
-    assert.equal(await storage.get(`budget:${periods().month}`), prompt.reservedMicros + Math.ceil(3 * 2 * 1.25));
+    assert.equal(await storage.get(`budget:${periods().month}`), prompt.reservedMicros + 3 * 2);
     assert.equal(Object.keys(await storage.get("active")).length, 1);
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("a missing usage report in any agent round preserves the complete turn cost reservation", async () => {
+test("a missing usage report holds only its own round and keeps earlier confirmed usage settled", async () => {
   const { service, storage } = ledger(), cfg = settings(service.env);
   const normalized = normalizeAgentRequest(agentBody(), cfg, service.env), prompt = buildAgentPrompt(normalized, cfg);
   const originalFetch = globalThis.fetch; let calls = 0, reserved = 0;
@@ -1012,7 +1142,7 @@ test("a missing usage report in any agent round preserves the complete turn cost
     const sent = JSON.parse(options.body);
     reserved += Math.ceil((responsesInputBytes(sent) * cfg.inputRate
       + sent.max_output_tokens * cfg.outputRate) * cfg.costSafety);
-    assert.equal(await storage.get(`budget:${periods().month}`), reserved);
+    assert.equal(await storage.get(`budget:${periods().month}`), reserved - (calls ? prompt.reservedMicros - 900 : 0));
     return ++calls === 1 ? toolResponse("search-1", "search_assets", { query: "金属撞击" })
       : new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }] })));
   });
@@ -1020,7 +1150,7 @@ test("a missing usage report in any agent round preserves the complete turn cost
     const response = await service.fetch(req(agentBody())); const data = await response.json();
     assert.equal(response.status, 200); assert.equal(data.usage, undefined); assert.equal(calls, 2);
     assert.ok(reserved > prompt.reservedMicros);
-    assert.equal(await storage.get(`budget:${periods().month}`), reserved);
+    assert.equal(await storage.get(`budget:${periods().month}`), reserved - prompt.reservedMicros + 900);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -1126,7 +1256,7 @@ test("the selected result count controls per-round tokens, incremental reservati
         calls += 1; const sent = JSON.parse(options.body);
         assert.equal(sent.max_output_tokens, tokens);
         reserved += Math.ceil((responsesInputBytes(sent) * 5 + tokens * 20) * 1.25);
-        assert.equal(await storage.get(`budget:${periods().month}`), reserved);
+        assert.equal(await storage.get(`budget:${periods().month}`), reserved - (calls > 1 ? prompt.reservedMicros - 900 : 0));
         if (calls === 1) return toolResponse("search-count", "search_assets", { query: "金属撞击" }, 100, 20);
         return new Response(JSON.stringify(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }],
           usage: { prompt_tokens: 200, completion_tokens: tokens } })));
@@ -1134,7 +1264,7 @@ test("the selected result count controls per-round tokens, incremental reservati
       const response = await service.fetch(req(raw)); const data = await response.json();
       assert.equal(response.status, 200); assert.equal(calls, 2);
       assert.deepEqual(data.usage, { inputTokens: 300, outputTokens: tokens + 20 });
-      assert.equal(await storage.get(`budget:${periods().month}`), Math.ceil((300 * 5 + (tokens + 20) * 20) * 1.25));
+      assert.equal(await storage.get(`budget:${periods().month}`), 300 * 5 + (tokens + 20) * 20);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -1614,7 +1744,7 @@ test("both model workflows expose only bounded failed answer text and preserve c
       assert.equal(calls, makeBody === agentBody ? 2 : 1);
       assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
       assert.ok(reserved >= prompt.reservedMicros);
-      assert.equal(await storage.get(`budget:${periods().month}`), reserved);
+      assert.equal(await storage.get(`budget:${periods().month}`), calls * (100 * 5 + 20 * 20));
       assert.deepEqual(await storage.get("active"), {});
       const stored = await storage.get(`request:${visitor}:${input.requestId}`);
       assert.deepEqual(stored.body, data);
@@ -1671,7 +1801,7 @@ test("free agent clarification API consumes the marker and settles one cached mo
     assert.equal(Object.hasOwn(data, "clarification"), false);
     assert.deepEqual(data.usage, { inputTokens: 100, outputTokens: 50 }); assert.equal(data.quota.remaining, 4);
     assert.equal(await storage.get(`daily:${periods().day}:${visitor}`), 1);
-    assert.equal(await storage.get(`budget:${periods().month}`), Math.ceil((100 * 5 + 50 * 20) * 1.25));
+    assert.equal(await storage.get(`budget:${periods().month}`), 100 * 5 + 50 * 20);
     assert.deepEqual(await storage.get("active"), {});
     assert.deepEqual(await (await service.fetch(req(input))).json(), data);
     assert.equal(modelRequests, 1, "cached clarification must not call or charge the model again");

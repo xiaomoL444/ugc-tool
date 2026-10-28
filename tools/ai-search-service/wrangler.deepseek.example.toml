@@ -34,7 +34,9 @@ MIN_BALANCE_CNY = "20"
 # Reserve at the cache-miss input rate; this ledger is not the provider's bill.
 # Recheck https://api-docs.deepseek.com/zh-cn/quick_start/pricing/ when changing models or prices.
 INPUT_CNY_PER_MILLION = "2"
+INPUT_CACHED_CNY_PER_MILLION = "0.04"
 OUTPUT_CNY_PER_MILLION = "8"
+# Safety applies to temporary reservations, never to confirmed usage settlement.
 COST_SAFETY_FACTOR = "1.25"
 MAX_CANDIDATES = "50"
 MAX_MESSAGES = "12"

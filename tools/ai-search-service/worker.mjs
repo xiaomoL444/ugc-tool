@@ -8,7 +8,8 @@ import { createSystemPromptLoader, renderSystemPrompt, SYSTEM_PROMPT_URL, System
 import { createAssetCatalogLoader, AssetCatalogError } from "./asset-catalog-loader.mjs";
 import { boundedModelText, withModelResponse } from "./model-response.mjs";
 import { detectModelOutput, modelOutputOptions, outputThinkingOptions, outputPrompt, normalizeAnswerSections } from "./model-output-policy.mjs";
-import { responsesUrl, toResponsesRequest, normalizeResponsesResponse, responsesInputBytes } from "./model-responses.mjs";
+import { responsesUrl, toResponsesRequest, normalizeResponsesResponse, normalizeResponsesUsage, responsesInputBytes } from "./model-responses.mjs";
+import { usageCostMicros } from "./usage-budget.mjs";
 const assetCatalogLoader = createAssetCatalogLoader();
 const withCatalog = async (env, loader = assetCatalogLoader) => {
   const snapshot = await loader.read(env);
@@ -54,6 +55,7 @@ const integer = (value, fallback, min, max) => {
 
 export function settings(env) {
   const inputRate = Number(env.INPUT_CNY_PER_MILLION);
+  const cachedInputRate = env.INPUT_CACHED_CNY_PER_MILLION === undefined ? inputRate : Number(env.INPUT_CACHED_CNY_PER_MILLION);
   const outputRate = Number(env.OUTPUT_CNY_PER_MILLION);
   const budget = Number(env.MONTHLY_BUDGET_CNY ?? 50);
   const costSafety = Number(env.COST_SAFETY_FACTOR ?? 1.25);
@@ -65,13 +67,14 @@ export function settings(env) {
   const configured = Boolean(env.UPSTREAM_API_KEY && env.VISITOR_HASH_SECRET && env.MODEL
     && upstream?.protocol === "https:" && !upstream.username && !upstream.password
     && Number.isFinite(inputRate) && inputRate > 0
+    && Number.isFinite(cachedInputRate) && cachedInputRate >= 0 && cachedInputRate <= inputRate
     && Number.isFinite(outputRate) && outputRate > 0
     && Number.isFinite(budget) && budget > 0
     && Number.isFinite(costSafety) && costSafety >= 1 && validThinking);
   return {
     configured, systemPromptUrl: env.SYSTEM_PROMPT_URL ?? SYSTEM_PROMPT_URL, upstream: upstream?.href, model: env.MODEL || "未配置免费模型",
     modelName: env.MODEL_NAME || env.MODEL || "网站免费模型",
-    inputRate, outputRate, budget, costSafety, thinking, minBalanceCny: minimumBalanceCny(env),
+    inputRate, cachedInputRate, outputRate, budget, costSafety, thinking, minBalanceCny: minimumBalanceCny(env),
     dailyLimit: integer(env.GUEST_DAILY_LIMIT, 5, 1, 100),
     maxCandidates: integer(env.MAX_CANDIDATES, 50, 1, 50),
     maxMessages: integer(env.MAX_MESSAGES, 12, 0, 30),
@@ -318,7 +321,7 @@ export function embeddingSettings(env) {
     timeoutMs: 15000, maxOutputTokens: 0 };
 }
 
-export async function callEmbedding(query, config, env, fetcher = fetch) {
+export async function callEmbedding(query, config, env, fetcher = fetch, onUsage = async () => {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
@@ -331,11 +334,12 @@ export async function callEmbedding(query, config, env, fetcher = fetch) {
       body: JSON.stringify(payload), signal: controller.signal });
     if (!response.ok) throw new ServiceError(502, "EMBEDDING_UNAVAILABLE", "语义检索服务暂时不可用。");
     const data = JSON.parse(await boundedText(response.body, 120000));
+    const inputTokens = data?.usage?.prompt_tokens ?? data?.usage?.total_tokens;
+    await onUsage({ prompt_tokens: inputTokens, completion_tokens: 0 });
     const vector = native ? data?.output?.embeddings?.[0]?.embedding : data?.data?.[0]?.embedding;
     if (!Array.isArray(vector) || vector.length !== config.dimensions || !vector.every(value => Number.isFinite(value))) {
       throw new ServiceError(502, "EMBEDDING_RESPONSE_INVALID", "语义检索返回格式不正确。");
     }
-    const inputTokens = data?.usage?.prompt_tokens ?? data?.usage?.total_tokens;
     return { vector, usage: { prompt_tokens: inputTokens, completion_tokens: 0 } };
   } catch (error) {
     if (error instanceof ServiceError) throw error;
@@ -493,7 +497,9 @@ export class SearchLedger {
     await this.state.storage.setAlarm(Date.now() + config.timeoutMs + 15000);
     let outcome;
     try {
-      const response = await callEmbedding(query, config, this.env);
+      await this.startModelRound(reservation.key, 1);
+      const response = await callEmbedding(query, config, this.env, fetch,
+        usage => this.settleModelRound(reservation.key, 1, usage, config));
       await this.state.storage.put(cacheKey, { vector: response.vector, expiresAt: Date.now() + DAY });
       outcome = { status: 200, body: { vector: response.vector, cached: false }, usage: response.usage };
     } catch (error) {
@@ -523,18 +529,24 @@ export class SearchLedger {
   async info(visitor, config, now = Date.now()) {
     const period = periods(now);
     const info = await this.state.storage.transaction(async (storage) => {
-      await this.expireActive(storage, now);
+      const active = await this.expireActive(storage, now);
+      const reconciliationPending = await this.reconcileBudget(storage, period, active, now) === false;
       const used = await storage.get(`daily:${period.day}:${visitor}`) || 0;
       const budget = await storage.get(`budget:${period.month}`) || 0;
       const quota = { limit: config.dailyLimit, remaining: Math.max(0, config.dailyLimit - used), resetAt: period.resetAt };
       const budgetAvailable = budget < Math.floor(config.budget * 1000000);
-      const available = config.configured && quota.remaining > 0 && budgetAvailable;
+      const available = config.configured && quota.remaining > 0 && budgetAvailable && !reconciliationPending;
       const code = !config.configured ? "FREE_SERVICE_NOT_CONFIGURED"
-        : !quota.remaining ? "FREE_QUOTA_EXHAUSTED" : !budgetAvailable ? "FREE_BUDGET_EXHAUSTED" : undefined;
+        : !quota.remaining ? "FREE_QUOTA_EXHAUSTED" : !budgetAvailable ? "FREE_BUDGET_EXHAUSTED"
+          : reconciliationPending ? "FREE_SERVICE_BUSY" : undefined;
       const message = !config.configured ? "网站免费 AI 尚未配置；你可以使用自己的模型配置。"
-        : !quota.remaining ? "今日免费额度已用完，明日重置。" : !budgetAvailable ? "网站本月免费预算已用完。" : undefined;
+        : !quota.remaining ? "今日免费额度已用完，明日重置。" : !budgetAvailable ? "网站本月免费预算已用完。"
+          : reconciliationPending ? "预算账本正在核对，请稍后再试。" : undefined;
       return { configured: config.configured, available, model: config.model,
         models: config.configured ? [{ id: config.model, name: config.modelName, free: true }] : [],
+        budget: { limitCny: config.budget, allocatedCny: budget / 1000000,
+          remainingCny: Math.max(0, Math.floor(config.budget * 1000000) - budget) / 1000000,
+          resetAt: period.monthResetAt, accounting: "usage-v2" },
         quota, limits: { maxCandidates: config.maxCandidates, maxMessages: config.maxMessages, maxQueryLength: config.maxQueryLength,
           minBalanceCny: config.minBalanceCny, ...SEARCH_LIMITS },
         agent: { ...AGENT_LIMITS, timeoutMs: config.agentTimeoutMs },
@@ -547,11 +559,32 @@ export class SearchLedger {
       error: publicError({ ...balance.error, balanceReason: balance.error.reason }) };
   }
 
+  async reconcileBudget(storage, period, active, now) {
+    // A trusted, explicit provider statement can correct a legacy estimate once.
+    // Never replace a month while requests in that month could still settle.
+    if (this.env.BUDGET_RECONCILE_MONTH !== period.month || this.env.BUDGET_RECONCILE_CNY === undefined) return;
+    if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(String(this.env.BUDGET_RECONCILE_CNY))) return;
+    const amount = Number(this.env.BUDGET_RECONCILE_CNY), baselineMicros = Math.round(amount * 1000000);
+    if (!Number.isFinite(amount) || amount < 0 || !Number.isSafeInteger(baselineMicros)) return;
+    const receiptKey = `budget-reconciliation:${period.month}`;
+    if (await storage.get(receiptKey)) return;
+    const budgetKey = `budget:${period.month}`;
+    for (const key of Object.keys(active)) {
+      if ((await storage.get(key))?.budgetKey === budgetKey) return false;
+    }
+    const previousMicros = await storage.get(budgetKey) || 0;
+    await storage.put(budgetKey, baselineMicros);
+    await storage.put(receiptKey, { previousMicros, baselineMicros, appliedAt: now, source: "provider-statement" });
+  }
+
   async reserve(visitor, normalized, prompt, config, fingerprint, now = Date.now()) {
     const period = periods(now);
     const key = `request:${visitor}:${normalized.requestId}`;
     return this.state.storage.transaction(async (storage) => {
       const active = await this.expireActive(storage, now);
+      if (await this.reconcileBudget(storage, period, active, now) === false) {
+        throw new ServiceError(429, "FREE_SERVICE_BUSY", "预算账本正在核对，请稍后再试。");
+      }
       const existing = await storage.get(key);
       if (existing) {
         if (existing.fingerprint !== fingerprint) throw new ServiceError(409, "REQUEST_ID_CONFLICT", "同一 requestId 不能对应不同的搜索内容。");
@@ -579,8 +612,12 @@ export class SearchLedger {
       }
       quota.remaining -= 1;
       const record = { status: "processing", fingerprint, createdAt: now,
+        budgetReconciledAt: (await storage.get(`budget-reconciliation:${period.month}`))?.appliedAt,
         ...(nested ? { parentRequestKey: normalized.parentRequestKey } : {}),
         budgetKey, reservedMicros: prompt.reservedMicros, inputBytes: prompt.inputBytes,
+        allocatedMicros: prompt.reservedMicros,
+        costRounds: [{ reservedMicros: prompt.reservedMicros, inputBytes: prompt.inputBytes,
+          outputTokenLimit: config.roundOutputTokens ?? config.maxOutputTokens }],
         outputTokenLimit: config.roundOutputTokens ?? config.maxOutputTokens, modelRounds: 1, quota };
       active[key] = now + config.timeoutMs + 10000;
       await storage.put(dailyKey, used + 1);
@@ -618,6 +655,8 @@ export class SearchLedger {
         throw new AgentError(503, "FREE_BUDGET_EXHAUSTED", "网站本月剩余额度不足以继续这条搜索。");
       }
       record.reservedMicros = cumulativeReserved;
+      record.allocatedMicros = (record.allocatedMicros ?? record.reservedMicros - reservedMicros) + reservedMicros;
+      record.costRounds?.push({ reservedMicros, inputBytes, outputTokenLimit: maxOutputTokens });
       record.inputBytes = cumulativeInput;
       record.outputTokenLimit = cumulativeOutput;
       record.modelRounds = round;
@@ -627,20 +666,66 @@ export class SearchLedger {
     });
   }
 
+  async startModelRound(key, round, now = Date.now()) {
+    return this.state.storage.transaction(async storage => {
+      const record = await storage.get(key), active = await storage.get("active") || {};
+      const costRound = record?.costRounds?.[round - 1];
+      if (record?.status !== "processing" || !(active[key] > now) || !costRound || costRound.startedAt !== undefined) {
+        throw new AgentError(503, "UPSTREAM_TIMEOUT", "资产搜索已超时。");
+      }
+      costRound.startedAt = now;
+      record.billingTracked = true;
+      await storage.put(key, record);
+    });
+  }
+
+  async settleModelRound(key, round, usage, config) {
+    return this.state.storage.transaction(async storage => {
+      const record = await storage.get(key), costRound = record?.costRounds?.[round - 1];
+      if (!costRound || costRound.chargedMicros !== undefined) return;
+      const cost = usageCostMicros(usage, config, costRound.inputBytes, costRound.outputTokenLimit);
+      if (cost === null) return;
+      const chargedMicros = Math.min(costRound.reservedMicros, cost);
+      const refund = costRound.reservedMicros - chargedMicros;
+      const reconciliation = await storage.get(`budget-reconciliation:${record.budgetKey.slice(7)}`);
+      // The provider baseline already replaced older allocations. A late reply must not refund them twice.
+      if (!reconciliation || record.budgetReconciledAt === reconciliation.appliedAt) {
+        const allocated = await storage.get(record.budgetKey) ?? record.allocatedMicros;
+        await storage.put(record.budgetKey, Math.max(0, allocated - refund));
+      }
+      costRound.chargedMicros = chargedMicros;
+      costRound.usage = { prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens,
+        ...(Number.isSafeInteger(usage.prompt_cache_hit_tokens) && usage.prompt_cache_hit_tokens >= 0
+          && usage.prompt_cache_hit_tokens <= usage.prompt_tokens ? { prompt_cache_hit_tokens: usage.prompt_cache_hit_tokens } : {}) };
+      record.allocatedMicros -= refund;
+      await storage.put(key, record);
+    });
+  }
+
   async finish(key, body, httpStatus, config, prompt, usage, now = Date.now()) {
     return this.state.storage.transaction(async (storage) => {
       await this.expireActive(storage, now);
       const record = await storage.get(key);
       if (!record || record.status !== "processing") return record;
-      // Only a complete successful response with valid bounded usage can release unused reservation.
-      const input = usage?.prompt_tokens;
-      const output = usage?.completion_tokens;
-      if (httpStatus === 200 && Number.isInteger(input) && input >= 0 && input <= (record.inputBytes ?? prompt.inputBytes)
-        && Number.isInteger(output) && output >= 0 && output <= (record.outputTokenLimit ?? config.maxOutputTokens)) {
-        const chargedMicros = Math.min(record.reservedMicros,
-          Math.ceil((input * config.inputRate + output * config.outputRate) * config.costSafety));
-        const allocated = await storage.get(record.budgetKey) || record.reservedMicros;
-        await storage.put(record.budgetKey, Math.max(0, allocated - record.reservedMicros + chargedMicros));
+      if (record.billingTracked) {
+        // Unsent rounds cost nothing. Unknown billing holds only its own sent round.
+        for (const round of record.costRounds) {
+          if (round.startedAt !== undefined || round.chargedMicros !== undefined) continue;
+          const allocated = await storage.get(record.budgetKey) ?? record.allocatedMicros;
+          await storage.put(record.budgetKey, Math.max(0, allocated - round.reservedMicros));
+          record.allocatedMicros -= round.reservedMicros;
+          round.chargedMicros = 0;
+        }
+      } else {
+        // Compatibility for an existing reservation with aggregate trusted usage.
+        const cost = usageCostMicros(usage, config, record.inputBytes ?? prompt.inputBytes,
+          record.outputTokenLimit ?? config.maxOutputTokens);
+        if (cost !== null) {
+          const chargedMicros = Math.min(record.reservedMicros, cost);
+          const allocated = await storage.get(record.budgetKey) ?? record.reservedMicros;
+          await storage.put(record.budgetKey, Math.max(0, allocated - record.reservedMicros + chargedMicros));
+          record.allocatedMicros = chargedMicros;
+        }
       }
       record.status = "done";
       record.httpStatus = httpStatus;
@@ -749,7 +834,32 @@ export class SearchLedger {
           }
           if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
           modelRounds += 1;
-          return fetch(url, options);
+          await this.startModelRound(reservation.key, modelRounds);
+          if (options.signal?.aborted) {
+            await this.settleModelRound(reservation.key, modelRounds, { prompt_tokens: 0, completion_tokens: 0 }, searchConfig);
+            throw new DOMException("Aborted", "AbortError");
+          }
+          const response = await fetch(url, options);
+          // Read once. Cancelling one branch of a cloned response can wait indefinitely for its unread peer.
+          let body;
+          try { body = await boundedText(response.body, MAX_UPSTREAM_BYTES); }
+          catch (error) {
+            if (options.signal?.aborted) throw error;
+            const ErrorClass = agentMode ? AgentError : ServiceError;
+            throw new ErrorClass(502, "UPSTREAM_RESPONSE_INVALID", "模型响应无法解析。");
+          }
+          let usage;
+          try {
+            const raw = JSON.parse(body);
+            if (raw?.object === "response" && ["completed", "incomplete", "failed"].includes(raw.status)) {
+              usage = normalizeResponsesUsage(raw.usage);
+            }
+          } catch { /* Unknown billing stays reserved; the normal response validator reports the error. */ }
+          if (usage) await this.settleModelRound(reservation.key, modelRounds, usage, searchConfig);
+          else if ([400, 401, 403, 404, 413, 422, 429].includes(response.status)) {
+            await this.settleModelRound(reservation.key, modelRounds, { prompt_tokens: 0, completion_tokens: 0 }, searchConfig);
+          }
+          return new Response(body || null, { status: response.status, statusText: response.statusText, headers: response.headers });
         };
         const retrievalEnv = { ...catalogEnv };
         if (agentMode && embeddingSettings(this.env).configured) {

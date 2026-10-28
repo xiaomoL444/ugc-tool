@@ -75,6 +75,11 @@ export function responsesInputBytes(payload) {
   return new TextEncoder().encode(JSON.stringify({ input: payload.input, tools: payload.tools, text: payload.text })).byteLength;
 }
 
+export function normalizeResponsesUsage(usage) {
+  return object(usage) ? { prompt_tokens: usage.input_tokens, completion_tokens: usage.output_tokens,
+    ...(usage.input_tokens_details?.cached_tokens === undefined ? {} : { prompt_cache_hit_tokens: usage.input_tokens_details.cached_tokens }) } : undefined;
+}
+
 export function normalizeResponsesResponse(raw) {
   if (!object(raw) || raw.object !== "response" || !Array.isArray(raw.output) || !["completed", "incomplete", "failed"].includes(raw.status)) throw new TypeError("Invalid Responses envelope.");
   if (raw.status === "failed" || raw.error) throw new TypeError("Failed model response.");
@@ -94,7 +99,7 @@ export function normalizeResponsesResponse(raw) {
     } else if (item.type !== "reasoning") throw new TypeError("Unsupported output item.");
   }
   const finish = raw.status === "incomplete" ? raw.incomplete_details?.reason === "max_output_tokens" ? "length" : "content_filter" : calls.length ? "tool_calls" : "stop";
-  const usage = object(raw.usage) ? { prompt_tokens: raw.usage.input_tokens, completion_tokens: raw.usage.output_tokens } : undefined;
+  const usage = normalizeResponsesUsage(raw.usage);
   return { model: raw.model, choices: [{ finish_reason: finish, message: { role: "assistant", content: content || null,
     ...(calls.length ? { tool_calls: calls } : {}), ...(refusal ? { refusal } : {}), _responsesOutput: raw.output } }], ...(usage ? { usage } : {}) };
 }

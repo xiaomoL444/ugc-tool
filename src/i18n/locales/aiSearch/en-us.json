@@ -306,7 +306,8 @@
   "aiSearch.requestDiagnostics.hints.promptResponse": "Check the public prompt file’s URL, access permissions, body, and server response. This failure occurred before calling the model.",
   "aiSearch.errors.promptSize": "Response: {bytes} bytes; read limit: {limit} bytes.",
   "aiSearch.errors.promptBytes": "Read {bytes} bytes.",
-  "aiSearch.errors.promptBudgetExceeded": "The complete model request exceeds the current budget. Shorten the system prompt or conversation context.",
+  "aiSearch.errors.requestTooLarge": "The request exceeds the API's size limit. Shorten the query, system prompt, or conversation history.",
+  "aiSearch.errors.modelContextTooLarge": "The model provider rejected a context that is too long. Shorten the system prompt or conversation history, or choose a model with a larger context window.",
   "aiSearch.output.providers.doubao": "Doubao",
   "aiSearch.output.qwenHint": "Qwen Responses documentation does not list text.format support. Auto mode uses prompting and validation; override only when your provider supports JSON mode or Schema."
 }

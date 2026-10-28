@@ -306,7 +306,8 @@
   "aiSearch.requestDiagnostics.hints.promptResponse": "请检查公共提示词文件的地址、访问权限、正文内容和服务器响应。本次失败发生在模型调用前。",
   "aiSearch.errors.promptSize": "响应 {bytes} 字节，读取上限 {limit} 字节。",
   "aiSearch.errors.promptBytes": "已读取 {bytes} 字节。",
-  "aiSearch.errors.promptBudgetExceeded": "完整模型请求超过当前预算，请精简系统提示词或对话上下文。",
+  "aiSearch.errors.requestTooLarge": "请求内容超过接口的大小限制，请缩短问题、系统提示词或对话历史。",
+  "aiSearch.errors.modelContextTooLarge": "模型服务商拒绝了过长的上下文，请缩短系统提示词或对话历史，或更换上下文容量更大的模型。",
   "aiSearch.output.providers.doubao": "豆包",
   "aiSearch.output.qwenHint": "千问 Responses 文档尚未列出 text.format 支持，自动模式使用提示词约束和程序校验；可按服务商实际能力手动选择 JSON 模式或 Schema。"
 }

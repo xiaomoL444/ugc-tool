@@ -365,8 +365,9 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
     if (url.endsWith("/responses")) {
       if (++fiftyModels === 1) return response(responsesFixture({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "search-fifty", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "碰撞", scope: "sound", limit: 50 }) } }] } }] }));
       const evidence = JSON.parse(responsesMessages(body).find(message => message.role === "tool").content);
-      assert.deepEqual(evidence.items.map(item => item.resourceId), fiftyIds, "The final model receives all searched IDs after adaptive text compression");
-      assert.ok(Buffer.byteLength(JSON.stringify(evidence)) <= 16000);
+      assert.deepEqual(evidence.items.map(item => item.resourceId), fiftyIds, "The final model receives every searched ID");
+      assert.ok(Buffer.byteLength(JSON.stringify(evidence)) > 16000, "Long tool results do not have a separate 16 KB rejection");
+      assert.ok(evidence.items.every(item => item.description.length === 240), "Normal search summaries are not shortened again to fit a byte budget");
       return response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(answer(50)) } }] }));
     }
     if (url.endsWith("/search")) {
@@ -396,6 +397,7 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
     description: "低沉爆裂回响".repeat(60), visualDescription: "红色火焰粒子扩散".repeat(50), audioDescription: "低沉爆裂回响".repeat(60), audioKeywords: ["爆裂", "回响"],
     suggestedUses: ["机关触发提示"], matchType: index === 0 ? "suggestion" : "feature" }));
   let effectRounds = 0;
+  let firstEffectEvidence;
   const effectMatches = effectsFifty.map(item => ({ resourceId: item.resourceId, reason: "描述支持低沉爆裂声", matchType: item.matchType }));
   await requestAgentSearch(buildAgentSearchPayload("有爆裂音的特效", "zh-CN", "all", [], true, "fifty-effect-audio", 50, "audio"), { ...customOptions, maxSearchLimit: 50, fetcher: async (url, input) => {
     const body = JSON.parse(input.body);
@@ -403,17 +405,23 @@ const customOptions = { mode: "custom", config: { baseUrl: "https://example.inva
       if (++effectRounds === 1) return response(responsesFixture({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "audio-fifty", type: "function", function: { name: "search_assets", arguments: JSON.stringify({ query: "爆裂", scope: "effect", matchOn: "audio", limit: 50 }) } }] } }] }));
       const evidence = JSON.parse(responsesMessages(body).find(message => message.role === "tool").content);
       assert.equal(evidence.items.length, 50);
-      assert.ok(Buffer.byteLength(JSON.stringify(evidence)) <= 16000);
-      assert.ok(evidence.items.every(item => item.audioMatch === true && item.audioDescription && item.visualDescription), "Compressed effect summaries keep both independent evidence channels");
+      assert.ok(Buffer.byteLength(input.body) > 60000, "Tool evidence can push the actual model request past 60 KB");
+      assert.ok(evidence.items.every(item => item.audioMatch === true && item.audioDescription.length === 240 && item.visualDescription.length === 240), "Long effect summaries keep both independent evidence channels");
       assert.equal(evidence.items[0].matchType, "suggestion");
-      assert.ok(evidence.items[0].suggestedUses.length, "Use advice remains separately labelled when its prose is compacted");
+      assert.ok(evidence.items[0].suggestedUses.length, "Use advice remains separately labelled");
+      if (effectRounds === 2) {
+        firstEffectEvidence = evidence;
+        return response(responsesFixture({ choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "audio-fifty-details", type: "function", function: { name: "get_assets", arguments: JSON.stringify({ ids: effectsFifty.slice(0, 5).map(item => item.resourceId) }) } }] } }] }));
+      }
+      assert.deepEqual(evidence, firstEffectEvidence, "A later detail round preserves all prior search evidence");
+      assert.equal(responsesMessages(body).filter(message => message.role === "tool").length, 2);
       return response(responsesFixture({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ answer: "音轨候选", matches: effectMatches }) } }] }));
     }
     if (url.endsWith("/search")) return response({ catalogVersion: version, mode: "keyword", total: 50, limits: { maxSearchLimit: 50, maxAssetIds: 10 }, hasMore: false, items: effectsFifty });
     assert.equal(url, "/api/ai-search/assets");
     return response({ catalogVersion: version, missingIds: [], items: body.ids.map(id => effectsFifty.find(item => item.resourceId === id)) });
   } });
-  assert.equal(effectRounds, 2);
+  assert.equal(effectRounds, 3);
 
   console.log("PASS AI result limits: custom 1–50, bounded trusted candidates/history, old-service pagination, consistent versions, ordered detail batches, selected-count enforcement, and 50-result custom/free workflows without added model rounds");
 })().catch(error => { console.error(error); process.exitCode = 1; });

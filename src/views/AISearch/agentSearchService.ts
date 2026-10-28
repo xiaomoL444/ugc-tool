@@ -84,52 +84,6 @@ function searchArgs(args: Record<string, unknown>, payload: AgentSearchPayload):
     ...(args.searchType === undefined ? {} : { searchType: args.searchType as ServerSearchInput["searchType"] }), filters,
     ...(excludePrevious ? { excludeIds: payload.previousIds } : {}), excludePrevious };
 }
-function toolJSON(result: unknown): string {
-  const data = record(result);
-  if (Array.isArray(data.items)) {
-    // Keep identities and pagination. Trim prose instead of silently dropping
-    // candidate IDs, even for a catalogue with verbose imported descriptions.
-    while (new TextEncoder().encode(JSON.stringify(data)).length > 16000) {
-      let shortened = false;
-      data.items = (data.items as unknown[]).map(value => {
-        const item = record(value);
-        for (const field of ["description", "visualDescription", "audioDescription"]) {
-          if (typeof item[field] === "string" && (item[field] as string).length > 12) { item[field] = (item[field] as string).slice(0, Math.max(12, Math.floor((item[field] as string).length / 2))); shortened = true; }
-        }
-        if (typeof item.title === "string" && item.title.length > 20) { item.title = item.title.slice(0, Math.max(20, Math.floor(item.title.length / 2))); shortened = true; }
-        for (const field of ["suggestedUses", "keywords", "audioKeywords"]) {
-          if (!Array.isArray(item[field])) continue;
-          const values = item[field] as unknown[];
-          const compact = values.slice(0, 1).map(value => typeof value === "string" ? value.slice(0, 8) : value);
-          if (!compact.length) { delete item[field]; shortened = true; }
-          else if (JSON.stringify(compact) !== JSON.stringify(values)) { item[field] = compact; shortened = true; }
-        }
-        // A projected description can duplicate a dedicated evidence field.
-        // Keep separate visual/audio fields and the suggestion category flag.
-        if (item.kind === "effect" && item.description === (item.audioMatch ? item.audioDescription : item.visualDescription) && typeof item.description === "string") {
-          delete item.description; shortened = true;
-        }
-        for (const field of ["description", "visualDescription", "audioDescription"]) if (item[field] === "") { delete item[field]; shortened = true; }
-        return item;
-      });
-      if (!shortened) {
-        // At the largest count, discard redundant prose fields while retaining
-        // observed audio/visual descriptions and separately tagged use advice.
-        for (const value of data.items as unknown[]) {
-          const item = record(value);
-          const removable = ["descriptionLocale",
-            ...(item.kind === "effect" && (item.visualDescription || item.audioDescription) ? ["description"] : []),
-            ...(item.description || item.visualDescription ? ["keywords"] : []),
-            ...(item.audioDescription ? ["audioKeywords"] : []),
-            ...(item.matchType !== "suggestion" ? ["suggestedUses"] : [])];
-          for (const field of removable) if (Object.prototype.hasOwnProperty.call(item, field)) { delete item[field]; shortened = true; }
-        }
-      }
-      if (!shortened) throw new AISearchError("PAYLOAD_TOO_LARGE");
-    }
-  }
-  return JSON.stringify(data);
-}
 function parseFinal(content: unknown, allowed: SearchResource[], resultLimit: number): { answer: SearchAnswer; clarification: boolean } {
   if (typeof content !== "string" || !content.trim()) throw new AISearchError("EMPTY_RESPONSE");
   let parsed;
@@ -319,7 +273,7 @@ export async function requestAgentSearch(payload: AgentSearchPayload, options: A
       ...(protocol === "anthropic" && Array.isArray(message._anthropicContent) ? { _anthropicContent: message._anthropicContent } : {}) });
     for (const call of verified) {
       toolCount++;
-      try { const result = await execute(call, round + 1); messages.push({ role: "tool", tool_call_id: call.id, content: toolJSON(result) }); }
+      try { const result = await execute(call, round + 1); messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) }); }
       catch (error) {
         if (options.signal.aborted || error instanceof AISearchError && error.code !== "TOOL_ARGUMENTS") throw error;
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: { code: "TOOL_ARGUMENTS", message: "Invalid tool arguments or an ID not returned by search. Correct the arguments within the remaining tool budget." } }) });

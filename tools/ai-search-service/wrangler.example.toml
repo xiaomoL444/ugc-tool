@@ -32,7 +32,10 @@ MIN_BALANCE_CNY = "20"
 # Prices are required. Replace zero with the CURRENT actual provider prices in CNY/million tokens.
 # Zero intentionally keeps free service unavailable. Do not copy estimated prices as billing facts.
 INPUT_CNY_PER_MILLION = "0"
+# Optional cache-hit price. Omit to settle all input at INPUT_CNY_PER_MILLION.
+# INPUT_CACHED_CNY_PER_MILLION = "0"
 OUTPUT_CNY_PER_MILLION = "0"
+# Safety applies to temporary reservations, never to confirmed usage settlement.
 COST_SAFETY_FACTOR = "1.25"
 MAX_CANDIDATES = "50"
 MAX_MESSAGES = "12"

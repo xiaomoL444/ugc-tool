@@ -294,7 +294,7 @@ async function checkPromptDiagnostics(browser) {
       assert.equal(route.request().headers().authorization, 'Bearer ' + apiKey);
       const payload = route.request().postDataJSON();
       assert.ok(payload.input.some(message => message.role === 'system' && message.content.includes(promptWithBytes(promptBytes))), 'The accepted complete public prompt reaches the model without clipping');
-      assert.ok(Buffer.byteLength(route.request().postData()) <= 60000, 'The separate complete request budget is retained');
+      assert.ok(Buffer.byteLength(route.request().postData()) > promptBytes, 'The complete prompt and model protocol reach the provider without a local byte cap');
       return route.fulfill({ json: { object: 'response', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ answer: answerFor(promptBytes), matches: [], clarification: true }) }] }] } });
     }
     if (url.pathname.startsWith('/ugc-tool-data')) {

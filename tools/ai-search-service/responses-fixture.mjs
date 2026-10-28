@@ -8,7 +8,8 @@ export function responsesFixture(value) {
   const status = choice?.finish_reason === "tool_calls" && !message.tool_calls?.length ? "invalid" : choice?.finish_reason === "length" || choice?.finish_reason === "content_filter" ? "incomplete" : ["stop", "tool_calls", undefined, null].includes(choice?.finish_reason) ? "completed" : "invalid";
   return { ...value, choices: undefined, object: "response", id: "resp_mock", model: value.model, status, output,
     ...(status === "incomplete" ? { incomplete_details: { reason: choice.finish_reason === "length" ? "max_output_tokens" : "content_filter" } } : {}),
-    ...(value.usage ? { usage: { input_tokens: value.usage.prompt_tokens, output_tokens: value.usage.completion_tokens } } : {}) };
+    ...(value.usage ? { usage: { input_tokens: value.usage.prompt_tokens, output_tokens: value.usage.completion_tokens,
+      ...(value.usage.prompt_cache_hit_tokens === undefined ? {} : { input_tokens_details: { cached_tokens: value.usage.prompt_cache_hit_tokens } }) } } : {}) };
 }
 
 /** Evidence assertions project Responses Items to readable turns; wire assertions inspect raw payloads. */

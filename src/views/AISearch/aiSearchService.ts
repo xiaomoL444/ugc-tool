@@ -169,7 +169,6 @@ export async function fetchConstrainedModel(url: string, request: Record<string,
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const body = { ...request, ...modelOutputOptions(selected, ids, limit, agent), ...(request.stream === true ? { stream: streaming } : {}) };
     const wireBody = JSON.stringify(selected.protocol === "anthropic" ? toAnthropicRequest(body) : toResponsesRequest(body, url));
-    if (agent && new TextEncoder().encode(wireBody).length > 60000) throw new AISearchError("PAYLOAD_TOO_LARGE");
     onProgress?.({ phase: "waiting", round: context.round, receivedCharacters: 0 });
     const response = await fetchAISearch(url, { method: "POST", signal, headers: modelHeaders(selected.protocol, apiKey), body: wireBody }, context, fetcher, [apiKey]);
     const weaker = selected.requested === "auto" ? weakerOutputPolicy(selected) : undefined;
@@ -246,8 +245,10 @@ export async function providerRequestError(response: Response, context: RequestC
   const diagnostic = await readAISearchHTTPDiagnostic(response, context, signal, secrets);
   const text = `${diagnostic.providerCode || ""} ${diagnostic.parameter || ""} ${diagnostic.providerMessage || ""}`;
   const unsupported = tools && /(?:not support|unsupported|not available|not enabled|unknown parameter|unrecognized)[\s\S]{0,160}(?:tools?|function|tool_choice)|(?:tools?|function|tool_choice)[\s\S]{0,160}(?:not support|unsupported|not available|not enabled)/iu.test(text);
+  const contextExceeded = /context_(?:length|window)_exceeded|prompt_too_long|prompt(?: is)? too long|maximum context length|context (?:length|window)[\s\S]{0,100}(?:exceed|too long)|(?:exceed|too long)[\s\S]{0,100}context (?:length|window)/iu.test(text);
   const code = response.status === 401 ? "AUTH" : response.status === 403 ? "FORBIDDEN" : response.status === 429 ? "PROVIDER_RATE_LIMIT"
-    : response.status >= 500 ? "MODEL_SERVICE_ERROR" : unsupported ? "TOOLS_UNSUPPORTED" : "MODEL_REQUEST_REJECTED";
+    : response.status >= 500 ? "MODEL_SERVICE_ERROR" : contextExceeded ? "MODEL_CONTEXT_TOO_LARGE"
+      : response.status === 413 ? "MODEL_REQUEST_TOO_LARGE" : unsupported ? "TOOLS_UNSUPPORTED" : "MODEL_REQUEST_REJECTED";
   return new AISearchError(code, undefined, undefined, diagnostic);
 }
 export function validateSearchAnswer(raw: unknown, candidates: SearchResource[], resultLimit = MAX_SEARCH_RESULTS): SearchAnswer {

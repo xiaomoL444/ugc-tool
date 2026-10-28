@@ -159,10 +159,14 @@ async function waitUntil(condition) {
   app.mount({ children: [] });
   try {
     await waitUntil(() => !state.loadingCatalog.value && !state.loadingArchive.value);
-    for (const code of ['PROMPT_TOO_LARGE', 'PAYLOAD_TOO_LARGE']) {
-      const budgetError = state.explainError(new AISearchError(code));
-      assert.ok(budgetError.includes('complete model request exceeds the current budget') && !budgetError.includes('network'), budgetError);
+    for (const code of ['PROMPT_TOO_LARGE', 'PAYLOAD_TOO_LARGE', 'MODEL_REQUEST_TOO_LARGE']) {
+      const sizeError = state.explainError(new AISearchError(code));
+      assert.ok(sizeError.includes("API's size limit") && !/budget|network/i.test(sizeError), sizeError);
     }
+    const contextError = state.explainError(new AISearchError('MODEL_CONTEXT_TOO_LARGE'));
+    assert.ok(contextError.includes('model provider') && contextError.includes('larger context window') && !/budget/i.test(contextError), contextError);
+    const monthlyBudgetError = state.explainError(new AISearchError('FREE_BUDGET_EXHAUSTED'));
+    assert.ok(!monthlyBudgetError.includes("API's size limit") && !monthlyBudgetError.includes('context window'), monthlyBudgetError);
     const localizedPromptError = state.explainError(new AISearchError('PROMPT_UNAVAILABLE', undefined, undefined, promptDiagnostic));
     assert.ok(localizedPromptError.includes('The prompt file exceeds the read limit.') && localizedPromptError.includes('32769') && localizedPromptError.includes('32768'), localizedPromptError);
     const promptDetail = state.requestDiagnosticText(promptDiagnostic);
