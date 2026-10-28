@@ -157,6 +157,7 @@
                             </div>
 
                             <LevelEditor ref="levelEditorRef" v-if="detailResponse?.data" :config="configResponse?.data" :detail="detailResponse.data"
+                                :media-base-url="mediaBaseUrl"
                                 :cover-uploading="coverUploading" :cover-upload-error="coverUploadError"
                                 :uploaded-cover-url="uploadedCoverUrl" :cover-file="currentCoverFile"
                                 :uploaded-cover-remote-url="uploadedCoverRemoteUrl"
@@ -257,6 +258,7 @@ import type {
     LevelUploadPayload,
     LevelUploadResponse,
 } from "./levelApiTypes";
+import { buildVideoUploadInfo } from "./videoHelpers";
 import {
     createExportZip,
     isObjectUrl,
@@ -304,6 +306,7 @@ interface OssUploadParams {
         content_disposition?: string;
         extra_form_data?: unknown;
         host: string;
+        dir?: string;
         key?: string;
         name: string;
         object_acl: string;
@@ -345,6 +348,7 @@ interface OssCallbackData {
     url: string;
     secret_url: string;
     object: string;
+    video_id: string;
 }
 
 interface DisplayUploadItem {
@@ -380,9 +384,9 @@ const WORKER_URL = "https://ugc-tool.2802273114.workers.dev/";
 const WORKER_SECRET_STORAGE_KEY = "oversea-upload-worker-secret";
 const GAME_USER_AGENT =
     "Mozilla/5.0 (Windows NT 6.1; Unity 3D; ZFBrowser 2.1.0; " +
-    "Genshin Impact 6.7.0_45486583_45768959) AppleWebKit/537.36 " +
+    "Genshin Impact 7.1.0_48052158_48145775) AppleWebKit/537.36 " +
     "(KHTML, like Gecko) Chrome/100.0.4896.0 Safari/537.36 " +
-    "hoyoverse/hk4e/os_cht/zh-cn/6.7.0";
+    "hoyoverse/hk4e/os_cht/zh-cn/7.1.0";
 
 const servers: Array<{ value: ServerValue; label: string }> = [
     { value: "cht", label: "港澳台服" },
@@ -399,6 +403,9 @@ const requestStage = ref("正在获取 Token…");
 const errorMessage = ref("");
 const tokenResponse = ref<TokenResponse | null>(null);
 const loggedInServer = ref<ServerValue | null>(null);
+const mediaBaseUrl = computed(() => loggedInServer.value
+    ? `https://${loggedInServer.value}-ugc-upload.hoyoverse.com/`
+    : "");
 const sessionToken = ref("");
 const levelIdInput = ref("");
 const storedLevelId = ref("");
@@ -867,13 +874,7 @@ function buildLevelUploadPayload(state: EditorExportState): LevelUploadPayload {
     }
 
     const defaultContent = multiLangInfo[defaultLang];
-    const videoUrl = state.video
-        ? requireRemoteMediaUrl(state.video, "展示视频")
-        : "";
-    const videoId = state.video ? resolveVideoId(state.video) : "";
-    if (videoUrl && !videoId) {
-        throw new Error("展示视频缺少可用的 video_id，请重新上传视频。");
-    }
+    const videoInfo = state.video ? buildVideoUploadInfo(state.video) : {};
 
     return {
         level_id: levelId,
@@ -890,7 +891,7 @@ function buildLevelUploadPayload(state: EditorExportState): LevelUploadPayload {
         play_cate: state.tags.play_cate,
         cover_img: coverUrl,
         images,
-        video_info: videoUrl ? { video_url: videoUrl, video_id: videoId } : {},
+        video_info: videoInfo,
         changelog: defaultContent.changelog,
         default_lang: defaultLang,
         multi_lang_info: multiLangInfo,
@@ -950,17 +951,6 @@ function resolveHoyoverseMediaUrl(
     const path = candidate.replace(/^\/+/, "");
     if (!path) return "";
     return `https://${server}-ugc-upload.hoyoverse.com/${path}`;
-}
-
-function resolveVideoId(media: EditorMediaSource) {
-    const explicitId = media.sourceId?.trim() || "";
-    if (explicitId && !explicitId.includes("/") && !explicitId.includes("\\")) {
-        return explicitId.replace(/\.mp4$/i, "");
-    }
-    const object = explicitId || media.objectKey?.trim() || "";
-    if (!object) return "";
-    const fileName = object.split(/[\\/]/).pop() || "";
-    return fileName.replace(/\.[^.]+$/, "");
 }
 
 function resolveChangelog(
@@ -1139,7 +1129,7 @@ async function uploadVideo(file: File, rethrow = false) {
         uploadedVideo.value.secretUrl = uploaded.secretUrl;
         uploadedVideo.value.object = uploaded.object;
         uploadedVideo.value.result = uploaded.result;
-        uploadedVideo.value.sourceId = uploaded.object || undefined;
+        uploadedVideo.value.sourceId = uploaded.result.callbackData.video_id || undefined;
         uploadedVideo.value.objectKey =
             stableObjectKey(uploaded.url) || uploaded.object || undefined;
         uploadedVideo.value.md5 = uploaded.result.md5;
@@ -1544,20 +1534,22 @@ function appendReusedDisplay(source: EditorMediaSource) {
 
 function applyReusedVideo(source: EditorMediaSource) {
     const file = source.file ? asFile(source.file, source.fileName, source.mimeType) : undefined;
-    const remoteUrl = normalizeImportedRemoteUrl(source.remoteUrl, source.objectKey);
+    const videoInfo = buildVideoUploadInfo(source);
+    const remoteUrl = videoInfo.video_url;
+    const accessUrl = normalizeImportedRemoteUrl(remoteUrl, source.objectKey);
     uploadedVideo.value = {
         id: source.sourceId || `reused-${Date.now()}`,
         fileName: source.fileName || "video.mp4",
-        previewUrl: file ? URL.createObjectURL(file) : remoteUrl,
+        previewUrl: file ? URL.createObjectURL(file) : accessUrl,
         status: "success",
         error: "",
         url: remoteUrl,
         secretUrl: "",
-        object: source.objectKey || stableObjectKey(remoteUrl),
+        object: source.objectKey || stableObjectKey(accessUrl),
         result: null,
         file,
-        sourceId: source.sourceId,
-        objectKey: source.objectKey || stableObjectKey(remoteUrl),
+        sourceId: videoInfo.video_id || undefined,
+        objectKey: source.objectKey || stableObjectKey(accessUrl),
         md5: source.md5,
     };
 }
@@ -1626,7 +1618,9 @@ async function resolveExportMedia(
 }
 
 async function downloadBinaryViaWorker(url: string): Promise<Blob> {
-    return proxyRequest<Blob>(url, buildCookie(sessionToken.value), {
+    const accessUrl = normalizeImportedRemoteUrl(url);
+    if (!accessUrl) throw new Error("媒体下载地址无效。");
+    return proxyRequest<Blob>(accessUrl, buildCookie(sessionToken.value), {
         method: "GET",
         responseType: "blob",
     });
@@ -1742,7 +1736,9 @@ async function uploadResourceToOss(
             method: "POST",
             data: {
                 md5,
-                ext: options.ext,
+                ext: options.ext === "mp4"
+                    ? file.name.match(/\.(mp4)$/i)?.[1] || options.ext
+                    : options.ext,
                 biz,
                 support_content_type: true,
                 support_extra_form_data: true,
@@ -1767,9 +1763,13 @@ async function uploadResourceToOss(
     }
 
     const formData = new FormData();
+    const objectKey = oss.dir !== undefined
+        ? `${oss.dir}${oss.name}`
+        : oss.key || uploadData.file_name;
     formData.append("name", oss.name);
-    formData.append("key", oss.key || uploadData.file_name);
+    formData.append("key", objectKey);
     formData.append("callback", oss.callback);
+    formData.append("success_action_status", "200");
     for (const [name, value] of Object.entries(oss.callback_var || {})) {
         formData.append(name, value);
     }
@@ -1782,20 +1782,32 @@ async function uploadResourceToOss(
         formData.append("Content-Disposition", oss.content_disposition);
     }
     appendExtraFormData(formData, oss.extra_form_data);
+    formData.set("success_action_status", "200");
     formData.append("file", file, file.name);
 
     const ossResponse = await axios.post<unknown>(ossUrl.toString(), formData);
+    const callbackResponse = ossResponse.data as
+        | { retcode?: unknown; message?: string; msg?: string }
+        | null;
+    if (ossResponse.status !== 200 || callbackResponse?.retcode !== 0) {
+        const message = callbackResponse?.message || callbackResponse?.msg ||
+            "未收到媒体服务的成功回调，上传结果尚未确认。";
+        throw new Error(`OSS 上传确认失败（HTTP ${ossResponse.status}，retcode ${String(callbackResponse?.retcode ?? "缺失")}）：${message}`);
+    }
     const callbackData = extractOssCallbackData(ossResponse.data);
-    const rawUrl =
-        callbackData.url ||
-        callbackData.secret_url ||
-        callbackData.object ||
-        uploadData.file_name ||
-        "";
+    const videoInfo = options.ext === "mp4"
+        ? buildVideoUploadInfo({
+            label: "展示视频",
+            remoteUrl: callbackData.url,
+            sourceId: callbackData.video_id,
+        })
+        : null;
+    const rawUrl = videoInfo?.video_url || callbackData.url ||
+        callbackData.secret_url || callbackData.object || uploadData.file_name || "";
     const absoluteUrl = resolveHoyoverseMediaUrl(
         rawUrl,
         server,
-        callbackData.object || uploadData.file_name,
+        callbackData.object || objectKey,
     );
     if (!absoluteUrl || isObjectUrl(absoluteUrl)) {
         throw new Error("OSS 上传完成，但回调未返回可提交的远端 URL。");
@@ -1811,11 +1823,11 @@ async function uploadResourceToOss(
     }
 
     return {
-        url: absoluteUrl,
+        url: videoInfo?.video_url || absoluteUrl,
         secretUrl: callbackData.secret_url
             ? resolveHoyoverseMediaUrl(callbackData.secret_url, server)
             : "",
-        object: callbackData.object || uploadData.file_name,
+        object: callbackData.object || objectKey,
         result: {
             md5,
             ext: options.ext,
@@ -1823,10 +1835,7 @@ async function uploadResourceToOss(
             fileName: uploadData.file_name,
             params: uploadData,
             callback: ossResponse.data,
-            callbackData: {
-                ...callbackData,
-                url: absoluteUrl,
-            },
+            callbackData,
         },
     };
 }
@@ -1961,7 +1970,7 @@ function appendExtraFormData(formData: FormData, extra: unknown) {
 }
 
 function extractOssCallbackData(value: unknown): OssCallbackData {
-    const empty = { url: "", secret_url: "", object: "" };
+    const empty = { url: "", secret_url: "", object: "", video_id: "" };
     if (!value || typeof value !== "object") return empty;
 
     const record = value as Record<string, unknown>;
@@ -1978,6 +1987,7 @@ function extractOssCallbackData(value: unknown): OssCallbackData {
         url: firstString("url", "img_url", "file_url"),
         secret_url: firstString("secret_url"),
         object: firstString("object"),
+        video_id: firstString("video_id"),
     };
 }
 

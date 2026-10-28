@@ -507,6 +507,7 @@ import {
   type LanguageCsvField,
 } from "./csvHelpers";
 import { isObjectUrl } from "./zipHelpers";
+import { resolveVideoAccessUrl } from "./videoHelpers";
 import type {
   LevelDetailData,
   LevelImageInfo,
@@ -572,6 +573,7 @@ interface GalleryImageItem {
 const props = defineProps<{
   config?: unknown;
   detail: LevelDetailData;
+  mediaBaseUrl?: string;
   coverUploading?: boolean;
   coverUploadError?: string;
   uploadedCoverUrl?: string;
@@ -696,7 +698,7 @@ const displayVideo = computed(() => {
 
   if (!originalVideoUrl.value) return null;
   return {
-    src: originalVideoUrl.value,
+    src: resolveVideoAccessUrl(originalVideoUrl.value, props.mediaBaseUrl),
     poster: originalVideoCover.value,
     title: "原展示视频",
     status: "original",
