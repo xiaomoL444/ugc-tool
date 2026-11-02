@@ -2,7 +2,9 @@
 
 import StudioSelectField from "../StudioSelectField.vue";
 import TypedValueInput from "../TypedValueInput.vue";
-import { computed, nextTick, ref, useId } from "vue";
+import { computed, nextTick, ref, useId, watch } from "vue";
+import { useWorkspaceSettings } from "../useWorkspaceSettings";
+import { isWorkspaceFeatureAvailable } from "../workspaceFeatures";
 import { toast } from "vue-sonner";
 import StudioHistoryToolbar from "../StudioHistoryToolbar.vue";
 import { useWorkspacePresetHistory } from "./useWorkspacePresetHistory";
@@ -18,6 +20,8 @@ import SaveModuleSection from "./SaveModuleSection.vue";
 import { useCustomPresets } from "./customPresets";
 import { referenceSources, compatibleReference } from "./presetReferences";
 const activeCategory = ref("publicEvents");
+const workspaceSettings = useWorkspaceSettings();
+const categoryAvailable = (key: string) => isWorkspaceFeatureAvailable(key, workspaceSettings.value);
 const historyElement = ref<HTMLElement>();
 const presetHistory = useWorkspacePresetHistory({
   element: historyElement,
@@ -28,10 +32,14 @@ const presetHistory = useWorkspacePresetHistory({
   onError: error => toast.error(error instanceof Error ? error.message : "预设恢复失败"),
 });
 const custom = useCustomPresets();
-const categories = [{ key: "publicEvents", title: "公共事件" }, { key: "entities", title: "实体" }, { key: "skills", title: "技能动画" }, ...stylePresetCategories, { key: "custom", title: "自定义配置" }];
-const otherCategories = [{ key: "multilingualTexts", title: "多语言文本管理" }, { key: "saveModules", title: "存档模块" }];
-const isOtherCategory = computed(() => otherCategories.some(category => category.key === activeCategory.value));
-const activeCategoryTitle = computed(() => [...categories, ...otherCategories].find(category => category.key === activeCategory.value)?.title);
+const visibleStylePresetCategories = computed(() => stylePresetCategories.filter(category => categoryAvailable(category.key)));
+const categories = computed(() => [{ key: "publicEvents", title: "公共事件" }, { key: "entities", title: "实体" }, { key: "skills", title: "技能动画" }, ...visibleStylePresetCategories.value, { key: "custom", title: "自定义配置" }]);
+const otherCategories = computed(() => [{ key: "multilingualTexts", title: "多语言文本管理" }, { key: "saveModules", title: "存档模块" }].filter(category => categoryAvailable(category.key)));
+watch([categories, otherCategories], () => {
+  if (![...categories.value, ...otherCategories.value].some(category => category.key === activeCategory.value)) activeCategory.value = "publicEvents";
+}, { flush: "sync" });
+const isOtherCategory = computed(() => otherCategories.value.some(category => category.key === activeCategory.value));
+const activeCategoryTitle = computed(() => [...categories.value, ...otherCategories.value].find(category => category.key === activeCategory.value)?.title);
 const activeCategoryDescription = computed(() => activeCategory.value === "multilingualTexts"
   ? "查看客户端多语言文本，下载所需的语言文件。"
   : activeCategory.value === "saveModules" ? "每项整数按低位在左显示，依次拼接 100 项，为可跨整数的位段填写说明。"
@@ -49,8 +57,8 @@ import { createSkillAnimationPreset, getSkillAnimationConfigId } from "./skillAn
 withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "EntityPresets" });
 const emit = defineEmits<{ "update:editorKind": [value: StudioEditorKind] }>();
 const { customPresets: customEntities, systemPresets: systemEntities, ready, error, status, retry, flush: flushEntities, bindHistory: bindEntityHistory } = useEntityPresets();
-const { customPresets: customSkills, systemPresets: systemSkills, ready: skillsReady, error: skillsError, status: skillsStatus, retry: retrySkills, flush: flushSkills, bindHistory: bindSkillHistory } = useSkillAnimationPresets();
-const { customPresets: customPublicEvents, systemPresets: systemPublicEvents, ready: publicReady, error: publicError, status: publicStatus, retry: retryPublic, flush: flushPublic, bindHistory: bindPublicHistory } = usePublicEventPresets();
+const { customPresets: customSkills, visibleSystemPresets: systemSkills, ready: skillsReady, error: skillsError, status: skillsStatus, retry: retrySkills, flush: flushSkills, bindHistory: bindSkillHistory } = useSkillAnimationPresets();
+const { customPresets: customPublicEvents, visibleSystemPresets: systemPublicEvents, ready: publicReady, error: publicError, status: publicStatus, retry: retryPublic, flush: flushPublic, bindHistory: bindPublicHistory } = usePublicEventPresets();
 const entityGroups = computed(() => [
   { system: true, title: "系统默认", label: "系统人物", items: systemEntities.value },
   { system: false, title: "自定义预设", label: "人物", items: customEntities.value },
@@ -68,7 +76,7 @@ const browserId = useId();
 const browserToggleLabel = computed(() => browserCollapsed.value ? "展开词条浏览" : "收起词条浏览");
 const selectedEntry = ref<{ category: string; id: string }>();
 const expandedPublicEvents = ref(new Set<string>());
-const browserGroups = computed(() => categories.filter(category => category.key === activeCategory.value).map(category => {
+const browserGroups = computed(() => categories.value.filter(category => category.key === activeCategory.value).map(category => {
   let entries: { id: string; label: string; detail: string; system: boolean }[];
   if (category.key === "publicEvents") entries = publicGroups.value.flatMap(group => group.items.map(preset => ({ id: preset.id, label: preset.alias || preset.name || "未命名公共事件", detail: preset.name, system: group.system })));
   else if (category.key === "entities") entries = entityGroups.value.flatMap(group => group.items.map(preset => ({ id: preset.id, label: preset.name || preset.talker || "未命名实体", detail: [preset.talker, preset.guid, preset.entityQuery].filter(Boolean).join(" · "), system: group.system })));
@@ -125,7 +133,7 @@ defineExpose({ prepareToLeave: flush });
       <nav class="category-nav" aria-label="预设分类">
         <div class="nav-title">预设配置</div>
         <button v-for="category in categories" :key="category.key" type="button" :class="{ active: activeCategory === category.key }" :aria-current="activeCategory === category.key ? 'page' : undefined" @click="activeCategory = category.key">{{ category.title }}</button>
-        <div class="nav-title other-nav-title">其他</div>
+        <div v-if="otherCategories.length" class="nav-title other-nav-title">其他</div>
         <button v-for="category in otherCategories" :key="category.key" type="button" :class="{ active: activeCategory === category.key }" :aria-current="activeCategory === category.key ? 'page' : undefined" @click="activeCategory = category.key">{{ category.title }}</button>
         <p>当前工作区<br />修改后自动保存</p>
       </nav>
@@ -195,7 +203,7 @@ defineExpose({ prepareToLeave: flush });
         <header><div><h3 id="public-presets-title">预设公共事件</h3><p>代号用于显示和选择，事件名及参数用于执行。在 Timeline 的 Public Event 动作中选择使用。</p></div></header>
         <p class="status" role="status">{{ publicStatus }}</p>
         <p v-if="publicError" role="alert" class="error">{{ publicError }} <button type="button" @click="retryPublic().catch(() => undefined)">重试</button></p>
-        <p class="hint">当前工作区共用。修改或删除预设不影响已配置的 Timeline 动作。</p>
+        <p class="hint">当前工作区共用。显示条件与持续时间开关会同步到已配置的 Clip，事件名和参数值保留原内容。</p>
         <p class="hint">系统默认的代号固定，事件名及参数可修改。自定义预设可新增、编辑和删除；展开参数设置后编辑。</p>
         <template v-for="group in publicGroups" :key="group.title">
         <h4>{{ group.title }}</h4>
@@ -207,6 +215,7 @@ defineExpose({ prepareToLeave: flush });
             <div v-if="group.system" class="parameter-preview"><span>参数</span><p v-for="param in preset.parameters" :key="param.id">{{ param.name }} · {{ param.type }} · {{ param.defaultValue }}</p><p v-if="!preset.parameters.length">无参数</p></div>
             <button type="button" class="parameter-toggle" :aria-expanded="expandedPublicEvents.has(preset.id)" :aria-controls="`public-parameters-${group.system ? 'system' : 'custom'}-${index}`" @click="togglePublicParameters(preset.id)"><span aria-hidden="true" class="parameter-arrow">▸</span>参数设置 <span class="parameter-count">{{ preset.parameters.length }} 项</span></button>
             <div v-show="expandedPublicEvents.has(preset.id)" class="public-parameters" :id="`public-parameters-${group.system ? 'system' : 'custom'}-${index}`">
+              <label class="duration-toggle"><input v-model="preset.requiresDuration" type="checkbox" :disabled="!publicReady" :aria-label="`${group.label} ${index + 1} 是否可拖拽Clip边缘`" />是否可拖拽Clip边缘</label>
               <div class="parameter-body"><div class="param-heading">参数定义 <span>字符串参数从 stringParams[1] 开始，其余类型从各自列表第 0 项开始。</span></div>
               <div v-for="(param, paramIndex) in preset.parameters" :key="param.id" class="public-param-row">
                 <div class="parameter-fields">
@@ -247,9 +256,9 @@ defineExpose({ prepareToLeave: flush });
         <div class="preset-footer"><button type="button" :disabled="!publicReady" @click="addPublicPreset">＋ 新建公共事件预设</button></div>
       </section>
       <CustomPresetSection v-show="activeCategory === 'custom'" :presets="custom.presets.value" :system-presets="custom.systemPresets.value" :ready="custom.ready.value" :status="custom.status.value" :error="custom.error.value" @retry="custom.retry().catch(() => undefined)" />
-      <StylePresetSection v-for="category in stylePresetCategories" v-show="activeCategory === category.key" :key="category.key" ref="styleSections" :category="category.key" :title="category.title" :reference-sources="sources" />
-      <MultilingualTextManager v-show="activeCategory === 'multilingualTexts'" />
-      <SaveModuleSection v-show="activeCategory === 'saveModules'" ref="saveModuleSection" />
+      <StylePresetSection v-for="category in visibleStylePresetCategories" v-show="activeCategory === category.key" :key="category.key" ref="styleSections" :category="category.key" :title="category.title" :reference-sources="sources" />
+      <MultilingualTextManager v-if="categoryAvailable('multilingualTexts')" v-show="activeCategory === 'multilingualTexts'" />
+      <SaveModuleSection v-if="categoryAvailable('saveModules')" v-show="activeCategory === 'saveModules'" ref="saveModuleSection" />
     </main>
     </div>
     </div>
@@ -258,6 +267,8 @@ defineExpose({ prepareToLeave: flush });
 
 <style scoped>
 .public-parameters { min-width: 0; container: public-parameters / inline-size; }
+.duration-toggle { display: flex; align-items: center; gap: 8px; }
+.duration-toggle input { width: auto; margin: 0; }
 .parameter-toggle { display: inline-flex; align-items: center; gap: 5px; justify-self: end; white-space: nowrap; }
 .parameter-toggle:focus-visible { outline: 2px solid #b4d0f4; outline-offset: 3px; }
 .parameter-arrow { display: inline-block; transition: transform .15s ease; }

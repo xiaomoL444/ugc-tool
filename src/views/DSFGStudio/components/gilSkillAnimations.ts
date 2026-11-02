@@ -1,5 +1,6 @@
 import { decode } from "genshin-impact-ugc-file-converter-web";
 import type { SkillAnimationPreset } from "./EntityPresetEditor/skillAnimationPresets";
+import { systemPresetConfig } from "./EntityPresetEditor/systemPresetConfig";
 import { matchGilStructIds, readGilStructTable } from "./gilStructIds";
 import type { WorkspaceStructIds } from "./workspaceStructIds";
 
@@ -39,10 +40,14 @@ export function matchGilSkillAnimationIds(skills: GilSkill[], current: SkillAnim
   const candidateEntries: Array<[string, GilSkill[]]> = [];
   const presets = current.map(preset => {
     const name = animationName(preset.name);
+    // System display names include their release; native GIL names do not.
+    // Custom names still match literally, including any user-written suffix.
+    const system = systemPresetConfig.skillAnimations.presets.find(seed => seed.id === preset.id && seed.name === preset.name);
+    const sourceName = system ? name.replace(/（v\d+\.\d+）$/, "") : name;
     const unique = new Map<string, GilSkill>();
     if (name.trim()) for (const skill of skills) {
       const id = configId(skill.id);
-      if (id && animationName(skill.name) === name) unique.set(id, { id, name: skill.name });
+      if (id && (animationName(skill.name) === sourceName || animationName(skill.name) === name)) unique.set(id, { id, name: skill.name });
     }
     const matches = [...unique.values()];
     if (matches.length === 1) {

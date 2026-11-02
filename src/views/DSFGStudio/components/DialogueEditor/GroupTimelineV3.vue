@@ -42,7 +42,7 @@ import {
   getFlowClipDuration,
   getGroupTimelineEnd,
   getGroupTimelineDisplayDuration,
-  isInstantPerformanceClip,
+  isPerformanceClipResizable,
   getPerformanceClipDuration,
   isFreeDialogueClip,
   MIN_CLIP_DURATION,
@@ -262,7 +262,7 @@ function lineLabel(line: PerformanceLine) {
 
 function addPerformanceClip(line: PerformanceLine) {
   const startTime = line.clips.reduce(
-    (maximum, clip) => Math.max(maximum, clip.startTime + (isInstantPerformanceClip(clip) ? 1 : clip.duration)),
+    (maximum, clip) => Math.max(maximum, clip.startTime + (isPerformanceClipResizable(clip) ? getPerformanceClipDuration(clip) : 1)),
     0,
   );
   const clip = createPerformanceClip(line.type, startTime);
@@ -417,6 +417,7 @@ function updateStartTime(clip: TimelineClip, event: Event) {
 }
 
 function updatePerformanceDuration(clip: PerformanceClip, event: Event) {
+  if (!isPerformanceClipResizable(clip)) return;
   const value = Number((event.target as HTMLInputElement).value);
   if (!Number.isFinite(value)) return;
   clip.duration = Math.max(clip.type === "PublicEvent" ? 0 : MIN_CLIP_DURATION, value);
@@ -547,7 +548,7 @@ function startResize(
   clip: TimelineClip,
   boundary: "start" | "end",
 ) {
-  if (event.button !== 0 || ("type" in clip && isInstantPerformanceClip(clip))) return;
+  if (event.button !== 0 || ("type" in clip && !isPerformanceClipResizable(clip))) return;
   if (boundary === "end" && !("type" in clip) && !isFreeDialogueClip(clip)) return;
   event.preventDefault();
   event.stopPropagation();
@@ -564,6 +565,10 @@ function startResize(
 
 function resizeClip(event: PointerEvent) {
   if (!resizing || !isTimelineGesturePointer(event, resizing)) return;
+  if ("type" in resizing.clip && !isPerformanceClipResizable(resizing.clip)) {
+    stopResize(event);
+    return;
+  }
   const pixelDelta = timelineGestureDelta(event, resizing);
   const timeDelta = pixelDelta / resizing.pixelsPerSecond;
   if (Math.abs(pixelDelta) > 3) resizing.moved = true;
@@ -920,11 +925,11 @@ onBeforeUnmount(() => {
               class="timeline-clip performance-clip resizable-clip"
               :class="[
                 `clip-${line.type.toLowerCase()}`,
-                { selected: selectedId === clip.id },
+                { selected: selectedId === clip.id, 'auto-width-clip': !isPerformanceClipResizable(clip) },
               ]"
               :style="{
                 left: `${labelWidth + clip.startTime * pixelsPerSecond}px`,
-                width: isInstantPerformanceClip(clip) ? undefined : `${Math.max(clip.duration, 0.1) * pixelsPerSecond}px`,
+                width: isPerformanceClipResizable(clip) ? `${Math.max(getPerformanceClipDuration(clip), 0.1) * pixelsPerSecond}px` : undefined,
               }"
               @pointerdown="startDrag($event, clip)"
               @contextmenu.prevent.stop="openClipContextMenu($event, { kind: 'performance', line, clip })"
@@ -938,7 +943,7 @@ onBeforeUnmount(() => {
               "
             >
               <i
-                v-if="!isInstantPerformanceClip(clip)"
+                v-if="isPerformanceClipResizable(clip)"
                 class="clip-resize-handle resize-start"
                 title="拖动设置开始时间"
                 @pointerdown.stop="startResize($event, clip, 'start')"
@@ -946,10 +951,10 @@ onBeforeUnmount(() => {
               <span :title="performanceClipLabel(clip)">{{ performanceClipLabel(clip) }}</span>
               <small>
                 {{ clip.startTime.toFixed(1) }}s
-                <template v-if="!isInstantPerformanceClip(clip)"> + {{ clip.duration.toFixed(1) }}s</template>
+                <template v-if="isPerformanceClipResizable(clip)"> + {{ getPerformanceClipDuration(clip).toFixed(1) }}s</template>
               </small>
               <i
-                v-if="!isInstantPerformanceClip(clip)"
+                v-if="isPerformanceClipResizable(clip)"
                 class="clip-resize-handle resize-end"
                 title="拖动设置持续时间"
                 @pointerdown.stop="startResize($event, clip, 'end')"
@@ -1079,7 +1084,7 @@ onBeforeUnmount(() => {
                 @input="updateStartTime(selectedClip.clip, $event)"
               />
             </label>
-            <label v-if="selectedClip.kind === 'performance' && !isInstantPerformanceClip(selectedClip.clip)">
+            <label v-if="selectedClip.kind === 'performance' && isPerformanceClipResizable(selectedClip.clip)">
               持续时间
               <input
                 type="number"
@@ -1436,6 +1441,10 @@ onBeforeUnmount(() => {
 .timeline-clip small {
   margin-left: 8px;
   opacity: 0.72;
+}
+
+.auto-width-clip {
+  width: max-content;
 }
 
 .waiting-dialogue-clip,

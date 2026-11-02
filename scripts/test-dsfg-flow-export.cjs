@@ -422,6 +422,42 @@ async function main() {
     });
 
 
+    test("Public Event edge settings hide timeline duration without changing the exported value", () => {
+      const { applyPublicEventPreset, syncDialoguePublicEventVisibility } = require(path.join(editorDirectory, "utils/publicEventParameters.ts"));
+      const { getGroupTimelineEnd, isPerformanceClipResizable } = require(path.join(editorDirectory, "utils/groupTimeline.ts"));
+      const { encodeDialogueProject, decodeDialogueProject } = require(path.join(editorDirectory, "utils/dialogueProjectCodec.ts"));
+      const source = createEmptyDialogueProject(), node = group(source, "duration-event");
+      entry(source, node.id); node.dialogue = undefined; node.timeline.duration = 0.1;
+      const clip = createPerformanceClip("PublicEvent", 2); clip.duration = 5;
+      const preset = { id: "duration-preset", alias: "时长事件", name: "NOLOC_DurationTest", requiresDuration: true, parameters: [
+        { id: "enabled", name: "启用", type: "Bool", defaultValue: "True" },
+      ] };
+      applyPublicEventPreset(clip, preset);
+      node.lines.push({ id: "events", name: "事件", type: "PublicEvent", clips: [clip] });
+      assert.equal(getGroupTimelineEnd(node), 7);
+      assert.equal(isPerformanceClipResizable(clip), true);
+      assert.equal(exported(source).actions(node.id)[0].value.duration.value, "5.00");
+      preset.requiresDuration = false;
+      assert.equal(syncDialoguePublicEventVisibility(source, [preset]), true);
+      assert.equal(syncDialoguePublicEventVisibility(source, [preset]), false);
+      assert.equal(isPerformanceClipResizable(clip), false);
+      assert.equal(getGroupTimelineEnd(node), 2, 'A clip without editable edges contributes only its start time');
+      const reopened = decodeDialogueProject(encodeDialogueProject(source));
+      const restoredClip = reopened.dialogue.nodes[node.id].lines.find(line => line.type === "PublicEvent").clips[0];
+      assert.equal(restoredClip.components[0].properties.requiresDuration, false);
+      assert.equal(restoredClip.duration, 5, 'The editable duration stays saved for later re-enabling');
+      assert.equal(isPerformanceClipResizable(restoredClip), false);
+      const output = exported(reopened), action = output.actions(node.id)[0].value;
+      assert.equal(action.duration.value, "5.00", 'The editor setting must not override the exported duration');
+      assert.deepEqual(action.boolParams.value, ["True"], 'Only actual event parameters are exported');
+      assert.equal(output.result.json.includes('requiresDuration'), false);
+      assert.equal(syncDialoguePublicEventVisibility(reopened, []), false, 'Missing presets retain the saved duration policy');
+      preset.requiresDuration = true;
+      syncDialoguePublicEventVisibility(reopened, [preset]);
+      assert.equal(isPerformanceClipResizable(restoredClip), true);
+      assert.equal(exported(reopened).actions(node.id)[0].value.duration.value, "5.00");
+    });
+
     test("Public Event parameter schema maps event name and mixed typed values to separate lists", () => {
       const { applyPublicEventPreset, compilePublicEventArguments, getPublicEventClipLabel } = require(path.join(editorDirectory, "utils/publicEventParameters.ts"));
       const source = createEmptyDialogueProject();

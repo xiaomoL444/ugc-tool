@@ -155,7 +155,7 @@ async function main() {
         } };
       const props = { workspace: 'a', settings: targetConfig.createWorkspaceSettings(), state: { ids: { ...defaults }, candidates: {}, warnings: [] }, loadError: '',
         async saveSettings(ids) { if (failures.struct) throw new Error('disk full'); saves.push({ ...ids }); } };
-      const context = vm.createContext({ ...config, ...vue, ...require(path.join(base, 'workspaceFeatures.ts')),
+      const context = vm.createContext({ ...config, ...vue, ...targetConfig, ...require(path.join(base, 'versioning/catalog.ts')), ...require(path.join(base, 'workspaceFeatures.ts')),
         ...require(path.join(base, 'EntityPresetEditor/skillAnimationPresets.ts')),
         Error, document: { activeElement: null }, toast: { warning: (message, options) => notices.push({ message, ...options }) },
         // This VM isolates dialog I/O; gesture/history behavior runs in test-dsfg-studio-history.cjs.

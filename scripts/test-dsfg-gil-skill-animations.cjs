@@ -135,7 +135,7 @@ async function main() {
     await test('Both component targets calibrate real GIL bytes and save structure IDs and editable system skill overrides', async () => {
       const seeds = JSON.stringify(systemPresetConfig);
       for (const fileType of [1, 2]) {
-        const target = { fileType, templateReleaseId: 2 };
+        const target = { fileType, baseReleaseId: 2 , packageIds: []};
         const fields = config.WORKSPACE_STRUCT_ID_FIELDS.filter(field => features.isWorkspaceStructGroupAvailable(field.group, target));
         const json = {
           '10': { '6': fields.map((field, index) => ({ '1': { '1': 1200000000 + index, '501': `string:${field.names[0]}` } })) },
@@ -154,7 +154,7 @@ async function main() {
       assert.equal(JSON.stringify(systemPresetConfig), seeds, 'Calibration cannot alter central defaults');
     });
     await test('Component IDs may reuse hidden map-only defaults without altering hidden IDs', () => {
-      const target = { fileType: 1, templateReleaseId: 2 };
+      const target = { fileType: 1, baseReleaseId: 2 , packageIds: []};
       const result = api.importGilWorkspaceIds(encodeGil({ '10': { '6': [{ '1': { '1': Number(defaults['quest.configuration']), '501': 'string:[演出]演出' } }] } }), defaults, presets);
       const calibrated = calibrationApi.createWorkspaceGilCalibration('component.gil', result, target);
       const ids = JSON.parse(calibrationApi.workspaceGilCalibrationFiles(calibrated)['StructIds.json']).ids;
@@ -164,7 +164,7 @@ async function main() {
       assert.ok(config.validateWorkspaceStructIds(ids).some(error => /重复/.test(error)), 'Returning to the map target must validate every visible group');
     });
     await test('Malformed or unrelated GILs cannot calibrate; ambiguous names require valid explicit choices', async () => {
-      const target = { fileType: 1, templateReleaseId: 1 };
+      const target = { fileType: 1, baseReleaseId: 1 , packageIds: []};
       for (const [name, bytes] of [['invalid.gil', new Uint8Array([1, 2, 3])], ['empty.gil', encodeGil({})], ['wrong.txt', encodeGil({})]]) {
         await assert.rejects(calibrationApi.readWorkspaceGilCalibration({ name, size: bytes.length, async arrayBuffer() { return bytes; } }, target));
       }

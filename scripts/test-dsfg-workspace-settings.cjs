@@ -13,7 +13,7 @@ Module._extensions['.ts'] = (module, file) => module._compile(ts.transpileModule
 }).outputText, file);
 
 async function main() {
-  const releases = require(path.join(base, 'templateReleases.ts'));
+  const releases = require(path.join(base, 'versioning/baseReleases.ts'));
   const settingsApi = require(path.join(base, 'workspaceSettings.ts'));
   const contextApi = require(path.join(base, 'useWorkspaceSettings.ts'));
   const features = require(path.join(base, 'workspaceFeatures.ts'));
@@ -30,16 +30,18 @@ async function main() {
     assert.deepEqual(await settingsApi.loadWorkspaceSettings(storage, 'old'), settingsApi.createWorkspaceSettings());
     assert.deepEqual(storage.writes, []);
     assert.equal(settingsApi.createWorkspaceSettings().fileType, 0);
-    assert.equal(settingsApi.createWorkspaceSettings().templateReleaseId, 1);
-    assert.equal(releases.latestTemplateReleaseId, 2);
+    assert.equal(settingsApi.createWorkspaceSettings().baseReleaseId, 1);
+    assert.deepEqual(settingsApi.createWorkspaceSettings().packageIds, []);
+    assert.equal(releases.latestBaseReleaseId, 2);
     for (const fileType of [0, 1, 2]) {
-      const target = settingsApi.createWorkspaceSettings({ fileType, templateReleaseId: 2 });
+      const target = settingsApi.createWorkspaceSettings({ fileType, baseReleaseId: 2, packageIds: [] });
       await storage.writeFile('/new/WorkspaceSettings.json', settingsApi.encodeWorkspaceSettings(target));
       assert.deepEqual(await settingsApi.loadWorkspaceSettings(storage, 'new'), target);
     }
   });
   await test('Corrupt settings, unknown IDs and string IDs are rejected without rewriting original bytes', async () => {
-    for (const raw of ['{bad', '{}', ...[{ fileType: 3 }, { fileType: '0' }, { templateReleaseId: 99 }, { templateReleaseId: '2' }, { schemaVersion: 2 }]
+    for (const raw of ['{bad', '{}', ...[{ fileType: 3 }, { fileType: '0' }, { schemaVersion: 4 },
+      { baseReleaseId: 99 }, { packageIds: [99] }, { packageIds: null }, { baseReleaseId: undefined }]
       .map(value => JSON.stringify({ ...settingsApi.createWorkspaceSettings(), ...value }))]) {
       const storage = memory(); storage.files.set('/a/WorkspaceSettings.json', raw);
       await assert.rejects(settingsApi.loadWorkspaceSettings(storage, 'a'));
@@ -62,25 +64,25 @@ async function main() {
     const otherApp = vue.createApp({});
     otherApp.provide(contextApi.workspaceSettingsKey, vue.ref(settingsApi.createWorkspaceSettings()));
     const otherReader = otherApp.runWithContext(contextApi.useWorkspaceSettings);
-    current.value = settingsApi.createWorkspaceSettings({ fileType: 2, templateReleaseId: 2 });
-    assert.equal(firstReader.value.fileType, 2); assert.equal(secondReader.value.templateReleaseId, 2);
-    assert.equal(otherReader.value.fileType, 0); assert.equal(otherReader.value.templateReleaseId, 1);
+    current.value = settingsApi.createWorkspaceSettings({ fileType: 2, baseReleaseId: 2, packageIds: [] });
+    assert.equal(firstReader.value.fileType, 2); assert.equal(secondReader.value.baseReleaseId, 2);
+    assert.equal(otherReader.value.fileType, 0); assert.equal(otherReader.value.baseReleaseId, 1);
   });
   await test('File-type restrictions and inclusive/exclusive version ranges use shared workspace targets', () => {
-    for (const fileType of [0, 1, 2]) for (const templateReleaseId of [1, 2]) {
-      const target = { fileType, templateReleaseId };
+    for (const fileType of [0, 1, 2]) for (const baseReleaseId of [1, 2]) {
+      const target = { fileType, baseReleaseId, packageIds: [] };
       for (const key of ['Quest', 'Scene', 'questStyles', 'multilingualTexts', 'saveModules']) assert.equal(features.isWorkspaceFeatureAvailable(key, target), fileType === 0);
       for (const key of ['Dialogue', 'Camera', 'EntityPresets', 'dialogueStyles']) assert.equal(features.isWorkspaceFeatureAvailable(key, target), true);
       assert.equal(features.isWorkspaceStructGroupAvailable('任务', target), fileType === 0);
       assert.equal(features.isWorkspaceStructGroupAvailable('场景', target), fileType === 0);
       assert.equal(features.isWorkspaceStructGroupAvailable('演出对话', target), true);
-      assert.equal(features.isApplicable({ fileTypes: [0, 1], versionRanges: [{ min: { releaseId: 1, inclusive: false } }] }, target), fileType !== 2 && templateReleaseId === 2);
-      assert.equal(features.isApplicable({ versionRanges: [{ max: { releaseId: 2, inclusive: false } }] }, target), templateReleaseId === 1);
-      assert.equal(features.isApplicable({ versionRanges: [{ min: { releaseId: 1, inclusive: true }, max: { releaseId: 1, inclusive: true } }, { min: { releaseId: 2, inclusive: true } }] }, target), true);
+      assert.equal(features.isApplicable({ fileTypes: [0, 1], baseVersionRanges: [{ min: { releaseId: 1, inclusive: false } }] }, target), fileType !== 2 && baseReleaseId === 2);
+      assert.equal(features.isApplicable({ baseVersionRanges: [{ max: { releaseId: 2, inclusive: false } }] }, target), baseReleaseId === 1);
+      assert.equal(features.isApplicable({ baseVersionRanges: [{ min: { releaseId: 1, inclusive: true }, max: { releaseId: 1, inclusive: true } }, { min: { releaseId: 2, inclusive: true } }] }, target), true);
     }
   });
   await test('Workspace creation and combined settings templates compile with the existing editor shell', () => {
-    for (const relative of ['../DSFGStudio.vue', 'WorkspaceStructIdSettings.vue', 'WorkspaceGilCalibration.vue', 'StudioCreateDialog.vue']) {
+    for (const relative of ['../DSFGStudio.vue', 'WorkspaceStructIdSettings.vue', 'WorkspaceVersionSettings.vue', 'WorkspaceGilCalibration.vue', 'StudioCreateDialog.vue']) {
       const filename = path.join(base, relative), descriptor = parse(fs.readFileSync(filename, 'utf8'), { filename }).descriptor;
       const script = compileScript(descriptor, { id: 'workspace-settings-test' });
       assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'workspace-settings-test', compilerOptions: { bindingMetadata: script.bindings } }).errors, []);

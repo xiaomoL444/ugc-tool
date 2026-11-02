@@ -25,7 +25,7 @@ Camera 数据仍按每 100 项拆分字典；位置和旋转 Slot 数量分别�
 
 字段及中文标签定义在 `cameraClip.ts`，注册入口在 `clipComponentRegistry.ts`。
 通用 Clip 参数支持 `vector3`、`struct`、`struct-list`，并非 Camera 专用编辑控件。
-结构体 ID 统一在工作区右侧「… → 设置结构体 ID」中编辑，保存至工作区根目录 `StructIds.json`，对所有对话文件生效，导出时递归替换。可读取 `.gil` 按结构体名称自动填入 ID，识别后点击保存应用。工程内原有 ID 仅保留为兼容元数据。
+结构体 ID 统一在工作区右侧「… → 工作区设置 → 结构体 ID」中编辑，保存至工作区根目录 `StructIds.json`，对所有对话文件生效，导出时递归替换。可读取 `.gil` 按结构体名称自动填入 ID，识别后点击保存应用。工程内原有 ID 仅保留为兼容元数据。
 
 注意：
 

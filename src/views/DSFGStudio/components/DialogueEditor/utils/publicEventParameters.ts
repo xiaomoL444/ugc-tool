@@ -32,12 +32,17 @@ export function getPublicEventArguments(clip: PerformanceClip): PublicEventArgum
   const parameters = clip.components.find(item => item.templateId === "public.event")?.properties.parameters;
   return Array.isArray(parameters) ? parameters : [];
 }
-/** 显示条件跟随当前预设；动作的值、事件名和参数结构仍保留创建时的快照。 */
+/** 编辑器显示规则跟随当前预设；动作的值、事件名和参数结构仍保留创建时的快照。 */
 export function syncPublicEventVisibility(clip: PerformanceClip, presets: PublicEventPreset[]): boolean {
   const properties = clip.components.find(item => item.templateId === "public.event")?.properties;
   const preset = presets.find(item => item.id === properties?.presetId);
-  if (!preset) return false;
+  if (!properties || !preset) return false;
   let changed = false;
+  const requiresDuration = preset.requiresDuration ?? systemPresetConfig.publicEvents.newItem.requiresDuration;
+  if ((properties.requiresDuration !== false) !== requiresDuration) {
+    properties.requiresDuration = requiresDuration;
+    changed = true;
+  }
   for (const parameter of getPublicEventArguments(clip)) {
     const definition = preset.parameters.find(item => item.id === parameter.id && item.type === parameter.type);
     if (!definition || JSON.stringify(parameter.visibleWhen ?? []) === JSON.stringify(definition.visibleWhen ?? [])) continue;
@@ -80,6 +85,7 @@ export function applyPublicEventPreset(clip: PerformanceClip, preset: PublicEven
   const previous = config.properties.presetId === preset.id ? getPublicEventArguments(clip) : [];
   config.enabled = true;
   config.properties = { ...config.properties, value: preset.name, presetId: preset.id, presetAlias: preset.alias,
+    requiresDuration: preset.requiresDuration ?? systemPresetConfig.publicEvents.newItem.requiresDuration,
     parameters: preset.parameters.map(param => {
       const value = previous.find(item => item.id === param.id && item.type === param.type)?.value ?? param.defaultValue;
       return { ...(param.visibleWhen ? { visibleWhen: param.visibleWhen.map(rule => ({ ...rule })) } : {}), ...(param.reference ? { reference: param.reference } : {}), id: param.id, name: param.name, type: param.type,

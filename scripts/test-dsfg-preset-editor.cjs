@@ -197,7 +197,7 @@ async function main() {
     return { app, root, instance };
   }
   try {
-    const mainTarget = vue.ref({ fileType: 0, templateReleaseId: 2 });
+    const mainTarget = vue.ref({ fileType: 0, baseReleaseId: 2 , packageIds: []});
     const { app, root, instance } = mount(mainTarget); await settle();
     assert.equal(files.size, 0, 'Rendering defaults must not create workspace files');
     const nav = find(root, node => node.tag === 'nav' && node.props['aria-label'] === '预设分类');
@@ -260,10 +260,10 @@ async function main() {
     await activate('公共事件');
     const newPublicEvent = config.publicEvents.presets.find(row => row.id === 'public-player-look-forward');
     assert.ok(entryLabels().includes(newPublicEvent.alias));
-    mainTarget.value = { fileType: 0, templateReleaseId: 1 }; await settle();
+    mainTarget.value = { fileType: 0, baseReleaseId: 1 , packageIds: []}; await settle();
     assert.deepEqual(entryLabels(), config.publicEvents.presets.filter(row => !row.applicability).map(row => row.alias));
     assert.equal(find(root, node => node.tag === 'article' && node.props['data-preset-id'] === newPublicEvent.id), undefined);
-    mainTarget.value = { fileType: 0, templateReleaseId: 2 }; await settle();
+    mainTarget.value = { fileType: 0, baseReleaseId: 2 , packageIds: []}; await settle();
     assert.ok(entryLabels().includes(newPublicEvent.alias));
     assert.ok(find(root, node => node.tag === 'article' && node.props['data-preset-id'] === newPublicEvent.id));
     assert.equal(files.size, 0, 'Release changes filter public-event cards and browser entries without saving');
@@ -285,10 +285,10 @@ async function main() {
     const newSkill = config.skillAnimations.presets.find(row => row.id === 'skill-knocked-down-loop');
     assert.ok(newSkill);
     assert.ok(entryLabels().includes(newSkill.name));
-    mainTarget.value = { fileType: 0, templateReleaseId: 1 }; await settle();
+    mainTarget.value = { fileType: 0, baseReleaseId: 1 , packageIds: []}; await settle();
     assert.deepEqual(entryLabels(), config.skillAnimations.presets.filter(row => !row.applicability).map(row => row.name));
     assert.equal(find(root, node => node.tag === 'article' && node.props['data-preset-id'] === newSkill.id), undefined);
-    mainTarget.value = { fileType: 0, templateReleaseId: 2 }; await settle();
+    mainTarget.value = { fileType: 0, baseReleaseId: 2 , packageIds: []}; await settle();
     assert.deepEqual(entryLabels(), config.skillAnimations.presets.map(row => row.name));
     assert.ok(find(root, node => node.tag === 'article' && node.props['data-preset-id'] === newSkill.id));
     assert.equal(files.size, 0, 'Release changes only filter skill cards and browser entries without saving');
@@ -782,7 +782,7 @@ async function main() {
     console.log('PASS select legacy edited snapshots migrate to custom entries with stable existing IDs, while corrupt files retain their bytes');
     const settingsApi = require(path.join(base, 'workspaceSettings.ts'));
     for (const fileType of [1, 2]) {
-      const target = vue.ref(settingsApi.createWorkspaceSettings({ fileType, templateReleaseId: 2 }));
+      const target = vue.ref(settingsApi.createWorkspaceSettings({ fileType, baseReleaseId: 2 , packageIds: []}));
       const filtered = mount(target); await settle();
       const categoryNav = find(filtered.root, node => node.tag === 'nav' && node.props['aria-label'] === '预设分类');
       const titles = () => all(categoryNav, node => node.tag === 'button').map(text);
@@ -793,7 +793,7 @@ async function main() {
       for (const title of ['任务样式', '多语言文本管理', '存档模块']) assert.ok(titles().includes(title), title);
       const questButton = find(categoryNav, node => node.tag === 'button' && text(node) === '任务样式');
       dispatch(questButton, 'click'); await settle();
-      target.value = settingsApi.createWorkspaceSettings({ fileType, templateReleaseId: 1 }); await settle();
+      target.value = settingsApi.createWorkspaceSettings({ fileType, baseReleaseId: 1 , packageIds: []}); await settle();
       assert.equal(text(find(categoryNav, node => node.tag === 'button' && node.props['aria-current'] === 'page')), '公共事件');
       filtered.app.unmount(); mounted.splice(mounted.indexOf(filtered.app), 1);
     }

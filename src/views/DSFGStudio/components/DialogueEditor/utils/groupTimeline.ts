@@ -9,6 +9,7 @@ import { getDialogueClips } from "./dialogueClips";
 export const DEFAULT_TIMELINE_DURATION = 2;
 export const DEFAULT_CONTINUE_DELAY_TIME = 0.5;
 export const MIN_CLIP_DURATION = 0.1;
+export const DEFAULT_PERFORMANCE_CLIP_DURATION = 1;
 
 export function getGroupTimelineDisplayDuration(node: DialogueNode) {
   const end = getGroupTimelineEnd(node);
@@ -22,8 +23,14 @@ export function isInstantPerformanceClip(clip: { type?: string }) {
   return clip.type === "Custom";
 }
 
+export function isPerformanceClipResizable(clip: PerformanceClip) {
+  return !isInstantPerformanceClip(clip) && !(clip.type === "PublicEvent" &&
+    clip.components.find(component => component.templateId === "public.event")?.properties.requiresDuration === false);
+}
+
+/** 编辑器的时间范围；无时长显示的公共事件只标记触发时间，不改写原始 duration。 */
 export function getPerformanceClipDuration(clip: PerformanceClip) {
-  return isInstantPerformanceClip(clip) ? 0 : clip.duration;
+  return isPerformanceClipResizable(clip) ? clip.duration : 0;
 }
 
 export type FlowClip = DialogueClip | SelectClip;

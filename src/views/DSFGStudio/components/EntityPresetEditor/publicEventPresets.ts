@@ -1,4 +1,6 @@
 import { systemPresetConfig } from "./systemPresetConfig";
+import { isApplicable, type Applicability } from "../workspaceFeatures";
+import type { WorkspaceTarget } from "../workspaceSettings";
 export const PUBLIC_EVENT_PARAM_TYPES = [
   { value: "String", label: "字符串" }, { value: "Int32", label: "整数" },
   { value: "Float", label: "浮点数" }, { value: "Bool", label: "布尔值" },
@@ -8,7 +10,12 @@ export const PUBLIC_EVENT_PARAM_TYPES = [
 export type PublicEventParamType = typeof PUBLIC_EVENT_PARAM_TYPES[number]["value"];
 export interface PublicEventVisibilityRule { parameterId: string; equals: string }
 export interface PublicEventParameter { id: string; name: string; type: PublicEventParamType; defaultValue: string; reference?: string; visibleWhen?: PublicEventVisibilityRule[] }
-export interface PublicEventPreset { id: string; alias: string; name: string; parameters: PublicEventParameter[] }
+export interface PublicEventPreset { id: string; alias: string; name: string; requiresDuration: boolean; parameters: PublicEventParameter[] }
+export interface SystemPublicEventPreset extends PublicEventPreset { applicability?: Applicability }
+/** Read rules from the immutable catalog so workspace overrides cannot change release ownership. */
+export function isPublicEventApplicable(id: string, target: WorkspaceTarget): boolean {
+  return isApplicable(systemPresetConfig.publicEvents.presets.find(preset => preset.id === id)?.applicability, target);
+}
 export function publicEventPresetLabel(preset: PublicEventPreset): string {
   const alias = preset.alias.trim();
   return alias && alias !== preset.name ? `${alias} · ${preset.name}` : preset.name;
@@ -38,6 +45,7 @@ export function decodePublicEventPresets(raw: string): PublicEventPreset[] {
     if (!item || typeof item.id !== "string" || !item.id || ids.has(item.id) || typeof item.name !== "string") throw invalid();
     ids.add(item.id);
     if (item.alias !== undefined && typeof item.alias !== "string") throw invalid();
+    if (item.requiresDuration !== undefined && typeof item.requiresDuration !== "boolean") throw invalid();
     let parameters = item.parameters;
     if (parameters === undefined) {
       if (item.parameter !== undefined && typeof item.parameter !== "string") throw invalid();
@@ -47,7 +55,9 @@ export function decodePublicEventPresets(raw: string): PublicEventPreset[] {
     }
     if (!Array.isArray(parameters)) throw invalid();
     const paramIds = new Set<string>();
-    return { id: item.id, alias: item.alias ?? item.name, name: item.name, parameters: parameters.map((param: any) => {
+    return { id: item.id, alias: item.alias ?? item.name, name: item.name,
+      requiresDuration: item.requiresDuration ?? systemPresetConfig.publicEvents.newItem.requiresDuration,
+      parameters: parameters.map((param: any) => {
       if (!param || typeof param.id !== "string" || !param.id || paramIds.has(param.id) || typeof param.name !== "string" ||
           !PUBLIC_EVENT_PARAM_TYPES.some(type => type.value === param.type) || (param.defaultValue !== undefined && typeof param.defaultValue !== "string")) throw invalid();
       if (param.reference !== undefined && typeof param.reference !== "string") throw invalid();

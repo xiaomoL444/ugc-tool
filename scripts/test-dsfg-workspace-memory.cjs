@@ -10,8 +10,9 @@ require.extensions['.ts'] = (module, file) => module._compile(ts.transpileModule
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
 }).outputText, file);
 const targetApi = require('../src/views/DSFGStudio/components/workspaceSettings.ts');
-const releaseApi = require('../src/views/DSFGStudio/components/templateReleases.ts');
+const releaseApi = require('../src/views/DSFGStudio/components/versioning/types.ts');
 const featureApi = require('../src/views/DSFGStudio/components/workspaceFeatures.ts');
+const catalogApi = require('../src/views/DSFGStudio/components/versioning/catalog.ts');
 
 const filename = path.resolve(__dirname, '../src/views/DSFGStudio/DSFGStudio.vue');
 const { descriptor, errors } = parse(fs.readFileSync(filename, 'utf8'), { filename });
@@ -96,7 +97,7 @@ function createStudio(backend, memory) {
   };
   const window = { addEventListener() {}, removeEventListener() {} };
   const contextValues = {
-    ...vue, ...targetApi, ...releaseApi, ...featureApi,
+    ...vue, ...targetApi, ...releaseApi, ...featureApi, ...catalogApi,
     workspaceGilCalibrationFiles: value => value.files,
     onBeforeMount: fn => beforeMount.push(fn),
     onMounted: fn => mounted.push(fn), onBeforeUnmount: fn => unmounted.push(fn),
@@ -125,7 +126,7 @@ function createStudio(backend, memory) {
   Object.defineProperty(window, 'localStorage', { get: () => memory.storage });
   const context = vm.createContext(contextValues);
   scope.run(() => vm.runInContext(`${script}\nglobalThis.studio = { selectedWorkspaceId, workspaceIds, ChangeWorkspace, DelectWorkspace, setEditorRef, switchingEditor,
-    AddWorkspace, openCreateWorkspace, newWorkspaceName, newWorkspaceFileType, newWorkspaceReleaseId, newWorkspaceCalibration,
+    AddWorkspace, openCreateWorkspace, newWorkspaceName, newWorkspaceFileType, newWorkspaceSettings, newWorkspaceCalibration,
     newWorkspaceGilBusy, newWorkspaceCalibrationFiles, visibleEditorTabs, selectedFunction, visitedEditors, ChangeEditorKind,
     workspaceSettings, structSettingsOpen, saveStructSettings, finishWorkspaceSettings };`, context, { filename }));
   return {
@@ -264,22 +265,22 @@ async function main() {
     const backend = workspaceBackend(['old']), memory = browserMemory('old');
     const studio = createStudio(backend, memory); await studio.open();
     assert.equal(studio.newWorkspaceFileType.value, 0);
-    assert.equal(studio.newWorkspaceReleaseId.value, 2);
+    assert.equal(studio.newWorkspaceSettings.value.baseReleaseId, 2);
     studio.newWorkspaceFileType.value = 2;
-    studio.newWorkspaceReleaseId.value = 1;
+    studio.newWorkspaceSettings.value.baseReleaseId = 1;
     studio.openCreateWorkspace();
     assert.equal(studio.newWorkspaceFileType.value, 0, 'Opening creation restores the default Beyond map type');
-    assert.equal(studio.newWorkspaceReleaseId.value, 2);
+    assert.equal(studio.newWorkspaceSettings.value.baseReleaseId, 2);
     studio.newWorkspaceName.value = 'new';
     await studio.AddWorkspace();
     assert.equal(studio.selectedWorkspaceId.value, 'new'); assert.equal(memory.value, 'new');
     assert.deepEqual(JSON.parse(backend.state.files.get('/new/WorkspaceSettings.json')),
-      targetApi.createWorkspaceSettings({ fileType: 0, templateReleaseId: 2 }));
+      targetApi.createWorkspaceSettings({ fileType: 0, baseReleaseId: 2 , packageIds: []}));
     assert.equal(studio.workspaceSettings.value.fileType, 0);
     await studio.ChangeWorkspace('old');
-    assert.equal(studio.workspaceSettings.value.templateReleaseId, 1, 'Missing legacy settings keep the original target');
+    assert.equal(studio.workspaceSettings.value.baseReleaseId, 1, 'Missing legacy settings keep the 2.0 baseline');
     await studio.ChangeWorkspace('new');
-    assert.equal(studio.workspaceSettings.value.templateReleaseId, 2, 'Switching loads the selected workspace target');
+    assert.equal(studio.workspaceSettings.value.baseReleaseId, 2, 'New workspaces use the latest complete release baseline');
     studio.close();
     console.log('PASS New workspaces default to Beyond maps, persist the selected release and load independent targets');
   }
@@ -291,7 +292,7 @@ async function main() {
       await studio.AddWorkspace();
       assert.deepEqual(backend.state.created, [], 'Component creation must wait for local GIL calibration');
       studio.newWorkspaceCalibration.value = { files: { 'StructIds.json': '{"calibrated":123}', 'SkillAnimationPresets.json': '{"skill":456}' } };
-      studio.newWorkspaceReleaseId.value = 1;
+      studio.newWorkspaceSettings.value.baseReleaseId = 1;
       assert.equal(studio.newWorkspaceCalibrationFiles.value, undefined, 'Changing the target invalidates calibration');
       studio.newWorkspaceCalibration.value = { files: { 'StructIds.json': '{"calibrated":123}', 'SkillAnimationPresets.json': '{"skill":456}' } };
       studio.newWorkspaceGilBusy.value = true; await studio.AddWorkspace();
@@ -328,7 +329,7 @@ async function main() {
   }
   {
     const backend = workspaceBackend(['map', 'component']);
-    backend.state.files.set('/component/WorkspaceSettings.json', targetApi.encodeWorkspaceSettings(targetApi.createWorkspaceSettings({ fileType: 1, templateReleaseId: 2 })));
+    backend.state.files.set('/component/WorkspaceSettings.json', targetApi.encodeWorkspaceSettings(targetApi.createWorkspaceSettings({ fileType: 1, baseReleaseId: 2 , packageIds: []})));
     const studio = createStudio(backend, browserMemory('map')); await studio.open();
     await studio.ChangeEditorKind('Quest'); assert.equal(studio.selectedFunction.value, 'Quest');
     await studio.ChangeWorkspace('component');
@@ -336,7 +337,7 @@ async function main() {
     assert.deepEqual(Array.from(studio.visitedEditors.value), ['Dialogue']);
     await studio.ChangeEditorKind('Scene'); assert.equal(studio.selectedFunction.value, 'Dialogue', 'History or events cannot open a hidden editor');
     await studio.ChangeWorkspace('map'); await studio.ChangeEditorKind('Scene');
-    await studio.saveStructSettings({ dialogue: 1 }, targetApi.createWorkspaceSettings({ fileType: 2, templateReleaseId: 2 }), 'map');
+    await studio.saveStructSettings({ dialogue: 1 }, targetApi.createWorkspaceSettings({ fileType: 2, baseReleaseId: 2 , packageIds: []}), 'map');
     assert.equal(studio.selectedFunction.value, 'Dialogue', 'Saving a changed file type leaves an unavailable active editor');
     assert.deepEqual(Array.from(studio.visibleEditorTabs.value, tab => tab.value), ['Dialogue', 'Camera', 'EntityPresets']);
     studio.close();
@@ -347,7 +348,7 @@ async function main() {
     backend.state.files.set('/old/DialogueEditor/story.json', '{"existing":"dialogue data"}');
     backend.state.files.set('/old/SkillAnimationPresets.json', '{"existing":"skill data"}');
     const studio = createStudio(backend, memory); await studio.open();
-    const target = targetApi.createWorkspaceSettings({ fileType: 2, templateReleaseId: 2 });
+    const target = targetApi.createWorkspaceSettings({ fileType: 2, baseReleaseId: 2 , packageIds: []});
     await studio.saveStructSettings({ dialogue: 42 }, target, 'renamed');
     assert.equal(studio.selectedWorkspaceId.value, 'old', 'Rename waits for the dialog to finish skill saves');
     assert.deepEqual(JSON.parse(backend.state.files.get('/old/WorkspaceSettings.json')), target);

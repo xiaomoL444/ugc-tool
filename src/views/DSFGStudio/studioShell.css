@@ -15,14 +15,7 @@
 #app .dsfg-studio .studio-sidebar :is(button, input, select) { font-family: inherit; }
 #app .dsfg-studio .studio-workspace-picker { display: flex; align-items: center; gap: 6px; position: relative; }
 #app .dsfg-studio .studio-icon-button { display: grid; place-items: center; width: 30px; height: 36px; padding: 0; flex-shrink: 0; border: 1px solid var(--studio-line); border-radius: 7px; background: #ffffff8c; color: #6275b1; cursor: pointer; }
-#app .dsfg-studio .studio-workspace-menu summary { list-style: none; border-color: transparent; }
-#app .dsfg-studio .studio-workspace-menu summary::-webkit-details-marker { display: none; }
-#app .dsfg-studio .studio-workspace-menu > div { position: absolute; z-index: 30; top: 44px; right: 0; padding: 6px; min-width: 150px; border: 1px solid var(--studio-line); border-radius: 8px; background: #fff; box-shadow: 0 8px 24px #35487418; }
-#app .dsfg-studio .studio-workspace-menu button { width: 100%; padding: 9px; border: 0; border-radius: 4px; background: transparent; color: #52677f; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
-#app .dsfg-studio .studio-workspace-menu button:hover { background: #edf5ff; }
-#app .dsfg-studio .studio-workspace-menu button:last-child { color: #ad5868; }
-#app .dsfg-studio .studio-workspace-menu button:last-child:hover { background: #fff0f3; }
-#app .dsfg-studio .studio-feature-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 0; gap: 3px; border-bottom: 1px solid #d6dbf5; }
+#app .dsfg-studio .studio-feature-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); padding: 0; gap: 3px; border-bottom: 1px solid #d6dbf5; }
 #app .dsfg-studio .studio-feature-tabs button { position: relative; min-height: 42px; padding: 6px 0 11px; border: 0; border-radius: 0; background: transparent; color: #5a648b; font: inherit; font-size: 14px; cursor: pointer; }
 #app .dsfg-studio .studio-feature-tabs button[aria-pressed="true"] { color: var(--studio-blue); }
 #app .dsfg-studio .studio-feature-tabs button[aria-pressed="true"]::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--studio-blue); border-radius: 2px; }

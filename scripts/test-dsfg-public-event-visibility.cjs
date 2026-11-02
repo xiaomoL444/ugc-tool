@@ -43,7 +43,7 @@ Module._extensions['.vue'] = (mod, filename) => {
 };
 
 function element(tag) {
-  return { tag, children: [], parent: null, events: new Map(),
+  return { tag, children: [], parent: null, events: new Map(), clientWidth: 918,
     addEventListener(name, callback) { this.events.set(name, callback); },
     removeEventListener(name) { this.events.delete(name); },
   };
@@ -299,7 +299,7 @@ async function testRealEditorWithPresetSaves() {
     async writeFile(filename, data) { files.set(filename, data); writes.push(filename); },
   };
   const workspace = vue.ref('visibility-ui');
-  const target = vue.ref({ fileType: 0, templateReleaseId: 2 });
+  const target = vue.ref({ fileType: 0, baseReleaseId: 2 , packageIds: []});
   const apps = [];
   function mount(component) {
     const app = renderer.createApp(component), root = element('root');
@@ -359,6 +359,18 @@ async function testRealEditorWithPresetSaves() {
     assert.equal(findSelect(restoredRoot, '技能模版预设值').props.value, '1098707708');
     assert.deepEqual(writes, [file, file, file, file], 'Preset consumers must not write additional copies when receiving successful saves');
     console.log('PASS real Vue editor keeps legacy boolean references editable as Int32, receives preset saves and retains hidden values after save/reopen');
+    const timing = require(path.join(base, 'DialogueEditor/utils/groupTimeline.ts'));
+    restored.duration = 6;
+    editedPreset.requiresDuration = false;
+    await writer.flush(); await settle();
+    assert.equal(timing.isPerformanceClipResizable(restored), false, 'A successful preset save updates an already-mounted Clip');
+    assert.equal(timing.getPerformanceClipDuration(restored), 0);
+    assert.equal(restored.duration, 6);
+    editedPreset.requiresDuration = true;
+    await writer.flush(); await settle();
+    assert.equal(timing.isPerformanceClipResizable(restored), true);
+    assert.equal(timing.getPerformanceClipDuration(restored), 6);
+    console.log('PASS real Vue preset save notifications update the duration policy and restore the saved length on re-enable');
     const lookPreset = require(path.join(base, 'EntityPresetEditor/systemPresetConfig.ts')).systemPresetConfig.publicEvents.presets
       .find(item => item.id === 'public-player-look-forward');
     const lookClip = vue.reactive({ id: 'look-editor', type: 'PublicEvent', name: '公共事件', startTime: 0, duration: 1, components: [] });
@@ -366,14 +378,67 @@ async function testRealEditorWithPresetSaves() {
     const { root: lookRoot } = mount({ setup: () => () => vue.h(Editor, { clip: lookClip }) }); await settle();
     assert.ok(findSelect(lookRoot, '公共事件预设').props.options.some(option => option.value === lookPreset.id && option.label.includes('（v7.2）')));
     const savedLook = JSON.stringify(lookClip);
-    target.value = { fileType: 0, templateReleaseId: 1 }; await settle();
+    target.value = { fileType: 0, baseReleaseId: 1 , packageIds: []}; await settle();
     assert.equal(findSelect(lookRoot, '公共事件预设').props.options.some(option => option.value === lookPreset.id), false);
     assert.equal(JSON.stringify(lookClip), savedLook, 'Downgrading the workspace must preserve the saved event and its arguments');
-    target.value = { fileType: 0, templateReleaseId: 2 }; await settle();
+    target.value = { fileType: 0, baseReleaseId: 2 , packageIds: []}; await settle();
     assert.ok(findSelect(lookRoot, '公共事件预设').props.options.some(option => option.value === lookPreset.id));
     assert.equal(findSelect(lookRoot, '公共事件预设').props.value, lookPreset.id);
     console.log('PASS Timeline offers PlayerLookForward from 7.2 and retains saved event data when switching to 7.1 and back');
   } finally { for (const app of apps.reverse()) app.unmount(); }
+}
+
+async function testTimelineDurationDisplay() {
+  const Timeline = require(path.join(base, 'DialogueEditor/GroupTimelineV3.vue')).default;
+  const { createDialogueNode, createPerformanceClip } = require(path.join(base, 'DialogueEditor/utils/dialogueProject.ts'));
+  const preset = { ...createPreset(), alias: '这是一个按事件名称自动扩展宽度的公共事件', requiresDuration: false };
+  const clip = vue.reactive(createClip(preset)); clip.duration = 6.5;
+  const custom = createPerformanceClip('Custom', 3); custom.components[0].properties.value = '自定义事件';
+  const node = vue.reactive(createDialogueNode('duration-display')); node.dialogue = undefined;
+  node.lines = [
+    { id: 'public-line', type: 'PublicEvent', name: '公共事件', clips: [clip] },
+    { id: 'custom-line', type: 'Custom', name: '自定义事件', clips: [custom] },
+  ];
+  const oldWindow = global.window, oldObserver = global.ResizeObserver;
+  global.window = { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout };
+  global.ResizeObserver = class { observe() {} disconnect() {} };
+  const root = element('root'), dock = element('dock');
+  const app = renderer.createApp({ setup: () => () => vue.h(Timeline, { node, inspectorTarget: dock }) });
+  app.provide('selectedWorkspaceId', vue.ref('duration-display'));
+  app.provide('storage', { setProject() { return this; }, async exists() { return false; } });
+  const nodes = (root, test) => [...(test(root) ? [root] : []), ...(root.children ?? []).flatMap(child => nodes(child, test))];
+  const hasClass = (node, name) => typeof node.props?.class === 'string' && node.props.class.split(/\s+/).includes(name);
+  const text = node => (node.text ?? '') + (node.children ?? []).map(text).join('');
+  const publicButton = () => nodes(root, node => hasClass(node, 'clip-publicevent'))[0];
+  const durationInputs = () => nodes(dock, node => node.tag === 'label' && text(node).includes('持续时间'));
+  try {
+    app.mount(root); await settle();
+    const button = publicButton(), customButton = nodes(root, node => hasClass(node, 'clip-custom'))[0];
+    for (const button of [publicButton(), customButton]) {
+      assert.equal(button.props.style.width, undefined, 'Event-name clips must not receive a time-based pixel width');
+      assert.ok(hasClass(button, 'auto-width-clip'), 'Public events with disabled edges use the same content sizing as Custom');
+      assert.equal(nodes(button, node => hasClass(node, 'clip-resize-handle')).length, 0);
+      assert.equal(text(button).includes('+'), false, 'Event-name clips must not display a duration');
+    }
+    assert.ok(text(button).includes(preset.alias));
+    button.props.onClick({ stopPropagation() {} }); await settle();
+    assert.equal(durationInputs().length, 0, 'The inspector hides duration when edge dragging is disabled');
+    clip.components[0].properties.requiresDuration = true; await settle();
+    assert.ok(publicButton().props.style.width.endsWith('px'));
+    assert.equal(nodes(publicButton(), node => hasClass(node, 'clip-resize-handle')).length, 2);
+    assert.ok(text(publicButton()).includes('6.5s'));
+    assert.equal(durationInputs().length, 1);
+    clip.components[0].properties.requiresDuration = false; await settle();
+    assert.equal(publicButton().props.style.width, undefined);
+    assert.equal(text(publicButton()).includes('6.5s'), false);
+    assert.equal(durationInputs().length, 0);
+    assert.equal(clip.duration, 6.5, 'Toggling the display policy preserves the stored duration');
+    console.log('PASS rendered Timeline uses event-name sizing, hides duration and handles, and restores editable timing on enable');
+  } finally {
+    app.unmount();
+    if (oldWindow === undefined) delete global.window; else global.window = oldWindow;
+    if (oldObserver === undefined) delete global.ResizeObserver; else global.ResizeObserver = oldObserver;
+  }
 }
 
 async function main() {
@@ -385,6 +450,7 @@ async function main() {
     testWholeProjectAndReopen();
   }
   await testRealEditorWithPresetSaves();
+  await testTimelineDurationDisplay();
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {
   Module._load = originalLoad;

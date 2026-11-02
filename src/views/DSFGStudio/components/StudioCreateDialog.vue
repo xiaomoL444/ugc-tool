@@ -9,6 +9,7 @@ const props = withDefaults(defineProps<{
   placeholder?: string;
   submitLabel?: string;
   busy?: boolean;
+  submitDisabled?: boolean;
 }>(), { placeholder: "", submitLabel: "创建", busy: false });
 const emit = defineEmits<{ "update:modelValue": [value: string]; submit: []; close: [] }>();
 const dialog = ref<HTMLDialogElement>();
@@ -20,7 +21,7 @@ function close() {
   if (!props.busy) emit("close");
 }
 function submit() {
-  if (!props.busy && props.modelValue.trim()) emit("submit");
+  if (!props.busy && !props.submitDisabled && props.modelValue.trim()) emit("submit");
 }
 function backdropClick(event: MouseEvent) {
   if (event.target !== dialog.value || !dialog.value) return;
@@ -49,18 +50,22 @@ onBeforeUnmount(() => {
     @cancel.prevent="close" @click="backdropClick">
     <form @submit.prevent="submit">
       <header><h2>{{ title }}</h2><button type="button" class="dialog-close" :disabled="busy" aria-label="关闭" @click="close">×</button></header>
-      <label>{{ label }}<input ref="input" :value="modelValue" :placeholder="placeholder" :aria-label="label" :disabled="busy"
-        required autofocus autocomplete="off" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" /></label>
-      <slot />
-      <footer><button type="button" :disabled="busy" @click="close">取消</button><button type="submit" class="dialog-primary" :disabled="busy || !modelValue.trim()">{{ busy ? '创建中…' : submitLabel }}</button></footer>
+      <div class="dialog-fields">
+        <label>{{ label }}<input ref="input" :value="modelValue" :placeholder="placeholder" :aria-label="label" :disabled="busy"
+          required autofocus autocomplete="off" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" /></label>
+        <slot :overlay-target="dialog" />
+      </div>
+      <footer><button type="button" :disabled="busy" @click="close">取消</button><button type="submit" class="dialog-primary" :disabled="busy || submitDisabled || !modelValue.trim()">{{ busy ? '创建中…' : submitLabel }}</button></footer>
     </form>
   </dialog>
 </template>
 
 <style scoped>
-.studio-create-dialog { box-sizing: border-box; width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 20px; border: 1px solid #d4d8f4; border-radius: 14px; background: #f9faff; color: #35476c; box-shadow: 0 18px 60px #29396330; font-size: 13px; font-weight: 400; line-height: 1.5; text-align: left; }
+.studio-create-dialog { box-sizing: border-box; width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 20px; border: 1px solid #d4d8f4; border-radius: 14px; background: #f9faff; color: #35476c; box-shadow: 0 18px 60px #29396330; font-size: 13px; font-weight: 400; line-height: 1.5; text-align: left; overflow: visible; }
 .studio-create-dialog::backdrop { background: #29396330; }
-form { display: grid; gap: 18px; }
+form { display: flex; flex-direction: column; gap: 18px; max-height: calc(100dvh - 74px); }
+.dialog-fields { display: grid; gap: 18px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+header, footer { flex-shrink: 0; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 h2 { margin: 0; color: #34466b; font-size: 16px; font-weight: 600; }
 label { display: grid; gap: 8px; color: #526588; }
@@ -73,5 +78,6 @@ button:hover { background: #edf3ff; }
 .dialog-primary { border-color: #168cff; background: linear-gradient(110deg, #1981ff, #00a9f4); color: #fff; }
 .dialog-primary:hover { background: #0788e8; }
 button:disabled { opacity: .5; cursor: default; }
-input:focus-visible, button:focus-visible { outline: 2px solid #54a8ff; outline-offset: 2px; }
+input:focus-visible { outline: 2px solid #54a8ff; outline-offset: -2px; }
+button:focus-visible { outline: 2px solid #54a8ff; outline-offset: 2px; }
 </style>

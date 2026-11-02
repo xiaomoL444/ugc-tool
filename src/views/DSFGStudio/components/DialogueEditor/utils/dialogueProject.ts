@@ -29,6 +29,7 @@ import { DEFAULT_DIALOGUE_STYLE_ID } from "../config/dialogueStyleRegistry";
 import { DEFAULT_SELECT_STYLE_ID, DEFAULT_SELECT_ICON_ID } from "../config/selectStyleRegistry";
 import {
   DEFAULT_CONTINUE_DELAY_TIME,
+  DEFAULT_PERFORMANCE_CLIP_DURATION,
   isInstantPerformanceClip,
   DEFAULT_TIMELINE_DURATION,
   getPerformanceClipDuration,
@@ -103,7 +104,7 @@ export function createPerformanceClip(
     type,
     name: `新建${definition?.clipLabel ?? " Clip"}`,
     startTime: Math.max(0, startTime),
-    duration: isInstantPerformanceClip({ type }) ? 0 : 1,
+    duration: isInstantPerformanceClip({ type }) ? 0 : DEFAULT_PERFORMANCE_CLIP_DURATION,
     components: (definition?.defaultComponentTemplateIds ?? []).map(
       createClipComponent,
     ),
@@ -462,7 +463,7 @@ export function normalizePerformanceClip(
         ? source.name
         : "未命名 Clip",
     startTime: nonNegativeNumber(source.startTime, 0),
-    duration: isInstantPerformanceClip({ type }) ? 0 : Math.max(type === "PublicEvent" || type === "Camera" ? 0 : 0.1, nonNegativeNumber(source.duration, 1)),
+    duration: isInstantPerformanceClip({ type }) ? 0 : Math.max(type === "PublicEvent" || type === "Camera" ? 0 : 0.1, nonNegativeNumber(source.duration, DEFAULT_PERFORMANCE_CLIP_DURATION)),
     components,
   };
 }

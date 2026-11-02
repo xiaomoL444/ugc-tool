@@ -22,7 +22,8 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(directory, 'util
 }).outputText, { exports: timing, require: name => { assert.equal(name, './dialogueClips'); return dialogues; } });
 async function main() {
   const props = vue.reactive({ node: { id: 'group-a', dialogue: { id: 'dialogue-a', content: '原台词', startTime: 0, continueDelayTime: 0.5 },
-    lines: [{ id: 'line-a', type: 'PublicEvent', clips: [{ id: 'event-a', type: 'PublicEvent', name: '事件', startTime: 0, duration: 1 }] }], timeline: { duration: 2 } } });
+    lines: [{ id: 'line-a', type: 'PublicEvent', clips: [{ id: 'event-a', type: 'PublicEvent', name: '事件', startTime: 0, duration: 1,
+      components: [{ templateId: 'public.event', properties: { requiresDuration: true } }] }] }], timeline: { duration: 2 } } });
   const events = [], stops = [], callbacks = new Map(), timers = new Map();
   const parentState = { clipInspectorOpen: false, selectedGroupNodeId: 'group-a' };
   const editor = parse(fs.readFileSync(path.join(directory, 'DialogueEditor.vue'), 'utf8')).descriptor;
@@ -55,7 +56,7 @@ async function main() {
       setTimeout(fn) { timers.set(++timerId, fn); return timerId; }, clearTimeout(id) { timers.delete(id); },
     },
   });
-  vm.runInContext(`${script}\nglobalThis.api = { openEditor, selectedClip, selectedId, editorOpen, deleteSelectedClip, updateStartTime };`, context);
+  vm.runInContext(`${script}\nglobalThis.api = { openEditor, selectedClip, selectedId, editorOpen, deleteSelectedClip, updateStartTime, updatePerformanceDuration, startResize, resizeClip, stopResize, startDrag, dragClip, stopDrag };`, context);
   const api = context.api;
   mount();
   try {
@@ -113,6 +114,23 @@ async function main() {
     flushTimers(); assert.equal(api.editorOpen.value, true, 'A queued dismissal cannot close a freshly opened inspector');
     console.log('PASS Clicking outside closes the inspector, preserves the Timeline, and cancels stale dismissals');
     const line = props.node.lines[0];
+    const eventClip = line.clips[0];
+    const gesture = x => ({ button: 0, pointerId: 7, clientX: x, preventDefault() {}, stopPropagation() {} });
+    eventClip.duration = 4;
+    eventClip.components[0].properties.requiresDuration = false;
+    api.updatePerformanceDuration(eventClip, { target: { value: '8' } });
+    for (const boundary of ['start', 'end']) {
+      api.startResize(gesture(100), eventClip, boundary);
+      api.resizeClip(gesture(200)); api.stopResize();
+      assert.equal(eventClip.duration, 4, 'Fixed clips reject edge resizing and duration inputs');
+      assert.equal(eventClip.startTime, 0);
+    }
+    api.startDrag(gesture(100), eventClip); api.dragClip(gesture(200)); api.stopDrag(); flushTimers();
+    assert.ok(eventClip.startTime > 0, 'Fixed clips can still move as a whole');
+    eventClip.components[0].properties.requiresDuration = true;
+    api.startResize(gesture(100), eventClip, 'end'); api.resizeClip(gesture(200)); api.stopResize(); flushTimers();
+    assert.ok(eventClip.duration > 4, 'Re-enabling duration restores edge resizing');
+    console.log('PASS Public Event duration settings guard resize/input gestures while preserving whole-clip dragging');
     api.openEditor({}, { kind: 'performance', clip: line.clips[0], line });
     api.updateStartTime(api.selectedClip.value.clip, { target: { value: '2.5' } });
     assert.equal(line.clips[0].startTime, 2.5);

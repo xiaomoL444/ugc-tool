@@ -5,14 +5,16 @@ import type { QuestProject } from "./QuestEditor/types";
 import type { WalkTalkProject } from "./WalkTalkEditor/walkTalkProject";
 import type { SceneProject } from "./SceneEditor/sceneProject";
 import { createDefaultQxqyStructIds } from "./DialogueEditor/utils/qxqyStructWorkspace";
+import { useWorkspaceSettings } from "./useWorkspaceSettings";
 
 export const workspaceStructIdsKey: InjectionKey<{ ids: Ref<WorkspaceStructIds>; error: Ref<string> }> = Symbol("workspaceStructIds");
 export function useWorkspaceStructIds() {
   const context = inject(workspaceStructIdsKey, undefined);
+  const target = useWorkspaceSettings();
   function settings() {
     if (!context) return undefined; // Standalone consumers keep their explicit IDs.
-    const errors = validateWorkspaceStructIds(context.ids.value);
-    if (context.error.value || errors.length) throw new Error(`请在工作区菜单「设置结构体 ID」中完成配置。${context.error.value || errors.join("；")}`);
+    const errors = validateWorkspaceStructIds(context.ids.value, target.value);
+    if (context.error.value || errors.length) throw new Error(`请点击工作区右侧的三点按钮，在「工作区设置」中设置结构体 ID。${context.error.value || errors.join("；")}`);
     return moduleStructIds(context.ids.value);
   }
   return {

@@ -6,6 +6,8 @@ import type { QxqyStructIds } from "./DialogueEditor/types/FileStruct";
 import type { QuestStructIds } from "./QuestEditor/types";
 import type { WalkTalkStructIds } from "./WalkTalkEditor/walkTalkProject";
 import type { SceneStructIds } from "./SceneEditor/sceneProject";
+import type { WorkspaceTarget } from "./workspaceSettings";
+import { isWorkspaceStructGroupAvailable } from "./workspaceFeatures";
 
 export type WorkspaceStructIds = Record<string, string>;
 export const WORKSPACE_STRUCT_IDS_FILE = "StructIds.json";
@@ -30,9 +32,10 @@ export const WORKSPACE_STRUCT_ID_FIELDS = [
   })),
 ];
 export const createWorkspaceStructIds = (): WorkspaceStructIds => Object.fromEntries(WORKSPACE_STRUCT_ID_FIELDS.map(field => [field.key, field.defaultId]));
-export function validateWorkspaceStructIds(ids: WorkspaceStructIds): string[] {
+export function validateWorkspaceStructIds(ids: WorkspaceStructIds, target?: WorkspaceTarget): string[] {
   const errors: string[] = [], used = new Map<string, string>();
   for (const field of WORKSPACE_STRUCT_ID_FIELDS) {
+    if (target && !isWorkspaceStructGroupAvailable(field.group, target)) continue;
     const id = ids[field.key]?.trim();
     const label = `${field.group} · ${field.label}`;
     if (!id || !/^\d+$/.test(id) || !Number.isSafeInteger(Number(id)) || Number(id) <= 0 || Number(id) > 2147483647) {
@@ -57,11 +60,12 @@ export interface StructIdStorage {
 }
 export interface StructIdCandidate { id: string; source: string }
 export interface WorkspaceStructIdState { ids: WorkspaceStructIds; candidates: Record<string, StructIdCandidate[]>; warnings: string[] }
-export function encodeWorkspaceStructIds(ids: WorkspaceStructIds) {
-  const errors = validateWorkspaceStructIds(ids);
+export function encodeWorkspaceStructIds(ids: WorkspaceStructIds, target?: WorkspaceTarget) {
+  const errors = validateWorkspaceStructIds(ids, target);
   if (errors.length) throw new Error(errors.join("；"));
   return JSON.stringify({ kind: "DSFGStructIds", schemaVersion: 1,
-    ids: Object.fromEntries(WORKSPACE_STRUCT_ID_FIELDS.map(field => [field.key, String(Number(ids[field.key]))])) }, null, 2);
+    ids: Object.fromEntries(WORKSPACE_STRUCT_ID_FIELDS.map(field => [field.key,
+      target && !isWorkspaceStructGroupAvailable(field.group, target) ? ids[field.key] : String(Number(ids[field.key]))])) }, null, 2);
 }
 /** Existing documents remain intact. Conflicting custom IDs require an explicit choice in the workspace dialog. */
 export async function loadWorkspaceStructIds(storage: StructIdStorage, workspace: string): Promise<WorkspaceStructIdState> {

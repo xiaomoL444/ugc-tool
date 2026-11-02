@@ -1,25 +1,26 @@
 # 对话编辑器：工作区配置与显示规则说明
 
-当前已实现工作区目标设置、按文件类型过滤编辑器入口和预设分类，以及元件版新建工作区前的本机 GIL 参数校对。
+当前工作区只记录文件类型、基准版本和扩展包，不再保存或显示完整模版来源。已实现工作区目标设置、基准自带包锁定、按文件类型过滤编辑器入口，以及元件版新建工作区前的本机 GIL 参数校对。
 
-第 1–4 节说明当前已实现的功能；第 5–10 节保留其他条目、字段和选项级过滤的扩展设计。目前两个发行版本使用相同的文件类型限制；技能动画和公共事件已按第 4.3–4.4 节接入单条预设的版本门槛。
+当前发布仅启用基准 ID 1：原神 7.1 / 模版 2.0 / 内部 1.0.3，自带包清单为空。基准 ID 2（原神 7.2 / 模版 2.1 / 内部 1.0.4）及其自带的扩展包 ID 1“7.2技能动画扩展包”暂时注释，后文保留完整定义与恢复后的行为。每个扩展包就是一份固定内容，没有另外的包版本目录，也不根据包名称推断包含关系。
 
-文中的“冲刺”限制仅用于演示写法，不代表它实际只能用于某种类型或版本。
+第 1–4 节说明当前实现；第 5–10 节保留其他条目、字段和选项级过滤的扩展设计。7.2 新增技能动画通过 `requiredPackageIds` 归属扩展包，公共事件通过 `baseVersionRanges` 使用基准门槛，其他参数和选项尚未全部接入。文中的“冲刺”仅演示规则写法。
 
-## 1. 三种配置分别负责什么
+## 1. 配置职责和目录
 
 | 配置 | 保存内容 | 放在哪里 |
 | --- | --- | --- |
-| 版本目录 | 版本 ID、先后顺序、原神版本、模版版本、内部版本 | 代码中的统一配置表 `components/templateReleases.ts` |
-| 工作区配置 | 当前工作区选择的文件类型和版本 ID | 工作区目录中的 `WorkspaceSettings.json` |
-| 功能入口适用条件 | 编辑器入口、预设分类在哪些文件类型中显示 | `components/workspaceFeatures.ts` 的 `workspaceFeatureRules` |
-| 条目的适用条件 | 单个条目、字段或选项在哪些文件类型、版本中显示 | 技能动画和公共事件在 `systemPresetConfig.ts` 的系统定义对象上配置 `applicability`；其他类别按需扩展 |
+| 基准目录 | 基准 ID、顺序、原神版本、模版版本、内部版本、自带包、适用文件类型 | `components/versioning/baseReleases.ts` |
+| 扩展包目录 | 包 ID、名称、兼容基准、文件类型、依赖包 | `components/versioning/extensionPackages.ts` |
+| 工作区配置 | 文件类型、实际基准、已安装包清单 | 工作区根目录 `WorkspaceSettings.json` |
+| 功能入口规则 | 入口和预设分类适用哪些目标 | `components/workspaceFeatures.ts` |
+| 单条预设规则 | 系统条目的基准范围和包要求 | `EntityPresetEditor/systemPresetConfig.ts` 的 `applicability` |
 
-工作区保存选中的目标配置；界面从共享的响应式设置读取目标。以后需要更细的过滤时，再为条目声明适用范围。
+共享类型和显示名称格式在 `components/versioning/types.ts`。`catalog.ts` 查询基准和包、校验组合、合并自带包并生成目标签名，不依赖 Vue 或存储服务。原来的两份完整发行目录已移除，历史发行 ID 只在旧配置解码时使用固定迁移映射。
 
 ## 2. 文件类型使用整数
 
-固定映射如下，发布后不改号、不复用编号。
+编号发布后不改号、不复用：
 
 | 整数 | 代码名称 | 显示名称 |
 | --- | --- | --- |
@@ -27,38 +28,29 @@
 | 1 | `BeyondComponent` | 超限模式元件版 |
 | 2 | `ClassicComponent` | 经典模式元件版 |
 
-```ts
-enum WorkspaceFileType {
-  BeyondMap = 0,
-  BeyondComponent = 1,
-  ClassicComponent = 2,
-}
-```
+`WorkspaceFileType`、`workspaceFileTypeOptions` 和 `isWorkspaceFileType()` 均从 `components/versioning/types.ts` 导入。`0` 是有效类型，读取默认值不能用 `||` 把它当作未填写。
 
-代码定义中可以使用枚举名称，也可以直接使用整数；保存到 JSON 时使用整数。
-
-`0` 是有效类型。读取默认值时使用 `??`，不要用 `||` 把 `0` 当作未填写。
-
-## 3. 版本目录
-
-每一条记录代表一个完整且固定的发行组合，三个版本号不能自由拼接。
+## 3. 基准目录
 
 ```ts
-interface TemplateRelease {
+interface BaseRelease {
   id: number;
   order: number;
   gameVersion: string;
   templateVersion: string;
   internalVersion: string;
+  packageIds: readonly number[];
+  fileTypes?: readonly WorkspaceFileType[];
 }
 
-const templateReleases: TemplateRelease[] = [
+const baseReleases: readonly BaseRelease[] = [
   {
     id: 1,
     order: 1,
     gameVersion: "7.1",
     templateVersion: "2.0",
     internalVersion: "1.0.3",
+    packageIds: [],
   },
   {
     id: 2,
@@ -66,93 +58,112 @@ const templateReleases: TemplateRelease[] = [
     gameVersion: "7.2",
     templateVersion: "2.1",
     internalVersion: "1.0.4",
+    packageIds: [1],
   },
 ];
 ```
 
-对应的版本选择项为：
+三个版本字段独立保存，显示名称由 `formatReleaseLabel()` 统一生成。它们共同描述一条基准，工作区和适用规则通过稳定 ID 引用；范围比较使用 `order`，不比较名称、ID 大小或版本字符串。
 
-- ID 1：原神 v7.1，模版版本 v2.0，模版内部版本 v1.0.3。
-- ID 2：原神 v7.2，模版版本 v2.1，模版内部版本 v1.0.4。
+基准的 `packageIds` 表示其固定自带包。选择基准后自动勾选、禁用取消，并标记“基准自带”。引用的包必须已在扩展包目录定义，且满足基准、文件类型和依赖校验。基准发布后保持固定，后续版本新增记录。
 
-字段含义：
+`legacyBaseReleaseId` 固定为 1，兼容缺少设置的旧工作区；`latestBaseReleaseId` 按 `order` 计算，仅用于新建工作区。
 
-- `id`：稳定的记录编号，工作区和适用规则通过它引用版本。
-- `order`：版本先后顺序，用于选择默认最新版本和比较版本范围。
-- 三个版本号：用于描述发行组合和生成显示名称。
+### 3.1 扩展包目录与基准引用
 
-ID 和顺序分开保存，方便以后补录历史版本。不要通过 ID 大小、显示文字或三个版本号的字符串大小直接比较先后。
+```ts
+const extensionPackages: readonly ExtensionPackage[] = [
+  { id: 1, name: "7.2技能动画扩展包" },
+];
+```
 
-发行记录发布后保持固定。新增版本时新增记录；只有内部版本变化，也应新增完整记录。
+包 ID 与基准 ID 分属两个目录，各自保持稳定；基准 ID 2 的 `packageIds: [1]` 表示引用扩展包 ID 1。包名中的“7.2”只是名称的一部分，不存在额外的包版本字段。
+
+- 原神 7.2 基准（ID 2）：自动启用该包，复选框标记“基准自带”，不可取消。
+- 原神 7.1 基准（ID 1）：不自带该包，可按实际安装情况手动勾选。目前包未设置 `fileTypes`、`baseVersionRanges` 或依赖，三种文件类型均可选择。
+- 7.2 新增的 31 个技能动画已接入该包：对应条目的 `applicability.requiredPackageIds: [1]` 统一控制卡片、引用候选和创建前 GIL 校对，详见第 4.3 节。7.1 勾选后可用，取消勾选后隐藏；7.2 通过基准自带包启用。
+
+### 3.2 本次发布暂时关闭 7.2
+
+`baseReleases.ts` 中的基准 ID 2、`extensionPackages.ts` 中的包 ID 1 已注释。当前界面仅提供 7.1 基准，没有可选扩展包；新建工作区按仍启用的最大 `order` 默认使用模版 2.0。
+
+技能动画种子、名称、配置 ID 和包归属规则均保留。`isApplicable()` 将引用未开放包的条目、边界基准未开放的版本区间判为不适用，避免列表查询未知 ID 报错。当前三种文件类型均显示 37 个原有系统动画、9 个原有公共事件，创建前 GIL 校对也只处理当前可用动画。
+
+工作区配置仍严格校验基准与包 ID；曾保存为基准 ID 2 或包 ID 1 的开发工作区会报告未知 ID 并保留原文件，不会自动降级或删包。恢复时同时取消两个目录中的注释；下文的 7.2 基准自带包、7.1 手动选包规则随即生效。
 
 ## 4. 工作区配置
 
-工作区保存的 `WorkspaceSettings.json`：
+当前保存格式为：
 
 ```json
 {
   "kind": "DSFGWorkspaceSettings",
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "fileType": 0,
-  "templateReleaseId": 1
+  "baseReleaseId": 1,
+  "packageIds": []
 }
 ```
 
 | 字段 | 含义 |
 | --- | --- |
-| `kind` | 标识这是工作区设置文件 |
-| `schemaVersion` | 此配置文件的数据格式版本，与原神和演出模版版本无关 |
-| `fileType` | 当前选择的一种文件类型，值为 0、1 或 2 |
-| `templateReleaseId` | 当前选择的一条完整发行记录的整数 ID |
+| `kind` | 工作区设置文件标识 |
+| `schemaVersion` | 配置文件格式版本，与原神和模版版本分开 |
+| `fileType` | 文件类型 0、1 或 2 |
+| `baseReleaseId` | 当前实际使用的明确基准 ID；新建和设置界面均不提供“未配置基准”选项 |
+| `packageIds` | 当前启用的包，包括基准自带包；同一包不可重复 |
 
-工作区名称沿用现有工作区标识，结构体 ID 沿用现有 `StructIds.json`；在同一个“工作区设置”页面统一展示和编辑。
+新建和兼容规则：
 
-创建与设置行为：
-
-- 新建时填写名称，文件类型默认选择超限模式地图版（0），版本默认选当前目录中顺序最新的版本，目前为 ID 2。
-- 旧工作区缺少目标配置时，默认使用 `fileType: 0`、`templateReleaseId: 1`。
-- 每个工作区共用一组目标配置，对话、任务、镜头、场景、预设等模块读取同一份设置。
-- 点击右侧三点按钮直接打开“工作区设置”，无需经过下拉菜单；页面名称替代原“设置结构体 ID”。
-- 工作区设置整合名称、文件类型、演出模版版本和结构体 ID，删除工作区按钮也移入此处。
-- 切换工作区后读取它自己的配置；保存目标配置后，界面按当前文件类型更新显示入口。
+- `createWorkspaceSettings()` 默认使用基准 1（模版 2.0），用于缺少设置的旧工作区和独立组件的兼容默认值。
+- `createNewWorkspaceSettings()` 仅用于新建，默认使用当前启用的最新基准。本次发布暂时关闭 7.2，因此默认基准 1（模版 2.0）；恢复 7.2 后默认基准 2（模版 2.1），自动启用扩展包 ID 1。再次打开新建弹窗也重置为当前最新基准及其自带包。
+- 格式 1 的 `templateReleaseId` 通过历史映射转换为基准 1 或 2；未知 ID 报错并保留原文件。
+- 格式 2 优先保留已明确设置的基准及包。早期文件的基准为 `null` 且存在 `sourceTemplateReleaseId` 时，使用历史映射恢复基准；来源不影响已有明确基准。格式 3 不使用来源信息。
+- 历史格式 2、3 的基准为 `null`，且无法按上述格式 2 来源恢复时，使用兼容基准 ID 1（模版 2.0）；保留已有包清单并校验兼容性。正常保存后写入明确基准 ID，不再保存空基准。
+- 读取旧配置只在内存转换，不重写文件；正常保存时写格式 3，去掉全部来源字段。未知基准、未知包、损坏配置和不兼容组合不能被默认值覆盖。
+- 可选包按工作区清单读取，不自动补选。基准自带包在读取和保存时确保启用，即使手动删去其 ID 也不能关闭。缺少包列表属于格式错误。
+- 切换基准时，移除旧基准自带包，保留其余手动选择，再加入新基准自带包；共有包继续启用。保留的可选包若不兼容新基准，需调整后再保存。
+- 每个工作区共用一份目标配置。设置页面统一编辑名称、文件类型、基准、扩展包和结构体 ID；包目录为空时显示“暂无可选扩展包”。草稿和异步校对持有独立包数组。
+- 点击工作区右侧“…”直接打开设置。工作区名称、结构体 ID 和各编辑文件沿用原有存储位置。
 
 ### 4.1 当前显示过滤
 
 以下内容仅在超限模式地图版（`fileType: 0`）显示：
 
-- 编辑器顶部的任务、场景入口。
+- 顶部任务、场景入口。
 - 预设中的任务样式、多语言文本管理、存档模块。
-- 工作区设置中的任务、场景结构体 ID 分组。此处根据尚未保存的文件类型草稿即时更新。
+- 工作区设置中的任务、场景结构体 ID 分组。
 
-两个元件版（`1`、`2`）均隐藏这些内容。切换工作区或保存文件类型后，若当前正在编辑任务或场景，则返回对话；预设当前分类不再可用时返回公共事件。隐藏不会删除已有文件、预设或结构体 ID。结构体校验仅检查当前类型使用的分组，避免元件 ID 与未使用的地图默认 ID 重合时误报；切回地图版后恢复完整校验。
+元件版（1、2）隐藏这些内容，但保留原有文件、预设和 ID。目标变化后，当前入口不再适用时返回对话；切回地图版恢复。结构体校验仅检查当前类型使用的分组。
 
-限制统一定义在 `components/workspaceFeatures.ts`。调用 `isWorkspaceFeatureAvailable(feature, target)` 判断入口，调用 `isWorkspaceStructGroupAvailable(group, target)` 判断结构体分组。底层 `isApplicable(rule, target)` 已支持文件类型与版本范围按“且”组合、多个版本区间按“或”组合，版本比较使用发行记录的 `order`。
+适用规则统一由 `workspaceFeatures.ts` 的 `isApplicable(rule, target)` 判断：`fileTypes`、`baseVersionRanges`、`requiredPackageIds` 同时存在时取“且”；多个版本区间取“或”。包要求必须全部具备，基准自带包也计入。已移除旧的完整发行 `versionRanges`。
+
+技能动画按实际启用的包判断，公共事件按实际基准判断，均不依赖曾经选择的来源。历史空基准配置按兼容规则恢复后，再按实际基准及其自带包判断。包目录可以声明 `baseVersionRanges`、`fileTypes` 和 `requiredPackageIds`；依赖不会被隐式安装。
 
 ### 4.2 元件版创建前校对
 
-选择超限模式元件版或经典模式元件版后，必须导入 `.gil` 存档完成校对，才能点击创建。导入仅在本机解码，不上传或保存 GIL 原始存档。
+选择超限模式元件版或经典模式元件版后，需要导入 `.gil` 存档完成本机校对，才能创建工作区：
 
-- 复用 `gilSkillAnimations.ts`，校对结构体 ID 与系统技能动画配置 ID；缺失项保留默认值并列出提示。
-- 完全没有适用匹配、存档无效或超过 100 MB 时不能创建；同名多候选必须先选择有效 ID。
-- 改变文件类型或模版版本会使旧校对失效，需要重新导入；读取期间不允许创建。
-- 创建时写入 `WorkspaceSettings.json`、`StructIds.json` 和 `SkillAnimationPresets.json` 后，再切换到新工作区。技能动画使用现有 `system-overrides` 存储格式，不修改系统名称和默认配置。
-- 元件版不自动创建场景文件。初始化写入失败时，将本次创建的不完整工作区移入回收站，保留校对草稿供重试。
+- 校对结构体 ID 与当前目标适用的系统技能动画 ID；缺失项保留默认值，同名多候选需先选择有效 ID。
+- 无适用匹配、存档无效或超过 100 MB 时不能创建；不上传或保存 GIL 原始数据。
+- 文件类型、基准或包集合变化后使旧校对失效；仅包顺序变化不影响校对。读取期间不能创建，过期异步结果不能覆盖新目标。
+- 创建时保存工作区设置、结构体 ID 和技能 ID 覆盖，然后切换工作区。元件版不自动创建场景文件；初始化失败时将本次不完整工作区移入回收站，保留草稿重试。
 
-界面位于 `components/WorkspaceGilCalibration.vue`，读取与序列化逻辑位于 `components/workspaceGilCalibration.ts`。
+界面位于 `components/WorkspaceGilCalibration.vue`，逻辑位于 `components/workspaceGilCalibration.ts`。校对只负责参数，不推断整个基准或扩展包已经安装。
 
-### 4.3 技能动画的版本归属
+### 4.3 技能动画的扩展包归属
 
-已对比 `7.1.0 DSFG v1.0.3.1.gil` 与 `7.1.53 DSFG v1.0.4.gil` 的原生技能定义表（GIL `15/1`，类型 `6`）：技能模组从 42 个增加到 73 个，新增 31 个，原有模组没有删除或改名。经用户确认，新增技能全部归入发行 ID 2：原神 7.2、模版 2.1、内部版本 1.0.4。存档文件名中的 `7.1.53` 不用于判断发行归属。
+已对比 `7.1.0 DSFG v1.0.3.1.gil` 与 `7.1.53 DSFG v1.0.4.gil` 的原生技能定义表（GIL `15/1`，类型 `6`）：技能模组从 42 个增加到 73 个，新增 31 个，原有模组没有删除或改名。新增技能全部归入扩展包 ID 1“7.2技能动画扩展包”。原神 7.2 / 模版 2.1 / 内部版本 1.0.4 的基准 ID 2 自带该包；原神 7.1 基准可手动启用。存档文件名中的 `7.1.53` 不用于判断包归属。
 
 配置统一在 `systemPresetConfig.skillAnimations.presets`，新增项声明：
 
 ```ts
 applicability: {
-  versionRanges: [{ min: { releaseId: 2, inclusive: true } }],
+  requiredPackageIds: [1],
 }
 ```
 
-省略 `fileTypes`，三种工作区类型均适用；包含 ID 2 及其后续发行记录。原有系统项与自定义技能不增加版本限制。
+省略 `fileTypes` 和 `baseVersionRanges`，三种工作区类型均按包是否启用判断。7.1 不选包时显示原有 37 项，选包后显示 68 项；7.2 基准因自带包而显示 68 项。未来基准需通过自己的 `packageIds` 声明自带关系，不按版本号隐式启用。原有系统项与自定义技能不增加包要求。
 
 系统技能显示名称统一追加首次归属版本：原有 37 项为 `名称（v7.1）`，新增 31 项为 `名称（v7.2）`。版本后缀随条目固定，不随当前工作区版本改变。原生 GIL 的名称不带该后缀；匹配系统项时兼容其不带后缀的原名，自定义技能仍按完整名称精确匹配。
 
@@ -185,13 +196,13 @@ applicability: {
 
 原生存档的 42 / 73 是全部技能模组数量；编辑器的技能动画预设为 37 / 68，另有 5 个原有技能不属于本次新增动画清单，保持原有处理方式。
 
-`isSkillAnimationApplicable()` 按系统稳定 ID 读取配置中的规则，再调用共享的 `isApplicable()`。`useSkillAnimationPresets()` 提供响应式 `visibleSystemPresets` 给预设卡片与词条浏览，`availablePresets` 给技能引用下拉；`presets`、`systemPresets` 保留完整数据用于保存、历史和 ID 导入。工作区文件不保存适用规则，用户覆盖配置 ID 后仍遵循系统规则。元件版创建前的 GIL 校对只匹配当前目标适用的动画，7.1 不列出这 31 项缺失提示。
+`isSkillAnimationApplicable()` 按系统稳定 ID 读取配置中的规则，再调用共享的 `isApplicable()`。`useSkillAnimationPresets()` 提供响应式 `visibleSystemPresets` 给预设卡片与词条浏览，`availablePresets` 给技能引用下拉；`presets`、`systemPresets` 保留完整数据用于保存、历史和 ID 导入。工作区文件不保存适用规则，用户覆盖配置 ID 后仍遵循系统规则。元件版创建前的 GIL 校对只匹配当前目标适用的动画；7.1 未启用该包时不列出这 31 项，启用后按 68 项校对。
 
-切换版本仅更新可见列表，不清除已保存的系统覆盖、自定义项或已配置动作；切回 7.2 后恢复显示，不增加导出拦截。
+切换基准或扩展包仅更新可见列表，不清除已保存的系统覆盖、自定义项或已配置动作；重新启用包后恢复显示，不增加导出拦截。
 
 ### 4.4 公共事件的版本归属
 
-原有 9 个系统公共事件的显示代号（`alias`）追加 `（v7.1）`，实际事件名（`name`）保持原值。新增系统项 `public-player-look-forward`，显示代号为 `玩家朝向实体（v7.2）`，事件名为 `NOLOC_PlayerLookForward`，适用规则复用包含发行 ID 2 的下界，不限制文件类型，即原神 7.2 / 模版 2.1 / 内部版本 1.0.4 起可选。
+原有 9 个系统公共事件的显示代号（`alias`）追加 `（v7.1）`，实际事件名（`name`）保持原值。新增系统项 `public-player-look-forward`，显示代号为 `玩家朝向实体（v7.2）`，事件名为 `NOLOC_PlayerLookForward`，适用规则复用包含基准 ID 2 的下界，不限制文件类型，即原神 7.2 / 模版 2.1 / 内部版本 1.0.4 起可选。
 
 参数按截图顺序定义：
 
@@ -225,17 +236,17 @@ interface VersionRange {
 
 interface Applicability {
   fileTypes?: WorkspaceFileType[];
-  versionRanges?: VersionRange[];
+  baseVersionRanges?: VersionRange[];
 }
 ```
 
 字段含义：
 
 - `fileTypes`：允许显示的文件类型列表。
-- `versionRanges`：允许显示的版本区间列表，命中任意一个区间即可。
+- `baseVersionRanges`：允许显示的版本区间列表，命中任意一个区间即可。
 - `min`：区间下界，省略代表不限制下界。
 - `max`：区间上界，省略代表不限制上界。
-- `releaseId`：边界对应的发行记录 ID。
+- `releaseId`：边界对应的基准记录 ID。
 - `inclusive`：是否包含边界版本，必须明确填写 `true` 或 `false`。
 
 组合规则：
@@ -245,7 +256,7 @@ interface Applicability {
 3. 文件类型条件与版本条件之间取“且”。
 4. 同一区间的下界和上界必须同时满足。
 5. 省略 `fileTypes`，代表不限制文件类型。
-6. 省略 `versionRanges`，代表不限制版本。
+6. 省略 `baseVersionRanges`，代表不限制版本。
 7. 完全省略 `applicability`，代表不增加适用限制。
 8. 父条目隐藏时，内部字段和选项一起隐藏。
 
@@ -269,7 +280,7 @@ interface Applicability {
 
   applicability: {
     fileTypes: [0, 1],
-    versionRanges: [
+    baseVersionRanges: [
       {
         min: {
           releaseId: 2,
@@ -281,7 +292,7 @@ interface Applicability {
 }
 ```
 
-这条示例表示：两种超限类型，且从 ID 2 对应发行记录开始显示，包含该版本及其后续版本。
+这条示例表示：两种超限类型，且从 ID 2 对应基准记录开始显示，包含该版本及其后续版本。
 
 不要混淆以下字段：
 
@@ -291,7 +302,7 @@ interface Applicability {
 | `label` | `"冲刺"` | 界面显示文字 |
 | `value` | `"2"` | 选中后使用的原有业务值，含义保持不变 |
 | `applicability.fileTypes` | `[0, 1]` | 选项允许显示的文件类型 |
-| `min.releaseId` | `2` | 版本范围下界引用的发行记录 ID |
+| `min.releaseId` | `2` | 版本范围下界引用的基准记录 ID |
 
 选项的业务 `value` 与版本 ID 各自独立，碰巧都为 2 不代表二者有关联。
 
@@ -323,7 +334,7 @@ applicability: {
 
 ```ts
 applicability: {
-  versionRanges: [
+  baseVersionRanges: [
     { min: { releaseId: 2, inclusive: true } },
   ],
 }
@@ -333,19 +344,19 @@ applicability: {
 
 ```ts
 applicability: {
-  versionRanges: [
+  baseVersionRanges: [
     { min: { releaseId: 2, inclusive: false } },
   ],
 }
 ```
 
-该规则在目前只有两条发行记录时不会命中任何已发布版本，但后续新增更高顺序的发行记录后可命中。
+该规则在目前只有两条基准记录时不会命中任何已发布版本，但后续新增更高顺序的基准记录后可命中。
 
 ### ID 2 对应版本之前，不包含该版本
 
 ```ts
 applicability: {
-  versionRanges: [
+  baseVersionRanges: [
     { max: { releaseId: 2, inclusive: false } },
   ],
 }
@@ -357,7 +368,7 @@ applicability: {
 
 ```ts
 applicability: {
-  versionRanges: [
+  baseVersionRanges: [
     {
       min: { releaseId: 1, inclusive: true },
       max: { releaseId: 2, inclusive: false },
@@ -370,7 +381,7 @@ applicability: {
 
 ```ts
 applicability: {
-  versionRanges: [
+  baseVersionRanges: [
     {
       min: { releaseId: 1, inclusive: true },
       max: { releaseId: 1, inclusive: true },
@@ -462,7 +473,7 @@ const { isApplicable } = useWorkspaceApplicability();
 
 以下路径相对 `src/views/DSFGStudio`：
 
-1. `components/templateReleases.ts`：整数文件类型和统一版本目录。
+1. `components/versioning/types.ts`：整数文件类型和共享类型；`baseReleases.ts`、`extensionPackages.ts`：基准和包目录。
 2. `components/workspaceSettings.ts`：工作区目标配置的读写、兼容默认值及校验。
 3. `components/useWorkspaceSettings.ts`：共享当前工作区的响应式配置，只提供 `useWorkspaceSettings()`。
 4. `DSFGStudio.vue`：新建工作区选择类型和版本，加载、保存、重命名及删除工作区。
@@ -477,7 +488,8 @@ import { useWorkspaceSettings } from "@/views/DSFGStudio/components/useWorkspace
 
 const workspaceSettings = useWorkspaceSettings();
 // workspaceSettings.value.fileType
-// workspaceSettings.value.templateReleaseId
+// workspaceSettings.value.baseReleaseId
+// workspaceSettings.value.packageIds
 ```
 
 验证命令：

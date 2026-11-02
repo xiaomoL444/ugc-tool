@@ -29,7 +29,7 @@ export function matchGilStructIds(structs: GilStruct[], current: WorkspaceStruct
     const matches = structs.filter(item => field.names.includes(item.name));
     const unique = [...new Map(matches.map(item => [item.id, { id: item.id, source: item.name }])).values()];
     if (unique.length === 1) { ids[field.key] = unique[0].id; matched.push(field.key); }
-    else if (unique.length > 1) { ids[field.key] = ""; ambiguous.push(field.key); candidates[field.key] = unique; }
+    else if (unique.length > 1) { ambiguous.push(field.key); candidates[field.key] = unique; }
     else missing.push(field.key);
   }
   return { ids, candidates, matched, missing, ambiguous };

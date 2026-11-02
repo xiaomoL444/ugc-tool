@@ -1,9 +1,20 @@
 import { systemPresetConfig } from "./systemPresetConfig";
+import { isApplicable, type Applicability } from "../workspaceFeatures";
+import type { WorkspaceTarget } from "../workspaceSettings";
 
 export interface SkillAnimationPreset {
   id: string;
   name: string;
   configId: string;
+}
+
+/** Release rules belong to the system catalog, not editable workspace snapshots. */
+export interface SystemSkillAnimationPreset extends SkillAnimationPreset {
+  applicability?: Applicability;
+}
+
+export function isSkillAnimationApplicable(id: string, target: WorkspaceTarget): boolean {
+  return isApplicable(systemPresetConfig.skillAnimations.presets.find(preset => preset.id === id)?.applicability, target);
 }
 
 export function createSkillAnimationPreset(): SkillAnimationPreset {

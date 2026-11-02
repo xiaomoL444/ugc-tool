@@ -41,13 +41,14 @@ async function main() {
     assert.equal(new Set(all.map(row => row.id)).size, all.length);
     assert.equal(new Set(all.map(row => row.configId)).size, all.length);
     for (const fileType of [0, 1, 2]) for (const row of added) {
-      assert.equal(isSkillAnimationApplicable(row.id, { fileType, templateReleaseId: 1 }), false);
-      assert.equal(isSkillAnimationApplicable(row.id, { fileType, templateReleaseId: 2 }), true);
+      assert.equal(isSkillAnimationApplicable(row.id, { fileType, baseReleaseId: 1 , packageIds: []}), false);
+      assert.equal(isSkillAnimationApplicable(row.id, { fileType, baseReleaseId: 1 , packageIds: [1]}), true);
+      assert.equal(isSkillAnimationApplicable(row.id, { fileType, baseReleaseId: 2 , packageIds: []}), true);
     }
     const files = new Map(), writes = [];
     const storage = { setProject() { return this; }, async exists(file) { return files.has(file); },
       async readFile(file) { return files.get(file); }, async writeFile(file, raw) { files.set(file, raw); writes.push(file); } };
-    const target = vue.ref({ fileType: 0, templateReleaseId: 1 });
+    const target = vue.ref({ fileType: 0, baseReleaseId: 1 , packageIds: []});
     context = { storage, selectedWorkspaceId: vue.ref('release-test'), mount: [], unmount: [], [workspaceSettingsKey]: target };
     let skills, references;
     scope.run(() => { skills = useSkillAnimationPresets(); references = usePresetReferences(); });
@@ -57,7 +58,7 @@ async function main() {
     assert.equal(references.options('skillAnimations.configId', 'ConfigReference').length, 37);
     assert.deepEqual(writes, []);
 
-    target.value = { fileType: 2, templateReleaseId: 2 };
+    target.value = { fileType: 2, baseReleaseId: 1 , packageIds: [1]};
     assert.equal(skills.visibleSystemPresets.value.length, 68);
     assert.equal(references.options('skillAnimations.configId', 'ConfigReference').length, 68);
     const row = skills.presets.value.find(row => row.id === added[0].id);
@@ -65,7 +66,7 @@ async function main() {
     skills.customPresets.value = [{ id: 'user-animation', name: '自定义动画', configId: '45678' }];
     await skills.flush();
     const saved = files.get('/release-test/SkillAnimationPresets.json');
-    target.value = { fileType: 1, templateReleaseId: 1 };
+    target.value = { fileType: 1, baseReleaseId: 1 , packageIds: []};
     assert.equal(skills.visibleSystemPresets.value.length, 37);
     assert.equal(references.options('skillAnimations.configId', 'ConfigReference').some(item => item.value === '12345'), false);
     assert.ok(references.options('skillAnimations.configId', 'ConfigReference').some(item => item.value === '45678'));
@@ -82,10 +83,29 @@ async function main() {
     await skills.flush();
     assert.equal(JSON.parse(files.get('/release-test/SkillAnimationPresets.json')).systemOverrides.find(item => item.id === row.id).configId, '12345',
       'Saving an older release must retain the hidden newer-animation override');
-    target.value = { fileType: 0, templateReleaseId: 2 };
+    target.value = { fileType: 0, baseReleaseId: 1 , packageIds: [1]};
+    assert.equal(skills.visibleSystemPresets.value.length, 68);
     assert.equal(skills.visibleSystemPresets.value.find(item => item.id === row.id).configId, '12345');
     assert.ok(references.options('skillAnimations.configId', 'ConfigReference').some(item => item.value === '12345'));
-    console.log('PASS All three file types gate the 31 new system animations at release 2; cards and actual reference options react without losing overrides or custom rows');
+    target.value = { fileType: 0, baseReleaseId: 2 , packageIds: []};
+    assert.equal(skills.visibleSystemPresets.value.length, 68);
+    assert.equal(skills.visibleSystemPresets.value.find(item => item.id === row.id).configId, '12345');
+    assert.ok(references.options('skillAnimations.configId', 'ConfigReference').some(item => item.value === '12345'));
+    console.log('PASS All three file types enable the 31 new animations with the optional 7.1 package or bundled 7.2 package; toggling updates cards and reference options while retaining overrides and custom rows');
+
+    const oldSkills = all.filter(row => !row.applicability);
+    const oldSkillBytes = converter.encode({ filetype: 'gil', dirtype: 'Unknown', info: { '1': 1, '2': 806, '3': 2, '4': 1657 }, dtype_csv: '', json: {
+      '15': { '1': oldSkills.map(row => ({ '1': Number(row.configId), '2': 6,
+        '4': [{ '1': 1, '11': { '1': `string:[演出]${row.name.replace(/（v7\.1）$/, '')}` } }] })) },
+    } });
+    for (const fileType of [1, 2]) for (const [baseReleaseId, packageIds, enabled] of [[1, [], false], [1, [1], true], [2, [], true]]) {
+      const calibration = await readWorkspaceGilCalibration({ name: 'old-skills.gil', size: oldSkillBytes.length,
+        async arrayBuffer() { return oldSkillBytes; } }, { fileType, baseReleaseId, packageIds });
+      assert.equal(calibration.result.skills.matched.length, 37);
+      assert.deepEqual(calibration.result.skills.missing, enabled ? added.map(row => row.id) : []);
+      assert.deepEqual(calibration.target.packageIds, enabled ? [1] : []);
+    }
+    console.log('PASS Both component types calibrate the 31 package animations only when enabled, including baseline-owned packages');
 
     const sources = process.argv.slice(2);
     if (sources.length) {
@@ -99,7 +119,7 @@ async function main() {
       assert.equal(tables[0].filter(row => !tables[1].some(current => current.id === row.id && current.name === row.name)).length, 0);
       for (let i = 0; i < sources.length; i++) {
         const bytes = fs.readFileSync(sources[i]);
-        const calibration = await readWorkspaceGilCalibration({ name: path.basename(sources[i]), size: bytes.length, async arrayBuffer() { return bytes; } }, { fileType: 1, templateReleaseId: i + 1 });
+        const calibration = await readWorkspaceGilCalibration({ name: path.basename(sources[i]), size: bytes.length, async arrayBuffer() { return bytes; } }, { fileType: 1, baseReleaseId: i + 1 , packageIds: []});
         assert.equal(calibration.result.skills.matched.length, i ? 68 : 37);
         assert.deepEqual(calibration.result.skills.missing, []);
         assert.deepEqual(calibration.result.skills.ambiguous, []);

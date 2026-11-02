@@ -29,6 +29,13 @@ async function main() {
   const b = { ...createPublicEventPreset(), name: '挥手', parameters: [] };
   assert.notEqual(a.id, b.id);
   assert.deepEqual(decode(encode([a, b])), [a, b]);
+  assert.equal(a.requiresDuration, false);
+  assert.ok(defaultPresets.every(preset => preset.requiresDuration === false), 'All system public events default to non-resizable clips');
+  const { requiresDuration: omittedDuration, ...legacyDuration } = a;
+  assert.equal(decode(encode([legacyDuration]))[0].requiresDuration, false, 'Old presets without a duration setting default to disabled');
+  assert.equal(decode(encode([{ ...a, requiresDuration: false }]))[0].requiresDuration, false);
+  assert.equal(decode(encode([{ ...a, requiresDuration: true }]))[0].requiresDuration, true, 'Explicitly enabled settings are preserved');
+  for (const requiresDuration of ['false', 0, null]) assert.throws(() => decode(encode([{ ...a, requiresDuration }])));
   assert.throws(() => decode(encode([a, a])));
   assert.throws(() => decode('{}'));
   console.log('PASS preset drafts, duplicate names, string parameters and malformed data');
@@ -60,6 +67,7 @@ async function main() {
   assert.equal(files.has('/B/PublicEventPresets.json'), false);
   const systemEvent = first.instance.systemPresets.value[0];
   systemEvent.name = 'NOLOC_WorkspaceSkill';
+  systemEvent.requiresDuration = true;
   systemEvent.parameters[0].defaultValue = '42';
   await first.instance.flush();
   const savedSystem = JSON.parse(files.get('/A/PublicEventPresets.json')).systemOverrides;
@@ -67,6 +75,7 @@ async function main() {
   assert.equal(savedSystem[0].id, defaultPresets[0].id);
   assert.equal(savedSystem[0].alias, defaultPresets[0].alias);
   assert.equal(savedSystem[0].name, 'NOLOC_WorkspaceSkill');
+  assert.equal(savedSystem[0].requiresDuration, true);
   assert.equal(savedSystem[0].parameters[0].defaultValue, '42');
   assert.equal(JSON.stringify(systemPresetConfig.publicEvents.presets), systemSeeds, 'Saving system overrides must preserve central default entries and release metadata');
   fail = true;
@@ -79,6 +88,7 @@ async function main() {
   assert.equal(reopened.instance.presets.value.find(preset => preset.id === a.id).name, '招手');
   assert.equal(reopened.instance.presets.value.length, defaultPresets.length + 1);
   assert.equal(reopened.instance.systemPresets.value[0].name, 'NOLOC_WorkspaceSkill');
+  assert.equal(reopened.instance.systemPresets.value[0].requiresDuration, true, 'System duration overrides survive reopening');
   assert.equal(reopened.instance.systemPresets.value[0].parameters[0].defaultValue, '42');
   assert.equal(reopened.instance.systemPresets.value[0].alias, defaultPresets[0].alias);
   assert.equal(reopened.instance.customPresets.value.length, 1);
@@ -97,13 +107,13 @@ async function main() {
   assert.equal(lookForward.name, 'NOLOC_PlayerLookForward');
   assert.ok(systemPresetConfig.publicEvents.presets.filter(item => item.id !== lookForward.id).every(item => item.alias.endsWith('（v7.1）')));
   for (const fileType of [0, 1, 2]) {
-    const target = vue.ref({ fileType, templateReleaseId: 2 });
+    const target = vue.ref({ fileType, baseReleaseId: 2 , packageIds: []});
     const current = await mount(`public-release-${fileType}`, target);
     const state = current.instance;
     assert.equal(state.visibleSystemPresets.value.length, 10);
     state.systemPresets.value.find(item => item.id === lookForward.id).parameters[0].defaultValue = 'False';
     await state.flush();
-    target.value = { fileType, templateReleaseId: 1 };
+    target.value = { fileType, baseReleaseId: 1 , packageIds: []};
     assert.equal(state.visibleSystemPresets.value.length, 9);
     assert.equal(state.availablePresets.value.some(item => item.id === lookForward.id), false);
     assert.equal(state.systemPresets.value.length, 10, 'Hidden system data must stay in history and persistence');
@@ -114,7 +124,7 @@ async function main() {
     const override = saved.systemOverrides.find(item => item.id === lookForward.id);
     assert.equal(override.parameters[0].defaultValue, 'False');
     assert.equal(override.applicability, undefined);
-    target.value = { fileType, templateReleaseId: 2 };
+    target.value = { fileType, baseReleaseId: 2 , packageIds: []};
     assert.equal(state.visibleSystemPresets.value.find(item => item.id === lookForward.id).parameters[0].defaultValue, 'False');
     current.hooks.unmount[0]();
   }
