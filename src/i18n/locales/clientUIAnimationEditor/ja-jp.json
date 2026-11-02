@@ -1442,5 +1442,18 @@
   "clientUIAnimationEditor.ui.vfx.retryPlayback": "再生に失敗しました。クリックして再試行",
   "clientUIAnimationEditor.ui.vfx.play": "エフェクトを再生",
   "clientUIAnimationEditor.ui.vfx.filterEffects": "エフェクトを絞り込み",
-  "clientUIAnimationEditor.ui.vfx.stopPreview": "プレビューを停止"
+  "clientUIAnimationEditor.ui.vfx.stopPreview": "プレビューを停止",
+  "clientUIAnimationEditor.ui.guide.title": "使い方ガイド",
+  "clientUIAnimationEditor.ui.guide.video": "チュートリアル動画を見る",
+  "clientUIAnimationEditor.ui.guide.videoHint": "Bilibili 動画 · 英語字幕付き",
+  "clientUIAnimationEditor.ui.guide.manual": "ガイドをダウンロード",
+  "clientUIAnimationEditor.ui.guide.manualHint": "{format} · 英語の説明付き",
+  "clientUIAnimationEditor.ui.onboarding.title": "アニメーションエディターは初めてですか？",
+  "clientUIAnimationEditor.ui.onboarding.description": "次の2つの方法で使い方を確認してから、アニメーションを作り始めましょう。",
+  "clientUIAnimationEditor.ui.onboarding.openVideo": "Bilibili で見る",
+  "clientUIAnimationEditor.ui.onboarding.viewManual": "ガイドを読む",
+  "clientUIAnimationEditor.ui.onboarding.openManual": "PDF ガイドを開く",
+  "clientUIAnimationEditor.ui.onboarding.reminder": "動画とガイドは、エディター右上の「使い方ガイド」からいつでも確認できます。",
+  "clientUIAnimationEditor.ui.onboarding.start": "編集を始める",
+  "clientUIAnimationEditor.ui.onboarding.saveFailed": "ガイドの表示状態を保存できませんでした。次回も表示される場合があります。"
 }

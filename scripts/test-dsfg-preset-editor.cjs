@@ -189,14 +189,16 @@ async function main() {
   };
   const workspace = vue.ref('preset-editor-test');
   const mounted = [];
-  function mount() {
+  function mount(target) {
     const root = element('root'), app = renderer.createApp(Editor);
     app.provide('storage', storage); app.provide('selectedWorkspaceId', workspace);
+    if (target) app.provide(require(path.join(base, 'useWorkspaceSettings.ts')).workspaceSettingsKey, target);
     const instance = app.mount(root); mounted.push(app);
     return { app, root, instance };
   }
   try {
-    const { app, root, instance } = mount(); await settle();
+    const mainTarget = vue.ref({ fileType: 0, templateReleaseId: 2 });
+    const { app, root, instance } = mount(mainTarget); await settle();
     assert.equal(files.size, 0, 'Rendering defaults must not create workspace files');
     const nav = find(root, node => node.tag === 'nav' && node.props['aria-label'] === '预设分类');
     const navigation = all(nav, node => node.tag === 'button').map(text);
@@ -256,6 +258,15 @@ async function main() {
       assert.equal(all(browser, node => hasClass(node, 'entry-detail')).length, 0, 'Compact entry rows must omit long event names and other details');
     }
     await activate('公共事件');
+    const newPublicEvent = config.publicEvents.presets.find(row => row.id === 'public-player-look-forward');
+    assert.ok(entryLabels().includes(newPublicEvent.alias));
+    mainTarget.value = { fileType: 0, templateReleaseId: 1 }; await settle();
+    assert.deepEqual(entryLabels(), config.publicEvents.presets.filter(row => !row.applicability).map(row => row.alias));
+    assert.equal(find(root, node => node.tag === 'article' && node.props['data-preset-id'] === newPublicEvent.id), undefined);
+    mainTarget.value = { fileType: 0, templateReleaseId: 2 }; await settle();
+    assert.ok(entryLabels().includes(newPublicEvent.alias));
+    assert.ok(find(root, node => node.tag === 'article' && node.props['data-preset-id'] === newPublicEvent.id));
+    assert.equal(files.size, 0, 'Release changes filter public-event cards and browser entries without saving');
     await enter(input(browser, '搜索词条或代号'), config.publicEvents.presets[0].name.toLowerCase());
     assert.equal(entries().length, 1, 'Searching event content should still find its compact alias row');
     assert.ok(text(entries()[0]).includes(config.publicEvents.presets[0].alias));
@@ -271,6 +282,16 @@ async function main() {
     assert.equal(input(browser, '搜索词条或代号').value, '', 'Switching categories must clear the previous search');
     assert.deepEqual(entryLabels(), config.entities.presets.map(row => row.name));
     await activate('技能动画');
+    const newSkill = config.skillAnimations.presets.find(row => row.id === 'skill-knocked-down-loop');
+    assert.ok(newSkill);
+    assert.ok(entryLabels().includes(newSkill.name));
+    mainTarget.value = { fileType: 0, templateReleaseId: 1 }; await settle();
+    assert.deepEqual(entryLabels(), config.skillAnimations.presets.filter(row => !row.applicability).map(row => row.name));
+    assert.equal(find(root, node => node.tag === 'article' && node.props['data-preset-id'] === newSkill.id), undefined);
+    mainTarget.value = { fileType: 0, templateReleaseId: 2 }; await settle();
+    assert.deepEqual(entryLabels(), config.skillAnimations.presets.map(row => row.name));
+    assert.ok(find(root, node => node.tag === 'article' && node.props['data-preset-id'] === newSkill.id));
+    assert.equal(files.size, 0, 'Release changes only filter skill cards and browser entries without saving');
     const skillEntry = entries()[0];
     dispatch(skillEntry, 'click'); await settle();
     const target = find(root, node => node.tag === 'article' && node.props['data-preset-id'] === config.skillAnimations.presets[0].id);
@@ -759,6 +780,24 @@ async function main() {
     await corrupt.state.flush();
     assert.equal(files.get('/corrupt-select-workspace/selectStyles.json'), 'broken select preset bytes');
     console.log('PASS select legacy edited snapshots migrate to custom entries with stable existing IDs, while corrupt files retain their bytes');
+    const settingsApi = require(path.join(base, 'workspaceSettings.ts'));
+    for (const fileType of [1, 2]) {
+      const target = vue.ref(settingsApi.createWorkspaceSettings({ fileType, templateReleaseId: 2 }));
+      const filtered = mount(target); await settle();
+      const categoryNav = find(filtered.root, node => node.tag === 'nav' && node.props['aria-label'] === '预设分类');
+      const titles = () => all(categoryNav, node => node.tag === 'button').map(text);
+      for (const title of ['任务样式', '多语言文本管理', '存档模块']) assert.ok(!titles().includes(title), title);
+      assert.ok(titles().includes('公共事件')); assert.ok(titles().includes('技能动画'));
+      assert.equal(query(filtered.root, '[data-preset-category="questStyles"]').length, 0);
+      target.value = settingsApi.createWorkspaceSettings(); await settle();
+      for (const title of ['任务样式', '多语言文本管理', '存档模块']) assert.ok(titles().includes(title), title);
+      const questButton = find(categoryNav, node => node.tag === 'button' && text(node) === '任务样式');
+      dispatch(questButton, 'click'); await settle();
+      target.value = settingsApi.createWorkspaceSettings({ fileType, templateReleaseId: 1 }); await settle();
+      assert.equal(text(find(categoryNav, node => node.tag === 'button' && node.props['aria-current'] === 'page')), '公共事件');
+      filtered.app.unmount(); mounted.splice(mounted.indexOf(filtered.app), 1);
+    }
+    console.log('PASS Both component types hide map-only preset categories, restore them for maps and leave an unavailable active category');
   } finally { for (const app of mounted.reverse()) app.unmount(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {

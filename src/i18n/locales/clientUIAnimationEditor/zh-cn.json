@@ -1442,5 +1442,18 @@
   "clientUIAnimationEditor.ui.vfx.retryPlayback": "播放失败，点击重试",
   "clientUIAnimationEditor.ui.vfx.play": "播放特效",
   "clientUIAnimationEditor.ui.vfx.filterEffects": "筛选特效",
-  "clientUIAnimationEditor.ui.vfx.stopPreview": "停止预览"
+  "clientUIAnimationEditor.ui.vfx.stopPreview": "停止预览",
+  "clientUIAnimationEditor.ui.guide.title": "使用指南",
+  "clientUIAnimationEditor.ui.guide.video": "观看视频教程",
+  "clientUIAnimationEditor.ui.guide.videoHint": "B 站视频",
+  "clientUIAnimationEditor.ui.guide.manual": "下载指南手册",
+  "clientUIAnimationEditor.ui.guide.manualHint": "{format} · 含英文说明",
+  "clientUIAnimationEditor.ui.onboarding.title": "第一次使用动画编辑器？",
+  "clientUIAnimationEditor.ui.onboarding.description": "可以通过下面两种方式了解工具，再开始制作你的动画。",
+  "clientUIAnimationEditor.ui.onboarding.openVideo": "前往 B 站观看",
+  "clientUIAnimationEditor.ui.onboarding.viewManual": "查看指南手册",
+  "clientUIAnimationEditor.ui.onboarding.openManual": "打开 PDF 手册",
+  "clientUIAnimationEditor.ui.onboarding.reminder": "之后也可以点击编辑器右上角的「使用指南」，随时查看视频和手册。",
+  "clientUIAnimationEditor.ui.onboarding.start": "先开始使用",
+  "clientUIAnimationEditor.ui.onboarding.saveFailed": "未能保存引导状态，下次进入时可能会再次提示。"
 }

@@ -1442,5 +1442,18 @@
   "clientUIAnimationEditor.ui.vfx.retryPlayback": "Playback failed. Click to retry",
   "clientUIAnimationEditor.ui.vfx.play": "Play effect",
   "clientUIAnimationEditor.ui.vfx.filterEffects": "Filter effects",
-  "clientUIAnimationEditor.ui.vfx.stopPreview": "Stop preview"
+  "clientUIAnimationEditor.ui.vfx.stopPreview": "Stop preview",
+  "clientUIAnimationEditor.ui.guide.title": "User guide",
+  "clientUIAnimationEditor.ui.guide.video": "Watch video tutorial",
+  "clientUIAnimationEditor.ui.guide.videoHint": "Bilibili · English subtitles",
+  "clientUIAnimationEditor.ui.guide.manual": "Download handbook",
+  "clientUIAnimationEditor.ui.guide.manualHint": "{format} · Includes English instructions",
+  "clientUIAnimationEditor.ui.onboarding.title": "First time using the animation editor?",
+  "clientUIAnimationEditor.ui.onboarding.description": "Explore the tool in either of these two ways, then start creating your animation.",
+  "clientUIAnimationEditor.ui.onboarding.openVideo": "Watch on Bilibili",
+  "clientUIAnimationEditor.ui.onboarding.viewManual": "Read the handbook",
+  "clientUIAnimationEditor.ui.onboarding.openManual": "Open PDF handbook",
+  "clientUIAnimationEditor.ui.onboarding.reminder": "You can access the video and handbook anytime from User guide in the top-right corner of the editor.",
+  "clientUIAnimationEditor.ui.onboarding.start": "Start editing",
+  "clientUIAnimationEditor.ui.onboarding.saveFailed": "Could not save this preference. The welcome guide may appear again next time."
 }

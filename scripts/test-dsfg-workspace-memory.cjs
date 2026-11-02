@@ -6,6 +6,12 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const vue = require('vue');
 const { parse } = require('@vue/compiler-sfc');
+require.extensions['.ts'] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+}).outputText, file);
+const targetApi = require('../src/views/DSFGStudio/components/workspaceSettings.ts');
+const releaseApi = require('../src/views/DSFGStudio/components/templateReleases.ts');
+const featureApi = require('../src/views/DSFGStudio/components/workspaceFeatures.ts');
 
 const filename = path.resolve(__dirname, '../src/views/DSFGStudio/DSFGStudio.vue');
 const { descriptor, errors } = parse(fs.readFileSync(filename, 'utf8'), { filename });
@@ -51,7 +57,7 @@ function browserMemory(initial) {
 }
 
 function workspaceBackend(ids) {
-  const state = { ids: [...ids], writes: [], created: [], trashed: [], trashError: undefined };
+  const state = { ids: [...ids], files: new Map(), writes: [], created: [], trashed: [], trashError: undefined };
   const storage = {
     setProject(projectId) { assert.equal(projectId, 'DSFGStudio'); return this; },
     async getFolders(folder) { assert.equal(folder, '/'); return [...state.ids]; },
@@ -60,8 +66,17 @@ function workspaceBackend(ids) {
       state.created.push(folder);
       if (!state.ids.includes(id)) state.ids.push(id);
     },
-    async writeFile(file, contents) { state.writes.push([file, contents]); },
-    async exists(folder) { return state.ids.includes(folder.slice(1)); },
+    async writeFile(file, contents) { state.files.set(file, contents); state.writes.push([file, contents]); },
+    async readFile(file) { if (!state.files.has(file)) throw new Error('missing'); return state.files.get(file); },
+    async exists(folder) { return state.ids.includes(folder.slice(1)) || state.files.has(folder); },
+    async rename(folder, name) {
+      const id = folder.slice(1);
+      assert.ok(state.ids.includes(id)); assert.ok(!state.ids.includes(name));
+      state.ids = state.ids.map(value => value === id ? name : value);
+      for (const [file, text] of [...state.files]) if (file.startsWith(folder + '/')) {
+        state.files.delete(file); state.files.set('/' + name + file.slice(folder.length), text);
+      }
+    },
     async trash(folder) {
       state.trashed.push(folder);
       if (state.trashError) throw state.trashError;
@@ -81,13 +96,15 @@ function createStudio(backend, memory) {
   };
   const window = { addEventListener() {}, removeEventListener() {} };
   const contextValues = {
-    ...vue,
+    ...vue, ...targetApi, ...releaseApi, ...featureApi,
+    workspaceGilCalibrationFiles: value => value.files,
     onBeforeMount: fn => beforeMount.push(fn),
     onMounted: fn => mounted.push(fn), onBeforeUnmount: fn => unmounted.push(fn),
     inject: key => { assert.equal(key, 'storage'); return backend.storage; }, provide() {},
     ProjectID: 'DSFGStudio',
     createStudioSessionHistory: () => history,
     studioSessionHistoryKey: Symbol('history'), studioSidebarKey: Symbol('sidebar'), workspaceStructIdsKey: Symbol('structs'),
+    workspaceSettingsKey: Symbol('settings'),
     createWorkspaceStructIds: () => ({ dialogue: 1 }),
     loadWorkspaceStructIds: async (storage, workspaceId) => {
       assert.equal(storage, backend.storage);
@@ -107,7 +124,10 @@ function createStudio(backend, memory) {
   Object.defineProperty(contextValues, 'localStorage', { get: () => memory.storage });
   Object.defineProperty(window, 'localStorage', { get: () => memory.storage });
   const context = vm.createContext(contextValues);
-  scope.run(() => vm.runInContext(`${script}\nglobalThis.studio = { selectedWorkspaceId, workspaceIds, ChangeWorkspace, DelectWorkspace, setEditorRef, switchingEditor };`, context, { filename }));
+  scope.run(() => vm.runInContext(`${script}\nglobalThis.studio = { selectedWorkspaceId, workspaceIds, ChangeWorkspace, DelectWorkspace, setEditorRef, switchingEditor,
+    AddWorkspace, openCreateWorkspace, newWorkspaceName, newWorkspaceFileType, newWorkspaceReleaseId, newWorkspaceCalibration,
+    newWorkspaceGilBusy, newWorkspaceCalibrationFiles, visibleEditorTabs, selectedFunction, visitedEditors, ChangeEditorKind,
+    workspaceSettings, structSettingsOpen, saveStructSettings, finishWorkspaceSettings };`, context, { filename }));
   return {
     ...context.studio, settingsLoads, notices, logs,
     async open() { for (const hook of beforeMount) await hook(); },
@@ -239,6 +259,120 @@ async function main() {
     assert.ok(studio.logs.some(([level]) => level === 'warn'));
     studio.close();
     console.log('PASS Denied localStorage access, reads, writes and removal do not interrupt workspace actions');
+  }
+  {
+    const backend = workspaceBackend(['old']), memory = browserMemory('old');
+    const studio = createStudio(backend, memory); await studio.open();
+    assert.equal(studio.newWorkspaceFileType.value, 0);
+    assert.equal(studio.newWorkspaceReleaseId.value, 2);
+    studio.newWorkspaceFileType.value = 2;
+    studio.newWorkspaceReleaseId.value = 1;
+    studio.openCreateWorkspace();
+    assert.equal(studio.newWorkspaceFileType.value, 0, 'Opening creation restores the default Beyond map type');
+    assert.equal(studio.newWorkspaceReleaseId.value, 2);
+    studio.newWorkspaceName.value = 'new';
+    await studio.AddWorkspace();
+    assert.equal(studio.selectedWorkspaceId.value, 'new'); assert.equal(memory.value, 'new');
+    assert.deepEqual(JSON.parse(backend.state.files.get('/new/WorkspaceSettings.json')),
+      targetApi.createWorkspaceSettings({ fileType: 0, templateReleaseId: 2 }));
+    assert.equal(studio.workspaceSettings.value.fileType, 0);
+    await studio.ChangeWorkspace('old');
+    assert.equal(studio.workspaceSettings.value.templateReleaseId, 1, 'Missing legacy settings keep the original target');
+    await studio.ChangeWorkspace('new');
+    assert.equal(studio.workspaceSettings.value.templateReleaseId, 2, 'Switching loads the selected workspace target');
+    studio.close();
+    console.log('PASS New workspaces default to Beyond maps, persist the selected release and load independent targets');
+  }
+  {
+    for (const fileType of [1, 2]) {
+      const backend = workspaceBackend(['old']), studio = createStudio(backend, browserMemory('old'));
+      await studio.open(); studio.openCreateWorkspace();
+      studio.newWorkspaceFileType.value = fileType; studio.newWorkspaceName.value = 'component';
+      await studio.AddWorkspace();
+      assert.deepEqual(backend.state.created, [], 'Component creation must wait for local GIL calibration');
+      studio.newWorkspaceCalibration.value = { files: { 'StructIds.json': '{"calibrated":123}', 'SkillAnimationPresets.json': '{"skill":456}' } };
+      studio.newWorkspaceReleaseId.value = 1;
+      assert.equal(studio.newWorkspaceCalibrationFiles.value, undefined, 'Changing the target invalidates calibration');
+      studio.newWorkspaceCalibration.value = { files: { 'StructIds.json': '{"calibrated":123}', 'SkillAnimationPresets.json': '{"skill":456}' } };
+      studio.newWorkspaceGilBusy.value = true; await studio.AddWorkspace();
+      assert.deepEqual(backend.state.created, [], 'Creation cannot race the importer');
+      studio.newWorkspaceGilBusy.value = false; await studio.AddWorkspace();
+      assert.equal(studio.selectedWorkspaceId.value, 'component');
+      assert.equal(backend.state.files.get('/component/StructIds.json'), '{"calibrated":123}');
+      assert.equal(backend.state.files.get('/component/SkillAnimationPresets.json'), '{"skill":456}');
+      assert.equal(backend.state.files.has('/component/scene.json'), false);
+      assert.equal(studio.workspaceSettings.value.fileType, fileType);
+      const reopened = createStudio(backend, browserMemory('component')); await reopened.open();
+      assert.deepEqual(Array.from(reopened.visibleEditorTabs.value, tab => tab.value), ['Dialogue', 'Camera', 'EntityPresets']);
+      reopened.close(); studio.close();
+    }
+    console.log('PASS Both component types require calibration, discard stale targets, persist calibrated files and reopen with filtered tabs');
+  }
+  {
+    const backend = workspaceBackend(['old']), studio = createStudio(backend, browserMemory('old'));
+    await studio.open(); studio.openCreateWorkspace(); studio.newWorkspaceName.value = 'retry';
+    studio.newWorkspaceFileType.value = 1;
+    studio.newWorkspaceCalibration.value = { files: { 'StructIds.json': 'calibrated', 'SkillAnimationPresets.json': 'skills' } };
+    const write = backend.storage.writeFile;
+    backend.storage.writeFile = async (file, data) => { if (file.endsWith('/WorkspaceSettings.json')) throw new Error('disk full'); return write(file, data); };
+    await studio.AddWorkspace();
+    assert.deepEqual(backend.state.trashed, ['/retry']); assert.deepEqual(backend.state.ids, ['old']);
+    assert.equal(studio.selectedWorkspaceId.value, 'old');
+    backend.storage.writeFile = write; await studio.AddWorkspace();
+    assert.equal(studio.selectedWorkspaceId.value, 'retry');
+    studio.openCreateWorkspace(); studio.newWorkspaceName.value = 'race';
+    backend.state.ids.push('race'); backend.state.files.set('/race/important.json', 'existing content');
+    await studio.AddWorkspace(); assert.equal(backend.state.files.get('/race/important.json'), 'existing content');
+    assert.ok(!backend.state.writes.some(([file]) => file.startsWith('/race/')));
+    studio.close(); console.log('PASS Failed calibration writes roll back new folders for retry; a concurrent existing workspace is never overwritten');
+  }
+  {
+    const backend = workspaceBackend(['map', 'component']);
+    backend.state.files.set('/component/WorkspaceSettings.json', targetApi.encodeWorkspaceSettings(targetApi.createWorkspaceSettings({ fileType: 1, templateReleaseId: 2 })));
+    const studio = createStudio(backend, browserMemory('map')); await studio.open();
+    await studio.ChangeEditorKind('Quest'); assert.equal(studio.selectedFunction.value, 'Quest');
+    await studio.ChangeWorkspace('component');
+    assert.equal(studio.selectedFunction.value, 'Dialogue');
+    assert.deepEqual(Array.from(studio.visitedEditors.value), ['Dialogue']);
+    await studio.ChangeEditorKind('Scene'); assert.equal(studio.selectedFunction.value, 'Dialogue', 'History or events cannot open a hidden editor');
+    await studio.ChangeWorkspace('map'); await studio.ChangeEditorKind('Scene');
+    await studio.saveStructSettings({ dialogue: 1 }, targetApi.createWorkspaceSettings({ fileType: 2, templateReleaseId: 2 }), 'map');
+    assert.equal(studio.selectedFunction.value, 'Dialogue', 'Saving a changed file type leaves an unavailable active editor');
+    assert.deepEqual(Array.from(studio.visibleEditorTabs.value, tab => tab.value), ['Dialogue', 'Camera', 'EntityPresets']);
+    studio.close();
+    console.log('PASS Workspace switching and target changes leave hidden editors while retaining map-only source files');
+  }
+  {
+    const backend = workspaceBackend(['old']), memory = browserMemory('old');
+    backend.state.files.set('/old/DialogueEditor/story.json', '{"existing":"dialogue data"}');
+    backend.state.files.set('/old/SkillAnimationPresets.json', '{"existing":"skill data"}');
+    const studio = createStudio(backend, memory); await studio.open();
+    const target = targetApi.createWorkspaceSettings({ fileType: 2, templateReleaseId: 2 });
+    await studio.saveStructSettings({ dialogue: 42 }, target, 'renamed');
+    assert.equal(studio.selectedWorkspaceId.value, 'old', 'Rename waits for the dialog to finish skill saves');
+    assert.deepEqual(JSON.parse(backend.state.files.get('/old/WorkspaceSettings.json')), target);
+    await studio.finishWorkspaceSettings('renamed');
+    assert.equal(studio.selectedWorkspaceId.value, 'renamed'); assert.equal(memory.value, 'renamed');
+    assert.equal(backend.state.files.get('/renamed/DialogueEditor/story.json'), '{"existing":"dialogue data"}');
+    assert.equal(backend.state.files.get('/renamed/SkillAnimationPresets.json'), '{"existing":"skill data"}');
+    assert.deepEqual(JSON.parse(backend.state.files.get('/renamed/WorkspaceSettings.json')), target);
+    assert.ok(!backend.state.files.has('/old/WorkspaceSettings.json'));
+    const reopened = createStudio(backend, memory); await reopened.open();
+    assert.equal(reopened.selectedWorkspaceId.value, 'renamed');
+    assert.equal(reopened.workspaceSettings.value.fileType, 2); reopened.close(); studio.close();
+    console.log('PASS Combined settings save defers renaming until presets are saved, preserves every file and reopens the new name');
+  }
+  {
+    const backend = workspaceBackend(['old']), memory = browserMemory('old');
+    const studio = createStudio(backend, memory); await studio.open();
+    const prepared = [];
+    for (const name of ['Dialogue', 'Quest', 'EntityPresets']) studio.setEditorRef(name, { async prepareToLeave() { prepared.push(name); } });
+    studio.structSettingsOpen.value = true;
+    assert.equal(await studio.DelectWorkspace(true), true);
+    assert.deepEqual(prepared, ['Dialogue', 'Quest', 'EntityPresets']);
+    assert.equal(studio.structSettingsOpen.value, false); assert.equal(studio.selectedWorkspaceId.value, '');
+    assert.equal(memory.value, undefined); studio.close();
+    console.log('PASS Deletion from workspace settings flushes every cached module and closes the settings page');
   }
 }
 

@@ -1,5 +1,5 @@
 <template>
-  <div ref="editorElement" class="animation-editor" :class="{ 'is-timeline-resizing': timelineResizing, 'is-timeline-scrubbing': timelineScrubbing }" :inert="archive?.busy.value || editorHistory.busy.value" :style="editorStyle" @pointerdown.capture="beginEditorHistoryPointer" @focusin.capture="beginEditorHistoryInput" @input.capture="beginEditorHistoryInput" @focusout.capture="endEditorHistoryInput" @pointerdown="closeMenus" @contextmenu.prevent>
+  <div ref="editorElement" class="animation-editor" :class="{ 'is-timeline-resizing': timelineResizing, 'is-timeline-scrubbing': timelineScrubbing }" :inert="archive?.busy.value || editorHistory.busy.value || firstUseGuideOpen" :style="editorStyle" @pointerdown.capture="beginEditorHistoryPointer" @focusin.capture="beginEditorHistoryInput" @input.capture="beginEditorHistoryInput" @focusout.capture="endEditorHistoryInput" @pointerdown="closeMenus" @contextmenu.prevent>
     <header class="editor-toolbar">
       <button class="tool-button workspace-button" :aria-label="t('clientUIAnimationEditor.ui.workspace.manageWorkspacesAndFiles')" @click.stop="workspacePanelOpen = true"><EditorIcon name="folder" :size="15" />{{ t('clientUIAnimationEditor.ui.workspace.title') }}</button>
       <div class="project-copy"><strong :title="archive?.selectedWorkspace.value">{{ archive?.selectedWorkspace.value || t('clientUIAnimationEditor.ui.editor.clientControlAnimationTitle') }}</strong><span :title="projectName">{{ hasOpenDocument ? projectName : t('clientUIAnimationEditor.ui.workspace.noOpenFile') }}</span></div>
@@ -52,6 +52,7 @@
       <PreviewPresetSelect :groups="previewPresetGroups" :device-id="deviceMode" :preset-id="previewPresetId" :custom-label="customCanvasLabel" @select="selectPreviewPreset" />
       <div class="zoom-control"><button :aria-label="t('clientUIAnimationEditor.ui.canvas.zoomOut')" @click.stop="zoom = Math.max(0.01, zoom - 0.1)">−</button><span>{{ Math.round(zoom * 100) }}%</span><button :aria-label="t('clientUIAnimationEditor.ui.canvas.zoomIn')" @click.stop="zoom = Math.min(1.5, zoom + 0.1)">＋</button></div>
       <button class="icon-button" :title="t('clientUIAnimationEditor.ui.canvas.fitToView')" :aria-label="t('clientUIAnimationEditor.ui.canvas.fitToView')" @click.stop="fitCanvas"><EditorIcon name="fit" /></button>
+      <EditorGuideMenu @opened="closeMenus" />
     </header>
 
     <ImageAssetLibrary v-if="imageLibraryOpen && selectedNode?.type === 'image'" :key="selectedId ?? ''" :selected-id="selectedNode.properties.imageId" @select="selectImageAsset" @close="imageLibraryOpen = false" />
@@ -287,6 +288,7 @@
       @create-document="resetProject" @rename-document="renameWorkspaceDocument" @delete-document="deleteWorkspaceDocument"
       @import-gia="openGiaFile" @import-json="openProject" @retry="retryArchive" />
     <button v-if="archive?.canUndoDelete.value && !workspacePanelOpen" class="archive-undo" @click.stop="runArchiveAction(() => archive!.undoDelete())">{{ t('clientUIAnimationEditor.ui.workspace.deleteUndoNotice') }}</button>
+    <FirstUseGuideDialog @update:open="firstUseGuideOpen = $event" />
     <ClientUIArchiveActionDialog v-if="archiveAction" :title="archiveAction.title" :message="archiveAction.message"
       :mode="archiveAction.mode" :initial-value="archiveAction.initialValue" :busy="archive?.busy.value ?? false"
       :error="archive?.error.value ?? ''" @cancel="archiveAction = null" @submit="confirmArchiveAction" />
@@ -344,6 +346,8 @@ import { useClientUIWorkspace } from "./useClientUIWorkspace";
 import type { CSSProperties, PropType } from "vue";
 import ColorRGBAField from "./ColorRGBAField.vue";
 import EditorIcon from "./EditorIcon.vue";
+import EditorGuideMenu from "./EditorGuideMenu.vue";
+import FirstUseGuideDialog from "./FirstUseGuideDialog.vue";
 import DevicePreviewIcon from "./DevicePreviewIcon.vue";
 import PreviewPresetSelect from "./PreviewPresetSelect.vue";
 import PropertyActionsMenu from "./PropertyActionsMenu.vue";
@@ -422,6 +426,7 @@ const PropertySection = defineComponent({
   },
 });
 const inspectorTab = ref<"basic" | "runtime">("basic");
+const firstUseGuideOpen = ref(false);
 const propertyClipboard = ref<PropertyGroupSnapshot | null>(null);
 
 const propertyActionFeedback = ref<{ nodeId: string; message: string } | null>(null);
@@ -3344,7 +3349,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-width: 980px;
   display: grid;
-  grid-template-rows: auto minmax(260px, 1fr) var(--timeline-height, 250px);
+  grid-template-rows: auto minmax(0, 1fr) var(--timeline-height, 250px);
   grid-template-columns: minmax(0, 1fr);
   background: var(--bg);
   color: var(--text);

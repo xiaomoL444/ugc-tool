@@ -78,6 +78,36 @@ function createPreset() {
     ],
   };
 }
+function testPlayerLookForward() {
+  const preset = require(path.join(base, 'EntityPresetEditor/systemPresetConfig.ts')).systemPresetConfig.publicEvents.presets
+    .find(item => item.id === 'public-player-look-forward');
+  assert.equal(preset.name, 'NOLOC_PlayerLookForward');
+  assert.deepEqual(preset.parameters.map(item => [item.name, item.type, item.defaultValue, item.reference]), [
+    ['是否是朝向说话人', 'Bool', 'True', undefined],
+    ['实体获取方式', 'Int32', '', 'entityGetMethods.value'],
+    ['GUID', 'Guid', '', undefined],
+    ['String', 'String', '', undefined],
+  ]);
+  const clip = { id: 'look-forward', type: 'PublicEvent', name: '公共事件', startTime: 0, duration: 1, components: [] };
+  api.applyPublicEventPreset(clip, preset);
+  const args = api.getPublicEventArguments(clip);
+  assert.deepEqual(args.filter(arg => api.isPublicEventArgumentVisible(arg, args)).map(arg => arg.name), ['是否是朝向说话人']);
+  assert.deepEqual(api.compilePublicEventArguments(preset.name, args), {
+    stringParams: ['NOLOC_PlayerLookForward', ''], intParams: ['0'], guidParams: ['0'],
+    configParams: [], prefabParams: [], floatParams: [], boolParams: ['True'],
+  });
+  args[0].value = 'False'; args[1].value = '0'; args[2].value = '18446744073709551615'; args[3].value = 'NPC/目标';
+  assert.deepEqual(args.filter(arg => api.isPublicEventArgumentVisible(arg, args)).map(arg => arg.name), ['是否是朝向说话人', '实体获取方式', 'GUID']);
+  let compiled = api.compilePublicEventArguments(preset.name, args);
+  assert.deepEqual(compiled.guidParams, ['18446744073709551615']); assert.deepEqual(compiled.stringParams, ['NOLOC_PlayerLookForward', '']);
+  args[1].value = '1';
+  assert.deepEqual(args.filter(arg => api.isPublicEventArgumentVisible(arg, args)).map(arg => arg.name), ['是否是朝向说话人', '实体获取方式', 'String']);
+  compiled = api.compilePublicEventArguments(preset.name, args);
+  assert.deepEqual(compiled.guidParams, ['0']); assert.deepEqual(compiled.intParams, ['1']);
+  assert.deepEqual(compiled.boolParams, ['False']); assert.deepEqual(compiled.stringParams, ['NOLOC_PlayerLookForward', 'NPC/目标']);
+  assert.equal(args[2].value, '18446744073709551615', 'Hiding a field must preserve the entered GUID');
+  console.log('PASS PlayerLookForward follows the screenshot defaults, both entity modes, typed export slots and GUID precision');
+}
 function createClip(preset, id = 'old-clip') {
   const clip = { id, type: 'PublicEvent', name: '公共事件', startTime: 1, duration: 1, components: [] };
   api.applyPublicEventPreset(clip, preset);
@@ -269,10 +299,12 @@ async function testRealEditorWithPresetSaves() {
     async writeFile(filename, data) { files.set(filename, data); writes.push(filename); },
   };
   const workspace = vue.ref('visibility-ui');
+  const target = vue.ref({ fileType: 0, templateReleaseId: 2 });
   const apps = [];
   function mount(component) {
     const app = renderer.createApp(component), root = element('root');
     app.provide('storage', storage); app.provide('selectedWorkspaceId', workspace);
+    app.provide(require(path.join(base, 'useWorkspaceSettings.ts')).workspaceSettingsKey, target);
     app.mount(root); apps.push(app);
     return { app, root };
   }
@@ -327,12 +359,27 @@ async function testRealEditorWithPresetSaves() {
     assert.equal(findSelect(restoredRoot, '技能模版预设值').props.value, '1098707708');
     assert.deepEqual(writes, [file, file, file, file], 'Preset consumers must not write additional copies when receiving successful saves');
     console.log('PASS real Vue editor keeps legacy boolean references editable as Int32, receives preset saves and retains hidden values after save/reopen');
+    const lookPreset = require(path.join(base, 'EntityPresetEditor/systemPresetConfig.ts')).systemPresetConfig.publicEvents.presets
+      .find(item => item.id === 'public-player-look-forward');
+    const lookClip = vue.reactive({ id: 'look-editor', type: 'PublicEvent', name: '公共事件', startTime: 0, duration: 1, components: [] });
+    api.applyPublicEventPreset(lookClip, lookPreset);
+    const { root: lookRoot } = mount({ setup: () => () => vue.h(Editor, { clip: lookClip }) }); await settle();
+    assert.ok(findSelect(lookRoot, '公共事件预设').props.options.some(option => option.value === lookPreset.id && option.label.includes('（v7.2）')));
+    const savedLook = JSON.stringify(lookClip);
+    target.value = { fileType: 0, templateReleaseId: 1 }; await settle();
+    assert.equal(findSelect(lookRoot, '公共事件预设').props.options.some(option => option.value === lookPreset.id), false);
+    assert.equal(JSON.stringify(lookClip), savedLook, 'Downgrading the workspace must preserve the saved event and its arguments');
+    target.value = { fileType: 0, templateReleaseId: 2 }; await settle();
+    assert.ok(findSelect(lookRoot, '公共事件预设').props.options.some(option => option.value === lookPreset.id));
+    assert.equal(findSelect(lookRoot, '公共事件预设').props.value, lookPreset.id);
+    console.log('PASS Timeline offers PlayerLookForward from 7.2 and retains saved event data when switching to 7.1 and back');
   } finally { for (const app of apps.reverse()) app.unmount(); }
 }
 
 async function main() {
   variableLibrary = await import('miliastra-variable');
   if (!process.argv.includes('--ui-only')) {
+    testPlayerLookForward();
     testSavedClipSynchronization();
     testMatchingBoundaries();
     testWholeProjectAndReopen();

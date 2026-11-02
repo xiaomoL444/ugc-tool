@@ -23,6 +23,8 @@ async function main() {
   const { usePublicEventPresets } = require(path.join(base, 'usePublicEventPresets.ts'));
   const { systemPresetConfig } = require(path.join(base, 'systemPresetConfig.ts'));
   const defaultPresets = decode(encode(systemPresetConfig.publicEvents.presets));
+  const systemSeeds = JSON.stringify(systemPresetConfig.publicEvents.presets);
+  const { workspaceSettingsKey } = require(path.resolve(base, '../useWorkspaceSettings.ts'));
   const a = { ...createPublicEventPreset(), alias: '挥手动作', name: '挥手', parameters: [{ id: 'text', name: '内容', type: 'String', defaultValue: '123' }] };
   const b = { ...createPublicEventPreset(), name: '挥手', parameters: [] };
   assert.notEqual(a.id, b.id);
@@ -35,8 +37,8 @@ async function main() {
   let fail = false;
   const storage = { setProject() { return this; }, async exists(file) { return files.has(file); },
     async readFile(file) { return files.get(file); }, async writeFile(file, data) { if (fail) throw Error('save failed'); files.set(file, data); } };
-  async function mount(workspace) {
-    context = { storage, selectedWorkspaceId: vue.ref(workspace), mount: [], unmount: [] };
+  async function mount(workspace, target) {
+    context = { storage, selectedWorkspaceId: vue.ref(workspace), mount: [], unmount: [], [workspaceSettingsKey]: target };
     const instance = usePublicEventPresets();
     const hooks = context;
     await hooks.mount[0]();
@@ -66,7 +68,7 @@ async function main() {
   assert.equal(savedSystem[0].alias, defaultPresets[0].alias);
   assert.equal(savedSystem[0].name, 'NOLOC_WorkspaceSkill');
   assert.equal(savedSystem[0].parameters[0].defaultValue, '42');
-  assert.deepEqual(systemPresetConfig.publicEvents.presets, defaultPresets, 'Saving system overrides must preserve central default entries');
+  assert.equal(JSON.stringify(systemPresetConfig.publicEvents.presets), systemSeeds, 'Saving system overrides must preserve central default entries and release metadata');
   fail = true;
   first.instance.presets.value.find(preset => preset.id === a.id).name = '招手';
   await assert.rejects(first.instance.flush());
@@ -89,6 +91,34 @@ async function main() {
   assert.equal(files.get('/Broken/PublicEventPresets.json'), 'broken');
   broken.hooks.unmount[0]();
   console.log('PASS workspace isolation, persistence, failed-save retry and corrupt-file preservation');
+
+  const lookForward = systemPresetConfig.publicEvents.presets.find(item => item.id === 'public-player-look-forward');
+  assert.equal(lookForward.alias, '玩家朝向实体（v7.2）');
+  assert.equal(lookForward.name, 'NOLOC_PlayerLookForward');
+  assert.ok(systemPresetConfig.publicEvents.presets.filter(item => item.id !== lookForward.id).every(item => item.alias.endsWith('（v7.1）')));
+  for (const fileType of [0, 1, 2]) {
+    const target = vue.ref({ fileType, templateReleaseId: 2 });
+    const current = await mount(`public-release-${fileType}`, target);
+    const state = current.instance;
+    assert.equal(state.visibleSystemPresets.value.length, 10);
+    state.systemPresets.value.find(item => item.id === lookForward.id).parameters[0].defaultValue = 'False';
+    await state.flush();
+    target.value = { fileType, templateReleaseId: 1 };
+    assert.equal(state.visibleSystemPresets.value.length, 9);
+    assert.equal(state.availablePresets.value.some(item => item.id === lookForward.id), false);
+    assert.equal(state.systemPresets.value.length, 10, 'Hidden system data must stay in history and persistence');
+    state.customPresets.value = [{ id: 'custom-look', alias: '自定义', name: 'CustomLook', parameters: [] }];
+    await state.flush();
+    assert.ok(state.availablePresets.value.some(item => item.id === 'custom-look'));
+    const saved = JSON.parse(files.get(`/public-release-${fileType}/PublicEventPresets.json`));
+    const override = saved.systemOverrides.find(item => item.id === lookForward.id);
+    assert.equal(override.parameters[0].defaultValue, 'False');
+    assert.equal(override.applicability, undefined);
+    target.value = { fileType, templateReleaseId: 2 };
+    assert.equal(state.visibleSystemPresets.value.find(item => item.id === lookForward.id).parameters[0].defaultValue, 'False');
+    current.hooks.unmount[0]();
+  }
+  console.log('PASS Public events retain tagged aliases and hidden overrides across release changes in all three file types');
 
 
   const migrated = decode(JSON.stringify({ kind: 'DSFGPublicEventPresets', schemaVersion: 1, presets: [{ id: 'old', name: 'event', parameter: 'legacy' }] }))[0];
@@ -183,13 +213,13 @@ async function main() {
   assert.throws(() => customApi.decodeCustomPresets(customApi.encodeCustomPresets([overlay, { ...overlay, id: 'other-extension' }])));
   assert.throws(() => customApi.decodeCustomPresets(customApi.encodeCustomPresets([{ ...overlay, extends: '' }])));
   const objectForward = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_SetObjectEntityFoward');
-  assert.equal(objectForward.alias, '触发实体朝向（仅物件）');
+  assert.equal(objectForward.alias, '触发实体朝向（仅物件）（v7.1）');
   assert.deepEqual(objectForward.parameters.map(item => item.type), ['Bool', 'Int32', 'Guid', 'String', 'Int32', 'Guid', 'String']);
   assert.deepEqual(objectForward.parameters.map(item => item.reference), [undefined, 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery', 'entityGetMethods.value', 'entities.guid', 'entities.entityQuery']);
   assert.equal(objectForward.parameters[0].defaultValue, 'False');
   const { getPublicEventArgumentReference, applyPublicEventPreset, getPublicEventArguments, isPublicEventArgumentVisible, syncPublicEventVisibility, compilePublicEventArguments } = require(path.join(base, '../DialogueEditor/utils/publicEventParameters.ts'));
   const playerMove = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_PlayerMoveToPoint');
-  assert.equal(playerMove.alias, '玩家移动到指定位置');
+  assert.equal(playerMove.alias, '玩家移动到指定位置（v7.1）');
   assert.deepEqual(playerMove.parameters.map(item => [item.name, item.type, item.reference, item.defaultValue]), [
     ['方式', 'Int32', 'movementMethods.value', '0'], ['X轴', 'Float', undefined, '0'], ['Z轴', 'Float', undefined, '0'],
   ]);
@@ -232,7 +262,7 @@ async function main() {
   assert.deepEqual(resetCamera.parameters.map(item => [item.name, item.type, item.reference, item.defaultValue]), [['是否立即到达', 'Bool', undefined, 'False']]);
   assert.deepEqual(decode(encode([resetCamera])), [resetCamera]);
   const blackScreen = systemPresetConfig.publicEvents.presets.find(item => item.name === 'NOLOC_SimpleBlackScreen');
-  assert.equal(blackScreen.alias, '播放简单黑幕');
+  assert.equal(blackScreen.alias, '播放简单黑幕（v7.1）');
   assert.deepEqual(blackScreen.parameters.map(item => [item.type, item.defaultValue]), [['String', '#000000FF'], ['Float', '0.5'], ['Float', '1'], ['Float', '0.5']]);
   assert.deepEqual(decode(encode([blackScreen])), [blackScreen]);
   const playerTeleport = systemPresetConfig.publicEvents.presets.find(item => item.id === 'public-player-teleport');

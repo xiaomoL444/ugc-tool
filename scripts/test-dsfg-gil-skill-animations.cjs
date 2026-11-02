@@ -25,9 +25,12 @@ async function main() {
   try {
     const api = require(path.join(base, 'gilSkillAnimations.ts'));
     const config = require(path.join(base, 'workspaceStructIds.ts'));
+    const calibrationApi = require(path.join(base, 'workspaceGilCalibration.ts'));
+    const features = require(path.join(base, 'workspaceFeatures.ts'));
     const { systemPresetConfig } = require(path.join(base, 'EntityPresetEditor/systemPresetConfig.ts'));
     const defaults = config.createWorkspaceStructIds();
-    const presets = systemPresetConfig.skillAnimations.presets.map(item => ({ ...item }));
+    // Optional historical GIL/GIA fixtures predate the release-2 animations.
+    const presets = systemPresetConfig.skillAnimations.presets.filter(item => !item.applicability).map(item => ({ ...item }));
     const skill = (id, name, type = 6) => ({ '1': id, '2': type, '4': [{ '1': 1, '11': { '1': `string:${name}` } }] });
     const encodeGil = json => converter.encode({ filetype: 'gil', dirtype: 'Unknown', info: { '1': 1, '2': 806, '3': 2, '4': 1657 }, dtype_csv: '', json });
     const freeze = value => {
@@ -127,6 +130,59 @@ async function main() {
       decodeCalls = 0;
       assert.throws(() => api.importGilWorkspaceIds(new Uint8Array([1, 2, 3]), defaults, current));
       assert.equal(decodeCalls, 1, 'A malformed container must fail instead of being treated as missing tables');
+    });
+
+    await test('Both component targets calibrate real GIL bytes and save structure IDs and editable system skill overrides', async () => {
+      const seeds = JSON.stringify(systemPresetConfig);
+      for (const fileType of [1, 2]) {
+        const target = { fileType, templateReleaseId: 2 };
+        const fields = config.WORKSPACE_STRUCT_ID_FIELDS.filter(field => features.isWorkspaceStructGroupAvailable(field.group, target));
+        const json = {
+          '10': { '6': fields.map((field, index) => ({ '1': { '1': 1200000000 + index, '501': `string:${field.names[0]}` } })) },
+          '15': { '1': [skill(1300000000, `[演出]${presets[0].name}`)] },
+        };
+        const bytes = encodeGil(json), before = Buffer.from(bytes).toString('hex');
+        const result = await calibrationApi.readWorkspaceGilCalibration({ name: 'component.gil', size: bytes.length, async arrayBuffer() { return bytes; } }, target);
+        const files = calibrationApi.workspaceGilCalibrationFiles(result);
+        const saved = JSON.parse(files['StructIds.json']), skills = JSON.parse(files['SkillAnimationPresets.json']);
+        assert.equal(result.result.structs.matched.length, 11);
+        for (const [index, field] of fields.entries()) assert.equal(saved.ids[field.key], String(1200000000 + index));
+        assert.equal(skills.presetStorage, 'system-overrides'); assert.deepEqual(skills.presets, []);
+        assert.deepEqual(skills.systemOverrides, [{ ...presets[0], configId: '1300000000' }]);
+        assert.equal(Buffer.from(bytes).toString('hex'), before, 'Local calibration cannot mutate archive bytes');
+      }
+      assert.equal(JSON.stringify(systemPresetConfig), seeds, 'Calibration cannot alter central defaults');
+    });
+    await test('Component IDs may reuse hidden map-only defaults without altering hidden IDs', () => {
+      const target = { fileType: 1, templateReleaseId: 2 };
+      const result = api.importGilWorkspaceIds(encodeGil({ '10': { '6': [{ '1': { '1': Number(defaults['quest.configuration']), '501': 'string:[演出]演出' } }] } }), defaults, presets);
+      const calibrated = calibrationApi.createWorkspaceGilCalibration('component.gil', result, target);
+      const ids = JSON.parse(calibrationApi.workspaceGilCalibrationFiles(calibrated)['StructIds.json']).ids;
+      assert.equal(ids['dialogue.performance'], defaults['quest.configuration']);
+      assert.equal(ids['quest.configuration'], defaults['quest.configuration']);
+      assert.deepEqual(config.validateWorkspaceStructIds(ids, target), []);
+      assert.ok(config.validateWorkspaceStructIds(ids).some(error => /重复/.test(error)), 'Returning to the map target must validate every visible group');
+    });
+    await test('Malformed or unrelated GILs cannot calibrate; ambiguous names require valid explicit choices', async () => {
+      const target = { fileType: 1, templateReleaseId: 1 };
+      for (const [name, bytes] of [['invalid.gil', new Uint8Array([1, 2, 3])], ['empty.gil', encodeGil({})], ['wrong.txt', encodeGil({})]]) {
+        await assert.rejects(calibrationApi.readWorkspaceGilCalibration({ name, size: bytes.length, async arrayBuffer() { return bytes; } }, target));
+      }
+      const field = config.WORKSPACE_STRUCT_ID_FIELDS[0];
+      const result = api.importGilWorkspaceIds(encodeGil({
+        '10': { '6': [1400000000, 1400000001].map(id => ({ '1': { '1': id, '501': `string:${field.names[0]}` } })) },
+        '15': { '1': [skill(1400000002, presets[0].name), skill(1400000003, presets[0].name)] },
+      }), defaults, presets);
+      const calibrated = calibrationApi.createWorkspaceGilCalibration('ambiguous.gil', result, target);
+      assert.throws(() => calibrationApi.workspaceGilCalibrationFiles(calibrated), /候选/);
+      calibrated.structSelections[field.key] = 'invalid';
+      assert.throws(() => calibrationApi.workspaceGilCalibrationFiles(calibrated), /候选/);
+      calibrated.structSelections[field.key] = '1400000001';
+      assert.throws(() => calibrationApi.workspaceGilCalibrationFiles(calibrated), /技能动画/);
+      calibrated.skillSelections[presets[0].id] = '1400000003';
+      const files = calibrationApi.workspaceGilCalibrationFiles(calibrated);
+      assert.equal(JSON.parse(files['StructIds.json']).ids[field.key], '1400000001');
+      assert.equal(JSON.parse(files['SkillAnimationPresets.json']).systemOverrides[0].configId, '1400000003');
     });
 
     const sources = process.argv.slice(2).map(file => ({ file, bytes: fs.readFileSync(file) }));

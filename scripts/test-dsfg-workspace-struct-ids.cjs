@@ -23,6 +23,7 @@ async function main() {
   }).outputText, file);
   try {
     const config = require(path.join(base, 'workspaceStructIds.ts'));
+    const targetConfig = require(path.join(base, 'workspaceSettings.ts'));
     const gil = require(path.join(base, 'gilStructIds.ts'));
     const gilSkills = require(path.join(base, 'gilSkillAnimations.ts'));
     const skillDefaults = require(path.join(base, 'EntityPresetEditor/systemPresetConfig.ts')).systemPresetConfig.skillAnimations.presets;
@@ -91,7 +92,7 @@ async function main() {
       assert.equal(match.ids['quest.chapter'], defaults['quest.chapter']);
       assert.equal(match.missing.length, 20);
       const ambiguous = gil.matchGilStructIds([...structs, { id: '502', name: '[演出]对话' }], defaults);
-      assert.equal(ambiguous.ids['dialogue.dialogue'], '');
+      assert.equal(ambiguous.ids['dialogue.dialogue'], defaults['dialogue.dialogue']);
       assert.equal(ambiguous.candidates['dialogue.dialogue'].length, 2);
       assert.deepEqual(defaults, config.createWorkspaceStructIds());
     });
@@ -141,7 +142,7 @@ async function main() {
       const script = ts.transpileModule(ast.statements.filter(node => !ts.isImportDeclaration(node)).map(node => node.getText(ast)).join('\n'), {
         compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
       }).outputText;
-      const events = [], saves = [], skillSaves = [], historyResets = [], scope = vue.effectScope();
+      const events = [], saves = [], skillSaves = [], notices = [], historyResets = [], scope = vue.effectScope();
       let historyOptions;
       const failures = { struct: false, skill: false };
       const skillState = { presets: vue.ref(plain(options.presets ?? skillDefaults)), ready: vue.ref(options.ready ?? true), error: vue.ref(options.skillError ?? ''),
@@ -152,20 +153,31 @@ async function main() {
           if (failures.skill) throw new Error('skill disk full');
           skillState.presets.value = plain(items); skillSaves.push(plain(items));
         } };
-      const props = { workspace: 'a', state: { ids: { ...defaults }, candidates: {}, warnings: [] }, loadError: '',
+      const props = { workspace: 'a', settings: targetConfig.createWorkspaceSettings(), state: { ids: { ...defaults }, candidates: {}, warnings: [] }, loadError: '',
         async saveSettings(ids) { if (failures.struct) throw new Error('disk full'); saves.push({ ...ids }); } };
-      const context = vm.createContext({ ...config, ...vue,
+      const context = vm.createContext({ ...config, ...vue, ...require(path.join(base, 'workspaceFeatures.ts')),
         ...require(path.join(base, 'EntityPresetEditor/skillAnimationPresets.ts')),
-        Error, document: { activeElement: null },
+        Error, document: { activeElement: null }, toast: { warning: (message, options) => notices.push({ message, ...options }) },
         // This VM isolates dialog I/O; gesture/history behavior runs in test-dsfg-studio-history.cjs.
         useStudioHistory: settings => { historyOptions = settings; return { reset: () => historyResets.push(true) }; },
         useSkillAnimationPresets: () => skillState,
         defineProps: () => props, defineEmits: () => (...args) => events.push(args), onMounted() {}, onBeforeUnmount() {},
         require: name => { assert.equal(name, './gilSkillAnimations'); return options.gilApi ?? gilSkills; } });
-      scope.run(() => vm.runInContext(`${script}\nglobalThis.api = { draft, draftSkills, candidates, skillCandidates, skillMatched, skillMissing, skillAmbiguous, skillOriginalIds, skillChanges, busy, error, save, close, reset, readGil, importMessage };`, context));
-      return { ui: context.api, props, skillState, events, saves, skillSaves, historyResets, failures,
+      scope.run(() => vm.runInContext(`${script}\nglobalThis.api = { draft, draftSettings, visibleStructGroups, draftSkills, candidates, skillMatched, skillMissing, skillOriginalIds, skillChanges, skillPreview, busy, error, save, close, reset, readGil, importMessage };`, context));
+      return { ui: context.api, props, skillState, events, saves, skillSaves, notices, historyResets, failures,
         history: { capture: () => historyOptions.capture(), restore: snapshot => historyOptions.restore(snapshot) }, dispose: () => scope.stop() };
     }
+    await test('Workspace setting drafts hide task/scene IDs for both component types and preserve their stored values', () => {
+      const f = settingsDialog(), original = plain(f.ui.draft.value);
+      for (const fileType of [1, 2]) {
+        f.ui.draftSettings.value.fileType = fileType;
+        assert.deepEqual(plain(f.ui.visibleStructGroups.value), ['演出对话', '边走边说']);
+        assert.deepEqual(plain(f.ui.draft.value), original);
+      }
+      f.ui.draftSettings.value.fileType = 0;
+      assert.deepEqual(plain(f.ui.visibleStructGroups.value), ['演出对话', '任务', '边走边说', '场景']);
+      assert.equal(f.props.settings.fileType, 0); f.dispose();
+    });
     const fileEvent = (bytes, name = 'sample.gil') => ({ target: { files: [{ name, size: bytes.length, async arrayBuffer() { return bytes; } }], value: 'chosen' } });
     const fakeGilApi = ({ structs = [], skills = [] } = {}) => ({ importGilWorkspaceIds(_bytes, ids, presets) {
       return { structs: gil.matchGilStructIds(structs, ids), skills: gilSkills.matchGilSkillAnimationIds(skills, presets) };
@@ -188,18 +200,43 @@ async function main() {
       assert.equal(f.skillState.presets.value[0].configId, '500'); assert.equal(f.skillSaves.length, 1);
       ui.draft.value['quest.chapter'] = ''; await ui.save(); assert.equal(f.saves.length, 1); f.dispose();
     });
-    await test('GIL preview supports a skills-only archive and keeps duplicate choices and missing custom IDs', async () => {
+    await test('A skills-only conflicting GIL warns by toast, keeps existing IDs and offers no conflict choices', async () => {
       const first = skillDefaults[0], custom = { id: 'custom', name: '自定义动作', configId: 'unfinished' };
       const f = settingsDialog({ presets: [first, custom], gilApi: fakeGilApi({ skills: [{ id: '501', name: `[演出]${first.name}` }, { id: '502', name: `[演岀]${first.name}` }] }) });
       const { ui } = f;
       await ui.readGil(fileEvent(new Uint8Array([1])));
       assert.equal(ui.error.value, ''); assert.equal(ui.draftSkills.value[0].configId, first.configId);
-      assert.deepEqual(plain(ui.skillAmbiguous.value), [first.id]); assert.equal(ui.skillCandidates.value[first.id].length, 2);
+      assert.equal(f.notices.length, 1); assert.match(f.notices[0].message, /ID 冲突/);
+      assert.match(f.notices[0].description, new RegExp(first.name)); assert.match(f.notices[0].description, /已跳过并保留原值/);
+      assert.deepEqual(plain(ui.skillPreview.value), []); assert.deepEqual(plain(ui.candidates.value), {});
       assert.equal(ui.draftSkills.value[1].configId, 'unfinished'); assert.deepEqual(plain(ui.draft.value), defaults);
-      ui.draftSkills.value[0].configId = '502'; await ui.readGil(fileEvent(new Uint8Array([1])));
-      assert.equal(ui.draftSkills.value[0].configId, '502', 'rereading ambiguous skills must preserve the user choice');
-      await ui.save(); assert.equal(f.skillState.presets.value[0].configId, '502'); assert.equal(f.skillState.presets.value[1].configId, 'unfinished');
-      assert.equal(f.skillSaves.length, 1); assert.equal(f.events.at(-1)[0], 'close'); f.dispose();
+      await ui.readGil(fileEvent(new Uint8Array([1])));
+      assert.equal(ui.draftSkills.value[0].configId, first.configId); assert.equal(f.notices.length, 2);
+      await ui.save(); assert.equal(f.skillState.presets.value[0].configId, first.configId); assert.equal(f.skillState.presets.value[1].configId, 'unfinished');
+      assert.equal(f.skillSaves.length, 0); assert.equal(f.events.at(-1)[0], 'close'); f.dispose();
+    });
+    await test('Mixed GIL conflicts preserve draft IDs while unique matches import and save normally', async () => {
+      const [first, second] = skillDefaults;
+      const f = settingsDialog({ presets: [first, second], gilApi: fakeGilApi({
+        structs: [{ id: '501', name: '[演出]对话' }, { id: '502', name: '[演出]对话' }, { id: '503', name: '[演出]选项卡' }],
+        skills: [{ id: '601', name: `[演出]${first.name}` }, { id: '602', name: `[演岀]${first.name}` }, { id: '603', name: `[演出]${second.name}` }],
+      }) }), { ui } = f;
+      ui.draft.value['dialogue.dialogue'] = '700';
+      const snapshot = f.history.capture();
+      await ui.readGil(fileEvent(new Uint8Array([1])));
+      assert.equal(ui.error.value, ''); assert.equal(ui.draft.value['dialogue.dialogue'], '700');
+      assert.equal(ui.draft.value['dialogue.select'], '503'); assert.deepEqual(plain(ui.candidates.value), {});
+      assert.deepEqual(plain(ui.draftSkills.value.map(row => row.configId)), [first.configId, '603']);
+      assert.deepEqual(plain(ui.skillPreview.value.map(row => row.id)), [second.id]);
+      assert.equal(f.notices.length, 1); assert.match(f.notices[0].description, /演出对话 · DialogueData/);
+      assert.match(f.notices[0].description, new RegExp(first.name)); assert.doesNotMatch(ui.importMessage.value, /冲突|请选择/);
+      assert.equal(f.saves.length, 0); assert.equal(f.skillSaves.length, 0);
+      f.history.restore(snapshot); assert.equal(ui.draft.value['dialogue.select'], defaults['dialogue.select']);
+      assert.equal(ui.draft.value['dialogue.dialogue'], '700'); assert.equal(f.notices.length, 1);
+      await ui.readGil(fileEvent(new Uint8Array([1]))); await ui.save();
+      assert.equal(f.saves[0]['dialogue.dialogue'], '700'); assert.equal(f.saves[0]['dialogue.select'], '503');
+      assert.deepEqual(f.skillSaves[0].map(row => row.configId), [first.configId, '603']);
+      assert.equal(f.events.at(-1)[0], 'close'); f.dispose();
     });
     await test('Custom reserved property IDs retain their own baselines and only matched animations change', async () => {
       const rows = [{ id: '__proto__', name: '交谈-持续', configId: '700' }, { id: 'constructor', name: '自定义动作', configId: '701' },
@@ -212,7 +249,7 @@ async function main() {
       await ui.readGil(fileEvent(new Uint8Array([1]))); assert.equal(ui.skillOriginalIds.value.__proto__, '700');
       await ui.save(); assert.deepEqual(f.skillSaves[0], [{ ...rows[0], configId: '800' }, rows[1], rows[2]]); f.dispose();
     });
-    await test('Reset affects only structure IDs and restoring the preview restores both structures and animation choices', async () => {
+    await test('Reset affects only structure IDs and restoring the preview restores both structures and animation IDs', async () => {
       const f = settingsDialog({ gilApi: fakeGilApi({ structs: [{ id: '501', name: '[演出]对话' }], skills: [{ id: '800', name: `[演出]${skillDefaults[0].name}` }] }) }), { ui } = f;
       await ui.readGil(fileEvent(new Uint8Array([1])));
       const snapshot = f.history.capture(), skills = plain(ui.draftSkills.value), message = ui.importMessage.value;
@@ -226,7 +263,7 @@ async function main() {
       const f = settingsDialog({ gilApi: fakeGilApi({ structs: [{ id: '501', name: '[演出]对话' }] }) });
       const { ui } = f, initialSkills = plain(f.skillState.presets.value);
       await ui.readGil(fileEvent(new Uint8Array([1])));
-      assert.equal(ui.error.value, ''); assert.equal(ui.draft.value['dialogue.dialogue'], '501');
+      assert.equal(ui.error.value, ''); assert.equal(ui.draft.value['dialogue.dialogue'], '501'); assert.equal(f.notices.length, 0);
       assert.deepEqual(plain(ui.draftSkills.value), initialSkills); assert.deepEqual(plain(ui.skillMatched.value), []);
       const message = ui.importMessage.value;
       f.dispose();
@@ -282,7 +319,9 @@ async function main() {
       const f = settingsDialog(), { ui } = f, bytes = fs.readFileSync(process.argv[2]), initialSkills = plain(f.skillState.presets.value);
       await ui.readGil(fileEvent(bytes));
       assert.equal(ui.error.value, ''); assert.match(ui.importMessage.value, /21 \/ 21/);
-      assert.equal(ui.skillMatched.value.length, 37); assert.deepEqual(plain(ui.skillMissing.value), []); assert.deepEqual(plain(ui.skillAmbiguous.value), []);
+      assert.equal(ui.skillMatched.value.length, 37);
+      assert.deepEqual(plain(ui.skillMissing.value), skillDefaults.filter(preset => preset.applicability).map(preset => preset.id));
+      assert.equal(f.notices.length, 0);
       assert.equal(ui.draftSkills.value.filter(row => initialSkills.find(old => old.id === row.id).configId !== row.configId).length, 36);
       assert.equal(ui.draftSkills.value.find(row => row.id === 'skill-walk-loop').configId, '1098907682');
       assert.deepEqual(plain(f.skillState.presets.value), initialSkills); assert.equal(f.saves.length, 0); assert.equal(f.skillSaves.length, 0);
@@ -294,18 +333,20 @@ async function main() {
       const filename = path.join(base, '../DSFGStudio.vue');
       const source = parse(fs.readFileSync(filename, 'utf8'), { filename }).descriptor.scriptSetup.content;
       const ast = ts.createSourceFile('shell.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-      const names = ['readStructSettings', 'openStructSettings', 'saveStructSettings'];
+      const names = ['readStructSettings', 'readWorkspaceSettings', 'openStructSettings', 'saveStructSettings'];
       const script = ts.transpileModule(ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name.text)).map(node => node.getText(ast)).join('\n'), {
         compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
       }).outputText;
       const memoryStorage = memory(), storage = { ...memoryStorage, setProject() { return this; } };
       const notices = [], prepared = [];
       const editorSessions = new Map(['Dialogue', 'EntityPresets', 'Scene'].map(name => [name, { async prepareToLeave() { prepared.push(name); } }]));
-      const state = { ...config, storage, ProjectID: 'DSFGStudio', selectedWorkspaceId: vue.ref('a'), switchingEditor: vue.ref(false),
+      const state = { ...config, ...targetConfig, storage, ProjectID: 'DSFGStudio', selectedWorkspaceId: vue.ref('a'), switchingEditor: vue.ref(false),
+        workspaceSettings: vue.ref(targetConfig.createWorkspaceSettings()), workspaceSettingsError: vue.ref(''), workspaceIds: vue.ref(['a', 'b']),
         structSettingsOpen: vue.ref(false), structSettingsError: vue.ref(''), structSettings: vue.ref({ ids: { ...defaults }, candidates: {}, warnings: [] }),
-        Error, editorSessions, activeEditor: () => editorSessions.get('Dialogue'),
-        sessionHistory: { busy: vue.ref(false), finishRegistered() { prepared.push('history'); } },
+        Error, editorSessions, activeEditor: () => editorSessions.get('Dialogue'), resetUnavailableEditors() {},
+        sessionHistory: { busy: vue.ref(false), clear() {}, finishRegistered() { prepared.push('history'); } },
         toast: { success: m => notices.push(m), error: m => notices.push(m) } };
+      state.settingsLoadError = vue.computed(() => state.structSettingsError.value || state.workspaceSettingsError.value);
       const context = vm.createContext(state); vm.runInContext(script, context);
       await context.openStructSettings(); assert.equal(state.structSettingsOpen.value, true); assert.equal(state.switchingEditor.value, false);
       assert.deepEqual(prepared, ['history', 'Dialogue', 'EntityPresets', 'Scene'], 'all mounted editors must flush before the dialog reads skill presets');
@@ -315,14 +356,14 @@ async function main() {
       assert.equal(notices.at(-1), 'preset flush failed');
       const changed = { ...defaults, 'quest.chapter': '300' };
       storage.writeFile = async () => { throw new Error('offline'); };
-      await assert.rejects(context.saveStructSettings(changed), /offline/);
+      await assert.rejects(context.saveStructSettings(changed, targetConfig.createWorkspaceSettings(), 'a'), /offline/);
       assert.equal(state.structSettings.value.ids['quest.chapter'], defaults['quest.chapter']);
-      storage.writeFile = memoryStorage.writeFile; await context.saveStructSettings(changed);
+      storage.writeFile = memoryStorage.writeFile; await context.saveStructSettings(changed, targetConfig.createWorkspaceSettings(), 'a');
       assert.equal(state.structSettings.value.ids['quest.chapter'], '300');
       assert.equal(JSON.parse(storage.data.get('/a/StructIds.json')).ids['quest.chapter'], '300');
       await context.readStructSettings('b'); assert.equal(state.structSettings.value.ids['quest.chapter'], defaults['quest.chapter']);
       storage.data.set('/b/StructIds.json', '{bad'); await context.readStructSettings('b'); assert.ok(state.structSettingsError.value);
-      await assert.rejects(context.saveStructSettings(changed), /原文件/);
+      await assert.rejects(context.saveStructSettings(changed, targetConfig.createWorkspaceSettings(), 'a'), /原文件/);
       assert.equal(storage.data.get('/b/StructIds.json'), '{bad');
     });
     await test('Workspace dialog and all editor templates compile with the centralized menu', () => {

@@ -1442,5 +1442,18 @@
   "clientUIAnimationEditor.ui.vfx.retryPlayback": "Ошибка воспроизведения. Нажмите для повтора",
   "clientUIAnimationEditor.ui.vfx.play": "Воспроизвести эффект",
   "clientUIAnimationEditor.ui.vfx.filterEffects": "Фильтр эффектов",
-  "clientUIAnimationEditor.ui.vfx.stopPreview": "Остановить просмотр"
+  "clientUIAnimationEditor.ui.vfx.stopPreview": "Остановить просмотр",
+  "clientUIAnimationEditor.ui.guide.title": "Руководство",
+  "clientUIAnimationEditor.ui.guide.video": "Смотреть видеоурок",
+  "clientUIAnimationEditor.ui.guide.videoHint": "Bilibili · Английские субтитры",
+  "clientUIAnimationEditor.ui.guide.manual": "Скачать руководство",
+  "clientUIAnimationEditor.ui.guide.manualHint": "{format} · Инструкции на английском",
+  "clientUIAnimationEditor.ui.onboarding.title": "Впервые в редакторе анимаций?",
+  "clientUIAnimationEditor.ui.onboarding.description": "Познакомьтесь с инструментом одним из двух способов и начните создавать анимацию.",
+  "clientUIAnimationEditor.ui.onboarding.openVideo": "Смотреть на Bilibili",
+  "clientUIAnimationEditor.ui.onboarding.viewManual": "Открыть руководство",
+  "clientUIAnimationEditor.ui.onboarding.openManual": "Открыть PDF",
+  "clientUIAnimationEditor.ui.onboarding.reminder": "Видео и руководство всегда доступны в меню «Руководство» в правом верхнем углу редактора.",
+  "clientUIAnimationEditor.ui.onboarding.start": "Начать работу",
+  "clientUIAnimationEditor.ui.onboarding.saveFailed": "Не удалось сохранить настройку. При следующем входе подсказка может появиться снова."
 }
