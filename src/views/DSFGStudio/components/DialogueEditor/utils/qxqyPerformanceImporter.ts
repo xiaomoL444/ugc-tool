@@ -21,6 +21,7 @@ function table(entries: any[]) {
 export function importQxqyPerformance(text: string) {
   const { data, ids } = readRuntime(text, DEFAULT_QXQY_STRUCT_IDS, DEFAULT_QXQY_STRUCT_IDS.performance, createQxqyStructWorkspace(DEFAULT_QXQY_STRUCT_IDS), {
     [DEFAULT_QXQY_STRUCT_IDS.actionClip]: ["boolParams"],
+    [DEFAULT_QXQY_STRUCT_IDS.cameraSlot]: ["persetPoint", "pathIndex"],
   });
   const project = createEmptyDialogueProject(); project.exportSettings.qxqyStructIds = ids;
   const groups = table(data.ActionGroup);
@@ -91,7 +92,7 @@ export function importQxqyPerformance(text: string) {
             // Numeric editor properties must be numbers, GUID/config identifiers remain strings.
             const convert = (value: any, key = ""): any => Array.isArray(value) ? value.map(item => convert(item)) : value && typeof value === "object"
               ? Object.fromEntries(Object.entries(value).map(([name, item]) => [name, convert(item, name)]))
-              : key === "space" || key === "orbitRadius" ? Number(value) : value;
+              : ["space", "orbitRadius", "persetPoint", "pathIndex"].includes(key) ? Number(value) : value;
             clip.components[0].properties = normalizeCameraProperties(convert(source)) as Record<string, unknown>; line.clips.push(clip); node.lines.push(line);
           }
         } else if (action.actionType === "NOLOC_FOCUSPUSH") {

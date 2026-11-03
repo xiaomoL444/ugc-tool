@@ -12,6 +12,7 @@ import { workspaceFileTypeOptions } from "./versioning/types";
 import { createWorkspaceSettings, type WorkspaceSettings } from "./workspaceSettings";
 import { workspaceTargetErrors } from "./versioning/catalog";
 import WorkspaceVersionSettings from "./WorkspaceVersionSettings.vue";
+import WorkspaceGilUiIndexRepair from "./WorkspaceGilUiIndexRepair.vue";
 import { isWorkspaceStructGroupAvailable } from "./workspaceFeatures";
 
 const props = defineProps<{ workspace: string; state: WorkspaceStructIdState; loadError: string;
@@ -145,6 +146,7 @@ onBeforeUnmount(() => previousFocus?.focus());
           </section>
           <h3>结构体 ID</h3>
           <div class="import-bar"><div><strong>从 GIL 自动识别</strong><p>按名称匹配结构体 ID 和技能动画配置 ID，保存后应用到当前工作区。文件在本机读取。</p></div><button type="button" :disabled="!skillsReady && !skillsError" @click="fileInput?.click()">{{ busy ? '读取中…' : '读取 GIL' }}</button><input ref="fileInput" type="file" accept=".gil" hidden @change="readGil" /></div>
+          <WorkspaceGilUiIndexRepair :disabled="busy || !!loadError" @busy="busy = $event" />
           <p v-if="importMessage" class="notice" role="status">{{ importMessage }}</p>
           <div v-if="skillsError" class="error" role="alert">技能动画预设：{{ skillsError }} <button type="button" @click="retrySkills().catch(() => undefined)">重新读取／保存</button></div>
           <section v-if="draftSkills.length" class="skill-import" aria-labelledby="skill-import-title">

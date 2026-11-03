@@ -1,7 +1,5 @@
 import { WorkspaceFileType } from "./versioning/types";
-import { cloneWorkspaceTarget, getBaseRelease, isInVersionRanges } from "./versioning/catalog";
-import { baseReleases } from "./versioning/baseReleases";
-import { extensionPackages } from "./versioning/extensionPackages";
+import { cloneWorkspaceTarget, getBaseRelease, getExtensionPackage, isInVersionRanges } from "./versioning/catalog";
 import type { WorkspaceTarget, VersionRange } from "./versioning/types";
 
 export interface Applicability {
@@ -15,14 +13,12 @@ export function isApplicable(rule: Applicability | undefined, input: WorkspaceTa
   if (!rule) return true;
   const target = cloneWorkspaceTarget(input);
   if (rule.fileTypes && !rule.fileTypes.includes(target.fileType)) return false;
-  // Keep rules for future content while its catalogue entries are commented out for publication.
-  // A range with an unavailable bound cannot establish applicability; other ranges still apply.
-  const ranges = rule.baseVersionRanges?.filter(range => [range.min, range.max]
-    .every(bound => !bound || baseReleases.some(base => base.id === bound.releaseId)));
-  if (ranges && (!ranges.length || target.baseReleaseId === null || !isInVersionRanges(
-    getBaseRelease(target.baseReleaseId).order, ranges, id => getBaseRelease(id).order))) return false;
-  if (rule.requiredPackageIds && !rule.requiredPackageIds.every(id =>
-    extensionPackages.some(extension => extension.id === id) && target.packageIds.includes(id))) return false;
+  if (rule.baseVersionRanges && (target.baseReleaseId === null || !isInVersionRanges(
+    getBaseRelease(target.baseReleaseId).order, rule.baseVersionRanges, id => getBaseRelease(id).order))) return false;
+  if (rule.requiredPackageIds && !rule.requiredPackageIds.map(id => {
+    getExtensionPackage(id);
+    return target.packageIds.includes(id);
+  }).every(Boolean)) return false;
   return true;
 }
 

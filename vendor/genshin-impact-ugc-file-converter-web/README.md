@@ -16,6 +16,10 @@ const document = decode(bytes, { type: "gia" });
 const restoredBytes = encode(parse(stringify(document)));
 ```
 
+全量和按需解码均不设字段数量上限，正常大型存档不会因为字段多而被拒绝；仍检查文件头、二进制长度、编码类型和嵌套深度。
+
+只需校对 GIL 结构体和技能 ID 时，可用 `decode(bytes, { type: "gil", paths: ["10/6", "15/1"] })` 只解析定义表。未选中的字段按二进制长度跳过，减少大型地图的解码耗时和内存占用。此选项返回部分文档，仅用于读取所选数据，不能用它重新编码完整原存档。
+
 ## 维护源码
 
 `lib/`、`worker/converter.ts`、`dtype/` 为库源码及数据；没有迁入原项目的 C++ 程序、网页或 Worker 部署配置。

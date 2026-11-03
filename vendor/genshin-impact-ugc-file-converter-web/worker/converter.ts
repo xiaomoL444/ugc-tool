@@ -28,7 +28,31 @@ export interface ConverterDocument {
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const encoder = new TextEncoder();
 const MAX_DEPTH = 128;
-const MAX_FIELDS = 2_000_000;
+
+interface FieldSelection {
+  all: boolean;
+  children: Map<string, FieldSelection>;
+}
+
+function selectFields(paths?: readonly string[]): FieldSelection | undefined {
+  if (paths === undefined) return undefined;
+  if (!Array.isArray(paths) || paths.some(path => typeof path !== "string" || !/^(?:0|[1-9]\d*)(?:\/(?:0|[1-9]\d*))*$/.test(path))) {
+    throw new TypeError("paths 必须是数字字段路径列表，例如 10/6");
+  }
+  const root: FieldSelection = { all: false, children: new Map() };
+  for (const path of paths) {
+    let node = root;
+    for (const id of path.split("/")) {
+      if (node.all) break;
+      let child = node.children.get(id);
+      if (!child) { child = { all: false, children: new Map() }; node.children.set(id, child); }
+      node = child;
+    }
+    node.all = true;
+    node.children.clear();
+  }
+  return root;
+}
 
 class BinaryReader {
   offset = 0;
@@ -141,16 +165,27 @@ function structurallyValid(bytes: Uint8Array) {
   return !reader.error;
 }
 
-function analyze(bytes: Uint8Array, nodes: Map<string, DtypeNode>, parent = "", depth = 0, count = { value: 0 }): void {
+/** Skip unselected payloads without interpreting or allocating their nested fields. */
+function skipField(reader: BinaryReader, type: number) {
+  if (type === 0) reader.readVarint();
+  else if (type === 2) reader.readData(reader.readVarint());
+  else if (type === 5) reader.readFloat32();
+  else throw new Error(`不支持的字段编码类型 ${type}`);
+  if (reader.error) throw new Error("文件内容已截断或损坏");
+}
+
+function analyze(bytes: Uint8Array, nodes: Map<string, DtypeNode>, parent = "", depth = 0, selection?: FieldSelection): void {
   if (depth > MAX_DEPTH) throw new Error("文件嵌套层级过深");
   const reader = new BinaryReader(bytes);
   const seen = new Map<string, number>();
   while (!reader.eof) {
-    if (++count.value > MAX_FIELDS) throw new Error("文件字段数量过多");
     const tag = reader.readVarint();
     const type = Number(tag & 7n);
     const id = (tag >> 3n).toString();
     const path = parent ? `${parent}/${id}` : id;
+    if (selection && !selection.all && !selection.children.has(id)) { skipField(reader, type); continue; }
+    const childSelection = selection?.children.get(id);
+    if (childSelection && !childSelection.all && type !== 2) throw new Error(`字段 ${path} 不是对象，无法读取子字段`);
     let node = nodes.get(path);
     if (!node) {
       node = { multiple: false, int32: true, int64: true, float32: true, float64: true, object: true, string: true, data: true };
@@ -166,9 +201,10 @@ function analyze(bytes: Uint8Array, nodes: Map<string, DtypeNode>, parent = "", 
       const value = reader.readData(reader.readVarint());
       node.int32 = node.int64 = node.float32 = node.float64 = false;
       if (node.object && structurallyValid(value)) {
-        if (value.length) node.string = node.data = false;
-        analyze(value, nodes, path, depth + 1, count);
+        if (value.length || (childSelection && !childSelection.all)) node.string = node.data = false;
+        analyze(value, nodes, path, depth + 1, childSelection);
       } else {
+        if (childSelection && !childSelection.all) throw new Error(`字段 ${path} 不是对象，无法读取子字段`);
         node.object = false;
         node.dataSize = value.length;
         node.sample = value.slice(0, 16);
@@ -200,7 +236,7 @@ function fromBase64(value: string) {
   return Uint8Array.from(binary, c => c.charCodeAt(0));
 }
 
-function decodeObject(bytes: Uint8Array, nodes: Map<string, DtypeNode>, parent = "", depth = 0): { [key: string]: Value } {
+function decodeObject(bytes: Uint8Array, nodes: Map<string, DtypeNode>, parent = "", depth = 0, selection?: FieldSelection): { [key: string]: Value } {
   if (depth > MAX_DEPTH) throw new Error("文件嵌套层级过深");
   const result: { [key: string]: Value } = {};
   const reader = new BinaryReader(bytes);
@@ -209,6 +245,8 @@ function decodeObject(bytes: Uint8Array, nodes: Map<string, DtypeNode>, parent =
     const type = Number(tag & 7n);
     const id = (tag >> 3n).toString();
     const path = parent ? `${parent}/${id}` : id;
+    if (selection && !selection.all && !selection.children.has(id)) { skipField(reader, type); continue; }
+    const childSelection = selection?.children.get(id);
     const dtype = nodes.get(path);
     if (!dtype) throw new Error(`dtype 缺少字段 ${path}`);
     let value: Value;
@@ -218,7 +256,7 @@ function decodeObject(bytes: Uint8Array, nodes: Map<string, DtypeNode>, parent =
     } else if (type === 5 && dtype.float32) value = reader.readFloat32();
     else if (type === 2) {
       const data = reader.readData(reader.readVarint());
-      if (dtype.object && !dtype.string && !dtype.data) value = decodeObject(data, nodes, path, depth + 1);
+      if (dtype.object && !dtype.string && !dtype.data) value = decodeObject(data, nodes, path, depth + 1, childSelection);
       else if (dtype.string && !dtype.object && !dtype.data) value = `string:${decoder.decode(data)}`;
       else value = `base64:${toBase64(data)}`;
     } else throw new Error(`字段 ${path} 的编码与 dtype 不匹配`);
@@ -272,11 +310,12 @@ function readHeader(input: Uint8Array) {
   };
 }
 
-export function decodeUgc(input: Uint8Array, filetype: UgcFileType, baseDtypeCsv: string): ConverterDocument {
+export function decodeUgc(input: Uint8Array, filetype: UgcFileType, baseDtypeCsv: string, paths?: readonly string[]): ConverterDocument {
   const { info, body } = readHeader(input);
   const nodes = parseDtype(baseDtypeCsv);
-  analyze(body, nodes);
-  return { filetype, dirtype: "Unknown", info, json: decodeObject(body, nodes), dtype_csv: serializeDtype(nodes) };
+  const selection = selectFields(paths);
+  analyze(body, nodes, "", 0, selection);
+  return { filetype, dirtype: "Unknown", info, json: decodeObject(body, nodes, "", 0, selection), dtype_csv: serializeDtype(nodes) };
 }
 
 function asBigInt(value: Value) {

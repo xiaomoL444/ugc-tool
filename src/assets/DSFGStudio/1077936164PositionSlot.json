@@ -66,6 +66,22 @@
             "param_type" : "Bool", 
             "value" : "False"
          }
+      },
+      {
+         "key" : "persetPoint",
+         "param_type" : "Int32",
+         "value" : {
+            "param_type" : "Int32",
+            "value" : "0"
+         }
+      },
+      {
+         "key" : "pathIndex",
+         "param_type" : "Int32",
+         "value" : {
+            "param_type" : "Int32",
+            "value" : "0"
+         }
       }
    ]
 }

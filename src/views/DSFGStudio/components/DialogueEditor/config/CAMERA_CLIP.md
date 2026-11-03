@@ -40,6 +40,7 @@ Camera 数据仍按每 100 项拆分字典；位置和旋转 Slot 数量分别�
 - NOLOC_Vector3 点位只显示位置向量；NOLOC_Guid / NOLOC_Entity 点位显示对应目标字段以及挂接点、offset、requiresClientPos。NOLOC_Orbit 同样遵循点位类型，Slot.vector3 不再用于初始环绕角度。显隐由模板 `visibleWhen` 定义，切换时保留隐藏字段的原值，导出仍按完整结构体顺序写入。
 - 旧相机的已知模式和点位类型在工程读取、运行时导入及导出时升级为对应 `NOLOC_` 值，保留点位顺序、GUID 和扩展字段。已保存的空值或未知枚举不会被覆盖，下拉会提示重新选择。业务默认由组件模板提供，不改动源结构体 JSON。
 - `guid` 用整数字符串保存；`entity` 在 V2.0 中是 String，不是 Entity ID 类型。
+- PositionSlot 按 DSFG 1.1.0 的十字段顺序导入和导出，末尾为 Int32 `persetPoint`、`pathIndex`（保留原生拼写），编辑值默认为 0。运行时 JSON 的旧八／九字段 Slot 只补齐缺失的尾部字段；字段错位、类型错误或超出十字段仍拒绝导入。位置和视点共用此规则，工程重开及独立镜头导出保留这两个值。
 - Vector3 用 `"x,y,z"` 保存，面板提供 X/Y/Z 独立输入框。
 - 新建镜头的位置和旋转 Slot 各为一个独立的默认 Vector3 点位，orbitRadius 为 0。独立 PositionData 文件中的半径 2 不覆盖该默认。
 - V2.0 不再导出旧版 `delay`、起止坐标等扁平字段。已有组件的旧扩展属性仍保存在工程里，但不会猜测转换为新的 Slot。

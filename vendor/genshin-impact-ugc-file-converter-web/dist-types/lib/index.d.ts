@@ -3,6 +3,8 @@ export type { ConverterDocument, UgcFileType, UgcValue };
 export interface DecodeOptions {
     /** GIL 与 GIA 使用相同的容器结构，文件字节本身无法可靠区分两者。 */
     type: UgcFileType;
+    /** 只读取所列数字字段路径及其后代；未选中的内容不会进入返回的部分文档。 */
+    paths?: readonly string[];
 }
 export interface EncodeOptions {
     /** 可覆盖 document.filetype。 */

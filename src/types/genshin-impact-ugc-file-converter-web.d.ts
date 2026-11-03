@@ -10,7 +10,7 @@ declare module "genshin-impact-ugc-file-converter-web" {
     dtype_csv: string;
   }
 
-  export function decode(input: ArrayBuffer | ArrayBufferView, options: { type: UgcFileType }): ConverterDocument;
+  export function decode(input: ArrayBuffer | ArrayBufferView, options: { type: UgcFileType; paths?: readonly string[] }): ConverterDocument;
   export function encode(document: ConverterDocument, options?: { type?: UgcFileType }): Uint8Array;
   export function parse(text: string): ConverterDocument;
   export function stringify(document: ConverterDocument, space?: number | string): string;

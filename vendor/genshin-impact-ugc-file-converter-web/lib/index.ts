@@ -13,6 +13,8 @@ export type { ConverterDocument, UgcFileType, UgcValue };
 export interface DecodeOptions {
   /** GIL 与 GIA 使用相同的容器结构，文件字节本身无法可靠区分两者。 */
   type: UgcFileType;
+  /** 只读取所列数字字段路径及其后代；未选中的内容不会进入返回的部分文档。 */
+  paths?: readonly string[];
 }
 
 export interface EncodeOptions {
@@ -32,7 +34,7 @@ function dtype(type: UgcFileType): string {
 /** 将 GIL/GIA 二进制内容解码为可序列化的转换器文档。 */
 export function decode(input: ArrayBuffer | ArrayBufferView, options: DecodeOptions): ConverterDocument {
   if (options.type !== "gil" && options.type !== "gia") throw new TypeError("type 只能是 gil 或 gia");
-  return decodeUgc(bytes(input), options.type, dtype(options.type));
+  return decodeUgc(bytes(input), options.type, dtype(options.type), options.paths);
 }
 
 /** 将转换器文档编码为 GIL/GIA 二进制内容。 */

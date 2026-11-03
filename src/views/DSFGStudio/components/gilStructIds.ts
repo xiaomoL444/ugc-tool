@@ -35,5 +35,5 @@ export function matchGilStructIds(structs: GilStruct[], current: WorkspaceStruct
   return { ids, candidates, matched, missing, ambiguous };
 }
 export function importGilStructIds(bytes: ArrayBuffer | ArrayBufferView, current: WorkspaceStructIds) {
-  return matchGilStructIds(readGilStructTable(decode(bytes, { type: "gil" })), current);
+  return matchGilStructIds(readGilStructTable(decode(bytes, { type: "gil", paths: ["10/6"] })), current);
 }

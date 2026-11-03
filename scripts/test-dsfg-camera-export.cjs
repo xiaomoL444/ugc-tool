@@ -97,7 +97,7 @@ async function main() {
     const slot = (overrides = {}) => ({
       space: 1, pointType: "自定义定位方式", vector3: "-160, 900, 0.125",
       guid: "18446744073709551615", entity: "主角实体", attachmentPoint: "Head",
-      offset: "0,-0.5,2", requiresClientPos: true, ...overrides,
+      offset: "0,-0.5,2", requiresClientPos: true, persetPoint: 0, pathIndex: 0, ...overrides,
     });
     const parameters = () => ({
       cameraName: "镜头 A",
@@ -221,7 +221,7 @@ async function main() {
       assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.find(field => field.key === 'pointType').options.map(item => item.value), ['NOLOC_Vector3', 'NOLOC_Rot']);
       assert.ok(!CAMERA_SLOT_PROPERTIES.find(field => field.key === 'pointType').options.some(item => item.value === 'NOLOC_Rot'));
       const target = createClipPropertyValues(CAMERA_VIEWPOINT_SLOT_PROPERTIES, slot({ pointType: 'NOLOC_Rot', vector3: '10,20,-30' }));
-      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(field => isClipPropertyVisible(field, target)).map(field => field.key), ['pointType', 'vector3']);
+      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(field => isClipPropertyVisible(field, target)).map(field => field.key), ['pointType', 'vector3', 'persetPoint', 'pathIndex']);
       const decoded = decodeDialogueProject(encodeDialogueProject(project([camera({ rotationData: { type: 'NOLOC_Fixed', slot: [target], snapToTarget: false } })])));
       const restored = decoded.dialogue.nodes.group.lines[0].clips[0].components[0].properties.rotationData.slot[0];
       assert.deepEqual(restored, target);
@@ -381,10 +381,10 @@ async function main() {
         ["NOLOC_Entity", [...common, "entity", "attachmentPoint", "offset", "requiresClientPos"]],
       ]) {
         const values = { ...slot(), pointType };
-        assert.deepEqual(CAMERA_SLOT_PROPERTIES.filter((property) => isClipPropertyVisible(property, values)).map((property) => property.key), expected);
+        assert.deepEqual(CAMERA_SLOT_PROPERTIES.filter((property) => isClipPropertyVisible(property, values)).map((property) => property.key), [...expected, 'persetPoint', 'pathIndex']);
       }
       const conditional = { key: "test", label: "test", type: "string", defaultValue: "", visibleWhen: { key: "space", values: [1] } };
-      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(property => isClipPropertyVisible(property, { pointType: 'NOLOC_Guid' })).map(property => property.key), ['pointType']);
+      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(property => isClipPropertyVisible(property, { pointType: 'NOLOC_Guid' })).map(property => property.key), ['pointType', 'persetPoint', 'pathIndex']);
       assert.equal(isClipPropertyVisible(conditional, { space: 1 }), true);
       assert.equal(isClipPropertyVisible(conditional, { space: "1" }), false);
       assert.equal(isClipPropertyVisible(conditional, {}), false);
@@ -624,7 +624,7 @@ async function main() {
       assert.equal(position.orbitRot, undefined);
       assert.equal(position.orbitRadius.value, "2.75");
       assert.equal(position.slot.itemCount, 2);
-      assert.deepEqual(Object.keys(position.slot.value[0].value), ["space", "pointType", "vector3", "guid", "entity", "attachmentPoint", "offset", "requiresClientPos"]);
+      assert.deepEqual(Object.keys(position.slot.value[0].value), ["space", "pointType", "vector3", "guid", "entity", "attachmentPoint", "offset", "requiresClientPos", "persetPoint", "pathIndex"]);
       assert.equal(position.slot.value[0].value.vector3.value, "-160,900,0.125");
       assert.equal(position.slot.value[0].value.guid.value, "18446744073709551615");
       assert.equal(position.slot.value[0].value.entity.value, "主角实体");
@@ -632,6 +632,52 @@ async function main() {
       assert.equal(position.slot.value[1].value.entity.value, "第二个目标");
       assert.equal(rotation.slot.value[0].value.pointType.value, "look-at");
       assert.equal(rotation.snapToTarget.value, "False");
+    });
+
+    test("Eight-, nine- and ten-field runtime Slots preserve supplied Int32 values through import, reopen and export", () => {
+      const properties = parameters();
+      properties.positionData.slot = [slot({ persetPoint: 123, pathIndex: -7 })];
+      properties.rotationData.slot = [slot({ persetPoint: 456, pathIndex: 2147483647 })];
+      const output = exportQxqyPerformance(project([camera(properties)]));
+      const slotId = createDefaultQxqyStructIds().cameraSlot;
+      const runtimeSlots = root => {
+        const result = [];
+        function visit(value) {
+          if (!value || typeof value !== 'object') return;
+          if (value.type === 'Struct' && value.structId === slotId) result.push(value);
+          else Object.values(value).forEach(visit);
+        }
+        visit(root); return result;
+      };
+      for (const fields of [8, 9, 10]) {
+        const input = JSON.parse(output.json);
+        runtimeSlots(input).forEach(point => { point.value.length = fields; });
+        const imported = importQxqyPerformance(JSON.stringify(input)).project;
+        const reopened = decodeDialogueProject(encodeDialogueProject(imported));
+        const shot = reopened.dialogue.nodes[reopened.graph.nodes.find(node => node.type === 'group').id].lines
+          .flatMap(line => line.clips).find(clip => clip.type === 'Camera').components[0];
+        for (const [kind, preset, index] of [['positionData', 123, -7], ['rotationData', 456, 2147483647]]) {
+          const point = shot.properties[kind].slot[0];
+          assert.equal(point.persetPoint, fields >= 9 ? preset : 0);
+          assert.equal(point.pathIndex, fields === 10 ? index : 0);
+          assert.equal(typeof point.persetPoint, 'number');
+          assert.equal(typeof point.pathIndex, 'number');
+        }
+        const result = JSON.parse(exportQxqyPerformance(reopened).json);
+        assert.deepEqual(runtimeSlots(result).map(point => point.value.slice(8)), [
+          [{ param_type: 'Int32', value: fields >= 9 ? '123' : '0' }, { param_type: 'Int32', value: fields === 10 ? '-7' : '0' }],
+          [{ param_type: 'Int32', value: fields >= 9 ? '456' : '0' }, { param_type: 'Int32', value: fields === 10 ? '2147483647' : '0' }],
+        ]);
+      }
+      for (const change of [
+        point => { point.value.pop(); point.value.splice(2, 1); },
+        point => point.value.push({ param_type: 'Int32', value: '0' }),
+        point => { point.value[8].param_type = 'String'; },
+        point => { point.value[9].value = '2147483648'; },
+      ]) {
+        const input = JSON.parse(output.json); change(runtimeSlots(input)[0]);
+        assert.throws(() => importQxqyPerformance(JSON.stringify(input)), /字段数量|需要 Vector3|需要 Int32|Int32 范围/);
+      }
     });
 
     test("Timer alone controls start and Select shares the same 2.9-second bucket", () => {
@@ -699,7 +745,7 @@ async function main() {
     }
 
     test("Invalid typed fields produce contextual errors", () => {
-      for (const [field, invalid, expected] of [["vector3", "1,NaN,3", /vector3.*Vector3/], ["space", 2147483648, /space.*Int32/], ["guid", 18446744073709551615, /guid.*Guid/], ["requiresClientPos", "yes", /requiresClientPos.*Bool/]]) {
+      for (const [field, invalid, expected] of [["vector3", "1,NaN,3", /vector3.*Vector3/], ["space", 2147483648, /space.*Int32/], ["guid", 18446744073709551615, /guid.*Guid/], ["requiresClientPos", "yes", /requiresClientPos.*Bool/], ["persetPoint", 1.5, /persetPoint.*Int32/], ["pathIndex", 2147483648, /pathIndex.*Int32/]]) {
         const properties = parameters();
         properties.positionData.slot[0][field] = invalid;
         assert.throws(() => exportQxqyPerformance(project([camera(properties)])), expected);

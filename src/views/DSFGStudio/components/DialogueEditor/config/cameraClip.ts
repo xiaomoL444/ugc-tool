@@ -25,6 +25,9 @@ export const CAMERA_SLOT_PROPERTIES: ClipPropertyDefinition[] = [
     visibleWhen: { key: "pointType", values: ["NOLOC_Guid", "NOLOC_Entity"] } },
   { key: "requiresClientPos", label: "需要客户端位置", type: "boolean", defaultValue: false,
     visibleWhen: { key: "pointType", values: ["NOLOC_Guid", "NOLOC_Entity"] } },
+  // Keep the native field spelling and trailing order used by DSFG 1.1.0.
+  { key: "persetPoint", label: "预设点位", type: "number", defaultValue: 0, step: 1, min: -2147483648, max: 2147483647 },
+  { key: "pathIndex", label: "路径索引", type: "number", defaultValue: 0, step: 1, min: -2147483648, max: 2147483647 },
 ];
 
 // Only camera-position slots hide coordinate space for literal Vector3 points.

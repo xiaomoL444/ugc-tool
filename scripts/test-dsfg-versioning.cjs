@@ -21,9 +21,8 @@ const v3 = overrides => ({ kind: 'DSFGWorkspaceSettings', schemaVersion: 3, file
   baseReleaseId: 11, packageIds: [101, 102], ...overrides });
 
 async function main() {
-  const hasRelease2 = baseReleases.some(base => base.id === 2);
-  assert.deepEqual(extensionPackages, hasRelease2 ? [{ id: 1, name: '7.2技能动画扩展包' }] : []);
-  for (const id of baseReleases.map(base => base.id)) {
+  assert.deepEqual(extensionPackages, [{ id: 1, name: '7.2技能动画扩展包' }]);
+  for (const id of [1, 2]) {
     const base = catalog.getBaseRelease(id);
     assert.deepEqual([base.gameVersion, base.templateVersion, base.internalVersion], id === 1 ? ['7.1', '2.0', '1.0.3'] : ['7.2', '2.1', '1.0.4']);
     assert.equal(formatReleaseLabel(base), `原神v${base.gameVersion}，模版版本v${base.templateVersion}，模版内部版本v${base.internalVersion}`);
@@ -31,14 +30,8 @@ async function main() {
     assert.deepEqual(base.packageIds, id === 1 ? [] : [1]);
   }
   assert.equal(settings.createWorkspaceSettings().baseReleaseId, 1);
-  assert.equal(settings.createNewWorkspaceSettings().baseReleaseId, hasRelease2 ? 2 : 1);
-  assert.deepEqual(settings.createNewWorkspaceSettings().packageIds, hasRelease2 ? [1] : []);
-  if (!hasRelease2) {
-    assert.equal(isApplicable({ requiredPackageIds: [1] }, settings.createWorkspaceSettings()), false);
-    assert.equal(isApplicable({ baseVersionRanges: [{ min: { releaseId: 2, inclusive: true } }] }, settings.createWorkspaceSettings()), false);
-    assert.throws(() => settings.decodeWorkspaceSettings(v3({ baseReleaseId: 2, packageIds: [] })), /未知/);
-    assert.throws(() => settings.decodeWorkspaceSettings(v3({ baseReleaseId: 1, packageIds: [1] })), /未知/);
-  }
+  assert.equal(settings.createNewWorkspaceSettings().baseReleaseId, 2);
+  assert.deepEqual(settings.createNewWorkspaceSettings().packageIds, [1]);
   assert.deepEqual(Object.keys(settings.createWorkspaceSettings()).sort(), ['baseReleaseId', 'fileType', 'kind', 'packageIds', 'schemaVersion']);
   console.log('PASS Only baseline/package state is saved; legacy defaults use 2.0 and creation uses the latest baseline');
   const original = catalog.getBaseRelease(1);
@@ -49,11 +42,6 @@ async function main() {
   // Fixture definitions exist only in this process; no production catalogue is written.
   const sizes = [baseReleases.length, extensionPackages.length];
   try {
-    // Exercise the future-release paths even when publication temporarily comments out the catalogue entries.
-    if (!hasRelease2) {
-      baseReleases.push({ id: 2, order: 2, gameVersion: '7.2', templateVersion: '2.1', internalVersion: '1.0.4', packageIds: [1] });
-      extensionPackages.push({ id: 1, name: '7.2技能动画扩展包' });
-    }
     const versions = { gameVersion: 'fixture', templateVersion: 'fixture', internalVersion: 'fixture' };
     baseReleases.push({ ...versions, id: 11, order: 20, packageIds: [] }, { ...versions, id: 5, order: 10, packageIds: [] },
       { ...versions, id: 31, order: 30, fileTypes: [2], packageIds: [] },
@@ -66,13 +54,13 @@ async function main() {
     const old = JSON.stringify({ kind: 'DSFGWorkspaceSettings', schemaVersion: 1, fileType: 0, templateReleaseId: 2 });
     const writes = [], storage = { async exists() { return true; }, async readFile() { return old; }, async writeFile(...args) { writes.push(args); } };
     const migrated = await settings.loadWorkspaceSettings(storage, 'old');
-    assert.deepEqual(migrated, settings.createWorkspaceSettings(catalog.resolveBaseRelease(2, 0)));
+    assert.deepEqual(migrated, settings.createNewWorkspaceSettings());
     assert.deepEqual(writes, []);
     assert.equal(JSON.parse(settings.encodeWorkspaceSettings(migrated)).schemaVersion, 3);
     await assert.rejects(settings.loadWorkspaceSettings({ ...storage, async readFile() { return old.replace('"templateReleaseId":2', '"templateReleaseId":999'); } }, 'unknown'), /未知/);
     assert.deepEqual(writes, []);
     const earlyV2 = { kind: 'DSFGWorkspaceSettings', schemaVersion: 2, fileType: 0, sourceTemplateReleaseId: 2, baseReleaseId: null, packageIds: [] };
-    assert.deepEqual(settings.decodeWorkspaceSettings(earlyV2), settings.createWorkspaceSettings(catalog.resolveBaseRelease(2, 0)));
+    assert.deepEqual(settings.decodeWorkspaceSettings(earlyV2), settings.createNewWorkspaceSettings());
     assert.deepEqual(settings.decodeWorkspaceSettings({ ...earlyV2, baseReleaseId: 5, packageIds: [101] }), v3({ baseReleaseId: 5, packageIds: [101] }));
     assert.equal(settings.decodeWorkspaceSettings({ ...earlyV2, baseReleaseId: 5, sourceTemplateReleaseId: 999 }).baseReleaseId, 5,
       'An explicit baseline wins over unused old source metadata');
@@ -127,9 +115,9 @@ async function main() {
     assert.equal(isApplicable({ requiredPackageIds: [101] }, { ...target, packageIds: [102] }), false);
     assert.equal(isApplicable({ fileTypes: [2], ...requirements }, target), false);
     const fromBase2 = { baseVersionRanges: [{ min: { releaseId: 2, inclusive: true } }] };
-    assert.equal(isApplicable(fromBase2, settings.createWorkspaceSettings(catalog.resolveBaseRelease(2, 0))), true);
+    assert.equal(isApplicable(fromBase2, settings.createNewWorkspaceSettings()), true);
     assert.equal(isApplicable(fromBase2, { ...settings.createWorkspaceSettings(), sourceTemplateReleaseId: 2 }), false);
-    assert.equal(isApplicable({ requiredPackageIds: [999] }, target), false, 'Unavailable catalogue entries hide their content');
+    assert.throws(() => isApplicable({ requiredPackageIds: [999] }, target), /未知/);
     console.log('PASS Features depend on the actual baseline and packages, even when obsolete source metadata disagrees');
 
     const a = catalog.cloneWorkspaceTarget(v3()), b = catalog.cloneWorkspaceTarget(v3());

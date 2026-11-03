@@ -10,6 +10,6 @@ export interface ConverterDocument {
     json: Value;
     dtype_csv: string;
 }
-export declare function decodeUgc(input: Uint8Array, filetype: UgcFileType, baseDtypeCsv: string): ConverterDocument;
+export declare function decodeUgc(input: Uint8Array, filetype: UgcFileType, baseDtypeCsv: string, paths?: readonly string[]): ConverterDocument;
 export declare function encodeUgc(document: ConverterDocument, fallbackDtypeCsv: string): Uint8Array;
 export {};

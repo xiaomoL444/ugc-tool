@@ -86,6 +86,8 @@ async function main() {
     await test('Standalone export matches dialogue CameraClip export, remaps nested IDs and leaves the draft unchanged', () => {
       const p = model.createCameraProject('Standalone'); p.clip.duration = 3.5;
       p.clip.components[0].properties.positionData.slot[0].vector3 = '1,2,3';
+      p.clip.components[0].properties.positionData.slot[0].persetPoint = 99;
+      p.clip.components[0].properties.positionData.slot[0].pathIndex = 17;
       const ids = Object.fromEntries(Object.keys(structs.createDefaultQxqyStructIds()).map((key, i) => [key, String(73000 + i)]));
       const before = model.encodeCameraProject(p);
       const result = exports.exportQxqyCameraClip(p.clip, ids);
@@ -95,6 +97,8 @@ async function main() {
       assert.equal(parsed.value.duration.value, '3.50');
       assert.equal(parsed.value.positionData.structId, ids.cameraPosition);
       assert.equal(parsed.value.positionData.value.slot.value[0].structId, ids.cameraSlot);
+      assert.equal(parsed.value.positionData.value.slot.value[0].value.persetPoint.value, '99');
+      assert.equal(parsed.value.positionData.value.slot.value[0].value.pathIndex.value, '17');
       assert.equal(parsed.value.rotationData.value.slot.itemCount, 0);
       const dialogue = dm.createEmptyDialogueProject(), group = dm.createDialogueNode('camera');
       dialogue.exportSettings.qxqyStructIds = ids; group.dialogue = undefined; group.lines[0].clips.push(p.clip); dialogue.dialogue.nodes.camera = group;

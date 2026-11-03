@@ -8,7 +8,28 @@ var gia_default = "# Path, Multiple keys, Type, Details\r\n1,,object\r\n1/1,,obj
 var decoder = new TextDecoder("utf-8", { fatal: true });
 var encoder = new TextEncoder();
 var MAX_DEPTH = 128;
-var MAX_FIELDS = 2e6;
+function selectFields(paths) {
+  if (paths === void 0) return void 0;
+  if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string" || !/^(?:0|[1-9]\d*)(?:\/(?:0|[1-9]\d*))*$/.test(path))) {
+    throw new TypeError("paths \u5FC5\u987B\u662F\u6570\u5B57\u5B57\u6BB5\u8DEF\u5F84\u5217\u8868\uFF0C\u4F8B\u5982 10/6");
+  }
+  const root = { all: false, children: /* @__PURE__ */ new Map() };
+  for (const path of paths) {
+    let node = root;
+    for (const id of path.split("/")) {
+      if (node.all) break;
+      let child = node.children.get(id);
+      if (!child) {
+        child = { all: false, children: /* @__PURE__ */ new Map() };
+        node.children.set(id, child);
+      }
+      node = child;
+    }
+    node.all = true;
+    node.children.clear();
+  }
+  return root;
+}
 var BinaryReader = class {
   offset = 0;
   error = false;
@@ -150,16 +171,28 @@ function structurallyValid(bytes2) {
   }
   return !reader.error;
 }
-function analyze(bytes2, nodes, parent = "", depth = 0, count = { value: 0 }) {
+function skipField(reader, type) {
+  if (type === 0) reader.readVarint();
+  else if (type === 2) reader.readData(reader.readVarint());
+  else if (type === 5) reader.readFloat32();
+  else throw new Error(`\u4E0D\u652F\u6301\u7684\u5B57\u6BB5\u7F16\u7801\u7C7B\u578B ${type}`);
+  if (reader.error) throw new Error("\u6587\u4EF6\u5185\u5BB9\u5DF2\u622A\u65AD\u6216\u635F\u574F");
+}
+function analyze(bytes2, nodes, parent = "", depth = 0, selection) {
   if (depth > MAX_DEPTH) throw new Error("\u6587\u4EF6\u5D4C\u5957\u5C42\u7EA7\u8FC7\u6DF1");
   const reader = new BinaryReader(bytes2);
   const seen = /* @__PURE__ */ new Map();
   while (!reader.eof) {
-    if (++count.value > MAX_FIELDS) throw new Error("\u6587\u4EF6\u5B57\u6BB5\u6570\u91CF\u8FC7\u591A");
     const tag = reader.readVarint();
     const type = Number(tag & 7n);
     const id = (tag >> 3n).toString();
     const path = parent ? `${parent}/${id}` : id;
+    if (selection && !selection.all && !selection.children.has(id)) {
+      skipField(reader, type);
+      continue;
+    }
+    const childSelection = selection?.children.get(id);
+    if (childSelection && !childSelection.all && type !== 2) throw new Error(`\u5B57\u6BB5 ${path} \u4E0D\u662F\u5BF9\u8C61\uFF0C\u65E0\u6CD5\u8BFB\u53D6\u5B50\u5B57\u6BB5`);
     let node = nodes.get(path);
     if (!node) {
       node = { multiple: false, int32: true, int64: true, float32: true, float64: true, object: true, string: true, data: true };
@@ -175,9 +208,10 @@ function analyze(bytes2, nodes, parent = "", depth = 0, count = { value: 0 }) {
       const value = reader.readData(reader.readVarint());
       node.int32 = node.int64 = node.float32 = node.float64 = false;
       if (node.object && structurallyValid(value)) {
-        if (value.length) node.string = node.data = false;
-        analyze(value, nodes, path, depth + 1, count);
+        if (value.length || childSelection && !childSelection.all) node.string = node.data = false;
+        analyze(value, nodes, path, depth + 1, childSelection);
       } else {
+        if (childSelection && !childSelection.all) throw new Error(`\u5B57\u6BB5 ${path} \u4E0D\u662F\u5BF9\u8C61\uFF0C\u65E0\u6CD5\u8BFB\u53D6\u5B50\u5B57\u6BB5`);
         node.object = false;
         node.dataSize = value.length;
         node.sample = value.slice(0, 16);
@@ -205,7 +239,7 @@ function fromBase64(value) {
   const binary = atob(value.replace(/^base64:/, ""));
   return Uint8Array.from(binary, (c) => c.charCodeAt(0));
 }
-function decodeObject(bytes2, nodes, parent = "", depth = 0) {
+function decodeObject(bytes2, nodes, parent = "", depth = 0, selection) {
   if (depth > MAX_DEPTH) throw new Error("\u6587\u4EF6\u5D4C\u5957\u5C42\u7EA7\u8FC7\u6DF1");
   const result = {};
   const reader = new BinaryReader(bytes2);
@@ -214,6 +248,11 @@ function decodeObject(bytes2, nodes, parent = "", depth = 0) {
     const type = Number(tag & 7n);
     const id = (tag >> 3n).toString();
     const path = parent ? `${parent}/${id}` : id;
+    if (selection && !selection.all && !selection.children.has(id)) {
+      skipField(reader, type);
+      continue;
+    }
+    const childSelection = selection?.children.get(id);
     const dtype2 = nodes.get(path);
     if (!dtype2) throw new Error(`dtype \u7F3A\u5C11\u5B57\u6BB5 ${path}`);
     let value;
@@ -223,7 +262,7 @@ function decodeObject(bytes2, nodes, parent = "", depth = 0) {
     } else if (type === 5 && dtype2.float32) value = reader.readFloat32();
     else if (type === 2) {
       const data = reader.readData(reader.readVarint());
-      if (dtype2.object && !dtype2.string && !dtype2.data) value = decodeObject(data, nodes, path, depth + 1);
+      if (dtype2.object && !dtype2.string && !dtype2.data) value = decodeObject(data, nodes, path, depth + 1, childSelection);
       else if (dtype2.string && !dtype2.object && !dtype2.data) value = `string:${decoder.decode(data)}`;
       else value = `base64:${toBase64(data)}`;
     } else throw new Error(`\u5B57\u6BB5 ${path} \u7684\u7F16\u7801\u4E0E dtype \u4E0D\u5339\u914D`);
@@ -274,11 +313,12 @@ function readHeader(input) {
     body: input.subarray(20, 20 + bodySize)
   };
 }
-function decodeUgc(input, filetype, baseDtypeCsv) {
+function decodeUgc(input, filetype, baseDtypeCsv, paths) {
   const { info, body } = readHeader(input);
   const nodes = parseDtype(baseDtypeCsv);
-  analyze(body, nodes);
-  return { filetype, dirtype: "Unknown", info, json: decodeObject(body, nodes), dtype_csv: serializeDtype(nodes) };
+  const selection = selectFields(paths);
+  analyze(body, nodes, "", 0, selection);
+  return { filetype, dirtype: "Unknown", info, json: decodeObject(body, nodes, "", 0, selection), dtype_csv: serializeDtype(nodes) };
 }
 function asBigInt(value) {
   if (typeof value === "number" && Number.isInteger(value)) return BigInt(value);
@@ -350,7 +390,7 @@ function dtype(type) {
 }
 function decode(input, options) {
   if (options.type !== "gil" && options.type !== "gia") throw new TypeError("type \u53EA\u80FD\u662F gil \u6216 gia");
-  return decodeUgc(bytes(input), options.type, dtype(options.type));
+  return decodeUgc(bytes(input), options.type, dtype(options.type), options.paths);
 }
 function encode(document, options = {}) {
   const type = options.type ?? document.filetype;

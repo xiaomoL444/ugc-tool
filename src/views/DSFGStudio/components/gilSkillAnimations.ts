@@ -64,9 +64,9 @@ export function matchGilSkillAnimationIds(skills: GilSkill[], current: SkillAnim
   return { presets, candidates, matched, missing, ambiguous };
 }
 
-/** Decode once, then independently match each table. A missing table does not hide decoding errors. */
+/** Read only the two definition tables, keeping large unrelated map assets outside the decode budget. */
 export function importGilWorkspaceIds(bytes: ArrayBuffer | ArrayBufferView, currentStructIds: WorkspaceStructIds, currentPresets: SkillAnimationPreset[]) {
-  const document = decode(bytes, { type: "gil" });
+  const document = decode(bytes, { type: "gil", paths: ["10/6", "15/1"] });
   return {
     structs: matchGilStructIds(readGilStructTable(document, false), currentStructIds),
     skills: matchGilSkillAnimationIds(readGilSkillTable(document), currentPresets),
