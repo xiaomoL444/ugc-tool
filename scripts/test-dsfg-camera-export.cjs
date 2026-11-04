@@ -221,7 +221,7 @@ async function main() {
       assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.find(field => field.key === 'pointType').options.map(item => item.value), ['NOLOC_Vector3', 'NOLOC_Rot']);
       assert.ok(!CAMERA_SLOT_PROPERTIES.find(field => field.key === 'pointType').options.some(item => item.value === 'NOLOC_Rot'));
       const target = createClipPropertyValues(CAMERA_VIEWPOINT_SLOT_PROPERTIES, slot({ pointType: 'NOLOC_Rot', vector3: '10,20,-30' }));
-      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(field => isClipPropertyVisible(field, target)).map(field => field.key), ['pointType', 'vector3', 'persetPoint', 'pathIndex']);
+      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(field => isClipPropertyVisible(field, target)).map(field => field.key), ['pointType', 'vector3']);
       const decoded = decodeDialogueProject(encodeDialogueProject(project([camera({ rotationData: { type: 'NOLOC_Fixed', slot: [target], snapToTarget: false } })])));
       const restored = decoded.dialogue.nodes.group.lines[0].clips[0].components[0].properties.rotationData.slot[0];
       assert.deepEqual(restored, target);
@@ -381,10 +381,10 @@ async function main() {
         ["NOLOC_Entity", [...common, "entity", "attachmentPoint", "offset", "requiresClientPos"]],
       ]) {
         const values = { ...slot(), pointType };
-        assert.deepEqual(CAMERA_SLOT_PROPERTIES.filter((property) => isClipPropertyVisible(property, values)).map((property) => property.key), [...expected, 'persetPoint', 'pathIndex']);
+        assert.deepEqual(CAMERA_SLOT_PROPERTIES.filter((property) => isClipPropertyVisible(property, values)).map((property) => property.key), expected);
       }
       const conditional = { key: "test", label: "test", type: "string", defaultValue: "", visibleWhen: { key: "space", values: [1] } };
-      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(property => isClipPropertyVisible(property, { pointType: 'NOLOC_Guid' })).map(property => property.key), ['pointType', 'persetPoint', 'pathIndex']);
+      assert.deepEqual(CAMERA_VIEWPOINT_SLOT_PROPERTIES.filter(property => isClipPropertyVisible(property, { pointType: 'NOLOC_Guid' })).map(property => property.key), ['pointType']);
       assert.equal(isClipPropertyVisible(conditional, { space: 1 }), true);
       assert.equal(isClipPropertyVisible(conditional, { space: "1" }), false);
       assert.equal(isClipPropertyVisible(conditional, {}), false);
