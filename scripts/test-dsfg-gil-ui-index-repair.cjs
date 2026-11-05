@@ -95,7 +95,20 @@ async function main() {
     assert.throws(() => repair(archive(msg(50, script(targets[0])))), /未找到客户端控件/);
     assert.throws(() => repair(fixture({ scripts: [] })), /未找到可修复/);
   });
-  await test('Default matches only its exact path; missing, duplicate and unsupported scripts are reported and skipped', () => {
+  await test('Numbered import paths repair all six variables only when script names and directories match', () => {
+    const imported = targets.map(([name, file, variables]) => [name, `default_import_file/${file.replace(/\.lua$/, '_1.lua')}`, variables]);
+    const unrelated = [script(['Default', 'Other/Default_1.lua', [dialogue]]), script(['Other', imported[4][1], [dialogue]])];
+    const result = repair(fixture({ scripts: [...imported.map(target => script(target)), ...unrelated] }));
+    assert.equal(result.rows.filter(row => row.changed).length, 6);
+    assert.deepEqual(result.warnings, []);
+    const values = { [confirm]: 1073741858, [dialogue]: 1073741869 };
+    assert.deepEqual(Buffer.from(result.bytes), fixture({ scripts: [...imported.map(target => script(target, { values })), ...unrelated] }));
+
+    const ambiguous = repair(fixture({ scripts: [...imported.map(target => script(target)), script(targets[4])] }));
+    assert.equal(ambiguous.rows.length, 5);
+    assert.match(ambiguous.warnings[0], /Default.*存在多个脚本/);
+  });
+  await test('Default requires its script directory; missing, duplicate and unsupported scripts are reported and skipped', () => {
     const result = repair(fixture({ scripts: [script(targets[0]), script(['Default', 'Other/Default.lua', [dialogue]])] }));
     assert.equal(result.rows.length, 1); assert.equal(result.warnings.length, 4); assert.match(result.warnings.at(-1), /Message_Dialog\/styles\/Default.lua/);
     const duplicate = repair(fixture({ scripts: [script(targets[0]), script(targets[0]), script(targets[1], { type: 4 }), script(targets[4])] }));

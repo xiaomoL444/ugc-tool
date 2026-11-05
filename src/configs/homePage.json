@@ -27,7 +27,7 @@
           "descriptionKey": "app.bgmPlayerDescription",
           "icon": "♫",
           "previewImages": [],
-          "badge": "v7.1 Update"
+          "badge": ""
         },
         {
           "id": "sound",
@@ -49,7 +49,7 @@
           "descriptionKey": "app.effectPlayerDescription",
           "icon": "✦",
           "previewImages": [],
-          "badge": "v7.1 Update"
+          "badge": "v7.2 Update"
         },
         {
           "id": "animation",
@@ -60,7 +60,7 @@
           "descriptionKey": "animationViewer.pageDescription",
           "icon": "✦",
           "previewImages": [],
-          "badge": "beta"
+          "badge": ""
         }
       ]
     },

@@ -257,8 +257,6 @@ async function main() {
         assert.equal(updated.slot[0].guid, original.slot[0].guid);
         assert.equal(original.slot[0].pointType, 'NOLOC_Rot');
       }
-      const position = CAMERA_POSITION_PROPERTIES.find(field => field.key === 'slot');
-      assert.deepEqual(getClipNestedProperties(position, { type: 'NOLOC_Fixed' }).find(field => field.key === 'pointType').options.map(option => option.value), ['NOLOC_Vector3', 'NOLOC_Guid', 'NOLOC_Entity']);
     });
 
     test("Legacy camera enums migrate on reopen and export without changing points or custom values", () => {
@@ -393,17 +391,18 @@ async function main() {
 
     test("Camera position mode controls Orbit and Follow fields and Slot bounds", () => {
       const slotDefinition = CAMERA_POSITION_PROPERTIES.find(property => property.key === 'slot');
-      for (const [type, fields, max] of [
-        ['NOLOC_Fixed', ['type', 'slot'], 1],
-        ['NOLOC_Linear', ['type', 'slot'], 2],
-        ['NOLOC_Follow', ['type', 'slot', 'snapToTarget'], 1],
-        ['NOLOC_Orbit', ['type', 'slot', 'orbitRotStart', 'orbitRotEnd', 'orbitRadius'], 1],
+      for (const [type, fields, max, pointTypes] of [
+        ['NOLOC_Fixed', ['type', 'slot'], 1, ['NOLOC_Vector3']],
+        ['NOLOC_Linear', ['type', 'slot'], 2, ['NOLOC_Vector3', 'NOLOC_Guid', 'NOLOC_Entity']],
+        ['NOLOC_Follow', ['type', 'slot', 'snapToTarget'], 1, ['NOLOC_Guid', 'NOLOC_Entity']],
+        ['NOLOC_Orbit', ['type', 'slot', 'orbitRotStart', 'orbitRotEnd', 'orbitRadius'], 1, ['NOLOC_Vector3', 'NOLOC_Guid', 'NOLOC_Entity']],
       ]) {
         const value = createClipPropertyValues(CAMERA_POSITION_PROPERTIES, { type });
         assert.equal(value.slot.length, 1);
         assert.deepEqual(CAMERA_POSITION_PROPERTIES.filter(property => isClipPropertyVisible(property, value)).map(property => property.key), fields);
         assert.deepEqual(getClipListLimits(slotDefinition, value), { min: 1, max });
         const slotFields = getClipNestedProperties(slotDefinition, value);
+        assert.deepEqual(slotFields.find(field => field.key === 'pointType').options.map(option => option.value), pointTypes);
         for (const pointType of ['NOLOC_Vector3', 'NOLOC_Guid', 'NOLOC_Entity']) {
           assert.equal(isClipPropertyVisible(slotFields.find(field => field.key === 'vector3'), { pointType }), type !== 'NOLOC_Follow' && pointType === 'NOLOC_Vector3', `${type}/${pointType}: Vector3 visibility`);
           assert.equal(isClipPropertyVisible(slotFields.find(field => field.key === 'offset'), { pointType }), type === 'NOLOC_Linear' || pointType !== 'NOLOC_Vector3', `${type}/${pointType}: offset visibility`);
@@ -451,10 +450,11 @@ async function main() {
     });
 
     test("Changing from Linear to single-Slot modes retains the first target and all hidden settings", () => {
-      const original = createClipPropertyValues(CAMERA_POSITION_PROPERTIES, { type: 'NOLOC_Linear', slot: [slot({ entity: 'first' }), slot({ entity: 'second' })], snapToTarget: true, orbitRotStart: '10,20,30', orbitRadius: 6 });
+      const original = createClipPropertyValues(CAMERA_POSITION_PROPERTIES, { type: 'NOLOC_Linear', slot: [slot({ pointType: 'NOLOC_Entity', entity: 'first' }), slot({ entity: 'second' })], snapToTarget: true, orbitRotStart: '10,20,30', orbitRadius: 6 });
       for (const type of ['NOLOC_Follow', 'NOLOC_Orbit', 'NOLOC_Fixed']) {
         const updated = updateClipStructField(CAMERA_POSITION_PROPERTIES, original, 'type', type);
-        assert.deepEqual(updated.slot, [original.slot[0]]);
+        const pointType = type === 'NOLOC_Fixed' ? 'NOLOC_Vector3' : 'NOLOC_Entity';
+        assert.deepEqual(updated.slot, [{ ...original.slot[0], pointType }]);
         assert.equal(updated.snapToTarget, true);
         assert.equal(updated.orbitRotStart, '10,20,30');
         assert.equal(updated.orbitRadius, 6);
@@ -465,7 +465,7 @@ async function main() {
       const linear = updateClipStructField(CAMERA_POSITION_PROPERTIES, original, 'type', 'NOLOC_Linear');
       assert.equal(linear.slot.length, 2);
       const legacy = createClipPropertyValues(CAMERA_POSITION_PROPERTIES, { ...original, type: 'NOLOC_Fixed' });
-      assert.equal(legacy.slot.length, 2, 'Reading legacy data preserves extra targets until an explicit mode change');
+      assert.deepEqual(legacy.slot, original.slot, 'Reading legacy data preserves targets until an explicit mode change');
     });
 
     test("Switching point types hides fields without deleting them from codec or complete exports", () => {

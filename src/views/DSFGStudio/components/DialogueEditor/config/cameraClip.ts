@@ -36,6 +36,9 @@ export const CAMERA_SLOT_PROPERTIES: ClipPropertyDefinition[] = [
 const CAMERA_POSITION_SLOT_PROPERTIES = CAMERA_SLOT_PROPERTIES.map(property =>
   property.key === "space" ? { ...property, visibleWhen: { key: "pointType", values: ["NOLOC_Guid", "NOLOC_Entity"] } } : property,
 );
+const CAMERA_FIXED_POSITION_SLOT_PROPERTIES = CAMERA_POSITION_SLOT_PROPERTIES.map(property =>
+  property.key === "pointType" ? { ...property, options: property.options?.filter(option => option.value === "NOLOC_Vector3") } : property,
+);
 const CAMERA_LINEAR_POSITION_SLOT_PROPERTIES = CAMERA_POSITION_SLOT_PROPERTIES.map(property =>
   property.key === "offset" ? { ...property, visibleWhen: { key: "pointType", values: ["NOLOC_Vector3", "NOLOC_Guid", "NOLOC_Entity"] } } : property,
 );
@@ -75,6 +78,7 @@ export const CAMERA_POSITION_PROPERTIES: ClipPropertyDefinition[] = [
       { label: "跟随", value: "NOLOC_Follow" }, { label: "环绕", value: "NOLOC_Orbit" }] },
   { ...slotProperty(CAMERA_POSITION_SLOT_PROPERTIES), defaultValue: [{}], minItems: 1, maxItems: 1,
     propertiesWhen: { key: "type", cases: {
+      NOLOC_Fixed: CAMERA_FIXED_POSITION_SLOT_PROPERTIES,
       NOLOC_Linear: CAMERA_LINEAR_POSITION_SLOT_PROPERTIES,
       NOLOC_Follow: CAMERA_FOLLOW_SLOT_PROPERTIES,
     } },

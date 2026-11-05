@@ -121,8 +121,12 @@ export function repairGilUiIndices(input: ArrayBuffer | ArrayBufferView): GilUiI
   for (const target of TARGETS) {
     const matches = scripts.filter(script => {
       const path = normalizePath(text(script, 3));
-      // Default must match its full path. Other named scripts may omit the path in older archives.
-      return path === target.path || (target.name !== "Default" && !path && text(script, 2) === target.name);
+      if (path === target.path) return true;
+      if (text(script, 2) !== target.name) return false;
+      // Imported filenames can have a numeric suffix. The directory and script name must still match.
+      if (path) return path.replace(/_\d+\.lua$/, ".lua") === target.path;
+      // Older archives can omit paths. Default still requires its specific directory.
+      return target.name !== "Default";
     });
     if (matches.length !== 1) {
       warnings.push(`「${target.name}」${matches.length ? "存在多个脚本，已跳过" : "未找到"}（/${target.path}）。`);
