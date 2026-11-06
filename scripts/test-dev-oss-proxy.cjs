@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const { test } = require("node:test");
 const { createDevOssProxy } = require("./dev-oss-proxy.cjs");
+const betaPrefix = "fixture/beta";
+const betaPath = `/${betaPrefix}`;
 
 async function listen(t, handler) {
   const server = http.createServer(handler);
@@ -30,19 +32,43 @@ function get(origin, path, options = {}) {
   });
 }
 
-async function fixture(t, reply, options = {}) {
+async function fixture(t, reply, { clientAddress, ...options } = {}) {
   const calls = [];
   const origin = await listen(t, (req, res) => {
     calls.push({ url: req.url, method: req.method, headers: req.headers });
     reply(req, res);
   });
-  const middleware = createDevOssProxy({ origin, ...options });
-  const proxy = await listen(t, (req, res) => middleware(req, res, () => {
-    res.writeHead(418);
-    res.end("next middleware");
-  }));
+  const middleware = createDevOssProxy({ origin, betaPrefix, ...options });
+  const proxy = await listen(t, (req, res) => {
+    if (clientAddress) Object.defineProperty(req.socket, "remoteAddress", { value: clientAddress });
+    middleware(req, res, () => {
+      res.writeHead(418);
+      res.end("next middleware");
+    });
+  });
   return { calls, proxy, get: (path, options) => get(proxy, path, options) };
 }
+
+test("only loopback clients with a configured beta prefix read beta", async (t) => {
+  for (const [name, options, source] of [
+    ["default", { betaPrefix: undefined }, "production"],
+    ["invalid prefix", { betaPrefix: "../beta" }, "production"],
+    ["production prefix", { betaPrefix: "ugc-tool-data" }, "production"],
+    ["LAN", { clientAddress: "192.168.1.20" }, "production"],
+    ["IPv6 loopback", { clientAddress: "::1" }, "beta"],
+    ["mapped loopback", { clientAddress: "::ffff:127.0.0.1" }, "beta"],
+  ]) {
+    await t.test(name, async (t) => {
+      const f = await fixture(t, (req, res) => res.end(req.url), options);
+      const suffix = "/EffectPlayer/data.json";
+      const result = await f.get("/ugc-tool-data" + suffix, { headers: { "x-forwarded-for": "127.0.0.1" } });
+      assert.equal(result.headers["x-ugc-data-source"], source);
+      assert.deepEqual(f.calls.map((call) => call.url), [
+        (source === "beta" ? betaPath : "/ugc-tool-data") + suffix,
+      ]);
+    });
+  }
+});
 
 test("beta index wins as a complete file; query and encoded path are preserved", async (t) => {
   const json = '{"items":[{"id":1},{"id":2,"beta":true}]}';
@@ -56,7 +82,7 @@ test("beta index wins as a complete file; query and encoded path are preserved",
   assert.equal(result.body.toString(), json);
   assert.equal(result.headers["x-ugc-data-source"], "beta");
   assert.equal(result.headers["cache-control"], "no-store");
-  assert.deepEqual(f.calls.map((call) => call.url), ["/ugc-tool-data-beta" + suffix]);
+  assert.deepEqual(f.calls.map((call) => call.url), [betaPath + suffix]);
 });
 
 test("404 falls back per file for indexes, translations, images, audio and video", async (t) => {
@@ -64,7 +90,7 @@ test("404 falls back per file for indexes, translations, images, audio and video
     "/Public/CustomUIImage/icon/1.png", "/SoundEffectPlayer/audio/1.ogg", "/EffectPlayer/webm/1.webm"];
   const bytes = Buffer.from([0, 255, 137, 80, 78, 71]);
   const f = await fixture(t, (req, res) => {
-    const missing = req.url.startsWith("/ugc-tool-data-beta/");
+    const missing = req.url.startsWith(betaPath + "/");
     res.writeHead(missing ? 404 : 200, { "content-type": "application/octet-stream" });
     res.end(missing ? "beta missing" : bytes);
   });
@@ -75,12 +101,12 @@ test("404 falls back per file for indexes, translations, images, audio and video
     assert.equal(result.headers["x-ugc-data-source"], "production");
   }
   assert.deepEqual(f.calls.map((call) => call.url),
-    paths.flatMap((path) => ["/ugc-tool-data-beta" + path, "/ugc-tool-data" + path]));
+    paths.flatMap((path) => [betaPath + path, "/ugc-tool-data" + path]));
 });
 
 test("HEAD preserves method and metadata across fallback", async (t) => {
   const f = await fixture(t, (req, res) => {
-    const missing = req.url.startsWith("/ugc-tool-data-beta/");
+    const missing = req.url.startsWith(betaPath + "/");
     res.writeHead(missing ? 404 : 200, { "content-type": "image/png", "content-length": "123" });
     res.end();
   });
@@ -92,12 +118,13 @@ test("HEAD preserves method and metadata across fallback", async (t) => {
   assert.deepEqual(f.calls.map((call) => call.method), ["HEAD", "HEAD"]);
 });
 
-for (const betaMissing of [false, true]) {
-  test(`media Range streams 206 from ${betaMissing ? "production" : "beta"}`, async (t) => {
+for (const betaStatus of [206, 401, 403, 404]) {
+  const betaFallback = betaStatus !== 206;
+  test(`media Range streams 206 from ${betaFallback ? "production" : "beta"} after beta status ${betaStatus}`, async (t) => {
     const f = await fixture(t, (req, res) => {
-      if (betaMissing && req.url.startsWith("/ugc-tool-data-beta/")) {
-        res.writeHead(404);
-        res.end("missing");
+      if (betaFallback && req.url.startsWith(betaPath + "/")) {
+        res.writeHead(betaStatus, { "www-authenticate": 'Basic realm="beta"' });
+        res.end("beta unavailable");
         return;
       }
       res.writeHead(206, { "content-type": "video/webm", "accept-ranges": "bytes",
@@ -110,12 +137,14 @@ for (const betaMissing of [false, true]) {
     assert.equal(result.headers["content-range"], "bytes 2-5/10");
     assert.equal(result.headers["accept-ranges"], "bytes");
     assert.equal(result.headers["content-type"], "video/webm");
+    assert.equal(result.headers["x-ugc-data-source"], betaFallback ? "production" : "beta");
+    assert.equal(result.headers["www-authenticate"], undefined);
     assert.ok(f.calls.every((call) => call.headers.range === "bytes=2-5"));
-    assert.equal(f.calls.length, betaMissing ? 2 : 1);
+    assert.equal(f.calls.length, betaFallback ? 2 : 1);
   });
 }
 
-for (const status of [403, 416, 429, 500, 503]) {
+for (const status of [416, 429, 500, 503]) {
   test(`beta HTTP ${status} remains visible without fallback`, async (t) => {
     const f = await fixture(t, (req, res) => { res.writeHead(status); res.end("beta error"); });
     const result = await f.get("/ugc-tool-data/EffectPlayer/data.json");
@@ -154,7 +183,7 @@ test("upstream connection failure and timeout return 502 without fallback", asyn
 test("a new beta file supersedes production; client validators and credentials are not forwarded", async (t) => {
   let betaExists = false;
   const f = await fixture(t, (req, res) => {
-    const beta = req.url.startsWith("/ugc-tool-data-beta/");
+    const beta = req.url.startsWith(betaPath + "/");
     res.writeHead(beta && !betaExists ? 404 : 200);
     res.end(beta ? "beta" : "production");
   });
@@ -177,11 +206,19 @@ test("a new beta file supersedes production; client validators and credentials a
 
 test("unrelated routes and write methods continue to the next middleware", async (t) => {
   const f = await fixture(t, () => assert.fail("Unrelated request reached OSS"));
-  for (const path of ["/", "/app.js", "/ugc-tool-data-beta/EffectPlayer/data.json", "/ugc-tool-database/test"]) {
+  for (const path of ["/", "/app.js", betaPath + "/EffectPlayer/data.json", "/ugc-tool-database/test"]) {
     assert.equal((await f.get(path)).status, 418);
   }
   assert.equal((await f.get("/ugc-tool-data/EffectPlayer/data.json", { method: "POST" })).status, 418);
   assert.equal(f.calls.length, 0);
+});
+
+test("path traversal cannot reach beta through the production route", async (t) => {
+  const f = await fixture(t, () => assert.fail("Invalid path reached OSS"), { betaPrefix: "" });
+  for (const path of ["/.." + betaPath + "/file", "/%2e%2e%2f" + betaPrefix + "/file"]) {
+    const result = await f.get("/ugc-tool-data" + path, { path: "/ugc-tool-data" + path });
+    assert.equal(result.status, 400);
+  }
 });
 
 test("closing a media request cancels its upstream stream", async (t) => {

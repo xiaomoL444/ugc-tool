@@ -1,7 +1,7 @@
 {
   "animationViewer.title": "Character Animation Viewer",
   "animationViewer.description": "Browse character animations by skill category and preview startup, sustained, and recovery segments separately",
-  "animationViewer.pageDescription": "Browse character animations by skill category and preview startup, sustained, and recovery segments separately",
+  "animationViewer.pageDescription": "Browse character animations by skill category and preview startup, sustained, and recovery segments separately. Includes animations through version 7.2.",
   "animationViewer.search.label": "Search",
   "animationViewer.search.placeholder": "Search animation names",
   "animationViewer.resultCount": "{count} segments",

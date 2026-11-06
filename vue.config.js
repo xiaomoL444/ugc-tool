@@ -23,7 +23,10 @@ module.exports = defineConfig({
   },
   devServer: {
     setupMiddlewares: (middlewares) => {
-      middlewares.unshift({ name: "oss-beta-fallback", middleware: createDevOssProxy() })
+      middlewares.unshift({
+        name: "oss-beta-fallback",
+        middleware: createDevOssProxy({ betaPrefix: process.env.UGC_OSS_BETA_PREFIX }),
+      })
       return middlewares
     },
     client: {

@@ -17,7 +17,7 @@ ugc-tool-data/
 ```
 
 生产索引地址为 `https://oss.xiaomol444.xyz/ugc-tool-data/Announcements/index.json`。
-开发环境沿用现有代理，先访问 `ugc-tool-data-beta`，文件 404 时回退正式目录。
+开发环境沿用 OSS 代理。本机配置 `UGC_OSS_BETA_PREFIX` 后优先读取对应的 Beta 目录，遇到 401、403 或 404 时回退正式目录。
 目录和索引文件名由 `src/configs/announcements.json` 配置，基础地址沿用 `VUE_APP_OSS_BASE`。
 
 ## 索引格式

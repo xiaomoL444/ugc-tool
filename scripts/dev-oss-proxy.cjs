@@ -5,9 +5,10 @@ const PREFIX = "/ugc-tool-data";
 const HOP_BY_HOP = ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"];
 
 // Stream both indexes and media through the same development-only fallback.
-function createDevOssProxy({ origin = "https://oss.xiaomol444.xyz", timeoutMs = 30000 } = {}) {
+function createDevOssProxy({ origin = "https://oss.xiaomol444.xyz", timeoutMs = 30000, betaPrefix = "" } = {}) {
   const upstream = new URL(origin);
   const transport = upstream.protocol === "https:" ? https : http;
+  const betaPath = /^[a-z\d_-]+(?:\/[a-z\d_-]+)*$/i.test(betaPrefix) ? `/${betaPrefix}` : "";
 
   return (req, res, next) => {
     if (!/^\/ugc-tool-data(?:\/|\?|$)/.test(req.url) || !["GET", "HEAD"].includes(req.method)) {
@@ -16,6 +17,15 @@ function createDevOssProxy({ origin = "https://oss.xiaomol444.xyz", timeoutMs = 
     }
 
     const suffix = req.url.slice(PREFIX.length);
+    const [pathname] = suffix.split("?", 1);
+    // Keep upstream path normalization from escaping the selected directory.
+    const pathSegments = pathname.replace(/%2e/gi, ".").replace(/%2f|%5c|\\/gi, "/").split("/");
+    if (pathSegments.includes("..")) {
+      res.writeHead(400, { "cache-control": "no-store" });
+      res.end("Invalid OSS resource path");
+      return;
+    }
+
     let activeRequest;
     let activeResponse;
 
@@ -40,14 +50,14 @@ function createDevOssProxy({ origin = "https://oss.xiaomol444.xyz", timeoutMs = 
       if (res.destroyed) return;
       const pending = transport.request(upstream, {
         method: req.method,
-        path: `${beta ? "/ugc-tool-data-beta" : PREFIX}${suffix}`,
+        path: `${beta ? betaPath : PREFIX}${suffix}`,
         headers: requestHeaders,
       }, (response) => {
         activeResponse = response;
         response.on("error", fail);
 
-        // Only a missing file permits fallback; all other errors remain visible.
-        if (beta && response.statusCode === 404) {
+        // An access denial or a missing beta file permits fallback.
+        if (beta && [401, 403, 404].includes(response.statusCode)) {
           response.on("end", () => request(false));
           response.resume();
           return;
@@ -71,7 +81,10 @@ function createDevOssProxy({ origin = "https://oss.xiaomol444.xyz", timeoutMs = 
       activeRequest?.destroy();
       activeResponse?.destroy();
     });
-    request(true);
+    // Use the socket address so clients cannot opt in through forwarded headers.
+    const clientAddress = req.socket.remoteAddress;
+    const isLoopback = clientAddress === "::1" || /^(?:::ffff:)?127\./.test(clientAddress);
+    request(Boolean(betaPath) && betaPath !== PREFIX && isLoopback);
   };
 }
 

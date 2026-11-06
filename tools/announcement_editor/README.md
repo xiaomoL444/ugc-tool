@@ -35,7 +35,7 @@ python -m pip install -r tools/announcement_editor/requirements.txt
 
 ## 发布到 OSS
 
-解压 ZIP，将 `Announcements/` 放到 OSS 的 `ugc-tool-data/` 下；开发测试可放到 `ugc-tool-data-beta/`。
+解压 ZIP，将 `Announcements/` 放到 OSS 的 `ugc-tool-data/` 下。开发测试目录使用网站项目 `.env.local` 中配置的 `UGC_OSS_BETA_PREFIX`。
 先上传正文及图片，最后上传 `index.json`。目录已有旧内容时覆盖更新文件即可。
 编辑器不会保存 OSS 密钥或自动上传；遵循项目现有 OSS 发布方式。
 保存和导出只作用于本地文件，网页要等 OSS 更新后才显示新公告。

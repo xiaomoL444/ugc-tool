@@ -1,7 +1,7 @@
 {
   "animationViewer.title": "角色動畫檢視器",
   "animationViewer.description": "依技能分類總覽角色動畫，獨立預覽前搖、持續與後搖",
-  "animationViewer.pageDescription": "依技能分類總覽角色動畫，獨立預覽前搖、持續與後搖",
+  "animationViewer.pageDescription": "依技能分類總覽角色動畫，獨立預覽前搖、持續與後搖。動畫收錄至 7.2 版。",
   "animationViewer.search.label": "搜尋",
   "animationViewer.search.placeholder": "搜尋動畫名稱",
   "animationViewer.resultCount": "共 {count} 段",

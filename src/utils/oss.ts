@@ -1,4 +1,4 @@
-// 开发环境使用同源代理：优先读取 beta，文件 404 时回退正式目录；生产环境直连正式 OSS。
+// 开发环境使用同源代理，由代理决定是否读取 beta；生产环境直连正式 OSS。
 export const OSS_BASE_URL = process.env.VUE_APP_OSS_BASE || (
   process.env.NODE_ENV === "development"
     ? "/ugc-tool-data"

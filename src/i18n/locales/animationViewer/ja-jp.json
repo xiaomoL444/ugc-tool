@@ -1,7 +1,7 @@
 {
   "animationViewer.title": "キャラクターアニメーションビューアー",
   "animationViewer.description": "スキルの分類別にアニメーションを一覧表示し、予備動作・継続・終了動作を個別にプレビュー",
-  "animationViewer.pageDescription": "スキルの分類別にアニメーションを一覧表示し、予備動作・継続・終了動作を個別にプレビュー",
+  "animationViewer.pageDescription": "スキルの分類別にアニメーションを一覧表示し、予備動作・継続・終了動作を個別にプレビュー。バージョン 7.2 までのアニメーションを収録。",
   "animationViewer.search.label": "検索",
   "animationViewer.search.placeholder": "アニメーション名を検索",
   "animationViewer.resultCount": "全 {count} 件",

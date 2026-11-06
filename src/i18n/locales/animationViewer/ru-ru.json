@@ -1,7 +1,7 @@
 {
   "animationViewer.title": "Просмотр анимаций персонажа",
   "animationViewer.description": "Обзор анимаций по категориям навыков с отдельным просмотром подготовки, поддержания и завершения",
-  "animationViewer.pageDescription": "Обзор анимаций по категориям навыков с отдельным просмотром подготовки, поддержания и завершения",
+  "animationViewer.pageDescription": "Обзор анимаций по категориям навыков с отдельным просмотром подготовки, поддержания и завершения. Включены анимации до версии 7.2 включительно.",
   "animationViewer.search.label": "Поиск",
   "animationViewer.search.placeholder": "Поиск по названию анимации",
   "animationViewer.resultCount": "Частей: {count}",

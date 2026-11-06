@@ -17,16 +17,19 @@ pnpm run serve
 
 开发环境的 OSS 请求统一经过同源 `/ugc-tool-data/...` 代理：
 
-- 优先读取 `https://oss.xiaomol444.xyz/ugc-tool-data-beta/...`。
-- 只有 beta 文件返回 **404** 时，才读取 `https://oss.xiaomol444.xyz/ugc-tool-data/...`；网络错误、403、5xx 等不会触发回退。
+- 默认读取正式库 `https://oss.xiaomol444.xyz/ugc-tool-data/...`。
+- 本机预览 Beta 使用 Git 忽略的 `.env.local` 中的 `UGC_OSS_BETA_PREFIX`。它是 OSS 域名下的对象目录，不带开头或结尾的 `/`。重启开发服务后通过 `localhost` 访问。未配置该变量的环境和局域网设备直接读正式库。
+- Beta 返回 **401、403 或 404** 时，代理改读正式库中的同一文件。网络错误和 5xx 仍直接报错。
 - JSON、翻译表、图片、音频、视频均使用相同规则；支持媒体 Range 请求。响应头 `X-Ugc-Data-Source` 显示实际来源 `beta` 或 `production`。
 - beta 的 `data.json` 应包含该工具的完整索引（正式内容和测试内容），不会按条目自动合并两份 JSON。仅需在 beta 目录上传新增或修改过的资源，共用资源留在正式目录即可。
-- 例如：索引放在 `ugc-tool-data-beta/EffectPlayer/data.json`，新增图片放在 `ugc-tool-data-beta/EffectPlayer/icon/123.png`；未上传至 beta 的图片自动从正式目录读取。翻译表也按整个文件覆盖。
+- 上传 Beta 索引时，把 `EffectPlayer/data.json` 放在本机配置的 Beta 前缀下，图片与翻译继续使用相同的相对目录。未上传至 Beta 的图片自动从正式目录读取，翻译表按整个文件覆盖。
 - 开发代理响应禁止浏览器缓存，避免正式资源的缓存遮住新上传的 beta 文件。更新代理配置后需重启 `pnpm run serve`。
 
 正式构建仍直连正式 OSS。已有的 `VUE_APP_OSS_BASE` 优先级不变；若把它设为其他地址，请求将使用该地址，不经过上述默认代理。
 
 运行代理回归测试：`node scripts/test-dev-oss-proxy.cjs`。
+
+随机 Beta 前缀应只保存在本机配置中。R2 自定义域名公开时，知道完整对象 URL 的人仍可以读取该对象。
 
 ### Compiles and minifies for production
 ```
