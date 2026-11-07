@@ -786,7 +786,8 @@ async function main() {
       const filtered = mount(target); await settle();
       const categoryNav = find(filtered.root, node => node.tag === 'nav' && node.props['aria-label'] === '预设分类');
       const titles = () => all(categoryNav, node => node.tag === 'button').map(text);
-      for (const title of ['任务样式', '多语言文本管理', '存档模块']) assert.ok(!titles().includes(title), title);
+      for (const title of ['任务样式', '存档模块']) assert.ok(!titles().includes(title), title);
+      assert.ok(titles().includes('多语言文本管理'));
       assert.ok(titles().includes('公共事件')); assert.ok(titles().includes('技能动画'));
       assert.equal(query(filtered.root, '[data-preset-category="questStyles"]').length, 0);
       target.value = settingsApi.createWorkspaceSettings(); await settle();

@@ -71,8 +71,8 @@ async function main() {
   await test('File-type restrictions and inclusive/exclusive version ranges use shared workspace targets', () => {
     for (const fileType of [0, 1, 2]) for (const baseReleaseId of [1, 2]) {
       const target = { fileType, baseReleaseId, packageIds: [] };
-      for (const key of ['Quest', 'Scene', 'questStyles', 'multilingualTexts', 'saveModules']) assert.equal(features.isWorkspaceFeatureAvailable(key, target), fileType === 0);
-      for (const key of ['Dialogue', 'Camera', 'EntityPresets', 'dialogueStyles']) assert.equal(features.isWorkspaceFeatureAvailable(key, target), true);
+      for (const key of ['Quest', 'Scene', 'questStyles', 'saveModules']) assert.equal(features.isWorkspaceFeatureAvailable(key, target), fileType === 0);
+      for (const key of ['Dialogue', 'Camera', 'EntityPresets', 'dialogueStyles', 'multilingualTexts']) assert.equal(features.isWorkspaceFeatureAvailable(key, target), true);
       assert.equal(features.isWorkspaceStructGroupAvailable('任务', target), fileType === 0);
       assert.equal(features.isWorkspaceStructGroupAvailable('场景', target), fileType === 0);
       assert.equal(features.isWorkspaceStructGroupAvailable('演出对话', target), true);

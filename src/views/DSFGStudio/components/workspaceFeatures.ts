@@ -28,7 +28,6 @@ export const workspaceFeatureRules: Readonly<Record<string, Applicability | unde
   Quest: mapOnly,
   Scene: mapOnly,
   questStyles: mapOnly,
-  multilingualTexts: mapOnly,
   saveModules: mapOnly,
 };
 
