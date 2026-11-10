@@ -184,7 +184,6 @@ onBeforeUnmount(() => {
           <StudioFileList :disabled="busy" :values="files" :selected-value="selectedFile" @select="selectFile" @add="creating = true" @delete="deleteFile">
             <template #actions><RuntimeImportButton :disabled="busy" :import-file="importConfiguration" /></template>
           </StudioFileList>
-          <p class="file-help">每个文件是一段顺序台词，保存在当前工作区。</p>
           <p v-if="fileError" class="error" role="alert">{{ fileError }}<button type="button" @click="refreshFiles">刷新列表</button></p>
       </div>
     </StudioSidebarContent>
@@ -210,7 +209,6 @@ onBeforeUnmount(() => {
 button { padding: 6px 10px; border: 1px solid #b7c8de; border-radius: 5px; background: white; color: #325a89; cursor: pointer; font-size: 12px; }
 button:disabled { opacity: .45; cursor: default; }
 button.primary { color: white; background: #2877c7; border-color: #2877c7; }
-.file-help { padding: 8px; font-size: 11px; line-height: 1.7; color: #8290a1; }
 .empty { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 20px; color: #718198; text-align: center; font-size: 13px; }
 .empty h3 { font-size: 17px; }
 .error { color: #b45309; overflow-wrap: anywhere; font-size: 12px; }

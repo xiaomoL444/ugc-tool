@@ -41,7 +41,6 @@ function togglePackage(id: number, event: Event) {
       <label v-for="extension in extensionPackages" :key="extension.id" class="package-option">
         <input type="checkbox" :checked="enabledPackageIds.includes(extension.id)" :disabled="disabled || includedPackageIds.includes(extension.id)" @change="togglePackage(extension.id, $event)" />
         {{ extension.name }}
-        <small v-if="includedPackageIds.includes(extension.id)" class="package-included">基准自带</small>
       </label>
     </div>
     <p v-for="message in errors" :key="message" class="version-error" role="alert">{{ message }}</p>
@@ -54,6 +53,5 @@ function togglePackage(id: number, event: Event) {
 .version-hint { margin: 0; color: #6e7f95; font-size: 12px; line-height: 1.7; }
 .package-option { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
 .package-option input { width: auto; margin: 0; }
-.package-included { color: #6e7f95; font-size: 11px; }
 .version-error { margin: 0; color: #a43d42; font-size: 12px; line-height: 1.6; }
 </style>

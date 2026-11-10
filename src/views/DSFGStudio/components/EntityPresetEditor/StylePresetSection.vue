@@ -11,7 +11,7 @@ const editableSystemValue = computed(() => editableSystem.value && props.categor
 const supportsParameters = computed(() => supportsStyleParameters(props.category));
 const valueType = computed(() => getStylePresetValueType(props.category));
 const valueLabel = computed(() => props.category === "cameras" ? "相机名称" : "类型值");
-const { customPresets, systemPresets, availablePresets, ready, error, status, retry, flush } = useStylePresets(props.category);
+const { customPresets, systemPresets, availablePresets, ready, error, retry, flush } = useStylePresets(props.category);
 const systemIDs = computed(() => new Set(systemPresets.value.map(preset => preset.id)));
 const entries = computed(() => availablePresets.value.map(preset => ({
   id: preset.id,
@@ -31,15 +31,7 @@ defineExpose({ flush, category: props.category, entries });
 
 <template>
   <section class="style-preset-section" :data-preset-category="category" :aria-label="`${title}预设`">
-    <header><div><h3>{{ title }}</h3><p>显示名称用于选择，{{ valueLabel }}按原文保存和导出。</p></div></header>
-    <p role="status">{{ supportsCustom ? status : '系统预设 · 只读' }}</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="retry().catch(() => undefined)">重试</button></p>
-    <p v-if="editableSystemValue">系统预设提供默认值，显示名称固定，实际值可修改。自定义预设可新增、编辑和删除，当前工作区共用。</p>
-    <p v-else-if="supportsParameters">系统预设的显示名称和类型值固定，可编辑参数。自定义预设可新增、编辑和删除，当前工作区共用。</p>
-    <p v-else-if="supportsCustom">系统预设只读。自定义预设可新增、编辑和删除，当前工作区共用。</p>
-    <p v-if="supportsCustom">修改预设不会改写已配置的内容。</p>
-    <p v-if="category === 'dialogueStyles'">显示标题控制文本编辑中的标题（说话人）和副标题；关闭时导出为空，已填写的文字保留在工程中。</p>
-    <p v-if="supportsParameters">参数名称、值来源和默认值在参数设置中定义，类型固定为整数。文本或选项使用该预设后，按定义的参数填写入参。</p>
     <h4>{{ editableSystem ? '系统预设 · 默认值' : '系统预设 · 只读' }}</h4>
     <div class="items system-items">
       <article v-for="(preset, index) in systemPresets" :key="preset.id" :data-preset-id="preset.id" tabindex="-1" :class="{ 'dialogue-style': category === 'dialogueStyles' }" :aria-label="`系统${title}预设 ${index + 1}`">
@@ -75,7 +67,7 @@ defineExpose({ flush, category: props.category, entries });
 <style scoped>
 .style-preset-section { max-width: none; margin-top: 0; padding: 20px; border: 1px solid #dbe4ef; border-radius: 12px; background: #fff; container: style-preset-section / inline-size; }
 header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
-h3 { font-size: 16px; margin: 0 0 6px; }
+.style-preset-section > h4:first-child { margin-top: 0; }
 p { color: #7c899c; font-size: 12px; line-height: 1.7; margin: 4px 0; }
 .items { display: grid; gap: 12px; margin-top: 20px; max-width: none; }
 .system-items article { background: #f4f7fb; color: #617189; overflow-wrap: anywhere; }

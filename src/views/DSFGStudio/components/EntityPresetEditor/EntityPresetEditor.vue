@@ -56,9 +56,9 @@ import { createSkillAnimationPreset, getSkillAnimationConfigId } from "./skillAn
 
 withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "EntityPresets" });
 const emit = defineEmits<{ "update:editorKind": [value: StudioEditorKind] }>();
-const { customPresets: customEntities, systemPresets: systemEntities, ready, error, status, retry, flush: flushEntities, bindHistory: bindEntityHistory } = useEntityPresets();
-const { customPresets: customSkills, visibleSystemPresets: systemSkills, ready: skillsReady, error: skillsError, status: skillsStatus, retry: retrySkills, flush: flushSkills, bindHistory: bindSkillHistory } = useSkillAnimationPresets();
-const { customPresets: customPublicEvents, visibleSystemPresets: systemPublicEvents, ready: publicReady, error: publicError, status: publicStatus, retry: retryPublic, flush: flushPublic, bindHistory: bindPublicHistory } = usePublicEventPresets();
+const { customPresets: customEntities, systemPresets: systemEntities, ready, error, retry, flush: flushEntities, bindHistory: bindEntityHistory } = useEntityPresets();
+const { customPresets: customSkills, visibleSystemPresets: systemSkills, ready: skillsReady, error: skillsError, retry: retrySkills, flush: flushSkills, bindHistory: bindSkillHistory } = useSkillAnimationPresets();
+const { customPresets: customPublicEvents, visibleSystemPresets: systemPublicEvents, ready: publicReady, error: publicError, retry: retryPublic, flush: flushPublic, bindHistory: bindPublicHistory } = usePublicEventPresets();
 const entityGroups = computed(() => [
   { system: true, title: "系统默认", label: "系统人物", items: systemEntities.value },
   { system: false, title: "自定义预设", label: "人物", items: customEntities.value },
@@ -135,7 +135,6 @@ defineExpose({ prepareToLeave: flush });
         <button v-for="category in categories" :key="category.key" type="button" :class="{ active: activeCategory === category.key }" :aria-current="activeCategory === category.key ? 'page' : undefined" @click="activeCategory = category.key">{{ category.title }}</button>
         <div v-if="otherCategories.length" class="nav-title other-nav-title">其他</div>
         <button v-for="category in otherCategories" :key="category.key" type="button" :class="{ active: activeCategory === category.key }" :aria-current="activeCategory === category.key ? 'page' : undefined" @click="activeCategory = category.key">{{ category.title }}</button>
-        <p>当前工作区<br />修改后自动保存</p>
       </nav>
     </StudioSidebarContent>
     <div class="preset-workbench" :class="{ 'browser-collapsed': browserCollapsed || isOtherCategory }">
@@ -150,13 +149,10 @@ defineExpose({ prepareToLeave: flush });
         <StudioHistoryToolbar v-show="activeCategory !== 'multilingualTexts'" :history="presetHistory.current.value" :disabled="activeCategory === 'entityGetMethods'" />
       </header>
     <PresetEntryBrowser :id="browserId" :groups="browserGroups" :active-category="activeCategory" :selected-entry="selectedEntry" :collapsed="browserCollapsed || isOtherCategory" @select="selectPresetEntry" />
-    <main class="preset-content">
+    <main class="preset-content" :class="{ 'multilingual-content': activeCategory === 'multilingualTexts' }">
       <section v-show="activeCategory === 'entities'" class="preset-section" data-preset-category="entities" aria-labelledby="entity-presets-title">
       <header><div><h3 id="entity-presets-title">预设实体</h3><p>保存常用人物，以及公共事件使用的 guid 和实体查询。</p></div></header>
-      <p class="status" role="status">{{ status }}</p>
       <p v-if="error" role="alert" class="error">{{ error }} <button type="button" @click="retry().catch(() => undefined)">重试</button></p>
-      <p class="hint">当前工作区共用。修改或删除预设不影响已经创建的对话。</p>
-      <p class="hint">系统默认的代号固定，人物信息及实体参数可修改。自定义预设可新增、编辑和删除。</p>
       <template v-for="group in entityGroups" :key="group.title">
       <h4>{{ group.title }}</h4>
       <div class="preset-list" :class="group.system ? 'system-items' : 'entity-custom-list'">
@@ -177,11 +173,8 @@ defineExpose({ prepareToLeave: flush });
       <div class="preset-footer"><button type="button" :disabled="!ready" @click="addPreset">＋ 新建人物预设</button></div>
       </section>
       <section v-show="activeCategory === 'skills'" class="preset-section" data-preset-category="skills" aria-labelledby="skill-presets-title">
-        <header><div><h3 id="skill-presets-title">预设技能动画</h3><p>保存动画名称和技能配置 ID，在 Timeline 的 Player Skill 动作中选择使用。</p></div></header>
-        <p class="status" role="status">{{ skillsStatus }}</p>
+        <header><div><h3 id="skill-presets-title">预设技能动画</h3><a class="skill-viewer-link" href="https://tool.xiaomol444.xyz/AnimationViewer" target="_blank" rel="noopener noreferrer">查看技能动画 ↗</a><p>保存动画名称和技能配置 ID，在 Timeline 的 Player Skill 动作中选择使用。</p></div></header>
         <p v-if="skillsError" role="alert" class="error">{{ skillsError }} <button type="button" @click="retrySkills().catch(() => undefined)">重试</button></p>
-        <p class="hint">当前工作区共用。修改或删除预设不影响已配置的 Timeline 动作。</p>
-        <p class="hint">系统默认的动画名称固定，技能配置 ID 可修改。自定义预设可新增、编辑和删除。</p>
         <template v-for="group in skillGroups" :key="group.title">
         <h4>{{ group.title }}</h4>
         <div class="preset-list" :class="group.system ? 'system-items' : 'skill-custom-list'">
@@ -201,10 +194,7 @@ defineExpose({ prepareToLeave: flush });
       </section>
       <section v-show="activeCategory === 'publicEvents'" class="preset-section" data-preset-category="publicEvents" aria-labelledby="public-presets-title">
         <header><div><h3 id="public-presets-title">预设公共事件</h3><p>代号用于显示和选择，事件名及参数用于执行。在 Timeline 的 Public Event 动作中选择使用。</p></div></header>
-        <p class="status" role="status">{{ publicStatus }}</p>
         <p v-if="publicError" role="alert" class="error">{{ publicError }} <button type="button" @click="retryPublic().catch(() => undefined)">重试</button></p>
-        <p class="hint">当前工作区共用。显示条件与持续时间开关会同步到已配置的 Clip，事件名和参数值保留原内容。</p>
-        <p class="hint">系统默认的代号固定，事件名及参数可修改。自定义预设可新增、编辑和删除；展开参数设置后编辑。</p>
         <template v-for="group in publicGroups" :key="group.title">
         <h4>{{ group.title }}</h4>
         <div class="preset-list" :class="group.system ? 'system-items' : 'public-custom-list'">
@@ -298,6 +288,8 @@ defineExpose({ prepareToLeave: flush });
 .entity-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; color: #334158; background: #f5f7fb; }
 main { padding: 24px; overflow: auto; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.skill-viewer-link { display: inline-block; margin: 4px 0; color: #2877c7; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.skill-viewer-link:focus-visible { outline: 2px solid #b4d0f4; outline-offset: 3px; border-radius: 3px; }
 h2 { font-size: 20px; margin: 0 0 8px; }
 h3 { font-size: 16px; margin: 0 0 6px; }
 h4 { font-size: 13px; margin: 22px 0 10px; color: #526680; }
@@ -319,7 +311,6 @@ input.entity-alias:hover { border-color: #b4d0f4; }
 .preset-section + .preset-section { margin-top: 20px; }
 .preset-section { max-width: 1100px; padding: 20px; border: 1px solid #dbe4ef; border-radius: 12px; background: #fff; }
 p { font-size: 13px; line-height: 1.7; margin: 4px 0; }
-.status, .hint { color: #7c899c; font-size: 12px; }
 .preset-list { display: grid; gap: 12px; margin-top: 22px; max-width: 900px; }
 article { display: grid; grid-template-columns: 32px minmax(100px, 1fr) minmax(100px, 1fr) auto; align-items: center; gap: 16px; padding: 18px; border: 1px solid #dbe4ef; border-radius: 10px; background: #fff; }
 .avatar { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: #537db0; background: #eaf1fb; }
@@ -341,6 +332,7 @@ button:disabled { opacity: .4; cursor: default; }
 .preset-workbench { display: grid; grid-template-columns: 216px minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); min-height: 0; min-width: 0; overflow: hidden; }
 .preset-workbench.browser-collapsed { grid-template-columns: minmax(0,1fr); }
 .preset-content { grid-column: 2; grid-row: 2; min-height: 0; }
+.preset-content.multilingual-content { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .browser-collapsed > .preset-content { grid-column: 1; }
 .preset-content :deep([data-preset-id]) { scroll-margin-top: 16px; }
 .preset-content :deep([data-preset-selected="true"]) { outline: 2px solid #72b8ef; outline-offset: 3px; }
@@ -349,7 +341,6 @@ button:disabled { opacity: .4; cursor: default; }
 .category-nav .other-nav-title { margin-top: 16px; padding-top: 16px; border-top: 1px solid #d4d8f4; }
 .category-nav button { text-align:left; padding:12px; border-color:transparent; background:transparent; color:#60718a; }
 .category-nav button.active { background:#eaf2ff; color:#245aa2; font-weight:600; }
-.category-nav p { margin:22px 12px 0; color:#94a0b1; font-size:11px; }
 main { min-width:0; } .preset-section { max-width:none; } .preset-section + .preset-section { margin-top:0; } .preset-list { max-width:none; margin-top:12px; }
 article.public-card { grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto; gap:16px; padding:20px; }
 article.public-system-card { grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr) auto auto; }
@@ -383,5 +374,5 @@ article.public-system-card { grid-template-columns:minmax(0,1fr) minmax(0,1fr) m
   .visibility-heading .visibility-add { margin-left: 0; }
 }
 @media(max-width:1050px) { .preset-workbench { grid-template-columns: 168px minmax(0,1fr); } }
-@media(max-width:760px) { .settings-layout { grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); } .preset-workbench { grid-template-columns:140px minmax(0,1fr); } .category-nav { flex-direction:row; padding:8px; gap:4px; border-right:0; border-bottom:1px solid #dbe4ef; } .category-nav button { white-space:nowrap; } .nav-title,.category-nav p { display:none; } article.public-card { padding:14px; gap:10px; } article.public-system-card { grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto; } .public-system-card > .system-badge { grid-column:3; } .public-system-card > .parameter-preview { grid-column:1 / -1; grid-row:2; } .public-system-card > .public-parameters { grid-row:3; } }
+@media(max-width:760px) { .settings-layout { grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); } .preset-workbench { grid-template-columns:140px minmax(0,1fr); } .category-nav { flex-direction:row; padding:8px; gap:4px; border-right:0; border-bottom:1px solid #dbe4ef; } .category-nav button { white-space:nowrap; } .nav-title { display:none; } article.public-card { padding:14px; gap:10px; } article.public-system-card { grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto; } .public-system-card > .system-badge { grid-column:3; } .public-system-card > .parameter-preview { grid-column:1 / -1; grid-row:2; } .public-system-card > .public-parameters { grid-row:3; } }
 </style>

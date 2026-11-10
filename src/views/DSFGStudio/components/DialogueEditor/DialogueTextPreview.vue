@@ -401,22 +401,18 @@ onBeforeUnmount(() => {
   <section class="text-preview" aria-label="文本对话编辑器">
     <header class="text-preview-toolbar">
       <div class="text-preview-summary">
-        <strong>对话手稿</strong>
         <span>{{ lineCount }} 句台词 · {{ preview.blocks.filter(block => block.kind === 'dialogue').length }} 个对话集合</span>
       </div>
       <div class="text-preview-zoom" role="group" aria-label="文本预览缩放">
         <button v-if="deletedDialogue" type="button" title="继续编辑前，可恢复刚删除的内容、Clip 和连线" @click="undoDeletion">撤销删除</button>
-        <button type="button" class="new-group-button" @click="act({ type: 'create' })">＋ 新建集合</button>
         <button type="button" aria-label="缩小文本预览" :disabled="zoom <= 0.4" @click="changeZoom(zoom - 0.1)">−</button>
         <button type="button" title="重置为 100%" aria-label="重置文本预览缩放" @click="changeZoom(1)">{{ Math.round(zoom * 100) }}%</button>
         <button type="button" aria-label="放大文本预览" :disabled="zoom >= 1.5" @click="changeZoom(zoom + 0.1)">＋</button>
         <button type="button" @click="fitWidth">适合宽度</button>
       </div>
     </header>
-    <div class="text-preview-legend">
-      <span>点击选择集合 · 右侧添加内容 · 拖动空白处平移 · Ctrl+Enter 续写</span>
-      <span class="return-legend">虚线：返回前文</span>
-      <button v-if="detachedCount" type="button" class="detached-legend" @click="focusBlock(detachedBlocks[(detachedBlocks.findIndex(block => block.id === activeBlockId) + 1) % detachedCount].id)">{{ detachedCount }} 组散落文本 · 点击查看</button>
+    <div v-if="detachedCount" class="text-preview-legend">
+      <button type="button" class="detached-legend" @click="focusBlock(detachedBlocks[(detachedBlocks.findIndex(block => block.id === activeBlockId) + 1) % detachedCount].id)">{{ detachedCount }} 组散落文本 · 点击查看</button>
     </div>
     <div class="text-editing-workspace">
     <div v-if="!preview.blocks.length" class="text-preview-empty"><p>从第一句对话开始。</p><button type="button" @click="act({ type: 'create' })">＋ 写下第一句</button></div>
@@ -496,12 +492,12 @@ onBeforeUnmount(() => {
     <DialogueMinimap :layout="layout" :blocks="preview.blocks" :viewport="minimapViewport" :active-block-id="activeBlockId" :zoom="zoom" @navigate="navigateMinimap" />
     </div>
     <aside class="text-collection-panel" aria-label="集合操作">
-      <label class="panel-field collection-navigator">定位集合或节点
+      <div class="panel-field collection-navigator">
         <StudioSelectField aria-label="聚焦集合或节点" :value="activeBlockId" @change="focusBlock(($event.target as HTMLSelectElement).value)">
           <option value="" disabled>聚焦集合或节点…</option>
           <option v-for="(block, index) in preview.blocks" :key="block.id" :value="block.id">{{ index + 1 }} · {{ block.title }}{{ !block.reachable ? ' · 散落' : '' }}</option>
         </StudioSelectField>
-      </label>
+      </div>
       <template v-if="activeBlock">
         <header><span class="panel-eyebrow">当前选中</span><h3>{{ blockLabel(activeBlock) }}</h3><p>{{ activeBlock.kind === 'dialogue' ? `${activeBlock.lines.length} 句对话` : activeBlock.title }}</p></header>
         <label v-if="activeBlock.outlets.length > 1" class="panel-field">添加到哪个出口
@@ -509,14 +505,14 @@ onBeforeUnmount(() => {
         </label>
         <div class="panel-section">
           <span class="panel-eyebrow">添加对话</span>
-          <button type="button" class="panel-add-button" :disabled="!activeOutletId" @click="append('dialogue')"><strong>＋ 默认对话</strong><small>{{ activeBlock.kind === 'dialogue' ? '追加到当前集合末尾' : '在所选出口后创建对话集合' }}</small></button>
+          <button type="button" class="panel-add-button" :disabled="!activeOutletId" @click="append('dialogue')"><strong>＋ 默认对话</strong></button>
           <button v-for="preset in namedPresets" :key="preset.id" type="button" class="panel-add-button" :title="`Talker：${preset.talker}`" :disabled="!activeOutletId" @click="append('dialogue', preset)"><strong>＋ {{ preset.name.trim() || preset.talker }}</strong><small>{{ preset.subtitle || '无副标题' }} · 空白对话</small></button>
           <p v-if="presetsError" class="panel-hint" role="alert">{{ presetsError }} <button type="button" @click="emit('retryPresets')">重试</button></p>
           <p v-else-if="!namedPresets.length" class="panel-hint">在「编辑内容 → 预设设置 → 预设实体」保存人物，即可从这里添加。</p>
         </div>
         <div class="panel-section">
           <span class="panel-eyebrow">创建后续节点</span>
-          <button type="button" class="panel-add-button" :disabled="!activeOutletId" @click="append('select')"><strong>⑂ 添加选项卡</strong><small>在集合下方创建独立选项节点</small></button>
+          <button type="button" class="panel-add-button" :disabled="!activeOutletId" @click="append('select')"><strong>⑂ 添加选项卡</strong></button>
           <button type="button" class="panel-add-button" :disabled="!activeOutletId" @click="append('condition')"><strong>◇ 添加条件分支</strong><small>创建独立条件节点</small></button>
           <p v-if="!activeOutletId" class="panel-hint">此节点没有可用出口，请在节点图配置。</p>
         </div>
@@ -586,7 +582,6 @@ onBeforeUnmount(() => {
 .text-block-outlets .outlet-focus[aria-pressed="true"] { color: var(--block-color); font-weight: 600; }
 .text-preview-toolbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 16px 6px; overflow-x: auto; scrollbar-width: thin; background: #fff; }
 .text-preview-summary { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 10px; white-space: nowrap; }
-.text-preview-summary strong { flex-shrink: 0; font-size: 14px; }
 .text-preview-summary span { overflow: hidden; text-overflow: ellipsis; }
 .text-preview-summary span, .text-preview-legend { font-size: 12px; color: #78859a; }
 .text-preview-zoom { display: flex; flex-shrink: 0; align-items: center; gap: 4px; white-space: nowrap; }
@@ -594,8 +589,6 @@ onBeforeUnmount(() => {
 .text-preview-zoom button:hover { background: #edf3fc; }
 .text-preview-zoom button:disabled { opacity: .35; cursor: default; }
 .text-preview-legend { display: flex; flex-shrink: 0; align-items: center; gap: 14px; padding: 0 16px 6px; overflow-x: auto; white-space: nowrap; scrollbar-width: thin; font-size: 11px; background: #fff; border-bottom: 1px solid #e5eaf2; }
-.return-legend { color: #8863b1; }
-.return-legend::before { content: ''; display: inline-block; width: 20px; margin-right: 6px; vertical-align: middle; border-top: 2px dashed #9871c4; }
 .detached-legend { color: #a3773b; }
 .text-preview-viewport { flex: 1; min-height: 0; min-width: 0; overflow: auto; padding: 24px; outline-offset: -3px; background-image: radial-gradient(#dce3ee .8px, transparent .8px); background-size: 20px 20px; cursor: grab; overflow-anchor: none; }
 .text-preview-viewport.is-panning { cursor: grabbing; user-select: none; }
@@ -619,7 +612,6 @@ onBeforeUnmount(() => {
 .text-block-header button:hover, .text-block-outlets button:hover { background: #e9f0fa; color: #326ba9; }
 .text-block-kind { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .text-preview select { border: 1px solid #e0e6ef; border-radius: 5px; padding: 5px; color: #78879a; background: #fff; font-size: 11px; cursor: pointer; }
-.text-preview-zoom .new-group-button { color: #fff; background: #477fb5; border-color: #477fb5; margin-right: 8px; }
 button.detached-legend { border: 0; border-radius: 3px; background: #fff6e6; font-size: 11px; cursor: pointer; padding: 2px 6px; }
 .text-line-slot { position: relative; border-radius: 7px; }
 .line-drag-source { background: #edf3fb; outline: 1px dashed #a9bfdc; outline-offset: -1px; }

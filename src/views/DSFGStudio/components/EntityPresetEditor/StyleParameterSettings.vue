@@ -43,8 +43,7 @@ function moveParameter(index: number, direction: -1 | 1) {
       <span class="parameter-count">{{ parameters.length }} / 100</span>
     </summary>
     <div class="parameter-body">
-      <p class="parameter-description">按列表顺序传入整数，最多 100 项；未设置参数时保持空列表。</p>
-      <div ref="rows" class="parameter-list">
+      <div v-if="parameters.length" ref="rows" class="parameter-list">
         <div v-for="(param, index) in parameters" :key="param.id" class="parameter-row">
           <div class="parameter-fields">
             <label>参数名称<input v-model="param.name" class="parameter-name" :disabled="disabled" :aria-label="`${label} 参数 ${index + 1} 名称`" placeholder="例如：角色编号" /></label>
@@ -59,7 +58,6 @@ function moveParameter(index: number, direction: -1 | 1) {
           </div>
         </div>
       </div>
-      <p v-if="!parameters.length" class="empty-parameters">暂无参数。添加后，可在文本或选项编辑中按参数名称填写入参。</p>
       <button type="button" class="parameter-add" :disabled="disabled || parameters.length >= 100" @click="addParameter">＋ 添加参数</button>
     </div>
   </details>
@@ -74,7 +72,6 @@ summary:focus-visible { outline: 2px solid #b4d0f4; outline-offset: 4px; border-
 details[open] > summary .parameter-arrow { transform: rotate(90deg); }
 .parameter-count { margin-left: auto; color: #8693a6; }
 .parameter-body { display: grid; gap: 12px; min-width: 0; padding-top: 12px; text-align: left; }
-.parameter-description, .empty-parameters { margin: 0; color: #8693a6; font-size: 12px; line-height: 1.7; }
 .parameter-list { display: grid; gap: 12px; min-width: 0; }
 .parameter-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; min-width: 0; padding: 14px; border: 1px solid #e0e7f2; border-radius: 8px; background: #f8faff; }
 .parameter-fields { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr) repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; min-width: 0; }

@@ -22,7 +22,7 @@
 #app .dsfg-studio .studio-dialogue-modes { display: flex; padding: 3px; gap: 3px; border: 1px solid var(--studio-line); border-radius: 8px; background: #ffffff8c; }
 #app .dsfg-studio .studio-dialogue-modes button { flex: 1; padding: 8px 4px; border: 0; border-radius: 6px; background: transparent; color: #6976a0; font: inherit; font-size: 12px; cursor: pointer; }
 #app .dsfg-studio .studio-dialogue-modes button[aria-pressed="true"] { color: #fff; background: linear-gradient(110deg, #1981ff, #00a9f4); box-shadow: 0 2px 5px #148bff24; }
-#app .dsfg-studio .studio-sidebar-content { flex: 1; min-height: 0; min-width: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #c5cbef transparent; }
+#app .dsfg-studio .studio-sidebar-content { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #c5cbef transparent; }
 #app .dsfg-studio .studio-main { position: relative; min-width: 0; min-height: 0; overflow: hidden; padding: 0; }
 #app .dsfg-studio .studio-session-history { position: absolute; top: 0; right: 10px; z-index: 10; display: flex; align-items: center; height: 30px; padding: 0 3px; border-radius: 6px; background: #eceaff; }
 #app .dsfg-studio .studio-editor-session > .Section > .MainBox > .title,
@@ -73,8 +73,6 @@
 #app .dsfg-studio .studio-sidebar :is(.studio-file-row.selected, .tree-row.selected, .scene-browser .tree-node.active, .category-nav button.active) { background: var(--sidebar-selected); box-shadow: inset 2px 0 var(--studio-blue); border-radius: 8px; }
 #app .dsfg-studio .studio-sidebar :is(.studio-file-row.selected .studio-file-select, .tree-row.selected .tree-item, .scene-browser .tree-node.active, .category-nav button.active) { color: var(--studio-blue); font-weight: 600; }
 #app .dsfg-studio .studio-sidebar :is(.tree-item small, .scene-browser .tree-node small) { color: var(--sidebar-muted); font-size: 11px; font-weight: 400; }
-#app .dsfg-studio .studio-sidebar :is(.tree-footnote, .scene-browser .aside-note, .category-nav > p, .file-help) { margin: 16px 0 0; padding: 12px 0 0; border-top: 1px solid var(--studio-line); color: var(--sidebar-muted); font-size: 11px; font-weight: 400; line-height: 1.8; }
-#app .dsfg-studio .studio-sidebar .category-nav > p { margin-top: auto; padding-top: 12px; }
 #app .dsfg-studio .studio-sidebar .studio-file-actions :is(button, .runtime-import button) { min-height: 34px; padding: 7px 10px; border: 1px solid var(--studio-line); border-radius: 7px; color: var(--sidebar-text); background: #ffffffb8; font-size: 12px; font-weight: 500; line-height: 18px; }
 #app .dsfg-studio .quest-columns,
 #app .dsfg-studio .settings-layout { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }

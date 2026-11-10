@@ -183,7 +183,7 @@ function removeLink() {
       <div class="scope-control"><strong>任务衔接</strong><StudioSelectField :value="mainId ?? ''" aria-label="衔接图主任务范围" @change="changeMain"><option value="">全部主任务</option><option v-for="main in project.mainQuests" :key="main.id" :value="main.id">{{ main.title || '未命名主任务' }} #{{ main.id }}</option></StudioSelectField></div>
       <div class="flow-controls"><button type="button" @click="arrange">整理布局</button><button type="button" @click="fit">适应画布</button><button type="button" aria-label="缩小任务图" @click="zoomOut()">−</button><button type="button" aria-label="放大任务图" @click="zoomIn()">＋</button></div>
     </header>
-    <div class="flow-guide"><span class="legend-next">后续任务</span><span class="legend-failure">失败回溯</span><span>自由拖动子任务，外框自动包裹 · 拖动分组标题整体移动 · 双击子任务编辑属性</span></div>
+    <div class="flow-guide"><span class="legend-next">后续任务</span><span class="legend-failure">失败回溯</span></div>
     <p v-if="projection.omitted" class="flow-warning" role="status">当前图省略了 {{ projection.omitted }} 条连线，任务数据完整保留。可切换主任务或在任务属性中查看全部衔接。</p>
     <div class="flow-canvas" :class="{ 'is-panning': panning }" @pointerdown.capture="startCanvasPan" @contextmenu.prevent>
       <VueFlow v-if="nodes.length" :id="flowId" v-model:nodes="nodes" v-model:edges="edges" :min-zoom=".15" :max-zoom="1.6" :delete-key-code="null" :disable-keyboard-a11y="!editorActive()" :edges-updatable="false" :pan-on-drag="[0]" fit-view-on-init

@@ -439,7 +439,6 @@ function editFlowTask(id: number) {
           <span>{{ treePage + 1 }} / {{ treePageCount }}</span>
           <button type="button" :disabled="treePage + 1 >= treePageCount" @click="treePage++">下一页</button>
         </footer>
-        <p class="tree-footnote">点击条目编辑 · 点击 ＋ 添加下级任务<br />改名或移动归属时，任务 ID 保持不变。</p>
       </aside></StudioSidebarContent>
 
       <KeepAlive><QuestFlowGraph v-if="editorView === 'flow'" :project="project" :selection="selection" @select="reveal({ kind: 'sub', id: $event })" @edit="editFlowTask" /></KeepAlive>
@@ -594,7 +593,6 @@ button.danger:hover { background: #fef2f2; }
 .sub-pagination { display: flex; align-items: center; justify-content: center; flex: 1; gap: 7px; font-size: 10px; color: #64748b; }
 .sub-pagination button { padding: 3px 10px; border: 1px solid #e2e8f0; }
 .tree-pagination { display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 8px 12px; border-top: 1px solid #e2e8f0; font-size: 11px; }
-.tree-footnote { margin: 0; padding: 10px 12px; font-size: 10px; line-height: 1.7; color: #94a3b8; border-top: 1px solid #eef2f7; }
 .quest-inspector { overflow: auto; min-height: 0; min-width: 0; padding: 24px clamp(18px, 3%, 44px) 40px; scrollbar-gutter: stable; }
 .inspector-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .inspector-header > div { min-width: 0; }
@@ -689,7 +687,6 @@ code { color: #7a8ca2; font-family: inherit; font-size: 11px; }
   .quest-columns { display: flex; flex-direction: column; overflow: auto; }
   .quest-browser { flex: 0 0 230px; border-right: 0; border-bottom: 1px solid #dbe3ed; }
   .quest-inspector { flex: 1 0 auto; overflow: visible; }
-  .tree-footnote { display: none; }
   .location-card { grid-template-columns: minmax(0, 1fr); }
   .quest-breadcrumb { margin-bottom: 12px; }
 }

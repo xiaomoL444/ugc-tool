@@ -76,7 +76,6 @@ function keydown(event: KeyboardEvent) {
         </g>
         <rect :x="frame.x" :y="frame.y" :width="frame.width" :height="frame.height" rx="2" class="minimap-viewport" aria-hidden="true" />
       </svg>
-      <p>拖动蓝框或点击定位</p>
     </template>
   </aside>
 </template>
@@ -85,7 +84,7 @@ function keydown(event: KeyboardEvent) {
 .dialogue-minimap { position: absolute; z-index: 5; top: 12px; left: 12px; width: 202px; max-width: calc(100% - 24px); box-sizing: border-box; border: 1px solid #d6e1ed; border-radius: 10px; background: #ffffffed; box-shadow: 0 4px 16px #30456318; overflow: hidden; }
 .minimap-heading { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; color: #526985; background: transparent; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
 .minimap-heading small { margin-left: auto; color: #8a99ad; font-size: 10px; font-weight: 400; }
-.minimap-canvas { display: block; width: calc(100% - 16px); aspect-ratio: 184 / 124; margin: 0 8px; border-radius: 5px; background: #f4f7fb; touch-action: none; cursor: crosshair; }
+.minimap-canvas { display: block; width: calc(100% - 16px); aspect-ratio: 184 / 124; margin: 0 8px 8px; border-radius: 5px; background: #f4f7fb; touch-action: none; cursor: crosshair; }
 .minimap-canvas.dragging { cursor: grabbing; }
 .minimap-edge { fill: none; stroke: #b0bdd0; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .minimap-edge.return-edge { stroke: #b99bcf; stroke-dasharray: 3 2; }
@@ -98,5 +97,4 @@ function keydown(event: KeyboardEvent) {
 .minimap-viewport { fill: #458af51c; stroke: #3d82dc; stroke-width: 1.5; cursor: grab; }
 .dragging .minimap-viewport { cursor: grabbing; }
 .minimap-heading:focus-visible, .minimap-canvas:focus-visible { outline: 2px solid #4384d4; outline-offset: -2px; }
-p { margin: 6px 10px 8px; color: #94a1b2; font-size: 10px; }
 </style>

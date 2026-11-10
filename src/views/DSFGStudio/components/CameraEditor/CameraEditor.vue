@@ -17,7 +17,7 @@ import type { StudioEditorKind } from "../studioSidebar";
 
 withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "Camera" });
 const { project, files, selectedFile, creating, newName, busy, status, error,
-  refreshFiles, selectFile, createFile, deleteFile, prepareToLeave, flush } = useCameraFiles();
+  selectFile, createFile, deleteFile, prepareToLeave, flush } = useCameraFiles();
 const workspaceIds = useWorkspaceStructIds();
 const historyElement = ref<HTMLElement>();
 const history = useStudioDocumentHistory({
@@ -46,7 +46,6 @@ function exportCamera() {
       <div class="camera-file-sidebar" :inert="busy">
         <div class="studio-sidebar-heading"><strong>镜头文件</strong></div>
         <StudioFileList :disabled="busy" :values="files" :selected-value="selectedFile" @select="selectFile" @add="creating = true" @delete="deleteFile" />
-        <button type="button" class="refresh-files" :disabled="busy" @click="refreshFiles">刷新列表</button>
       </div>
     </StudioSidebarContent>
     <SectionLayout :title="selectedFile || '镜头编辑'" class="camera-file-section">
@@ -72,7 +71,6 @@ function exportCamera() {
 .camera-file-editor { --timeline-field: #fff; --timeline-surface: #f7f9fd; --timeline-soft: #eef3f9; --timeline-border: #cbd7e6; --timeline-text: #334155; --timeline-muted: #64748b; --timeline-subtle: #71839a; --timeline-accent: #2877c7; --timeline-active: #e2edfc; --timeline-active-text: #245a98; --timeline-warning: #94651c; --timeline-danger: #b45367; --timeline-success: #338460; --timeline-axis-blue: #3579b8; display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; color-scheme: light; }
 .camera-file-sidebar { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .camera-file-sidebar .studio-sidebar-heading { margin-bottom: 4px; }
-.refresh-files { align-self: flex-start; padding: 5px 0; border: 0; background: transparent; color: #8290ad; font: inherit; font-size: 11px; cursor: pointer; }
 .camera-file-section { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .camera-file-workspace { display: flex; flex: 1; flex-direction: column; min-height: 0; height: 100%; }
 .camera-file-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-height: 44px; padding: 4px 6px 14px; }

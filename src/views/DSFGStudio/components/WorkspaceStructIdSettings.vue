@@ -136,46 +136,54 @@ onBeforeUnmount(() => previousFocus?.focus());
     <div class="workspace-ids-backdrop dsfg-typography" @click.self="close" @keydown="keydown">
       <form ref="dialog" class="workspace-ids" role="dialog" aria-modal="true" aria-labelledby="workspace-ids-title" tabindex="-1" :aria-busy="busy" @submit.prevent="save">
         <header><div><span>{{ workspace }}</span><h2 id="workspace-ids-title">工作区设置</h2></div><StudioHistoryToolbar local :history="history" :disabled="busy || !!loadError" /><button type="button" :disabled="busy" aria-label="关闭工作区设置" @click="close">×</button></header>
-        <p class="intro">此工作区的所有模块共用文件类型、基准版本、扩展包和结构体 ID。</p>
-        <div v-if="loadError" class="error" role="alert">{{ loadError }} <button type="button" @click="emit('retry')">重新读取</button></div>
-        <fieldset :disabled="busy || !!loadError">
-          <section class="workspace-target" aria-label="工作区目标配置">
-            <div class="field"><label for="workspace-name">工作区名称</label><input id="workspace-name" v-model="draftName" required autocomplete="off" /></div>
-            <div class="field"><label for="workspace-file-type">项目文件类型</label><StudioSelectField id="workspace-file-type" v-model="draftSettings.fileType" :to="false" :disabled="busy || !!loadError" aria-label="项目文件类型"><option v-for="option in workspaceFileTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></StudioSelectField></div>
-            <WorkspaceVersionSettings v-model="draftSettings" :disabled="busy || !!loadError" />
-          </section>
-          <h3>结构体 ID</h3>
-          <div class="import-bar"><div><strong>从 GIL 自动识别</strong><p>按名称匹配结构体 ID 和技能动画配置 ID，保存后应用到当前工作区。文件在本机读取。</p></div><button type="button" :disabled="!skillsReady && !skillsError" @click="fileInput?.click()">{{ busy ? '读取中…' : '读取 GIL' }}</button><input ref="fileInput" type="file" accept=".gil" hidden @change="readGil" /></div>
-          <WorkspaceGilUiIndexRepair :disabled="busy || !!loadError" @busy="busy = $event" />
-          <p v-if="importMessage" class="notice" role="status">{{ importMessage }}</p>
-          <div v-if="skillsError" class="error" role="alert">技能动画预设：{{ skillsError }} <button type="button" @click="retrySkills().catch(() => undefined)">重新读取／保存</button></div>
-          <section v-if="draftSkills.length" class="skill-import" aria-labelledby="skill-import-title">
-            <h3 id="skill-import-title">技能动画配置 ID</h3>
-            <p class="notice">已匹配 {{ skillMatched.length }} 项，{{ skillChanges.length }} 项 ID 待更新。只更新预设，已有 Timeline 动作的技能 ID 保持原值。</p>
-            <p v-if="skillMissing.length" class="notice">未识别项保留原值：{{ skillMissing.map(skillName).join('、') }}。</p>
-            <details v-if="skillPreview.length" open>
-              <summary>查看技能动画 ID（{{ skillPreview.length }} 项）</summary>
-              <div class="skill-rows">
-                <div v-for="preset in skillPreview" :key="preset.id" class="skill-row" :class="{ changed: preset.configId !== skillOriginalIds[preset.id] }">
-                  <span class="skill-name">{{ preset.name }}</span>
-                  <span class="skill-ids"><code>{{ skillOriginalIds[preset.id] || '未填写' }}</code><span aria-hidden="true"> → </span><code>{{ preset.configId || '未填写' }}</code></span>
+        <section class="workspace-settings-pane" aria-label="工作区设置与操作">
+          <div class="workspace-settings-content">
+            <p class="intro">此工作区的所有模块共用文件类型、基准版本、扩展包和结构体 ID。</p>
+            <div v-if="loadError" class="error" role="alert">{{ loadError }} <button type="button" @click="emit('retry')">重新读取</button></div>
+            <fieldset class="workspace-target" aria-label="工作区目标配置" :disabled="busy || !!loadError">
+              <div class="field"><label for="workspace-name">工作区名称</label><input id="workspace-name" v-model="draftName" required autocomplete="off" /></div>
+              <div class="field"><label for="workspace-file-type">项目文件类型</label><StudioSelectField id="workspace-file-type" v-model="draftSettings.fileType" :to="false" :disabled="busy || !!loadError" aria-label="项目文件类型"><option v-for="option in workspaceFileTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></StudioSelectField></div>
+              <WorkspaceVersionSettings v-model="draftSettings" :disabled="busy || !!loadError" />
+            </fieldset>
+            <fieldset class="workspace-tools" aria-label="GIL 工具" :disabled="busy || !!loadError">
+              <div class="import-bar"><div><strong>从 GIL 自动识别</strong><p>按名称匹配结构体 ID 和技能动画配置 ID，保存后应用到当前工作区。文件在本机读取。</p></div><button type="button" :disabled="!skillsReady && !skillsError" @click="fileInput?.click()">{{ busy ? '读取中…' : '读取 GIL' }}</button><input ref="fileInput" type="file" accept=".gil" hidden @change="readGil" /></div>
+              <WorkspaceGilUiIndexRepair :disabled="busy || !!loadError" @busy="busy = $event" />
+            </fieldset>
+            <div v-if="skillsError" class="error" role="alert">技能动画预设：{{ skillsError }} <button type="button" :disabled="busy || !!loadError" @click="retrySkills().catch(() => undefined)">重新读取／保存</button></div>
+            <div v-if="errors.length" class="error" role="alert"><p v-for="message in errors" :key="message">{{ message }}</p></div>
+            <p v-if="error" class="error" role="alert">{{ error }}</p>
+          </div>
+        </section>
+        <section class="workspace-struct-pane" aria-labelledby="workspace-struct-title">
+          <h3 id="workspace-struct-title" class="pane-title">结构体 ID</h3>
+          <fieldset class="workspace-struct-content" :disabled="busy || !!loadError">
+            <p v-if="importMessage" class="notice" role="status">{{ importMessage }}</p>
+            <section v-if="draftSkills.length" class="skill-import" aria-labelledby="skill-import-title">
+              <h3 id="skill-import-title">技能动画配置 ID</h3>
+              <p class="notice">已匹配 {{ skillMatched.length }} 项，{{ skillChanges.length }} 项 ID 待更新。只更新预设，已有 Timeline 动作的技能 ID 保持原值。</p>
+              <p v-if="skillMissing.length" class="notice">未识别项保留原值：{{ skillMissing.map(skillName).join('、') }}。</p>
+              <details v-if="skillPreview.length" open>
+                <summary>查看技能动画 ID（{{ skillPreview.length }} 项）</summary>
+                <div class="skill-rows">
+                  <div v-for="preset in skillPreview" :key="preset.id" class="skill-row" :class="{ changed: preset.configId !== skillOriginalIds[preset.id] }">
+                    <span class="skill-name">{{ preset.name }}</span>
+                    <span class="skill-ids"><code>{{ skillOriginalIds[preset.id] || '未填写' }}</code><span aria-hidden="true"> → </span><code>{{ preset.configId || '未填写' }}</code></span>
+                  </div>
                 </div>
-              </div>
-            </details>
-          </section>
-          <p v-for="warning in state.warnings" :key="warning" class="notice">{{ warning }}</p>
-          <section v-for="group in visibleStructGroups" :key="group">
-            <h3>{{ group }}</h3>
-            <div class="fields"><div v-for="field in fieldsFor(group)" :key="field.key" class="field">
-              <label :for="`struct-${field.key}`">{{ field.label }}<small>{{ field.description }}</small></label>
-              <input :id="`struct-${field.key}`" v-model="draft[field.key]" :aria-label="`${group} · ${field.label} ID`" inputmode="numeric" autocomplete="off" placeholder="填写结构体 ID" />
-              <StudioSelectField v-if="candidates[field.key]?.length > 1" v-model="draft[field.key]" :to="false" :aria-label="`${group} · ${field.label} 候选 ID`"><option disabled value="">存在不同 ID，请选择或手动填写</option><option v-for="candidate in candidates[field.key]" :key="candidate.id" :value="candidate.id">{{ candidate.id }} · {{ candidate.source }}</option></StudioSelectField>
-            </div></div>
-          </section>
-        </fieldset>
-        <div v-if="errors.length" class="error" role="alert"><p v-for="message in errors" :key="message">{{ message }}</p></div>
-        <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <footer><div><button type="button" class="danger" :disabled="busy" @click="removeWorkspace">删除工作区</button><button type="button" :disabled="busy || !!loadError" @click="reset">恢复默认结构体 ID</button></div><div><button type="button" :disabled="busy" @click="close">取消</button><button type="submit" class="primary" :disabled="busy || !!loadError || !!errors.length || !draftName.trim()">{{ busy ? '处理中…' : '保存设置' }}</button></div></footer>
+              </details>
+            </section>
+            <p v-for="warning in state.warnings" :key="warning" class="notice">{{ warning }}</p>
+            <section v-for="group in visibleStructGroups" :key="group">
+              <h3>{{ group }}</h3>
+              <div class="fields"><div v-for="field in fieldsFor(group)" :key="field.key" class="field">
+                <label :for="`struct-${field.key}`">{{ field.label }}</label>
+                <input :id="`struct-${field.key}`" v-model="draft[field.key]" :aria-label="`${group} · ${field.label} ID`" inputmode="numeric" autocomplete="off" placeholder="填写结构体 ID" />
+                <StudioSelectField v-if="candidates[field.key]?.length > 1" v-model="draft[field.key]" :to="false" :aria-label="`${group} · ${field.label} 候选 ID`"><option disabled value="">存在不同 ID，请选择或手动填写</option><option v-for="candidate in candidates[field.key]" :key="candidate.id" :value="candidate.id">{{ candidate.id }} · {{ candidate.source }}</option></StudioSelectField>
+              </div></div>
+            </section>
+          </fieldset>
+        </section>
+        <footer><div><button type="button" class="danger" :disabled="busy" @click="removeWorkspace">删除工作区</button><button type="button" :disabled="busy || !!loadError" @click="reset">恢复默认结构体 ID</button></div><div class="save-actions"><button type="button" :disabled="busy" @click="close">取消</button><button type="submit" class="primary" :disabled="busy || !!loadError || !!errors.length || !draftName.trim()">{{ busy ? '处理中…' : '保存设置' }}</button></div></footer>
       </form>
     </div>
   </Teleport>
@@ -186,13 +194,22 @@ onBeforeUnmount(() => previousFocus?.focus());
 .workspace-target .field { display: grid; gap: 7px; }
 button.danger { color: #a43d42; border-color: #e7bec3; }
 .workspace-ids-backdrop { position: fixed; inset: 0; z-index: 12000; padding: 24px; display: grid; place-items: center; background: #13203388; }
-.workspace-ids { box-sizing: border-box; width: min(880px, 100%); max-height: calc(100dvh - 48px); overflow-y: auto; padding: 24px; border: 1px solid #dbe4f0; border-radius: 14px; background: #fff; color: #34445b; box-shadow: 0 20px 70px #10203033; outline: none; }
-header, footer, .import-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.workspace-ids { box-sizing: border-box; display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; width: min(1280px, 100%); height: min(900px, calc(100dvh - 48px)); overflow: hidden; border: 1px solid #dbe4f0; border-radius: 14px; background: #fff; color: #34445b; box-shadow: 0 20px 70px #10203033; outline: none; }
+header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px; border-bottom: 1px solid #e3ebf3; }
+header > div:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.workspace-settings-pane, .workspace-struct-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.workspace-settings-pane { border-right: 1px solid #e3ebf3; }
+.workspace-settings-content, .workspace-struct-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.workspace-settings-content { flex: 1; padding: 20px 24px; }
+.workspace-struct-pane > .pane-title { flex-shrink: 0; margin: 0; padding: 20px 24px; background: #f8fafd; }
+.workspace-struct-content { flex: 1; padding: 0 24px 24px; }
+.workspace-tools :deep(.repair-bar), .import-bar { display: flex; align-items: flex-start; flex-direction: column; gap: 12px; }
 header span { color: #728298; font-size: 12px; } h2 { margin: 5px 0 0; font-size: 21px; } h3 { margin: 20px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #e4ebf3; font-size: 14px; }
 .intro, .import-bar p, .notice { font-size: 12px; line-height: 1.7; color: #6e7f95; }
+.intro { margin: 0; }
 .import-bar { padding: 14px; border-radius: 8px; background: #eef5fc; } .import-bar strong { font-size: 13px; } .import-bar p { margin: 4px 0 0; } .import-bar button { flex-shrink: 0; }
 fieldset { margin: 0; padding: 0; border: 0; min-width: 0; } .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; }
-.field { min-width: 0; } label, .skill-name { display: block; font-size: 13px; } small { display: block; margin: 4px 0 7px; color: #8090a5; font-size: 11px; }
+.field { min-width: 0; } label, .skill-name { display: block; font-size: 13px; } .fields label { margin-bottom: 7px; }
 .skill-import summary { cursor: pointer; color: #345f91; font-size: 12px; padding: 8px 0; }
 .skill-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
 .skill-row { min-width: 0; padding: 10px; border: 1px solid #e4ebf3; border-radius: 6px; background: #f8fafd; }
@@ -202,6 +219,14 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; } .fields { display: 
 input, select { box-sizing: border-box; width: 100%; padding: 9px 10px; border: 1px solid #cad6e5; border-radius: 6px; background: #f8fafd; color: #34445b; font: inherit; font-size: 13px; } select { margin-top: 5px; }
 button { padding: 7px 12px; border: 1px solid #c8d5e5; border-radius: 6px; background: white; color: #345f91; cursor: pointer; font: inherit; font-size: 12px; } button:disabled { opacity: .5; cursor: default; } button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #5088ca; outline-offset: 2px; }
 .primary { background: #2877c7; color: white; border-color: #2877c7; } .error { color: #a43d42; background: #fff1f2; padding: 10px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; } .error p { margin: 3px 0; } .notice { background: #f1f6fc; padding: 10px; overflow-wrap: anywhere; }
-footer { position: sticky; bottom: -24px; margin-top: 24px; padding: 16px 0; background: #fff; border-top: 1px solid #e3ebf3; } footer > div { display: flex; gap: 8px; }
-@media (max-width: 600px) { .workspace-ids-backdrop { padding: 10px; } .workspace-ids { padding: 16px; max-height: calc(100dvh - 20px); } .fields, .skill-rows { grid-template-columns: 1fr; } .import-bar { align-items: flex-start; flex-direction: column; } }
+footer { grid-column: 1 / -1; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding: 16px 24px; background: #fff; border-top: 1px solid #e3ebf3; } footer > div { display: flex; flex-wrap: wrap; gap: 8px; } .save-actions { margin-left: auto; justify-content: flex-end; }
+@media (max-width: 820px) {
+  .workspace-ids { display: flex; flex-direction: column; height: auto; max-height: calc(100dvh - 48px); overflow-y: auto; }
+  .workspace-settings-pane { display: contents; }
+  header, .workspace-struct-pane { flex-shrink: 0; }
+  .workspace-settings-content, .workspace-struct-content { flex: none; overflow: visible; scrollbar-gutter: auto; }
+  .workspace-struct-pane { border-top: 1px solid #e3ebf3; }
+  footer { position: sticky; bottom: 0; }
+}
+@media (max-width: 600px) { .workspace-ids-backdrop { padding: 10px; } .workspace-ids { max-height: calc(100dvh - 20px); } header, .workspace-settings-content, footer { padding: 16px; } .workspace-struct-pane > .pane-title { padding: 16px; } .workspace-struct-content { padding: 0 16px 16px; } .fields, .skill-rows { grid-template-columns: 1fr; } }
 </style>

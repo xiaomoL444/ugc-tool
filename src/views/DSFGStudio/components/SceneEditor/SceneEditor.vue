@@ -146,12 +146,11 @@ function exportVariables() {
         <template v-for="(area, index) in project.mainAreas" :key="`orphan-main-${index}`"><button v-if="!project.worlds.some(row => row.id === area.worldId)" class="tree-node" @click="choose('main', index)">未关联一级 · {{ area.name }}</button></template>
         <template v-for="(area, index) in project.subAreas" :key="`orphan-sub-${index}`"><button v-if="!project.mainAreas.some(row => row.id === area.mainAreaId)" class="tree-node" @click="choose('sub', index)">未关联二级 · {{ area.name }}</button></template>
       </nav>
-      <p class="aside-note">每个工作区固定一个场景，统一管理世界与区域。</p>
     </aside></StudioSidebarContent>
     <main>
       <header class="page-header"><div><h2>{{ selectedItem?.name || '场景概览' }}</h2><span role="status" class="save-status">{{ status }}</span></div><div class="actions"><StudioHistoryToolbar :history="history" :disabled="busy" /><RuntimeImportButton :disabled="busy" :import-file="importConfiguration" /><button class="primary" :disabled="!project || busy || !!issues.length" @click="exportVariables">导出场景数据</button></div></header>
       <div class="scene-overview" aria-label="场景概览">
-        <template v-if="project"><span><strong>{{ project.worlds.length }}</strong> 世界</span><span><strong>{{ project.mainAreas.length }}</strong> 一级区域</span><span><strong>{{ project.subAreas.length }}</strong> 二级区域</span><small>当前工作区 · 自动保存</small></template>
+        <template v-if="project"><span><strong>{{ project.worlds.length }}</strong> 世界</span><span><strong>{{ project.mainAreas.length }}</strong> 一级区域</span><span><strong>{{ project.subAreas.length }}</strong> 二级区域</span></template>
         <div class="actions scene-create-actions" aria-label="新增场景内容">
           <div class="scene-view-switch" role="group" aria-label="场景编辑视图">
             <button type="button" :aria-pressed="editorView === 'properties'" @click="editorView = 'properties'">场景属性</button>
@@ -213,8 +212,8 @@ aside { display:flex; flex-direction:column; width:270px; flex-shrink:0; border-
 nav { flex:1; padding:12px; }
 main { flex:1; min-width:0; overflow:auto; padding:24px; }
 header,.card-heading,.tree-heading,.actions { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-header { margin-bottom:22px; } h2 { margin:0 0 6px; font-size:20px; } h3,h4 { margin:0; } header span,.hint,.aside-note { color:#7c899c; font-size:12px; line-height:1.7; }
-.tree-heading { padding:18px 12px 8px; } .search { width:calc(100% - 24px); margin:8px 12px; } .aside-note { padding:12px; }
+header { margin-bottom:22px; } h2 { margin:0 0 6px; font-size:20px; } h3,h4 { margin:0; } header span,.hint { color:#7c899c; font-size:12px; line-height:1.7; }
+.tree-heading { padding:18px 12px 8px; } .search { width:calc(100% - 24px); margin:8px 12px; }
 .tree-node { display:block; width:100%; text-align:left; border:0; background:transparent; overflow-wrap:anywhere; white-space:normal; } .tree-node.active { background:#deebff; color:#245baa; } .tree-main { margin-left:14px; border-left:1px solid #dbe3ef; } .tree-sub { padding-left:22px; } small { color:#8b98a9; }
 .card { display:grid; gap:16px; padding:22px; border:1px solid #dbe3ef; border-radius:12px; background:white; }
 .page-header { margin-bottom:16px; }
@@ -244,5 +243,5 @@ button:focus-visible { outline:2px solid #6c9edc; outline-offset:2px; }
 label { display:grid; gap:7px; font-size:13px; color:#64748b; } input,select { box-sizing:border-box; min-width:0; padding:9px 10px; border:1px solid #cdd8e8; border-radius:6px; color:#334155; background:#fafcff; font:inherit; } input:focus,select:focus { outline:2px solid #b3cdf2; }
 button { padding:8px 12px; border:1px solid #cad8ea; border-radius:6px; background:#edf4fd; color:#356195; cursor:pointer; font-size:12px; } button:disabled { opacity:.45; cursor:default; } .primary { background:#2e70bb; color:white; } .danger { background:white; color:#ad5961; } .contact-row { display:grid; grid-template-columns:repeat(4,minmax(60px,1fr)) auto; align-items:end; gap:10px; } .error { padding:12px; color:#b04851; background:#fff1f1; border-radius:6px; font-size:13px; }
 @media(max-width:850px) { aside { width:210px; } main { padding:14px; } .card { padding:16px; } .contact-row { grid-template-columns:repeat(2,minmax(60px,1fr)); } }
-@media(max-width:600px) { .scene-editor { flex-direction:column; overflow:auto; } aside { width:auto; max-height:260px; flex-shrink:0; border-right:0; border-bottom:1px solid #dbe3ef; } main { flex:none; overflow:visible; } .field-grid { grid-template-columns:minmax(0,1fr); } .child-list { grid-template-columns:minmax(0,1fr); } .scene-overview small { margin-left:0; } }
+@media(max-width:600px) { .scene-editor { flex-direction:column; overflow:auto; } aside { width:auto; max-height:260px; flex-shrink:0; border-right:0; border-bottom:1px solid #dbe3ef; } main { flex:none; overflow:visible; } .field-grid { grid-template-columns:minmax(0,1fr); } .child-list { grid-template-columns:minmax(0,1fr); } }
 </style>

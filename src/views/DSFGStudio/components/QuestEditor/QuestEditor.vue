@@ -12,7 +12,7 @@ import { downloadTextFile } from "@/utils/download";
 import { ProjectID } from "../../constant/constant";
 import QuestPanel from "./QuestPanel.vue";
 import type { QuestProject } from "./types";
-import { createQuestProject, decodeQuestProject, encodeQuestProject, validateQuestProject } from "./questProject";
+import { createQuestProject, decodeQuestProject, encodeQuestProject } from "./questProject";
 import { useWorkspaceStructIds } from "../useWorkspaceStructIds";
 import { exportQuestVariables } from "./questExporter";
 import { createWorkspaceSaveQueue } from "./workspaceSaveQueue";
@@ -36,10 +36,7 @@ const loadError = ref("");
 const busy = ref(false);
 const exporting = ref(false);
 const saveStatus = ref("准备读取任务");
-const settingsOpen = ref(false);
 const workspaceIds = useWorkspaceStructIds();
-const unassignedDraft = ref(-1);
-const settingsError = ref("");
 let disposed = false;
 let loading = false;
 let requestId = 0;
@@ -47,8 +44,6 @@ let revision = 0;
 const historyElement = ref<HTMLElement>();
 const history = useStudioDocumentHistory({
   project, element: historyElement, blocked: () => busy.value, label: "修改任务",
-  ownsTarget: target => !!target.closest?.(".quest-settings"),
-  afterRestore: () => { settingsOpen.value = false; },
   onError: error => { console.error(error); toast.error(error instanceof Error ? error.message : "任务恢复失败"); },
 });
 
@@ -63,7 +58,6 @@ const saveQueue = createWorkspaceSaveQueue(async (path, data) => {
 }, (error) => { saveStatus.value = "保存失败"; showError(error, "任务保存失败"); });
 defineExpose({ prepareToLeave: () => {
   if (busy.value) return Promise.reject(new Error("任务数据正在读写，请稍后切换"));
-  settingsOpen.value = false;
   return saveQueue.flush();
 } });
 
@@ -152,25 +146,9 @@ async function importConfiguration(file: File) {
         confirm: () => confirm("导入将覆盖当前工作区的全部任务配置。原配置会先备份，是否继续？") } });
     if (!result) return;
     loading = true; project.value = result.project; loading = false;
-    settingsOpen.value = false; legacyFiles.value = []; legacySelection.value = ""; loadError.value = ""; saveStatus.value = "已导入";
+    legacyFiles.value = []; legacySelection.value = ""; loadError.value = ""; saveStatus.value = "已导入";
     toast.success("任务配置已覆盖导入，原配置已备份");
   } finally { loading = false; if (!disposed) busy.value = false; }
-}
-function openSettings() {
-  if (!project.value) return;
-  unassignedDraft.value = project.value.unassignedChapterId;
-  settingsError.value = "";
-  settingsOpen.value = true;
-}
-function applySettings() {
-  if (!project.value) return;
-  const candidate = { ...project.value, unassignedChapterId: unassignedDraft.value };
-  let errors: string[];
-  try { errors = validateQuestProject(workspaceIds.quest(candidate)); }
-  catch (error) { settingsError.value = error instanceof Error ? error.message : String(error); return; }
-  if (errors.length) { settingsError.value = errors.join("；"); return; }
-  project.value.unassignedChapterId = candidate.unassignedChapterId;
-  settingsOpen.value = false;
 }
 async function changeEditor(kind: StudioEditorKind) {
   try { await saveQueue.flush(); emit("update:editorKind", kind); }
@@ -192,7 +170,6 @@ onBeforeUnmount(() => {
           <header class="quest-file-toolbar">
             <span>{{ workspaceId }} <span class="workspace-label">/ 工作区任务</span></span><small role="status" :class="{ 'save-error': saveStatus === '保存失败' }">{{ saveStatus }}</small>
             <StudioHistoryToolbar :history="history" :disabled="busy" />
-            <button type="button" :disabled="!project || busy" @click="openSettings">任务设置</button>
             <RuntimeImportButton :disabled="busy || exporting" :import-file="importConfiguration" />
             <button type="button" class="primary" :disabled="!project || busy || exporting" @click="exportVariables">{{ exporting ? '导出中…' : '导出千星任务' }}</button>
           </header>
@@ -216,16 +193,6 @@ onBeforeUnmount(() => {
         </div>
       </SectionLayout>
   </div>
-  <Teleport to="body">
-    <div v-if="settingsOpen" :inert="busy" class="quest-settings-backdrop dsfg-typography" @click.self="settingsOpen = false" @keydown.esc="settingsOpen = false">
-      <form class="quest-settings" role="dialog" aria-modal="true" aria-label="任务设置" @submit.prevent="applySettings">
-        <header><h3>任务设置</h3><button type="button" aria-label="关闭任务设置" @click="settingsOpen = false">×</button></header>
-        <label>无章节编号<input v-model.number="unassignedDraft" aria-label="无章节编号" type="number" step="1" /><small>直属主任务的“归属章节”字段使用此编号，默认 -1。</small></label>
-        <p v-if="settingsError" class="settings-error" role="alert">{{ settingsError }}</p>
-        <footer><button type="button" @click="settingsOpen = false">取消</button><button class="primary" type="submit">应用</button></footer>
-      </form>
-    </div>
-  </Teleport>
 </template>
 
 <style scoped>
@@ -250,13 +217,4 @@ button:disabled { opacity: .45; cursor: default; }
 .quest-empty h3 { font-size: 16px; margin-bottom: 0; }
 .quest-empty p { font-size: 13px; max-width: 560px; line-height: 1.8; }
 .quest-empty .load-error { color: #b45309; overflow-wrap: anywhere; }
-.quest-settings-backdrop { position: fixed; inset: 0; z-index: 11000; display: grid; place-items: center; padding: 20px; background: #13203388; }
-.quest-settings { width: min(440px, 90vw); max-height: 85vh; overflow-y: auto; padding: 22px; border-radius: 12px; background: #fff; color: #34445b; }
-.quest-settings header, .quest-settings footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.quest-settings h3 { margin: 0; font-size: 17px; }
-.quest-settings p, .quest-settings small { color: #8090a5; font-size: 12px; line-height: 1.7; }
-.quest-settings label { display: flex; flex-direction: column; gap: 5px; margin: 12px 0; font-size: 13px; }
-.quest-settings input { box-sizing: border-box; width: 100%; padding: 8px; color: #34445b; font-size: 13px; border: 1px solid #b8c9de; background: #f7f9fc; }
-.quest-settings .settings-error { color: #c14b4b; }
-.quest-settings footer { justify-content: flex-end; margin-top: 18px; }
 </style>
