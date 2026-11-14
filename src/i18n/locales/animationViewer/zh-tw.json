@@ -6,6 +6,7 @@
   "animationViewer.search.placeholder": "搜尋動畫名稱",
   "animationViewer.resultCount": "共 {count} 段",
   "animationViewer.versionFilter": "篩選版本",
+  "animationViewer.performanceTemplateFilter": "演出模板",
   "animationViewer.allVersions": "全部版本",
   "animationViewer.collapseAll": "全部收合",
   "animationViewer.expandAll": "全部展開",

@@ -1,6 +1,10 @@
-import type { AnimationCategory, AnimationSkill } from './animationData';
+import type { AnimationCategory, AnimationPart, AnimationSkill } from './animationData';
 
-export interface AnimationSkillEntry { key: string; skill: AnimationSkill }
+export interface AnimationSkillEntry {
+  key: string;
+  skill: AnimationSkill;
+  parts: { part: AnimationPart; partIndex: number }[];
+}
 export interface AnimationGroup {
   category: AnimationCategory;
   skills: AnimationSkillEntry[];
@@ -36,7 +40,7 @@ export function buildAnimationRows(groups: readonly AnimationGroup[], viewportWi
       used = 0;
     }
     for (const entry of group.skills) {
-      const span = entry.skill.parts.length > 3 ? 12 : entry.skill.type === 'single' ? singleSpan : comboSpan;
+      const span = entry.parts.length > 3 ? 12 : entry.skill.type === 'single' ? singleSpan : comboSpan;
       if (used + span > 12) flush();
       pending.push(entry);
       used += span;

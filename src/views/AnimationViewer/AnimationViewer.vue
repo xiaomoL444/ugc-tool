@@ -26,11 +26,14 @@
               <span class="category-count">{{ group.partCount }}</span>
             </button>
           </div>
-          <select v-model="selectedVersion" class="version-filter" :aria-label="t('animationViewer.versionFilter')"
-            :disabled="loadState !== 'ready'">
-            <option value="">{{ t('animationViewer.allVersions') }}</option>
-            <option v-for="version in availableVersions" :key="version" :value="version">{{ version }}</option>
-          </select>
+          <div class="library-filters">
+            <button type="button" class="performance-template-filter" :aria-pressed="onlyPerformanceTemplate"
+              :disabled="loadState !== 'ready'" @click="onlyPerformanceTemplate = !onlyPerformanceTemplate">
+              {{ t('animationViewer.performanceTemplateFilter') }}
+            </button>
+            <DropdownSelect v-model="selectedVersion" class="version-filter"
+              :label="t('animationViewer.versionFilter')" :options="versionOptions" :disabled="loadState !== 'ready'" />
+          </div>
         </div>
       </div>
 
@@ -59,7 +62,7 @@
                 <legend v-if="row.isFirst">{{ t(row.category.nameI18nKey) }}</legend>
                 <div class="skill-grid">
                   <section v-for="entry in row.skills" :key="entry.key" class="skill-group"
-                    :class="{ 'is-single': entry.skill.type === 'single', 'is-wide': entry.skill.parts.length > 3 }"
+                    :class="{ 'is-single': entry.skill.type === 'single', 'is-wide': entry.parts.length > 3 }"
                     :data-animation-skill="entry.key" :data-animation-type="entry.skill.type">
                     <div v-if="entry.skill.type !== 'single'" class="skill-heading">
                       <h2>
@@ -71,8 +74,8 @@
                         <span>{{ t(`animationViewer.type.${entry.skill.type}`) }}</span>
                       </div>
                     </div>
-                    <div class="parts-grid" :style="{ '--part-columns': Math.min(entry.skill.parts.length, 4) }">
-                      <article v-for="(part, partIndex) in entry.skill.parts" :key="partIndex" class="animation-part"
+                    <div class="parts-grid" :style="{ '--part-columns': Math.min(entry.parts.length, 4) }">
+                      <article v-for="{ part, partIndex } in entry.parts" :key="partIndex" class="animation-part"
                         :data-animation-part="`${entry.key}:${partIndex}`" :data-animation-part-type="part.type">
                         <div class="part-preview">
                           <AnimationPreview :part="part" :title="previewName(entry.skill, part)"
@@ -129,6 +132,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { useI18n } from 'vue-i18n';
 import { VVirtualList, type VVirtualListInst } from 'vueuc';
 import SectionLayout from '@/components/Layout/SectionLayout.vue';
+import DropdownSelect from '@/components/DropdownSelect.vue';
 import { createOss } from '@/utils/oss';
 import { Clipboard } from '@/utils/clipboard';
 import { useOssTranslations } from '@/i18n/useOssTranslations';
@@ -149,6 +153,7 @@ const catalog = shallowRef<AnimationDataFile>({ data: [], category: [] });
 const loadState = ref<LoadState>('loading');
 const search = ref('');
 const selectedVersion = ref('');
+const onlyPerformanceTemplate = ref(false);
 const collapsedCategories = ref(new Set<number>());
 const selected = shallowRef<SelectedPart | null>(null);
 const previewDialog = ref<HTMLDialogElement | null>(null);
@@ -168,18 +173,28 @@ function previewName(skill: AnimationSkill, part: AnimationPart) {
   const name = partName(skill, part);
   return skill.type === 'single' ? name : `${skillName(skill)} · ${name}`;
 }
-const availableVersions = computed(() => [...new Set(catalog.value.data.flatMap(skill => skill.giVersion ? [skill.giVersion] : []))]
-  .sort((a, b) => b.localeCompare(a, undefined, { numeric: true })));
+const versionOptions = computed(() => [
+  { value: '', label: t('animationViewer.allVersions') },
+  ...[...new Set(catalog.value.data.flatMap(skill => skill.giVersion ? [skill.giVersion] : []))]
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+    .map(value => ({ value, label: value })),
+]);
 const groups = computed(() => {
   const query = search.value.trim().toLocaleLowerCase();
-  const entries = catalog.value.data.map((skill, index) => ({ key: String(index), skill }))
+  const entries = catalog.value.data.map((skill, index): SkillEntry => ({
+    key: String(index),
+    skill,
+    parts: skill.parts.map((part, partIndex) => ({ part, partIndex }))
+      .filter(({ part }) => !onlyPerformanceTemplate.value || part.performTemplateHas === true),
+  }))
+    .filter(({ parts }) => parts.length > 0)
     .filter(({ skill }) => !selectedVersion.value || skill.giVersion === selectedVersion.value)
-    .filter(({ skill }) => !query || skillName(skill).toLocaleLowerCase().includes(query)
-      || skill.parts.some(part => partName(skill, part).toLocaleLowerCase().includes(query)))
+    .filter(({ skill, parts }) => !query || skillName(skill).toLocaleLowerCase().includes(query)
+      || parts.some(({ part }) => partName(skill, part).toLocaleLowerCase().includes(query)))
     .sort((a, b) => (a.skill.order ?? 0) - (b.skill.order ?? 0));
   return catalog.value.category.map(category => {
     const skills = entries.filter(entry => entry.skill.category === category.id);
-    return { category, skills, partCount: skills.reduce((total, entry) => total + entry.skill.parts.length, 0) };
+    return { category, skills, partCount: skills.reduce((total, entry) => total + entry.parts.length, 0) };
   });
 });
 const matchingGroups = computed(() => groups.value.filter(group => group.skills.length));
@@ -259,7 +274,7 @@ async function loadCatalog() {
   }
 }
 function updateViewportWidth() { viewportWidth.value = window.innerWidth; }
-watch([search, selectedVersion, locale, collapsedCategories], async () => {
+watch([search, selectedVersion, onlyPerformanceTemplate, locale, collapsedCategories], async () => {
   await nextTick();
   libraryList.value?.scrollTo({ top: 0, debounce: false });
 });
@@ -280,13 +295,13 @@ onBeforeUnmount(() => {
 .library-toolbar { flex-shrink: 0; padding: 6px 9px 10px; }
 .search-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .search-label { flex: 0 0 auto; font-size: 0.9rem; white-space: nowrap; }
-input, select, button { font: inherit; }
+input, button { font: inherit; }
 input[type='search'] { min-width: 180px; flex: 1; padding: 10px 12px; border: 1px solid rgba(106, 90, 205, 0.22); border-radius: 8px; background: rgba(255, 255, 255, 0.88); color: inherit; }
-button, select { color: inherit; border: 1px solid rgba(106, 90, 205, 0.35); background: rgba(255, 255, 255, 0.3); border-radius: 8px; }
+button { color: inherit; border: 1px solid rgba(106, 90, 205, 0.35); background: rgba(255, 255, 255, 0.3); border-radius: 8px; }
 button { cursor: pointer; padding: 7px 12px; }
 button:where(:not(.category-header)):hover:not(:disabled) { background: rgba(106, 90, 205, 0.1); }
 button:disabled { cursor: default; opacity: 0.55; }
-button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #5378c8; outline-offset: 2px; }
+button:focus-visible, input:focus-visible { outline: 2px solid #5378c8; outline-offset: 2px; }
 .search-count, .category-count { color: rgba(0, 0, 0, 0.55); font-size: 0.85rem; white-space: nowrap; }
 .search-count { flex: 0 0 auto; }
 .toggle-all { flex: 0 0 auto; height: 28px; padding: 0 12px; border-radius: 6px; background: rgba(106, 90, 205, 0.1); color: #4d429b; font-size: 0.85rem; white-space: nowrap; }
@@ -308,7 +323,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .category-arrow { margin-right: 8px; font-size: 0.7rem; transition: transform 0.18s ease; }
 .category-arrow.expanded { transform: rotate(90deg); }
 .category-title { min-width: 0; margin-right: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.version-filter { box-sizing: border-box; height: 38px; max-width: 100%; margin-left: auto; padding: 0 8px; border-color: rgba(106, 90, 205, 0.2); background: #f1f1ff; cursor: pointer; }
+.library-filters { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; max-width: 100%; margin-left: auto; }
+.performance-template-filter { height: 38px; color: #4d429b; font-size: 0.9rem; }
+button.performance-template-filter[aria-pressed='true'] { border-color: #6a5acd; background: rgba(106, 90, 205, 0.2); }
+.version-filter { --dropdown-height: 38px; }
 .library-content { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .animation-virtual-list { flex: 1; min-height: 0; width: 100%; overflow-anchor: none; }
 .category-row { box-sizing: border-box; padding: 0 9px; }

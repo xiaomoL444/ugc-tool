@@ -6,6 +6,7 @@
   "animationViewer.search.placeholder": "Search animation names",
   "animationViewer.resultCount": "{count} segments",
   "animationViewer.versionFilter": "Filter by version",
+  "animationViewer.performanceTemplateFilter": "Performance Template",
   "animationViewer.allVersions": "All versions",
   "animationViewer.collapseAll": "Collapse all",
   "animationViewer.expandAll": "Expand all",

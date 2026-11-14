@@ -6,6 +6,7 @@
   "animationViewer.search.placeholder": "Поиск по названию анимации",
   "animationViewer.resultCount": "Частей: {count}",
   "animationViewer.versionFilter": "Фильтр по версии",
+  "animationViewer.performanceTemplateFilter": "Шаблон постановки",
   "animationViewer.allVersions": "Все версии",
   "animationViewer.collapseAll": "Свернуть всё",
   "animationViewer.expandAll": "Развернуть всё",

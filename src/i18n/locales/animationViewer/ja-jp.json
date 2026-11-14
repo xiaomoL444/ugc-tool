@@ -6,6 +6,7 @@
   "animationViewer.search.placeholder": "アニメーション名を検索",
   "animationViewer.resultCount": "全 {count} 件",
   "animationViewer.versionFilter": "バージョンで絞り込み",
+  "animationViewer.performanceTemplateFilter": "演出テンプレート",
   "animationViewer.allVersions": "すべてのバージョン",
   "animationViewer.collapseAll": "すべて折りたたむ",
   "animationViewer.expandAll": "すべて展開",

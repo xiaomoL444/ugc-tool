@@ -6,6 +6,7 @@ export interface AnimationPart {
   path: string;
   type: AnimationPartType;
   nameI18nKey?: string;
+  performTemplateHas?: boolean;
   /** Actual duration of this skill part in seconds, independent of the preview video. */
   duration?: number;
 }
@@ -112,6 +113,7 @@ export function normalizeAnimationData(input: unknown): AnimationDataFile {
         type: partType,
         ...(nameI18nKey !== undefined ? { nameI18nKey } : {}),
         ...(typeof part.duration === "number" ? { duration: part.duration } : {}),
+        ...(typeof part.performTemplateHas === "boolean" ? { performTemplateHas: part.performTemplateHas } : {}),
       };
     });
 
