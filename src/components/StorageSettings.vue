@@ -22,12 +22,10 @@
         <p class="storage-development" role="status">{{ t('common.storageUnderDevelopment') }}</p>
         <p>{{ labels.description }}</p>
         <p><a class="storage-companion-link" href="https://github.com/xiaomoL444/ugc-tool-desktop/" target="_blank" rel="noopener noreferrer">{{ labels.companionLink }}</a></p>
-        <label>{{ labels.location }}
-          <select v-model="draft.mode" :disabled="syncBusy || syncLocked">
-            <option value="browser">{{ labels.browser }}</option>
-            <option value="desktop">{{ labels.disk }}</option>
-          </select>
-        </label>
+        <div class="storage-location">
+          <span>{{ labels.location }}</span>
+          <DropdownSelect v-model="draft.mode" :label="labels.location" :options="storageModes" :disabled="syncBusy || syncLocked" />
+        </div>
         <button type="button" :disabled="syncBusy || syncLocked" @click="showSync = !showSync">{{ labels.sync }}</button>
         <template v-if="draft.mode === 'desktop' || showSync">
           <ol>
@@ -67,6 +65,7 @@ import { useI18n } from "vue-i18n";
 import type { StorageClass } from "../services/storage/storage";
 import { DesktopStorage, readStorageSettings, saveStorageSettings, type DesktopStatus } from "../services/storage/desktopStorage";
 import StorageSyncPanel from './StorageSyncPanel.vue';
+import DropdownSelect from './DropdownSelect.vue';
 
 const storage = inject<StorageClass>("storage")!;
 const desktop = storage.provider instanceof DesktopStorage ? storage.provider : undefined;
@@ -104,6 +103,10 @@ const labels = computed(() => locale.value.startsWith("zh") ? {
   apply: "Apply and reload", confirm: "Reloading discards unsaved edits. Have you saved or exported your work and want to apply these settings?",
   offline: "Desktop storage is disconnected. Current edits are not confirmed saved to disk.", change: "Latest file change:", copied: "Website origin copied.",
 });
+const storageModes = computed(() => [
+  { value: "browser", label: labels.value.browser },
+  { value: "desktop", label: labels.value.disk },
+] as const);
 
 function openSettings() {
   if (!showSync && !syncLocked) Object.assign(draft, readStorageSettings());
@@ -155,8 +158,9 @@ async function applySettings() {
 .storage-dialog::backdrop { background: #18223c66; backdrop-filter: blur(3px); }
 .storage-heading { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 20px 24px 8px; }
 .storage-heading h2 { margin: 0; font-size: 22px; }
-.storage-dialog label { display: grid; gap: 6px; margin: 15px 0; font-weight: 600; }
-.storage-dialog input, .storage-dialog select { box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #cbd2e3; border-radius: 8px; padding: 8px 10px; color: #263650; background: white; font: inherit; }
+.storage-dialog label, .storage-location { display: grid; gap: 6px; margin: 15px 0; font-weight: 600; }
+.storage-dialog input { box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #cbd2e3; border-radius: 8px; padding: 8px 10px; color: #263650; background: white; font: inherit; }
+.storage-location { --dropdown-height: 40px; --dropdown-padding: 10px; }
 .storage-dialog button, .storage-alert button { border: 1px solid #cbd2e3; border-radius: 8px; padding: 7px 12px; background: #f5f6fb; color: #35476b; cursor: pointer; font: inherit; }
 .storage-dialog button:disabled { opacity: .55; cursor: wait; }
 .storage-dialog li { margin: 8px 0; }

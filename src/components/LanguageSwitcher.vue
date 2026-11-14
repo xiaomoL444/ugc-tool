@@ -1,6 +1,6 @@
 <template>
   <div ref="root" class="language-picker" @focusout="onFocusOut" @keydown.esc.stop.prevent="close(true)">
-    <button ref="trigger" type="button" class="language-trigger" :class="{ 'is-open': open }"
+    <button ref="trigger" type="button" class="language-trigger dropdown-trigger"
       :aria-label="`${t('app.language')}: ${currentLabel}`" aria-haspopup="menu"
       :aria-expanded="open" aria-controls="app-language-menu" :aria-describedby="open ? 'language-coverage-note' : undefined" @click="toggle"
       @keydown.down.prevent="show()" @keydown.up.prevent="show(true)">
@@ -8,18 +8,18 @@
         <circle cx="12" cy="12" r="9" /><ellipse cx="12" cy="12" rx="4" ry="9" /><path d="M3 12h18" />
       </svg>
       <span :lang="locale">{{ currentLabel }}</span>
-      <svg class="language-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+      <svg class="dropdown-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
     </button>
-    <Transition name="language-menu">
-      <div v-if="open" class="language-menu">
+    <Transition name="dropdown">
+      <div v-if="open" class="language-menu dropdown-menu">
         <div id="app-language-menu" ref="menu" role="menu"
           :aria-label="t('app.language')" @keydown="onMenuKeydown">
           <button v-for="language in supportedLocales" :key="language.value" type="button"
-            class="language-option" :class="{ 'is-selected': locale === language.value }"
+            class="dropdown-option"
             role="menuitemradio" :aria-checked="locale === language.value" :lang="language.value"
             tabindex="-1" @click="select(language.value)">
             <span>{{ language.label }}</span>
-            <svg v-if="locale === language.value" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+            <svg v-if="locale === language.value" class="dropdown-check" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
           </button>
         </div>
         <p id="language-coverage-note" class="language-coverage-note" :lang="locale">{{ coverageNote }}</p>
@@ -105,53 +105,15 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointerDown)
 
 <style scoped>
 .language-picker { position: relative; flex-shrink: 0; z-index: 900; }
-.language-trigger {
-  display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 12px;
-  border: 1px solid rgba(106, 90, 205, 0.25); border-radius: 10px;
-  background: rgba(255, 255, 255, 0.75); color: #35476b;
-  font: inherit; font-size: 0.9rem; white-space: nowrap; cursor: pointer;
-  transition: background 150ms, border-color 150ms;
-}
-.language-trigger:hover, .language-trigger.is-open { background: #fff; border-color: #887bd7; }
-.language-trigger:focus-visible { outline: 2px solid #887bd7; outline-offset: 3px; }
-.language-picker svg { flex-shrink: 0; width: 19px; height: 19px; stroke: currentColor; stroke-width: 1.5; }
-.language-picker .language-chevron { width: 14px; height: 14px; transition: transform 150ms; }
-.is-open .language-chevron { transform: rotate(180deg); }
-.language-menu {
-  position: absolute; top: calc(100% + 12px); right: 0; width: 260px;
-  max-width: calc(100vw - 20px); padding: 8px; box-sizing: border-box;
-  border: 1px solid #e9e5f7; border-radius: 16px; background: #fff;
-  box-shadow: 0 12px 36px rgba(53, 39, 108, 0.16); transform-origin: top right;
-}
-.language-menu::before {
-  content: ''; position: absolute; top: -6px; right: 22px; width: 10px; height: 10px;
-  background: #fff; border-top: 1px solid #e9e5f7; border-left: 1px solid #e9e5f7; transform: rotate(45deg);
-}
-.language-option {
-  display: flex; align-items: center; justify-content: space-between; gap: 20px;
-  width: 100%; min-height: 46px; padding: 10px 14px; border: 0; border-radius: 9px;
-  background: transparent; color: #555b70; font: inherit; font-size: 0.95rem; text-align: left; cursor: pointer;
-}
-.language-option:hover, .language-option:focus-visible { background: #f0edff; outline: none; }
-.language-option.is-selected { color: #6a5acd; }
-.language-option svg { stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.language-globe { flex-shrink: 0; width: 19px; height: 19px; stroke: currentColor; stroke-width: 1.5; }
 .language-coverage-note {
   margin: 8px 6px 4px; padding: 12px 8px 4px; border-top: 1px solid #e9e5f7;
   color: #73758b; font-size: 0.75rem; line-height: 1.65; text-align: left; overflow-wrap: anywhere;
 }
-.language-menu-enter-active, .language-menu-leave-active { transition: opacity 150ms, transform 150ms; }
-.language-menu-enter-from, .language-menu-leave-to { opacity: 0; transform: translateY(-4px) scale(0.98); }
 @media (max-width: 480px) {
-  .language-trigger { gap: 4px; padding: 0 6px; font-size: 0.8rem; }
+  .language-trigger { --dropdown-gap: 4px; --dropdown-padding: 6px; --dropdown-font-size: 0.8rem; }
 }
 @media (max-height: 600px) {
   .language-menu { max-height: calc(100dvh - 90px); overflow-y: auto; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .language-trigger, .language-chevron, .language-coverage-note {
-  margin: 8px 6px 4px; padding: 12px 8px 4px; border-top: 1px solid #e9e5f7;
-  color: #73758b; font-size: 0.75rem; line-height: 1.65; text-align: left; overflow-wrap: anywhere;
-}
-.language-menu-enter-active, .language-menu-leave-active { transition: none; }
 }
 </style>

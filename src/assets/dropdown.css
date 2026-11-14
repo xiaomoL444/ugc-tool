@@ -1,0 +1,186 @@
+/* Shared by dropdown triggers and menus. */
+.dropdown-trigger {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: var(--dropdown-height, 42px);
+  padding: 0 var(--dropdown-padding, 12px);
+  border: 1px solid #6a5acd40;
+  border-radius: 10px;
+  background-color: #ffffffbf;
+  color: #35476b;
+  font: inherit;
+  font-size: var(--dropdown-font-size, 0.9rem);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms;
+}
+button.dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dropdown-gap, 8px);
+}
+
+.dropdown-trigger:not(:disabled):is(:hover, [aria-expanded="true"]) {
+  background-color: #fff;
+  border-color: #887bd7;
+}
+
+.dropdown-trigger:focus-visible {
+  outline: 2px solid #887bd7;
+  outline-offset: 2px;
+}
+
+.dropdown-trigger:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.dropdown-chevron,
+.dropdown-check {
+  flex-shrink: 0;
+  stroke: currentColor;
+}
+
+.dropdown-chevron {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5;
+  transition: transform 150ms;
+}
+
+.dropdown-trigger[aria-expanded="true"] .dropdown-chevron {
+  transform: rotate(180deg);
+}
+
+.dropdown-menu,
+.dropdown-surface {
+  --dropdown-shadow: 0 12px 36px #35276c29;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid #e9e5f7;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--dropdown-shadow);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: var(--dropdown-menu-width, 260px);
+  max-width: var(--dropdown-menu-max-width, calc(100vw - 20px));
+  transform-origin: top right;
+}
+
+.dropdown-menu::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 22px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid #e9e5f7;
+  border-left: 1px solid #e9e5f7;
+  background: #fff;
+  transform: rotate(45deg);
+}
+
+.dropdown-menu--start {
+  right: auto;
+  left: 0;
+  transform-origin: top left;
+}
+
+.dropdown-menu--start::before {
+  right: auto;
+  left: 22px;
+}
+
+.dropdown-option {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #555b70;
+  font: inherit;
+  font-size: var(--dropdown-option-font-size, 0.95rem);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dropdown-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dropdown-option:is(:hover, :focus-visible) {
+  background: #f0edff;
+}
+
+.dropdown-option:focus-visible {
+  outline: 2px solid #887bd7;
+  outline-offset: -2px;
+}
+
+.dropdown-option:is([aria-checked="true"], [aria-selected="true"]) {
+  color: #6a5acd;
+}
+
+.dropdown-select-popup {
+  width: max-content;
+  min-width: min(max(140px, var(--v-target-width, 0px)), calc(100vw - 24px));
+  max-width: min(320px, calc(100vw - 24px));
+  font-family: var(--app-font-family);
+}
+
+.dropdown-select-options {
+  max-height: min(290px, calc(50dvh - 28px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.dropdown-select-popup .dropdown-select-arrow {
+  border: 1px solid #e9e5f7;
+  box-shadow: none;
+}
+
+.dropdown-check {
+  width: 19px;
+  height: 19px;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dropdown-enter-active,
+.dropdown-leave-active,
+.dropdown-surface.dropdown-select-popup:is(.popover-transition-enter-active, .popover-transition-leave-active) {
+  transition: opacity 150ms, transform 150ms;
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to,
+.dropdown-surface.dropdown-select-popup:is(.popover-transition-enter-from, .popover-transition-leave-to) {
+  opacity: 0;
+  transform: translateY(-4px) scale(.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dropdown-trigger,
+  .dropdown-chevron,
+  .dropdown-enter-active,
+  .dropdown-leave-active,
+  .dropdown-surface.dropdown-select-popup:is(.popover-transition-enter-active, .popover-transition-leave-active) {
+    transition: none;
+  }
+}
+

@@ -3,11 +3,10 @@
     <h3 id="sync-title">{{ t('title') }}</h3>
     <p>{{ t('intro') }}</p>
     <label class="sync-check"><input v-model="acknowledged" type="checkbox" :disabled="busy" />{{ t('ack') }}</label>
-    <label>{{ t('direction') }}
-      <select v-model="direction" :disabled="busy">
-        <option value="both">{{ t('both') }}</option><option value="to-desktop">{{ t('toDesktop') }}</option><option value="to-browser">{{ t('toBrowser') }}</option>
-      </select>
-    </label>
+    <div class="sync-direction">
+      <span>{{ t('direction') }}</span>
+      <DropdownSelect v-model="direction" :label="t('direction')" :options="directions" :disabled="busy" />
+    </div>
     <div class="sync-buttons">
       <button type="button" :disabled="busy || !acknowledged" @click="compare">{{ t('compare') }}</button>
       <button v-if="busy" type="button" @click="controller?.abort()">{{ t('cancel') }}</button>
@@ -28,11 +27,11 @@
         <thead><tr><th>{{ t('path') }}</th><th>{{ t('difference') }}</th><th>{{ t('action') }}</th></tr></thead>
         <tbody><tr v-for="row in changedRows.slice(0, limit)" :key="row.path">
           <td class="sync-path">{{ row.path }}</td><td>{{ t(row.status) }}</td>
-          <td><select v-if="row.status === 'conflict'" v-model="row.choice" :aria-label="t('action') + ' ' + row.path" :disabled="busy">
-            <option value="skip">{{ t('skip') }}</option>
-            <option v-if="direction !== 'to-browser'" value="browser">{{ t('useBrowser') }}</option>
-            <option v-if="direction !== 'to-desktop'" value="desktop">{{ t('useDesktop') }}</option>
-          </select><span v-else>{{ actionLabel(row) }}</span></td>
+          <td>
+            <DropdownSelect v-if="row.status === 'conflict'" v-model="row.choice"
+              :label="t('action') + ' ' + row.path" :options="conflictChoices" :disabled="busy" />
+            <span v-else>{{ actionLabel(row) }}</span>
+          </td>
         </tr></tbody>
       </table></div>
       <button v-if="changedRows.length > limit" type="button" @click="limit += 200">{{ t('more') }}</button>
@@ -52,6 +51,7 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import DropdownSelect from './DropdownSelect.vue';
 import { BrowserStorage } from '../services/storage/browserStorage';
 import { DesktopStorage, rememberDesktopConnection, type StorageSettings } from '../services/storage/desktopStorage';
 import type { StorageClass } from '../services/storage/storage';
@@ -89,6 +89,17 @@ const messages = {
   scope: ['同步所有项目存档及空文件夹，不传播删除，不同步回收站、内部备份或浏览器偏好。电脑覆盖前使用历史备份，浏览器备份在 /.ugc-sync-backups/。这是手动同步，不会在后台持续运行。', 'Includes project saves and empty folders. No deletion propagation, trash, internal backups or browser preferences. Replaced desktop files use history; browser backups go to /.ugc-sync-backups/. Runs manually, not continuously.'],
 } as const;
 const t = (key: keyof typeof messages) => messages[key][locale.value.startsWith('zh') ? 0 : 1];
+const directions = computed(() => [
+  { value: 'both', label: t('both') },
+  { value: 'to-desktop', label: t('toDesktop') },
+  { value: 'to-browser', label: t('toBrowser') },
+] as const);
+const conflictChoices = computed(() => {
+  const choices: { value: SyncChoice; label: string }[] = [{ value: 'skip', label: t('skip') }];
+  if (direction.value !== 'to-browser') choices.push({ value: 'browser', label: t('useBrowser') });
+  if (direction.value !== 'to-desktop') choices.push({ value: 'desktop', label: t('useDesktop') });
+  return choices;
+});
 function actionLabel(row: SyncRow) { const action = planSync([row], direction.value)[0]; return action ? t(action.from === 'browser' ? 'toDesktop' : 'toBrowser') : t('skip'); }
 function chooseAll(choice: SyncChoice) { for (const row of rows.value || []) if (row.status === 'conflict') row.choice = choice; }
 function reload() { window.location.reload(); }
@@ -122,10 +133,10 @@ async function run() {
 <style scoped>
 .sync-panel { border-top: 1px solid #dddbea; margin-top: 16px; padding: 16px 0; }
 .sync-panel h3 { margin: 0; font-size: 18px; }
-.sync-panel label { display: grid; gap: 6px; margin: 12px 0; }
+.sync-panel label, .sync-direction { display: grid; gap: 6px; margin: 12px 0; }
 .sync-panel .sync-check { display: flex; align-items: flex-start; gap: 8px; font-weight: 400; }
 .sync-check input { flex: 0 0 auto; width: 16px; height: 16px; margin-top: 4px; }
-.sync-panel select { max-width: 100%; min-height: 34px; padding: 5px; border: 1px solid #cbd2e3; border-radius: 6px; background: white; color: #263650; }
+.sync-panel { --dropdown-height: 34px; --dropdown-padding: 8px; --dropdown-font-size: 12px; }
 .sync-panel button { padding: 8px 10px; border: 1px solid #cbd2e3; border-radius: 7px; color: #35476b; background: #f5f6fb; font: inherit; cursor: pointer; }
 .sync-panel button:disabled { opacity: .5; cursor: default; }
 .sync-panel .sync-primary { background: #6554c0; border-color: #6554c0; color: white; }

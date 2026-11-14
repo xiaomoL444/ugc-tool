@@ -54,6 +54,7 @@
 
 <style>
 @import "./assets/global.css";
+@import "./assets/dropdown.css";
 
 html,
 body {
