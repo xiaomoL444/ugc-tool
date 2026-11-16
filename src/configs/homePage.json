@@ -10,6 +10,7 @@
         {
           "id": "aisearch",
           "href": "/AISearch",
+          "resourceIndex": "AISearch/index.json",
           "title": "AI搜索",
           "titleKey": "aiSearch.title",
           "description": "aisearch",
@@ -21,6 +22,7 @@
         {
           "id": "bgm",
           "href": "/BgmPlayer",
+          "resourceIndex": "BgmPlayer/data.json",
           "title": "BGM播放器",
           "titleKey": "app.bgmPlayerTitle",
           "description": "可在线播放千星奇域 7.1 版本之前的 BGM。",
@@ -32,6 +34,7 @@
         {
           "id": "sound",
           "href": "/SoundEffectPlayer",
+          "resourceIndex": "SoundEffectPlayer/data.json",
           "title": "音效播放器",
           "titleKey": "app.soundEffectPlayerTitle",
           "description": "可在线播放千星奇域 7.0 版本之前的音效",
@@ -43,6 +46,7 @@
         {
           "id": "effect",
           "href": "/EffectPlayer",
+          "resourceIndex": "EffectPlayer/data.json",
           "title": "特效播放器",
           "titleKey": "app.effectPlayerTitle",
           "description": "预览特效、图片、动画与声音",
@@ -54,6 +58,7 @@
         {
           "id": "animation",
           "href": "/AnimationViewer",
+          "resourceIndex": "AnimationViewer/data.json",
           "title": "角色动画查看器",
           "titleKey": "animationViewer.title",
           "description": "查看和预览角色动画",
@@ -61,6 +66,18 @@
           "icon": "✦",
           "previewImages": [],
           "badge": ""
+        },
+        {
+          "id": "humanoid",
+          "href": "/HumanoidObjectsViewer",
+          "resourceIndex": "HumanoidObjectsViewer/data.json",
+          "title": "人形物件查看器",
+          "titleKey": "humanoidObjectsViewer.title",
+          "description": "按外观、配色与预设状态浏览和对比人形物件",
+          "descriptionKey": "humanoidObjectsViewer.pageDescription",
+          "icon": "▦",
+          "previewImages": [],
+          "badge": "Beta"
         }
       ]
     },

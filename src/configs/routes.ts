@@ -110,5 +110,13 @@ export const appRoutes: AppRoute[] = [
     descriptionKey: "animationViewer.pageDescription",
     description:
       `角色动画查看器`,
+  }, {
+    path: "/HumanoidObjectsViewer",
+    name: "HumanoidObjectsViewer",
+    title: "人形物件查看器",
+    titleKey: "humanoidObjectsViewer.title",
+    descriptionKey: "humanoidObjectsViewer.pageDescription",
+    description:
+      `人形物件查看器`,
   },
 ];
