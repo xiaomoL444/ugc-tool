@@ -526,9 +526,9 @@ onBeforeUnmount(() => {
               @update:model-value="act({ type: 'connect', blockId: activeBlock.id, outletId: activeOutletId, targetId: $event })" />
           </label>
         </div>
-        <button type="button" class="panel-secondary" @click="navigateToBlock(activeBlock)">在节点图配置 Clip ↗</button>
-        <div v-if="activeBlock.kind !== 'entry'" class="panel-section">
-          <button type="button" class="panel-secondary delete-content" @click="act({ type: 'delete-block', blockId: activeBlock.id })">删除{{ blockLabel(activeBlock) }}</button>
+        <div class="panel-section panel-actions">
+          <button type="button" class="panel-secondary" @click="navigateToBlock(activeBlock)">在节点图配置 Clip ↗</button>
+          <button v-if="activeBlock.kind !== 'entry'" type="button" class="panel-secondary delete-content" @click="act({ type: 'delete-block', blockId: activeBlock.id })">删除{{ blockLabel(activeBlock) }}</button>
         </div>
       </template>
       <div v-else class="panel-hint">选择画布中的集合或节点，再在这里添加内容。</div>
@@ -552,7 +552,7 @@ onBeforeUnmount(() => {
 .text-preview { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; color: #27354b; background: #f5f7fb; }
 .text-editing-workspace { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .text-canvas-panel { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
-.text-collection-panel { flex: 0 0 218px; padding: 18px 16px; box-sizing: border-box; overflow-y: auto; border-left: 1px solid #dce4ef; background: #fff; text-align: left; }
+.text-collection-panel { flex: 0 0 218px; min-width: 0; padding: 18px 16px; box-sizing: border-box; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #b6c5db transparent; border-left: 1px solid #dce4ef; background: #fff; text-align: left; }
 .text-collection-panel header h3 { margin: 7px 0 3px; font-size: 16px; color: #253d63; }
 .text-collection-panel header p { margin: 0; color: #52627b; font-size: 12px; }
 .panel-eyebrow { font-size: 11px; font-weight: 600; color: #405477; }
@@ -560,6 +560,9 @@ onBeforeUnmount(() => {
 .delete-content:not(.panel-secondary):hover { background: #fbe9ec !important; color: #b84251 !important; }
 .panel-hint { color: #5f7088; font-size: 11px; line-height: 1.7; text-align: left; }
 .panel-section { display: grid; gap: 8px; padding: 16px 0; border-top: 1px solid #cad5e4; }
+.panel-section > .panel-field { margin: 0; }
+.panel-actions { padding-bottom: 0; }
+.panel-actions .panel-secondary { min-height: 34px; }
 .panel-field { display: grid; gap: 7px; font-size: 11px; font-weight: 600; color: #405477; margin: 12px 0; }
 .collection-navigator { margin: 0 0 14px; padding-bottom: 14px; border-bottom: 1px solid #cad5e4; }
 .panel-field select { width: 100%; min-width: 0; }
@@ -590,7 +593,7 @@ onBeforeUnmount(() => {
 .text-preview-zoom button:disabled { opacity: .35; cursor: default; }
 .text-preview-legend { display: flex; flex-shrink: 0; align-items: center; gap: 14px; padding: 0 16px 6px; overflow-x: auto; white-space: nowrap; scrollbar-width: thin; font-size: 11px; background: #fff; border-bottom: 1px solid #e5eaf2; }
 .detached-legend { color: #a3773b; }
-.text-preview-viewport { flex: 1; min-height: 0; min-width: 0; overflow: auto; padding: 24px; outline-offset: -3px; background-image: radial-gradient(#dce3ee .8px, transparent .8px); background-size: 20px 20px; cursor: grab; overflow-anchor: none; }
+.text-preview-viewport { flex: 1; min-height: 0; min-width: 0; overflow: auto; scrollbar-width: none; padding: 24px; outline-offset: -3px; background-image: radial-gradient(#dce3ee .8px, transparent .8px); background-size: 20px 20px; cursor: grab; overflow-anchor: none; }
 .text-preview-viewport.is-panning { cursor: grabbing; user-select: none; }
 .text-preview-viewport.is-panning * { cursor: grabbing !important; }
 .text-preview-viewport.is-dragging-line { user-select: none; }

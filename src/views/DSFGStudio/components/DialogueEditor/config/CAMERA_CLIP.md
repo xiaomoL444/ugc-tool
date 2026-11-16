@@ -33,6 +33,7 @@ Camera 数据仍按每 100 项拆分字典；位置和旋转 Slot 数量分别�
 - 视点 Slot 默认 1 个且不能删除最后一个。NOLOC_Fixed、NOLOC_LookAt 限定 1 个，NOLOC_Linear 允许 1～2 个；仅 NOLOC_LookAt 显示 `snapToTarget`。切换为单 Slot 类型时保留第一个点位，隐藏字段值保留；旧文件的超量点位读取时保留并提示。
 - 位置 Slot 默认 1 个且不能删除最后一个。NOLOC_Fixed、NOLOC_Follow、NOLOC_Orbit 限定 1 个，NOLOC_Linear 允许 1～2 个；切换为单 Slot 模式时保留第一个点位。旧文件若有超量点位，读取时保留并在面板提示，可手动删除或切换模式规范数量。
 - 相机位置的 NOLOC_Follow、视点位置的 NOLOC_LookAt 显示 `snapToTarget`（是否立即抵达目标）；仅 NOLOC_Orbit 显示 `orbitRotStart`（初始环绕角度）、`orbitRotEnd`（结束环绕角度）的三维输入和 `orbitRadius`。两个角度默认均为 `0,0,0`，切换时保留隐藏字段值。
+- 经典模式元件版工作区中，`snapToTarget` 控件勾选并置灰，普通面板及高级设置均不可取消；独立镜头和演出导出对 Follow／LookAt 强制写为 `True`，不覆盖原有草稿或未配置的空视点。其他工作区仍使用原值并允许编辑。
 - PositionData 按新版顺序导出：`type`、`slot`、`snapToTarget`、`orbitRotStart`、`orbitRotEnd`、`orbitRadius`。源 CameraClip 的内嵌 PositionData 仍为旧版五栏，项目副本已补齐结束角度，防止半径错位。旧项目缺失的新角度补默认值；旧 `orbitRot` 作为扩展草稿保留但不导出，不自动把它或 Slot.vector3 猜测转换为新角度。
 - Slot 的坐标空间下拉为 `Local`（数值 0，默认）与 `World`（数值 1）。点位类型为 `NOLOC_Vector3`（默认）、`NOLOC_Guid`、`NOLOC_Entity`。相机位置与视点位置的点位为 NOLOC_Vector3 或视点 NOLOC_Rot 时隐藏坐标空间；NOLOC_Guid / NOLOC_Entity 在可选模式中显示。专用面板中点位类型在左、坐标空间在右；高级设置沿用相同显隐规则。隐藏不清空原值，保存和导出仍保留；任务调查点不受影响。
 - 固定角度额外支持 `NOLOC_Rot`（旋转），共有四种点位类型。选择后显示旋转 XYZ；仍保存并导出到 PositionSlot 的 `vector3` 字段。相机位置不提供此选项。

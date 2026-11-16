@@ -1,18 +1,22 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useWorkspaceSettings } from "../../../useWorkspaceSettings";
+import { WorkspaceFileType } from "../../../versioning/types";
 import { CAMERA_POSITION_PROPERTIES, CAMERA_ROTATION_PROPERTIES, normalizeCameraMotion } from "../../config/cameraClip";
 import { createClipPropertyValues, getClipListLimits, getClipNestedProperties, isClipPropertyVisible, updateClipStructField } from "../../utils/clipProperties";
 import ClipPropertyEditor from "./ClipPropertyEditor.vue";
 
 const props = defineProps<{ kind: "position" | "rotation"; modelValue: unknown }>();
 const emit = defineEmits<{ "update:modelValue": [value: Record<string, unknown>] }>();
+const workspaceSettings = useWorkspaceSettings();
 const definitions = computed(() => props.kind === "position" ? CAMERA_POSITION_PROPERTIES : CAMERA_ROTATION_PROPERTIES);
 const slotFields = computed(() => {
   const fields = getClipNestedProperties(definitions.value.find(field => field.key === "slot")!, value.value);
   // Presentation order only: point type on the left, coordinate space on the right.
   return [...fields.filter(field => field.key === "pointType"), ...fields.filter(field => field.key !== "pointType")];
 });
-const value = computed(() => createClipPropertyValues(definitions.value, normalizeCameraMotion(props.modelValue, props.kind)));
+const value = computed(() => createClipPropertyValues(definitions.value, normalizeCameraMotion(props.modelValue, props.kind,
+  workspaceSettings.value.fileType === WorkspaceFileType.ClassicComponent)));
 const mode = computed(() => String(value.value.type));
 const slots = computed(() => value.value.slot as Record<string, unknown>[]);
 const limits = computed(() => getClipListLimits(definitions.value.find(field => field.key === "slot")!, value.value));

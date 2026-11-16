@@ -4,9 +4,10 @@ import { ProjectID } from "../../constant/constant";
 import { createWorkspaceSaveQueue } from "../QuestEditor/workspaceSaveQueue";
 import { bindWorkspaceSaveLifecycle } from "../QuestEditor/workspaceSaveLifecycle";
 import { studioEditorActiveKey } from "../studioSessionHistory";
+import { createStudioFileRename } from "../studioFileRename";
 import { cameraFileName, createCameraProject, decodeCameraProject, encodeCameraProject, type CameraProject } from "./cameraProject";
 
-export function useCameraFiles() {
+export function useCameraFiles(finishHistory?: () => void) {
   const editorActive = inject(studioEditorActiveKey, () => true);
   const storage = inject<StorageClass>("storage")!;
   const workspace = inject<Ref<string>>("selectedWorkspaceId")!.value;
@@ -26,11 +27,18 @@ export function useCameraFiles() {
     await storage.setProject(ProjectID).writeFile(path, data);
     if (!disposed && version === revision) { status.value = "已自动保存"; error.value = ""; }
   }, reason => { if (!disposed) { status.value = "保存失败"; report(reason); } });
-  watch(project, () => {
+  const cameraFileRename = createStudioFileRename({
+    files, selectedFile, busy, disposed: () => disposed,
+    move: (source, destination) => storage.setProject(ProjectID).rename(`${directory}/${source}`, destination, { noReplace: true }),
+    flush: queue.flush, scheduleSave, finishHistory,
+  });
+  function scheduleSave() {
     if (disposed || loading || !project.value || !selectedFile.value) return;
+    if (cameraFileRename.deferSave()) return;
     revision++; status.value = "待保存…";
     queue.schedule(`${directory}/${selectedFile.value}`, encodeCameraProject(project.value));
-  }, { deep: true, flush: "sync" });
+  }
+  watch(project, scheduleSave, { deep: true, flush: "sync" });
 
   async function refreshFiles() {
     if (disposed) return;
@@ -77,9 +85,8 @@ export function useCameraFiles() {
     } catch (reason) { if (!disposed) report(reason); }
     finally { if (!disposed) busy.value = false; }
   }
-  async function deleteFile() {
-    if (busy.value || disposed || !selectedFile.value) return;
-    const name = selectedFile.value;
+  async function deleteFile(name = selectedFile.value) {
+    if (busy.value || disposed || !name) return;
     if (!confirm(`将镜头文件「${name}」移入回收站？`)) return;
     busy.value = true;
     try {
@@ -88,8 +95,10 @@ export function useCameraFiles() {
       await storage.setProject(ProjectID).trash(`${directory}/${name}`);
       queue.discard(`${directory}/${name}`);
       if (disposed) return;
-      loading = true; selectedFile.value = ""; project.value = undefined; revision++; loading = false;
-      status.value = "未打开文件"; error.value = "";
+      if (selectedFile.value === name) {
+        loading = true; selectedFile.value = ""; project.value = undefined; revision++; loading = false;
+        status.value = "未打开文件"; error.value = "";
+      }
       await refreshFiles();
     } catch (reason) { if (!disposed) report(reason); }
     finally { if (!disposed) busy.value = false; }
@@ -115,5 +124,5 @@ export function useCameraFiles() {
     void queue.flush().catch(() => undefined);
   });
   return { project, files, selectedFile, creating, newName, busy, status, error,
-    refreshFiles, selectFile, createFile, deleteFile, prepareToLeave, flush: () => queue.flush() };
+    refreshFiles, selectFile, createFile, deleteFile, renameFile: cameraFileRename.renameFile, prepareToLeave, flush: () => queue.flush() };
 }

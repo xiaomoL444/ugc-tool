@@ -8,6 +8,7 @@ import { useStudioDocumentHistory } from "../useStudioHistory";
 import { studioEditorActiveKey } from "../studioSessionHistory";
 import StudioFileList from "../StudioFileList.vue";
 import StudioCreateDialog from "../StudioCreateDialog.vue";
+import { createStudioFileRename, normalizeStudioFileName } from "../studioFileRename";
 import type { StudioEditorKind } from "../studioSidebar";
 import StudioSidebarContent from "../StudioSidebarContent.vue";
 import { StorageClass } from "@/services/storage/storage";
@@ -58,16 +59,23 @@ const saveQueue = createWorkspaceSaveQueue(async (path, data) => {
   await storage.setProject(ProjectID).writeFile(path, data);
   if (!disposed && version === revision) saveStatus.value = "已自动保存";
 }, error => { saveStatus.value = "保存失败"; showError(error); });
+const walkTalkFileRename = createStudioFileRename({
+  files, selectedFile, busy, disposed: () => disposed,
+  move: (source, destination) => storage.setProject(ProjectID).rename(`${directory}/${source}`, destination, { noReplace: true }),
+  flush: saveQueue.flush, scheduleSave, finishHistory: () => history.finish(),
+});
 defineExpose({ prepareToLeave: () => {
   if (busy.value) return Promise.reject(new Error("边走边说文件正在读写，请稍后切换"));
   return saveQueue.flush();
 } });
-watch(project, () => {
+function scheduleSave() {
   if (disposed || loading || !project.value || !selectedFile.value) return;
+  if (walkTalkFileRename.deferSave()) return;
   revision++;
   saveStatus.value = "待保存…";
   saveQueue.schedule(`${directory}/${selectedFile.value}`, encodeWalkTalkProject(project.value));
-}, { deep: true, flush: "sync" });
+}
+watch(project, scheduleSave, { deep: true, flush: "sync" });
 
 async function refreshFiles() {
   const request = ++listRequestId;
@@ -102,9 +110,8 @@ async function selectFile(name: string, fromCreate = false) {
 }
 async function createFile() {
   if (busy.value || disposed) return;
-  const base = newName.value.trim().replace(/\.json$/i, "");
-  if (!base || /[<>:"/\\|?*\u0000-\u001f]/.test(base) || base === "." || base === "..") { toast.warning("请输入有效文件名，不能包含路径或特殊字符"); return; }
-  const name = `${base}.json`;
+  const name = normalizeStudioFileName(newName.value);
+  if (!name) { toast.warning("请输入有效文件名，不能包含路径或特殊字符"); return; }
   busy.value = true;
   try {
     const exists = await storage.setProject(ProjectID).exists(`${directory}/${name}`);
@@ -120,9 +127,8 @@ async function createFile() {
   } catch (error) { if (!disposed) fileError.value = showError(error); }
   finally { if (!disposed) busy.value = false; }
 }
-async function deleteFile() {
+async function deleteFile(name = selectedFile.value) {
   if (busy.value || disposed) return;
-  const name = selectedFile.value;
   if (!name) { toast.warning("请先选择文件"); return; }
   if (!confirm(`将边走边说文件「${name}」移入回收站？其中所有台词会一并移入。`)) return;
   busy.value = true;
@@ -132,9 +138,11 @@ async function deleteFile() {
     await storage.setProject(ProjectID).trash(`${directory}/${name}`);
     saveQueue.discard(`${directory}/${name}`);
     if (disposed) return;
-    requestId++;
-    loading = true; project.value = undefined; selectedFile.value = ""; loading = false;
-    saveStatus.value = "未打开文件";
+    if (selectedFile.value === name) {
+      requestId++;
+      loading = true; project.value = undefined; selectedFile.value = ""; loading = false;
+      saveStatus.value = "未打开文件";
+    }
     await refreshFiles();
     if (!disposed) toast.success("边走边说文件已移入回收站");
   } catch (error) { if (!disposed) fileError.value = showError(error); }
@@ -181,7 +189,8 @@ onBeforeUnmount(() => {
   <div ref="historyElement" class="walk-talk-editor" :inert="busy">
     <StudioSidebarContent>
       <div class="file-panel" :inert="busy">
-          <StudioFileList :disabled="busy" :values="files" :selected-value="selectedFile" @select="selectFile" @add="creating = true" @delete="deleteFile">
+          <StudioFileList :disabled="busy || history.busy.value" :values="files" :selected-value="selectedFile"
+            file-label="边走边说文件" :rename-file="walkTalkFileRename.renameFile" @select="selectFile" @add="creating = true" @delete="deleteFile">
             <template #actions><RuntimeImportButton :disabled="busy" :import-file="importConfiguration" /></template>
           </StudioFileList>
           <p v-if="fileError" class="error" role="alert">{{ fileError }}<button type="button" @click="refreshFiles">刷新列表</button></p>

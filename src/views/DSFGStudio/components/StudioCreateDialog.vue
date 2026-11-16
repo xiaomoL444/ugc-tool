@@ -8,9 +8,11 @@ const props = withDefaults(defineProps<{
   label: string;
   placeholder?: string;
   submitLabel?: string;
+  busyLabel?: string;
+  selectOnOpen?: boolean;
   busy?: boolean;
   submitDisabled?: boolean;
-}>(), { placeholder: "", submitLabel: "创建", busy: false });
+}>(), { placeholder: "", submitLabel: "创建", busyLabel: "创建中…", busy: false });
 const emit = defineEmits<{ "update:modelValue": [value: string]; submit: []; close: [] }>();
 const dialog = ref<HTMLDialogElement>();
 const input = ref<HTMLInputElement>();
@@ -33,6 +35,7 @@ onMounted(() => {
   if (!editorActive()) return;
   dialog.value?.showModal();
   input.value?.focus();
+  if (props.selectOnOpen) input.value?.select();
 });
 watch(editorActive, active => {
   if (!active) { dialog.value?.close(); emit("close"); }
@@ -55,7 +58,7 @@ onBeforeUnmount(() => {
           required autofocus autocomplete="off" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" /></label>
         <slot :overlay-target="dialog" />
       </div>
-      <footer><button type="button" :disabled="busy" @click="close">取消</button><button type="submit" class="dialog-primary" :disabled="busy || submitDisabled || !modelValue.trim()">{{ busy ? '创建中…' : submitLabel }}</button></footer>
+      <footer><button type="button" :disabled="busy" @click="close">取消</button><button type="submit" class="dialog-primary" :disabled="busy || submitDisabled || !modelValue.trim()">{{ busy ? busyLabel : submitLabel }}</button></footer>
     </form>
   </dialog>
 </template>

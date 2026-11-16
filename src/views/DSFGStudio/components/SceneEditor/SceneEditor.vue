@@ -174,7 +174,6 @@ function exportVariables() {
           </div>
           <section class="connections" aria-label="世界连接点">
           <div class="card-heading"><h4>世界连接点 <span class="count-badge">{{ world.contacts.length }}</span></h4><button :disabled="!contactWorldOptions(project, world).length" @click="addContact(world)">＋ 关联世界</button></div>
-          <p class="hint">选择关联的目标世界，并配置对应点位坐标。每个目标世界只能关联一次。</p>
           <div v-for="(point, index) in world.contacts" :key="index" class="contact-row"><label>目标世界<StudioSelectField v-model="point.key"><option v-if="!contactWorldOptions(project, world, point.key).some(target => target.id === point.key)" :value="point.key" disabled>无效关联 · {{ point.key }}</option><option v-for="target in contactWorldOptions(project, world, point.key)" :key="target.id" :value="target.id">{{ target.name }} · {{ target.id }}</option></StudioSelectField></label><label>X<input v-model="point.x" inputmode="decimal" /></label><label>Y<input v-model="point.y" inputmode="decimal" /></label><label>Z<input v-model="point.z" inputmode="decimal" /></label><button class="danger" @click="world.contacts.splice(index, 1)">删除</button></div>
           <p v-if="!world.contacts.length" class="hint">暂无关联世界。请先创建其他世界，再添加连接点。</p>
           </section>

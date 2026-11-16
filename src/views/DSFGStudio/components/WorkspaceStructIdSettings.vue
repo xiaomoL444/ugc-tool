@@ -138,7 +138,6 @@ onBeforeUnmount(() => previousFocus?.focus());
         <header><div><span>{{ workspace }}</span><h2 id="workspace-ids-title">工作区设置</h2></div><StudioHistoryToolbar local :history="history" :disabled="busy || !!loadError" /><button type="button" :disabled="busy" aria-label="关闭工作区设置" @click="close">×</button></header>
         <section class="workspace-settings-pane" aria-label="工作区设置与操作">
           <div class="workspace-settings-content">
-            <p class="intro">此工作区的所有模块共用文件类型、基准版本、扩展包和结构体 ID。</p>
             <div v-if="loadError" class="error" role="alert">{{ loadError }} <button type="button" @click="emit('retry')">重新读取</button></div>
             <fieldset class="workspace-target" aria-label="工作区目标配置" :disabled="busy || !!loadError">
               <div class="field"><label for="workspace-name">工作区名称</label><input id="workspace-name" v-model="draftName" required autocomplete="off" /></div>
@@ -190,7 +189,8 @@ onBeforeUnmount(() => previousFocus?.focus());
 </template>
 
 <style scoped>
-.workspace-target { display: grid; gap: 16px; margin: 20px 0 24px; }
+.workspace-target { display: grid; gap: 16px; margin: 0 0 24px; }
+.workspace-settings-content > .error + .workspace-target { margin-top: 20px; }
 .workspace-target .field { display: grid; gap: 7px; }
 button.danger { color: #a43d42; border-color: #e7bec3; }
 .workspace-ids-backdrop { position: fixed; inset: 0; z-index: 12000; padding: 24px; display: grid; place-items: center; background: #13203388; }
@@ -205,8 +205,7 @@ header > div:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .workspace-struct-content { flex: 1; padding: 0 24px 24px; }
 .workspace-tools :deep(.repair-bar), .import-bar { display: flex; align-items: flex-start; flex-direction: column; gap: 12px; }
 header span { color: #728298; font-size: 12px; } h2 { margin: 5px 0 0; font-size: 21px; } h3 { margin: 20px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #e4ebf3; font-size: 14px; }
-.intro, .import-bar p, .notice { font-size: 12px; line-height: 1.7; color: #6e7f95; }
-.intro { margin: 0; }
+.import-bar p, .notice { font-size: 12px; line-height: 1.7; color: #6e7f95; }
 .import-bar { padding: 14px; border-radius: 8px; background: #eef5fc; } .import-bar strong { font-size: 13px; } .import-bar p { margin: 4px 0 0; } .import-bar button { flex-shrink: 0; }
 fieldset { margin: 0; padding: 0; border: 0; min-width: 0; } .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; }
 .field { min-width: 0; } label, .skill-name { display: block; font-size: 13px; } .fields label { margin-bottom: 7px; }

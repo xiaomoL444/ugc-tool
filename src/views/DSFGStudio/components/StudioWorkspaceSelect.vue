@@ -59,20 +59,20 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onPointerDown,
 
 <template>
   <div ref="root" class="studio-workspace-select" @focusout="onFocusOut" @keydown.esc.stop.prevent="close(true)">
-    <button ref="trigger" type="button" class="workspace-trigger" :class="{ 'is-open': open }" :disabled="disabled"
+    <button ref="trigger" type="button" class="workspace-trigger dropdown-trigger" :disabled="disabled"
       aria-label="选择工作区" :title="modelValue || '选择工作区'" aria-haspopup="menu" :aria-expanded="open" aria-controls="studio-workspace-options"
       @click="toggle" @keydown.down.prevent="show()" @keydown.up.prevent="show(true)">
       <StudioIcon name="folder" :size="16" />
       <span>{{ modelValue || '选择工作区' }}</span>
-      <svg class="workspace-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+      <svg class="dropdown-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
     </button>
-    <Transition name="workspace-menu">
-      <div v-if="open" class="workspace-options-card">
+    <Transition name="dropdown">
+      <div v-if="open" class="workspace-options-card dropdown-menu dropdown-menu--start">
         <div id="studio-workspace-options" ref="menu" class="workspace-options" role="menu" aria-label="工作区列表" @keydown="onMenuKeydown">
-          <button v-for="id in workspaces" :key="id" type="button" class="workspace-option" :class="{ 'is-selected': id === modelValue }"
+          <button v-for="id in workspaces" :key="id" type="button" class="dropdown-option"
             role="menuitemradio" :aria-checked="id === modelValue" tabindex="-1" @click="select(id)">
             <span>{{ id }}</span>
-            <svg v-if="id === modelValue" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+            <svg v-if="id === modelValue" class="dropdown-check" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
           </button>
           <p v-if="!workspaces.length" class="workspace-empty">暂无工作区，请点击右侧 ＋ 新建</p>
         </div>
@@ -82,26 +82,11 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onPointerDown,
 </template>
 
 <style scoped>
-/* Match the App language picker while keeping workspace names readable in the sidebar. */
 .studio-workspace-select { position: relative; flex: 1; min-width: 0; z-index: 40; }
-.workspace-trigger { display: flex; align-items: center; gap: 7px; width: 100%; height: 42px; padding: 0 10px; border: 1px solid rgba(106, 90, 205, .25); border-radius: 10px; background: rgba(255, 255, 255, .75); color: #35476b; font: inherit; font-size: 13px; cursor: pointer; transition: background 150ms, border-color 150ms; }
-.workspace-trigger:hover:not(:disabled), .workspace-trigger.is-open { background: #fff; border-color: #887bd7; }
-.workspace-trigger:focus-visible { outline: 2px solid #887bd7; outline-offset: 3px; }
-.workspace-trigger:disabled { opacity: .5; cursor: default; }
+.workspace-trigger { width: 100%; --dropdown-gap: 7px; --dropdown-padding: 10px; --dropdown-font-size: 13px; }
 .workspace-trigger span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-svg { flex-shrink: 0; width: 19px; height: 19px; stroke: currentColor; stroke-width: 1.5; }
-.workspace-chevron { width: 14px; height: 14px; transition: transform 150ms; }
-.is-open .workspace-chevron { transform: rotate(180deg); }
-.workspace-options-card { position: absolute; top: calc(100% + 12px); left: 0; width: max(100%, 240px); max-width: calc(100vw - 48px); box-sizing: border-box; padding: 8px; border: 1px solid #e9e5f7; border-radius: 16px; background: #fff; box-shadow: 0 12px 36px rgba(53, 39, 108, .16); transform-origin: top left; }
-.workspace-options-card::before { content: ''; position: absolute; top: -6px; left: 22px; width: 10px; height: 10px; background: #fff; border-top: 1px solid #e9e5f7; border-left: 1px solid #e9e5f7; transform: rotate(45deg); }
+.workspace-trigger > svg { flex-shrink: 0; }
+.workspace-options-card { --dropdown-menu-width: max(100%, 240px); --dropdown-menu-max-width: calc(100vw - 48px); --dropdown-option-font-size: 14px; }
 .workspace-options { position: relative; max-height: min(320px, max(100px, calc(100dvh - 200px))); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #d4cdee transparent; }
-.workspace-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; min-height: 46px; padding: 10px 14px; border: 0; border-radius: 9px; background: transparent; color: #555b70; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
-.workspace-option span { min-width: 0; overflow-wrap: anywhere; }
-.workspace-option:hover, .workspace-option:focus-visible { background: #f0edff; outline: none; }
-.workspace-option.is-selected { color: #6a5acd; }
-.workspace-option svg { stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .workspace-empty { margin: 6px; padding: 8px; color: #73758b; font-size: 12px; line-height: 1.7; }
-.workspace-menu-enter-active, .workspace-menu-leave-active { transition: opacity 150ms, transform 150ms; }
-.workspace-menu-enter-from, .workspace-menu-leave-to { opacity: 0; transform: translateY(-4px) scale(.98); }
-@media (prefers-reduced-motion: reduce) { .workspace-trigger, .workspace-chevron, .workspace-menu-enter-active, .workspace-menu-leave-active { transition: none; } }
 </style>

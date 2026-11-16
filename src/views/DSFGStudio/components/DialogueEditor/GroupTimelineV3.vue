@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import ScrubbableNumberInput from "../../../ClientUIAnimationEditor/ScrubbableNumberInput.vue";
 import type {
   DialogueClip,
   FocusPushClip,
@@ -61,6 +62,7 @@ const { availablePresets: publicEventPresets } = usePublicEventPresets();
 
 const viewportWidth = ref(918);
 const timelineScrollRef = ref<HTMLElement>();
+const displayDurationControl = ref<HTMLLabelElement>();
 let timelineResizeObserver: ResizeObserver | undefined;
 const labelWidth = 118;
 const dialogueClips = computed(() => getDialogueClips(props.node));
@@ -157,12 +159,14 @@ const ticks = computed(() => {
   const step = tickStep.value;
   return Array.from({ length: Math.floor(canvasDuration.value / step) + 1 }, (_, index) => Number((index * step).toPrecision(10)));
 });
-function updateDisplayDuration(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const value = input.valueAsNumber;
-  if (input.value === "") delete props.node.timeline.displayDuration;
-  else if (Number.isFinite(value) && value > 0) props.node.timeline.displayDuration = value;
-  input.value = props.node.timeline.displayDuration?.toString() ?? "";
+function updateDisplayDuration(value: number | null) {
+  if (value === null) {
+    if (props.node.timeline.displayDuration === undefined) return;
+    delete props.node.timeline.displayDuration;
+  } else {
+    if (!Number.isFinite(value) || value <= 0 || value === getGroupTimelineDisplayDuration(props.node)) return;
+    props.node.timeline.displayDuration = value;
+  }
   if (timelineScrollRef.value) timelineScrollRef.value.scrollLeft = 0;
 }
 
@@ -382,6 +386,11 @@ function isEditorInteraction(event: Event) {
 }
 
 function trackEditorPointerDown(event: PointerEvent) {
+  const control = displayDurationControl.value;
+  const focused = document.activeElement;
+  if (control && focused instanceof HTMLInputElement && control.contains(focused) && !event.composedPath().includes(control)) {
+    focused.blur();
+  }
   editorPointerDownInside = event.button === 0 && isEditorInteraction(event);
 }
 
@@ -688,9 +697,17 @@ onBeforeUnmount(() => {
       <span class="timeline-eyebrow">GROUP TIMELINE</span>
 
       <div class="timeline-actions">
-        <label class="display-duration-control" title="设置可见宽度内的时长；清空后自动计算。超出部分可横向滚动查看。">
+        <label ref="displayDurationControl" class="display-duration-control" title="设置可见宽度内的时长；清空后自动计算。超出部分可横向滚动查看。">
           显示时长（秒）
-          <input type="number" min="0.1" step="0.1" aria-label="Timeline 显示时长（秒）" :placeholder="`自动（${timelineDuration}）`" :value="node.timeline.displayDuration ?? ''" @change="updateDisplayDuration" />
+          <ScrubbableNumberInput
+            :model-value="timelineDuration"
+            :min="0.1"
+            :step="0.1"
+            :scrub-speed="0.1"
+            allow-empty
+            aria-label="Timeline 显示时长（秒）"
+            @update:model-value="updateDisplayDuration"
+          />
         </label>
         <details ref="addLineMenu" class="add-line-menu" @keydown.esc.prevent.stop="closeLineMenu">
           <summary class="primary-button" aria-label="添加事件行">＋ 添加事件</summary>
@@ -738,7 +755,7 @@ onBeforeUnmount(() => {
 
           <div class="timeline-row dialogue-row" @contextmenu.prevent.stop="openTrackContextMenu($event, { kind: 'dialogue' })">
             <div class="line-label dialogue-label">
-              <div><strong>对话</strong><small>{{ dialogueClips.length }} 段台词</small></div>
+              <strong>对话</strong>
               <div class="line-buttons">
                 <button type="button" aria-label="添加对话 Clip" :disabled="!canAddDialogueClip"
                   :title="canAddDialogueClip ? '在末尾添加对话片段' : '将末尾对话设为不触发按下后，可继续添加'"
@@ -806,7 +823,6 @@ onBeforeUnmount(() => {
           <div class="timeline-row select-row" @contextmenu.prevent.stop="openTrackContextMenu($event, { kind: 'select' })">
             <div class="line-label select-label">
               <strong>选项卡</strong>
-              <small>可选 · 固定单 Clip</small>
             </div>
             <button
               v-if="node.select"
@@ -862,7 +878,7 @@ onBeforeUnmount(() => {
 
           <div class="timeline-row focus-push-row" @contextmenu.prevent.stop="openTrackContextMenu($event, { kind: 'focusPush' })">
             <div class="line-label">
-              <div><strong>强制跳过</strong><small>强制跳过 · 单 Clip</small></div>
+              <strong>强制跳过</strong>
             </div>
             <button
               v-if="node.focusPush"
@@ -896,7 +912,7 @@ onBeforeUnmount(() => {
             <div class="line-label">
               <div>
                 <strong>{{ line.name === line.type ? lineLabel(line) : line.name }}</strong>
-                <small>{{ lineLabel(line) }}片段</small>
+                <small v-if="line.type !== 'Camera'">{{ lineLabel(line) }}片段</small>
               </div>
               <div class="line-buttons">
                 <button

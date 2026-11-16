@@ -1,11 +1,12 @@
 <script setup lang="ts">
-withDefaults(defineProps<{ name: "file" | "search" | "plus" | "more" | "trash" | "folder" | "undo" | "redo"; size?: number }>(), { size: 18 });
+withDefaults(defineProps<{ name: "file" | "search" | "plus" | "more" | "trash" | "pencil" | "folder" | "undo" | "redo"; size?: number }>(), { size: 18 });
 const paths = {
   file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6",
   search: "M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
   plus: "M12 5v14 M5 12h14",
   more: "M5 12h.01 M12 12h.01 M19 12h.01",
   trash: "M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7",
+  pencil: "M4 20l4.5-1 11-11a2.5 2.5 0 0 0-3.5-3.5l-11 11L4 20z M14.5 6l3.5 3.5",
   folder: "M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
   undo: "M3 10h8a7 7 0 0 1 7 7v2 M3 10l5-5 M3 10l5 5",
   redo: "M21 10h-8a7 7 0 0 0-7 7v2 M21 10l-5-5 M21 10l-5 5",

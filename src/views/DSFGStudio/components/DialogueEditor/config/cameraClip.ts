@@ -126,15 +126,17 @@ export const CAMERA_CLIP_COMPONENT_TEMPLATE: ClipComponentTemplate = {
   ],
 };
 
-/** Upgrade only known camera enum values; preserve custom values and all point data. */
-export function normalizeCameraMotion(value: unknown, kind: "position" | "rotation"): unknown {
+/** Normalize known enums and optional classic snapping without changing source drafts or point data. */
+export function normalizeCameraMotion(value: unknown, kind: "position" | "rotation", forceSnapToTarget = false): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const source = value as Record<string, unknown>;
   const modes = kind === "position" ? ["Fixed", "Linear", "Follow", "Orbit"] : ["Fixed", "Linear", "LookAt"];
   const pointTypes = kind === "position" ? ["Vector3", "Guid", "Entity"] : ["Vector3", "Guid", "Entity", "Rot"];
+  const type = typeof source.type === "string" && modes.includes(source.type) ? `NOLOC_${source.type}` : source.type;
   return {
     ...source,
-    ...(typeof source.type === "string" && modes.includes(source.type) ? { type: `NOLOC_${source.type}` } : {}),
+    ...(type !== source.type ? { type } : {}),
+    ...(forceSnapToTarget && type === (kind === "position" ? "NOLOC_Follow" : "NOLOC_LookAt") ? { snapToTarget: true } : {}),
     ...(Array.isArray(source.slot) ? { slot: source.slot.map(slot => {
       if (!slot || typeof slot !== "object" || Array.isArray(slot)) return slot;
       return { ...slot, ...(pointTypes.includes(slot.pointType) ? { pointType: `NOLOC_${slot.pointType}` } : {}) };
@@ -142,13 +144,13 @@ export function normalizeCameraMotion(value: unknown, kind: "position" | "rotati
   };
 }
 
-export function normalizeCameraProperties(value: unknown): unknown {
+export function normalizeCameraProperties(value: unknown, forceSnapToTarget = false): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const source = value as Record<string, unknown>;
   return {
     ...source,
-    ...(Object.prototype.hasOwnProperty.call(source, "positionData") ? { positionData: normalizeCameraMotion(source.positionData, "position") } : {}),
-    ...(Object.prototype.hasOwnProperty.call(source, "rotationData") ? { rotationData: normalizeCameraMotion(source.rotationData, "rotation") } : {}),
+    ...(Object.prototype.hasOwnProperty.call(source, "positionData") ? { positionData: normalizeCameraMotion(source.positionData, "position", forceSnapToTarget) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(source, "rotationData") ? { rotationData: normalizeCameraMotion(source.rotationData, "rotation", forceSnapToTarget) } : {}),
   };
 }
 

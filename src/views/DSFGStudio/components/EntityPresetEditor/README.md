@@ -70,6 +70,8 @@ Bool 参数写入 ActionClip 末尾的 `boolParams`（BoolList），各项必须
 
 公共事件的原有 9 个系统代号追加 `（v7.1）`，实际事件名保持不变。新增“玩家朝向实体（v7.2）”（`NOLOC_PlayerLookForward`），在系统种子声明 `applicability.baseVersionRanges: [{ min: { releaseId: 2, inclusive: true } }]`，三种文件类型均从原神 7.2 / 模版 2.1 / 内部版本 1.0.4 起可选。`usePublicEventPresets` 以 `visibleSystemPresets` 过滤卡片与词条，以 `availablePresets` 过滤 Timeline 和事件名候选；完整数据用于保存和历史，隐藏不会删除覆盖或改写已有片段。
 
+“设置实体预设状态（v7.3）”（`NOLOC_SetPresetStatus`）从基准 ID 3 起可选。实体获取方式默认 0，显示引用 `entities.guid` 的 GUID；方式 1 显示引用 `entities.entityQuery` 的 String。预设状态索引和预设状态值均为手填整数，默认 0。三个整数按实体获取方式、状态索引、状态值的顺序写入 `intParams[0..2]`，GUID 写入 `guidParams[0]`，String 写入 `stringParams[1]`。Clip 边缘默认不可拖拽。
+
 “玩家朝向实体”包含 4 个参数：Bool“是否是朝向说话人”默认 `True`；Int32“实体获取方式”引用 `entityGetMethods.value`，仅在前者为 `False` 时显示；手填 Guid“GUID”仅在前者为 `False` 且方式为 0 时显示；手填 String“String”仅在前者为 `False` 且方式为 1 时显示。后三项默认空字符串。导出沿用 `boolParams[0]`、`intParams[0]`、`guidParams[0]`、`stringParams[1]`，`stringParams[0]` 保持实际事件名，不带版本标记。
 
 公共事件按“代号（alias）、事件名（name）、参数（parameters）”配置。代号仅用于网页显示与搜索，不写入事件名或导出参数；未填写代号时显示事件名。旧自定义文件缺少 alias 时以原事件名补齐，显式空代号保留。系统项的代号固定，事件名及全部参数均可自定义修改；自定义项的代号也可编辑。

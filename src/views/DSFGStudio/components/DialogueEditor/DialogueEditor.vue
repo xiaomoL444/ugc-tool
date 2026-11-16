@@ -3,6 +3,7 @@
 import SectionLayout from "@/components/Layout/SectionLayout.vue";
 import StudioFileList from "../StudioFileList.vue";
 import StudioCreateDialog from "../StudioCreateDialog.vue";
+import { createStudioFileRename, normalizeStudioFileName } from "../studioFileRename";
 import type { StudioEditorKind } from "../studioSidebar";
 import StudioSidebarContent from "../StudioSidebarContent.vue";
 import { StorageClass } from "@/services/storage/storage";
@@ -28,6 +29,7 @@ import {
 } from "../../constant/constant";
 import { toast } from "vue-sonner";
 import { useWorkspaceStructIds } from "../useWorkspaceStructIds";
+import { useWorkspaceSettings } from "../useWorkspaceSettings";
 import {
   VueFlow,
   useVueFlow,
@@ -130,6 +132,7 @@ const clipInspectorOpen = ref(false);
 const editorView = ref<"graph" | "text">("text");
 const arrangingGraph = ref(false);
 const workspaceIds = useWorkspaceStructIds();
+const workspaceSettings = useWorkspaceSettings();
 const selectedGroupNode = computed(() =>
   selectedGroupNodeId.value && dialogueProject.value
     ? dialogueProject.value.dialogue.nodes[selectedGroupNodeId.value]
@@ -406,6 +409,11 @@ const saveQueue = createWorkspaceSaveQueue(
   (path, data) => storage.setProject(ProjectID).writeFile(path, data),
   (error) => { consola.error(error); toast.error("对话保存失败，请勿关闭页面并重试"); },
 );
+const dialogueFileRename = createStudioFileRename({
+  files: dialogueFiles, selectedFile: selectedDialogueFile, busy: fileBusy, disposed: () => disposed,
+  move: (source, destination) => storage.setProject(ProjectID).rename(AssemblyPath(`/${source}`), destination, { noReplace: true }),
+  flush: () => saveQueue.flush(), scheduleSave: () => scheduleSave(), finishHistory: () => dialogueHistory.finish(),
+});
 defineExpose({ prepareToLeave: async () => {
   if (fileBusy.value) throw new Error("对话文件正在读写，请稍后切换");
   dialogueHistory.finish();
@@ -417,6 +425,7 @@ defineExpose({ prepareToLeave: async () => {
 
 function scheduleSave() {
   if (loadingFile || disposed || !selectedDialogueFile.value || !dialogueProject.value) return;
+  if (dialogueFileRename.deferSave()) return;
   saveQueue.schedule(AssemblyPath(`/${selectedDialogueFile.value}`), encodeDialogueProject(dialogueProject.value));
 }
 
@@ -455,12 +464,10 @@ async function SelectDialogueFile(id: string) {
 }
 async function AddDialogueFile() {
   if (fileBusy.value) return;
-  const input = newDialogueFileName.value;
-  const base = input.trim().replace(/\.json$/i, "");
-  if (!base || /[<>:"/\\|?*\u0000-\u001f]/.test(base) || base === "." || base === "..") {
+  const fileName = normalizeStudioFileName(newDialogueFileName.value);
+  if (!fileName) {
     toast.warning("请输入有效的对话文件名"); return;
   }
-  const fileName = `${base}.json`;
   fileBusy.value = true;
 
   selectedGroupNodeId.value = "";
@@ -495,32 +502,28 @@ async function importConfiguration(file: File) {
     if (!disposed) { toast.success(`已新增「${result.name}」`); toast.warning(result.project.warnings.join("；")); }
   } finally { loadingFile = false; if (!disposed) fileBusy.value = false; }
 }
-async function DeleteDialogueFile(isForce = false) {
+async function DeleteDialogueFile(fileName = selectedDialogueFile.value) {
   if (fileBusy.value) return;
 
-  if (selectedDialogueFile.value == "") {
+  if (!fileName) {
     toast.warning("未选择任何对话文件");
     return;
   }
 
-  if (
-    isForce ||
-    confirm(`确认要删除对话文件【${selectedDialogueFile.value}】吗？`)
-  ) {
-    const fileName = selectedDialogueFile.value;
+  if (confirm(`确认要删除对话文件【${fileName}】吗？`)) {
     fileBusy.value = true;
-
-    selectedGroupNodeId.value = "";
+    const isSelected = selectedDialogueFile.value === fileName;
     fileRequest++;
     try {
       await saveQueue.flush();
       await storage.setProject(ProjectID).trash(AssemblyPath(`/${fileName}`));
       saveQueue.discard(AssemblyPath(`/${fileName}`));
-      selectedDialogueFile.value = "";
-      selectedGroupNodeId.value = "";
-
-      dialogueProject.value = undefined;
-      dialogueHistory.reset();
+      if (isSelected) {
+        selectedDialogueFile.value = "";
+        selectedGroupNodeId.value = "";
+        dialogueProject.value = undefined;
+        dialogueHistory.reset();
+      }
       await RefreshDialogueFile();
       toast.success(`已删除 ${fileName}`);
     } catch (error) { consola.error(error); toast.error("对话删除失败，文件已保留"); }
@@ -550,7 +553,7 @@ async function DownloadQxqyPerformanceFile() {
     }
     syncDialoguePublicEventVisibility(dialogueProject.value, publicEventPresets.availablePresets.value);
     syncProjectStyleParameters();
-    result = exportQxqyPerformance(workspaceIds.dialogue(dialogueProject.value), dialogueStylePresets.options.value);
+    result = exportQxqyPerformance(workspaceIds.dialogue(dialogueProject.value), dialogueStylePresets.options.value, workspaceSettings.value.fileType);
   } catch (error) {
     const message = error instanceof Error ? error.message : "结构体 ID 配置无效";
     toast.error(message);
@@ -592,7 +595,8 @@ onBeforeUnmount(() => {
 <template>
   <div ref="dialogueEditorElement" class="dialogue-editor" :inert="fileBusy || dialogueHistory.busy.value">
     <StudioSidebarContent><div class="editor-file-panel" :inert="fileBusy">
-        <StudioFileList :disabled="fileBusy"
+        <StudioFileList :disabled="fileBusy || dialogueHistory.busy.value" file-label="对话文件"
+          :rename-file="dialogueFileRename.renameFile"
           @select="SelectDialogueFile"
           @add="newDialogueFileOpen = true"
           @delete="DeleteDialogueFile"

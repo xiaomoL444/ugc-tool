@@ -2,6 +2,8 @@
 import StudioSelectField from "../../../StudioSelectField.vue";
 import EntityPresetValueInput from "../../../EntityPresetEditor/EntityPresetValueInput.vue";
 import { computed, ref } from "vue";
+import { useWorkspaceSettings } from "../../../useWorkspaceSettings";
+import { WorkspaceFileType } from "../../../versioning/types";
 import type { ClipPropertyDefinition } from "../../types/DialogueNode";
 import { createClipPropertyValues, getClipListLimits, getClipNestedProperties, isClipPropertyVisible, updateClipStructField } from "../../utils/clipProperties";
 
@@ -12,7 +14,10 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ "update:modelValue": [value: unknown] }>();
 
-const value = computed(() => props.modelValue ?? props.property.defaultValue);
+const workspaceSettings = useWorkspaceSettings();
+const snapToTargetLocked = computed(() => props.property.type === "boolean" && props.property.key === "snapToTarget"
+  && workspaceSettings.value.fileType === WorkspaceFileType.ClassicComponent);
+const value = computed(() => snapToTargetLocked.value ? true : props.modelValue ?? props.property.defaultValue);
 const fields = computed(() => getClipNestedProperties(props.property, props.siblingValues));
 const fieldTitle = computed(() =>
   [props.property.key, props.property.description].filter(Boolean).join("\n"),
@@ -53,6 +58,7 @@ function updateText(event: Event) {
 }
 
 function updateBoolean(event: Event) {
+  if (snapToTargetLocked.value) return;
   emit("update:modelValue", (event.target as HTMLInputElement).checked);
 }
 
@@ -177,8 +183,8 @@ function moveItem(index: number, offset: number) {
       </button>
     </section>
 
-    <label v-else-if="property.type === 'boolean'" class="boolean-field" :title="fieldTitle">
-      <input type="checkbox" :checked="value === true || value === 'True'" @change="updateBoolean" />
+    <label v-else-if="property.type === 'boolean'" class="boolean-field" :class="{ 'is-locked': snapToTargetLocked }" :title="fieldTitle">
+      <input type="checkbox" :checked="value === true || value === 'True'" :disabled="snapToTargetLocked" @change="updateBoolean" />
       <span>{{ property.label }} <code>{{ property.key }}</code></span>
     </label>
 
@@ -225,6 +231,7 @@ function moveItem(index: number, offset: number) {
 </template>
 
 <style scoped>
+.boolean-field.is-locked { opacity: .55; }
 .clip-property { min-width: 0; margin-top: 8px; color: var(--timeline-muted, #a8b7cb); font-size: 10px; }
 code { color: var(--timeline-subtle, #788ea9); font-family: inherit; font-size: 9px; overflow-wrap: anywhere; }
 input:not([type="checkbox"]), textarea, select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; color: var(--timeline-text, #edf4ff); background: var(--timeline-field, #141922); border: 1px solid var(--timeline-border, #3b485b); border-radius: 4px; font: inherit; resize: vertical; }

@@ -1,5 +1,6 @@
 import { compilePublicEventArguments } from "./publicEventParameters";
 import { normalizeCameraProperties } from "../config/cameraClip";
+import { WorkspaceFileType } from "../../versioning/types";
 import { dialogueStyleShowsTitle, getDialogueStyles } from "../config/dialogueStyleRegistry";
 import {
   VariableValue,
@@ -87,6 +88,7 @@ interface TimedActionBucket {
 export function exportQxqyPerformance(
   project: DialogueProject,
   dialogueStyles: readonly DialogueStyleDefinition[] = getDialogueStyles(),
+  fileType?: WorkspaceFileType,
 ): QxqyPerformanceExportResult {
   const structIds = project.exportSettings.qxqyStructIds;
   const configurationErrors = validateQxqyStructIds(structIds);
@@ -144,6 +146,7 @@ export function exportQxqyPerformance(
       warnings,
       structIds,
       dialogueStyles,
+      fileType === WorkspaceFileType.ClassicComponent,
     );
   });
 
@@ -182,7 +185,7 @@ export function exportQxqyPerformance(
 }
 
 /** 独立镜头文件与对话 Timeline 使用相同的参数写入和结构体 ID。 */
-export function exportQxqyCameraClip(clip: PerformanceClip, structIds: QxqyStructIds) {
+export function exportQxqyCameraClip(clip: PerformanceClip, structIds: QxqyStructIds, fileType?: WorkspaceFileType) {
   if (clip.type !== "Camera" || !Number.isFinite(clip.duration) || clip.duration < 0.1) {
     throw new Error("请输入有效的镜头时长（至少 0.1 秒）。");
   }
@@ -190,7 +193,7 @@ export function exportQxqyCameraClip(clip: PerformanceClip, structIds: QxqyStruc
   if (errors.length) throw new Error(errors.join("；"));
   const workspace = createQxqyStructWorkspace(structIds);
   const root = workspace.createDefault(structIds.camera);
-  writeCameraClip(root, clip, clip.duration, `镜头「${clip.name}」`);
+  writeCameraClip(root, clip, clip.duration, `镜头「${clip.name}」`, fileType === WorkspaceFileType.ClassicComponent);
   if (root.issues.length) throw new Error(root.issues.map(issue => issue.message).join("；"));
   return { value: root.toQxqyValue(), json: root.serialize(2) };
 }
@@ -227,6 +230,7 @@ function compileActionGroup(
   warnings: string[],
   structIds: QxqyStructIds,
   dialogueStyles: readonly DialogueStyleDefinition[],
+  forceSnapToTarget: boolean,
 ) {
   const group = workspace.createDefault(structIds.actionGroup);
   const sourceClips = collectSourceClips(node);
@@ -280,6 +284,7 @@ function compileActionGroup(
       sourceClip,
       structIds,
       dialogueStyles,
+      forceSnapToTarget,
     );
     const dataIndex = dataTables[mapping.dataField].push(dataValue) - 1;
     appendTimedAction(
@@ -435,6 +440,7 @@ function createActionData(
   sourceClip: SourceClip,
   structIds: QxqyStructIds,
   dialogueStyles: readonly DialogueStyleDefinition[],
+  forceSnapToTarget: boolean,
 ) {
   const data = workspace.createDefault(structIds[mapping.dataStructKey]);
 
@@ -487,16 +493,17 @@ function createActionData(
       sourceClip.clip,
       sourceClip.duration,
       `Group「${sourceClip.node.name}」镜头「${sourceClip.clip.name}」`,
+      forceSnapToTarget,
     );
   }
 
   return data;
 }
 
-function writeCameraClip(target: VariableValue, clip: PerformanceClip, duration: number, path: string) {
+function writeCameraClip(target: VariableValue, clip: PerformanceClip, duration: number, path: string, forceSnapToTarget: boolean) {
   writeCameraValue(target, normalizeCameraProperties({
     ...flattenComponentProperties(clip), duration: formatFloat(duration),
-  }), path);
+  }, forceSnapToTarget), path);
 }
 
 function flattenComponentProperties(clip: PerformanceClip) {

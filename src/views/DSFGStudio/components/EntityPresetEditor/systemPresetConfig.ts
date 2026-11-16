@@ -188,6 +188,21 @@ export const systemPresetConfig = {
         { id: "public-player-look-forward-string", name: "String", type: "String", defaultValue: "",
           visibleWhen: [{ parameterId: "public-player-look-forward-method", equals: "1" }, { parameterId: "public-player-look-forward-talker", equals: "False" }] },
       ],
+    }, {
+      id: "public-set-preset-status",
+      alias: "设置实体预设状态（v7.3）",
+      name: "NOLOC_SetPresetStatus",
+      requiresDuration: false,
+      applicability: { baseVersionRanges: [{ min: { releaseId: 3, inclusive: true } }] },
+      parameters: [
+        { id: "public-set-preset-status-method", name: "实体获取方式", type: "Int32", reference: "entityGetMethods.value", defaultValue: "0" },
+        { id: "public-set-preset-status-guid", name: "GUID", type: "Guid", reference: "entities.guid", defaultValue: "0",
+          visibleWhen: [{ parameterId: "public-set-preset-status-method", equals: "0" }] },
+        { id: "public-set-preset-status-string", name: "String", type: "String", reference: "entities.entityQuery", defaultValue: "",
+          visibleWhen: [{ parameterId: "public-set-preset-status-method", equals: "1" }] },
+        { id: "public-set-preset-status-index", name: "预设状态索引", type: "Int32", defaultValue: "0" },
+        { id: "public-set-preset-status-value", name: "预设状态值", type: "Int32", defaultValue: "0" },
+      ],
     }] as SystemPublicEventPreset[],
   },
   skillAnimations: {

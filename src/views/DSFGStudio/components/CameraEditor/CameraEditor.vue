@@ -12,13 +12,15 @@ import StudioCreateDialog from "../StudioCreateDialog.vue";
 import CameraClipEditor from "../DialogueEditor/components/clip-editors/CameraClipEditor.vue";
 import { exportQxqyCameraClip } from "../DialogueEditor/utils/qxqyPerformanceExporter";
 import { useWorkspaceStructIds } from "../useWorkspaceStructIds";
+import { useWorkspaceSettings } from "../useWorkspaceSettings";
 import { useCameraFiles } from "./useCameraFiles";
 import type { StudioEditorKind } from "../studioSidebar";
 
 withDefaults(defineProps<{ editorKind?: StudioEditorKind }>(), { editorKind: "Camera" });
 const { project, files, selectedFile, creating, newName, busy, status, error,
-  selectFile, createFile, deleteFile, prepareToLeave, flush } = useCameraFiles();
+  selectFile, createFile, deleteFile, renameFile, prepareToLeave, flush } = useCameraFiles(() => history.finish());
 const workspaceIds = useWorkspaceStructIds();
+const workspaceSettings = useWorkspaceSettings();
 const historyElement = ref<HTMLElement>();
 const history = useStudioDocumentHistory({
   project, element: historyElement, blocked: () => busy.value, label: "修改镜头",
@@ -34,7 +36,7 @@ function updateDuration(event: Event) {
 function exportCamera() {
   if (busy.value || !project.value) return;
   try {
-    const result = exportQxqyCameraClip(project.value.clip, workspaceIds.camera());
+    const result = exportQxqyCameraClip(project.value.clip, workspaceIds.camera(), workspaceSettings.value.fileType);
     downloadTextFile(result.json, `${selectedFile.value.replace(/\.json$/i, "")}-镜头.json`, "application/json");
   } catch (reason) { toast.error(reason instanceof Error ? reason.message : String(reason)); }
 }
@@ -45,7 +47,8 @@ function exportCamera() {
     <StudioSidebarContent>
       <div class="camera-file-sidebar" :inert="busy">
         <div class="studio-sidebar-heading"><strong>镜头文件</strong></div>
-        <StudioFileList :disabled="busy" :values="files" :selected-value="selectedFile" @select="selectFile" @add="creating = true" @delete="deleteFile" />
+        <StudioFileList :disabled="busy || history.busy.value" :values="files" :selected-value="selectedFile"
+          file-label="镜头文件" :rename-file="renameFile" @select="selectFile" @add="creating = true" @delete="deleteFile" />
       </div>
     </StudioSidebarContent>
     <SectionLayout :title="selectedFile || '镜头编辑'" class="camera-file-section">
