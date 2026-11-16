@@ -3,7 +3,7 @@
 import { consola } from "consola";
 import { BrowserStorage } from "./browserStorage";
 import { DesktopStorage, readStorageSettings } from "./desktopStorage";
-import { FileChangeEvent, StorageProvider } from "./types";
+import { FileChangeEvent, StorageProvider, StorageRenameOptions } from "./types";
 
 export class StorageClass {
   private static instance: StorageClass;
@@ -60,12 +60,12 @@ export class StorageClass {
     return `/${this.projectId}${path}`;
   }
 
-  public async rename(filePath: string, newName: string): Promise<void> {
+  public async rename(filePath: string, newName: string, options?: StorageRenameOptions): Promise<void> {
     filePath = this.assemblyPath(filePath);
     consola.trace(filePath)
     consola.trace(newName)
     return this.withProvider(
-      async (provider) => await provider.rename(filePath, newName),
+      async (provider) => await provider.rename(filePath, newName, options),
     );
   }
 

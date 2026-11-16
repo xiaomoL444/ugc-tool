@@ -1,7 +1,7 @@
 import { configureSingle, fs } from "@zenfs/core";
 import { IndexedDB } from "@zenfs/dom";
 import path from "path";
-import type { StorageSnapshot, SyncStorageProvider } from "./types";
+import type { StorageRenameOptions, StorageSnapshot, SyncStorageProvider } from "./types";
 
 const browserWriteLock = "ugc-tools.browser-storage.write";
 let initialization: Promise<void> | undefined;
@@ -34,8 +34,14 @@ export class BrowserStorage implements SyncStorageProvider {
 
   async isAvailable(): Promise<boolean> { return true; }
   async exists(filePath: string): Promise<boolean> { return fs.promises.exists(filePath); }
-  async rename(filePath: string, newName: string): Promise<void> {
-    await mutate(() => fs.promises.rename(filePath, path.join(path.dirname(filePath), newName)));
+  async rename(filePath: string, newName: string, options?: StorageRenameOptions): Promise<void> {
+    const destination = path.join(path.dirname(filePath), newName);
+    await mutate(async () => {
+      if (options?.noReplace && await this.exists(destination)) {
+        throw Object.assign(new Error("目标名称已存在"), { code: "EEXIST" });
+      }
+      await fs.promises.rename(filePath, destination);
+    });
   }
   async mv(oldPath: string, newPath: string): Promise<void> {
     await mutate(async () => {

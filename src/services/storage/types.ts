@@ -30,6 +30,10 @@ export interface FileChangeEvent {
   fileId: string; //更新的文件id
 }
 
+export interface StorageRenameOptions {
+  noReplace?: boolean;
+}
+
 export interface StorageProvider {
   storageName: string;
   init(): Promise<void>;
@@ -42,7 +46,7 @@ export interface StorageProvider {
   getFiles(path: string): Promise<string[]>;
   exists(path: string): Promise<boolean>;
   mv(oldPath: string, newPath: string): Promise<void>;
-  rename(path:string,name:string):Promise<void>;
+  rename(path: string, name: string, options?: StorageRenameOptions): Promise<void>;
   onChange?(cb: (e: FileChangeEvent) => void): void | (() => void);
   dispose?(): void;
 }
