@@ -164,6 +164,14 @@
           "description": "",
           "icon": "✦",
           "cover": "https://wiki.miliastra.dev/system_miliastra_wonderland.webp"
+        },
+        {
+          "id": "performance-template-wiki",
+          "href": "https://wiki.xiaomol444.xyz/",
+          "title": "对话模版wiki",
+          "description": "对话模版wiki",
+          "icon": "✦",
+          "cover": "https://bilibili-user-avatar.2802273114.workers.dev/?url=https://i1.hdslb.com/bfs/face/b94d505e6be9b2504f6fa23c0030751b23f54e5f.jpg"
         }
       ]
     }
