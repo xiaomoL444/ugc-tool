@@ -1,5 +1,5 @@
 import { WorkspaceFileType } from "./versioning/types";
-import { cloneWorkspaceTarget, getBaseRelease, getExtensionPackage, isInVersionRanges } from "./versioning/catalog";
+import { cloneWorkspaceTarget, getExtensionPackage, isInVersionRanges } from "./versioning/catalog";
 import type { WorkspaceTarget, VersionRange } from "./versioning/types";
 
 export interface Applicability {
@@ -14,7 +14,7 @@ export function isApplicable(rule: Applicability | undefined, input: WorkspaceTa
   const target = cloneWorkspaceTarget(input);
   if (rule.fileTypes && !rule.fileTypes.includes(target.fileType)) return false;
   if (rule.baseVersionRanges && (target.baseReleaseId === null || !isInVersionRanges(
-    getBaseRelease(target.baseReleaseId).order, rule.baseVersionRanges, id => getBaseRelease(id).order))) return false;
+    target.baseReleaseId, rule.baseVersionRanges))) return false;
   if (rule.requiredPackageIds && !rule.requiredPackageIds.map(id => {
     getExtensionPackage(id);
     return target.packageIds.includes(id);

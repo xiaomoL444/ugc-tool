@@ -9,7 +9,7 @@ import { changeWorkspaceBase, cloneWorkspaceTarget, getBasePackageIds, workspace
 
 const props = defineProps<{ modelValue: WorkspaceSettings; disabled?: boolean; overlayTarget?: HTMLElement | false }>();
 const emit = defineEmits<{ "update:modelValue": [value: WorkspaceSettings] }>();
-const bases = computed(() => [...baseReleases].sort((a, b) => b.order - a.order));
+const bases = [...baseReleases].sort((a, b) => b.id - a.id);
 const includedPackageIds = computed(() => getBasePackageIds(props.modelValue.baseReleaseId));
 const enabledPackageIds = computed(() => cloneWorkspaceTarget(props.modelValue).packageIds);
 const errors = computed(() => workspaceTargetErrors(props.modelValue));

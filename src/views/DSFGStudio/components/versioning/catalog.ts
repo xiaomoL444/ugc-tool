@@ -51,20 +51,20 @@ export function workspaceTargetKey(input: WorkspaceTarget): string {
   return JSON.stringify([target.fileType, target.baseReleaseId, [...target.packageIds].sort((a, b) => a - b)]);
 }
 
-/** Bounds refer to stable IDs, but comparisons always use the corresponding directory order. */
-export function isInVersionRanges(order: number, ranges: readonly VersionRange[], getOrder: (id: number) => number): boolean {
+/** Baseline IDs increase with each release, including bounds for future releases. */
+export function isInVersionRanges(baseReleaseId: number, ranges: readonly VersionRange[]): boolean {
   if (!ranges.length) throw new Error("版本范围不能为空。");
   return ranges.map(range => {
     if (!range.min && !range.max) throw new Error("版本范围必须设置边界。");
     for (const bound of [range.min, range.max]) {
       if (bound && (!Number.isSafeInteger(bound.releaseId) || typeof bound.inclusive !== "boolean")) throw new Error("版本范围边界无效。");
     }
-    const min = range.min && getOrder(range.min.releaseId), max = range.max && getOrder(range.max.releaseId);
-    if (min !== undefined && max !== undefined && (min > max || (min === max && (!range.min!.inclusive || !range.max!.inclusive)))) {
+    const { min, max } = range;
+    if (min && max && (min.releaseId > max.releaseId || (min.releaseId === max.releaseId && (!min.inclusive || !max.inclusive)))) {
       throw new Error("版本范围上下界无效。");
     }
-    return (min === undefined || (range.min!.inclusive ? order >= min : order > min))
-      && (max === undefined || (range.max!.inclusive ? order <= max : order < max));
+    return (!min || (min.inclusive ? baseReleaseId >= min.releaseId : baseReleaseId > min.releaseId))
+      && (!max || (max.inclusive ? baseReleaseId <= max.releaseId : baseReleaseId < max.releaseId));
   }).some(Boolean);
 }
 
@@ -83,8 +83,8 @@ export function workspaceTargetErrors(target: WorkspaceTarget): string[] {
     for (const id of target.packageIds) {
       const extension = getExtensionPackage(id);
       if (extension.fileTypes && !extension.fileTypes.includes(target.fileType)) errors.push(`「${extension.name}」不适用于当前文件类型。`);
-      if (extension.baseVersionRanges && (target.baseReleaseId === null || !isInVersionRanges(getBaseRelease(target.baseReleaseId).order,
-        extension.baseVersionRanges, baseId => getBaseRelease(baseId).order))) errors.push(`「${extension.name}」需要兼容的基准版本。`);
+      if (extension.baseVersionRanges && (target.baseReleaseId === null || !isInVersionRanges(
+        target.baseReleaseId, extension.baseVersionRanges))) errors.push(`「${extension.name}」需要兼容的基准版本。`);
       for (const dependency of extension.requiredPackageIds ?? []) {
         const required = getExtensionPackage(dependency);
         if (!target.packageIds.includes(dependency)) errors.push(`「${extension.name}」需要安装「${required.name}」。`);

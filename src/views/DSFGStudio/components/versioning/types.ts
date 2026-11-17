@@ -31,8 +31,8 @@ export function formatReleaseLabel(release: ReleaseVersions): string {
 }
 
 export interface BaseRelease extends ReleaseVersions {
+  /** Stable ID. Assign each new baseline a larger ID. */
   id: number;
-  order: number;
   /** Always enabled with this baseline; users cannot deselect these packages. */
   packageIds: readonly number[];
   fileTypes?: readonly WorkspaceFileType[];

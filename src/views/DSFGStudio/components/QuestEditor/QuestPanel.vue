@@ -539,7 +539,6 @@ function editFlowTask(id: number) {
         <div v-else class="inspector-empty">
           <span class="empty-symbol">☷</span><h2>按层级组织任务</h2><p>章节 → 主任务 → 子任务<br />也可以跳过章节，直接创建主任务。</p>
           <div><button type="button" :disabled="project.chapters.length >= 100" @click="addChapter">＋ 创建章节</button><button type="button" class="primary" :disabled="project.mainQuests.length >= 100" @click="addMain(null)">＋ 创建主任务</button></div>
-          <small>选择左侧条目编辑属性。任务配置自动保存在当前工作区，结构体导出用于千星变量。</small>
         </div>
       </main>
     </div>
@@ -643,7 +642,6 @@ code { color: #7a8ca2; font-family: inherit; font-size: 11px; }
 .inspector-empty h2 { color: #475569; font-size: 18px; margin: 12px 0; }
 .inspector-empty p { font-size: 13px; line-height: 1.9; color: #64748b; }
 .inspector-empty > div { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
-.inspector-empty small { display: block; font-size: 11px; color: #94a3b8; line-height: 1.8; }
 .browser-heading { display: flex; align-items: center; justify-content: space-between; padding: 18px 16px 0; }
 .browser-heading strong { color: #34445b; font-size: 13px; }
 .browser-heading > span { color: #7b879a; font-size: 11px; }
