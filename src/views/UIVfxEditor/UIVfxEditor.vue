@@ -42,31 +42,50 @@
       <section class="workspace" :inert="editingBlocked">
         <div class="stage-toolbar">
           <div class="stage-title"><span class="live-dot" /><strong>实时预览</strong><span>{{ project.width }} × {{ project.height }}</span></div>
-          <div class="stage-options"><label><input v-model="showGrid" type="checkbox" />网格</label><label><input v-model="showGuides" type="checkbox" />辅助线</label><button :class="{ active: lightBackground }" aria-label="切换预览背景" @click="lightBackground = !lightBackground">◐</button></div>
+          <div class="stage-options">
+            <button
+              type="button" class="zoom-reset" :aria-label="`画布缩放 ${stageZoomPercent}%，点击适应窗口`"
+              title="滚轮缩放，点击适应窗口" @click="resetStageZoom"
+            >{{ stageZoomPercent }}%</button>
+            <label><input v-model="showGrid" type="checkbox" />网格</label>
+            <label><input v-model="showGuides" type="checkbox" />辅助线</label>
+            <button :class="{ active: lightBackground }" aria-label="切换预览背景" @click="lightBackground = !lightBackground">◐</button>
+          </div>
         </div>
         <div class="stage-area" :class="{ light: lightBackground }">
           <div class="stage-caption"><span>UI CANVAS</span><span>中心原点 · Y 向上</span></div>
-          <div class="canvas-holder">
-            <svg ref="stage" class="particle-stage" :viewBox="[-project.width / 2, -project.height / 2, project.width, project.height].join(' ')" aria-label="粒子预览画布" @pointermove="dragMove" @pointerup="dragEnd" @pointercancel="dragEnd">
-              <defs><pattern id="ui-particle-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" stroke-width=".6" /></pattern></defs>
+          <div class="canvas-holder" @wheel.prevent="zoomStage">
+            <svg ref="stage" class="particle-stage" :viewBox="stageViewBox" aria-label="粒子预览画布" @pointermove="dragMove" @pointerup="dragEnd" @pointercancel="dragEnd" @lostpointercapture="dragEnd">
+              <defs>
+                <pattern :id="gridId" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" stroke-width=".6" /></pattern>
+                <clipPath :id="clipId"><rect :x="-project.width / 2" :y="-project.height / 2" :width="project.width" :height="project.height" /></clipPath>
+              </defs>
               <rect class="canvas-background" :x="-project.width / 2" :y="-project.height / 2" :width="project.width" :height="project.height" />
-              <rect v-if="showGrid" class="grid-fill" :x="-project.width / 2" :y="-project.height / 2" :width="project.width" :height="project.height" fill="url(#ui-particle-grid)" />
+              <rect v-if="showGrid" class="grid-fill" :x="-project.width / 2" :y="-project.height / 2" :width="project.width" :height="project.height" :fill="'url(#'+gridId+')'" />
               <g v-if="showGuides" class="axes"><path :d="'M '+(-project.width/2)+' 0 H '+project.width/2+' M 0 '+(-project.height/2)+' V '+project.height/2" /></g>
-              <g v-for="layer in layers" :key="layer.emitter.id" class="particle-layer" pointer-events="none">
-                <g v-for="p in layer.frames" :key="p.slot" :transform="'translate('+p.x+','+(-p.y)+') rotate('+(-p.rotation)+')'">
-                  <svg v-if="layer.asset?.src && !layer.asset.missing && p.size > 0" :x="-p.size/2" :y="-p.size/2" :width="p.size" :height="p.size" overflow="visible"><SpriteImage :asset="layer.asset" :width="p.size" :height="p.size" image-type="basic" :color="p.color" /></svg>
-                  <circle v-else :r="Math.max(0, p.size / 2)" :fill="colorCss(p.color)" />
+              <g class="particle-clipping" :clip-path="'url(#'+clipId+')'" pointer-events="none">
+                <g v-for="layer in layers" :key="layer.emitter.id" class="particle-layer">
+                  <g v-for="p in layer.frames" :key="p.slot" :transform="'translate('+p.x+','+(-p.y)+') rotate('+(-p.rotation)+')'">
+                    <svg v-if="layer.asset?.src && !layer.asset.missing && p.size > 0" :x="-p.size/2" :y="-p.size/2" :width="p.size" :height="p.size" overflow="visible"><SpriteImage :asset="layer.asset" :width="p.size" :height="p.size" image-type="basic" :color="p.color" /></svg>
+                    <circle v-else :r="Math.max(0, p.size / 2)" :fill="colorCss(p.color)" />
+                  </g>
                 </g>
               </g>
-              <g v-if="showGuides" class="emitter-guides" :transform="'translate('+selected.origin.x+','+(-selected.origin.y)+')'">
-                <circle v-if="selected.shape === 'circle' || selected.shape === 'ring'" class="shape-guide" :r="selected.radius" />
-                <rect v-if="selected.shape === 'box'" class="shape-guide" :x="-selected.width/2" :y="-selected.height/2" :width="selected.width" :height="selected.height" />
-                <template v-if="selected.motion === 'bezier'">
-                  <path class="control-line" :d="'M 0 0 L '+selected.control1.x+' '+(-selected.control1.y)+' M '+selected.control2.x+' '+(-selected.control2.y)+' L '+selected.target.x+' '+(-selected.target.y)" />
-                  <path class="bezier-guide" :d="'M 0 0 C '+selected.control1.x+' '+(-selected.control1.y)+','+selected.control2.x+' '+(-selected.control2.y)+','+selected.target.x+' '+(-selected.target.y)" />
-                  <g v-for="handle in pathHandles" :key="handle.key" class="drag-handle" :transform="'translate('+selected[handle.key].x+','+(-selected[handle.key].y)+')'" @pointerdown.stop.prevent="dragStart($event, handle.key)"><circle r="9" /><text x="14" y="-12">{{ handle.label }}</text></g>
-                </template>
-                <g class="origin-handle" @pointerdown.stop.prevent="dragStart($event, 'origin')"><circle r="12" /><path d="M -19 0 H 19 M 0 -19 V 19" /><text x="22" y="5">发射点</text></g>
+              <g v-if="showGuides" class="emitter-guides">
+                <g pointer-events="none" :transform="'translate('+selected.origin.x+','+(-selected.origin.y)+')'">
+                  <circle v-if="selected.shape === 'circle' || selected.shape === 'ring'" class="shape-guide" :r="selected.radius" />
+                  <rect v-if="selected.shape === 'box'" class="shape-guide" :x="-selected.width/2" :y="-selected.height/2" :width="selected.width" :height="selected.height" />
+                  <template v-if="selected.motion === 'bezier'">
+                    <path class="control-line" :d="'M 0 0 L '+selected.control1.x+' '+(-selected.control1.y)+' M '+selected.control2.x+' '+(-selected.control2.y)+' L '+selected.target.x+' '+(-selected.target.y)" />
+                    <path class="bezier-guide" :d="'M 0 0 C '+selected.control1.x+' '+(-selected.control1.y)+','+selected.control2.x+' '+(-selected.control2.y)+','+selected.target.x+' '+(-selected.target.y)" />
+                  </template>
+                </g>
+                <g v-for="handle in stageHandles" :key="handle.key" :class="[handle.key === 'origin' ? 'origin-handle' : 'drag-handle', { pinned: handle.pinned }]" :transform="handle.transform" @pointerdown.stop.prevent="dragStart($event, handle.key, handle.point)">
+                  <title v-if="handle.pinned">{{ handle.label }}超出预览区，拖动可移回</title>
+                  <circle :r="handle.key === 'origin' ? 12 : 9" />
+                  <path v-if="handle.key === 'origin'" d="M -18 0 H 18 M 0 -18 V 18" />
+                  <text :x="handle.labelX" :y="handle.key === 'origin' ? 5 : -12" :text-anchor="handle.labelX < 0 ? 'end' : 'start'">{{ handle.label }}</text>
+                </g>
               </g>
             </svg>
           </div>
@@ -149,7 +168,7 @@
 
 
 <script setup lang="ts">
-import { computed, inject, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, inject, onMounted, onUnmounted, ref, useId, watch } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
 import type { StorageClass } from "../../services/storage/storage";
 import EditorIcon from "../ClientUIAnimationEditor/EditorIcon.vue";
@@ -208,6 +227,28 @@ const previousProject = ref<ParticleProject | null>(null);
 const time = ref(0), playing = ref(true), previewLoop = ref(true), playbackSpeed = ref(1);
 const showGrid = ref(true), showGuides = ref(true), lightBackground = ref(false), libraryOpen = ref(false);
 const stage = ref<SVGSVGElement>(), fileInput = ref<HTMLInputElement>();
+const stageId = useId(), gridId = `${stageId}-particle-grid`, clipId = `${stageId}-particle-clip`;
+const stageSize = ref({ width: 0, height: 0 });
+const stageCamera = ref({ zoom: 1, x: 0, y: 0 });
+const stageZoomPercent = computed(() => Math.round(stageCamera.value.zoom * 100));
+const stageViewport = computed(() => {
+  const width = stageSize.value.width || project.value.width;
+  const height = stageSize.value.height || project.value.height;
+  // Keep space around the canvas for dragging handles past the canvas boundary.
+  const gutter = 30;
+  const fitScale = Math.min(
+    Math.max(1, width - 2 * gutter) / project.value.width,
+    Math.max(1, height - 2 * gutter) / project.value.height,
+  );
+  const { zoom, x, y } = stageCamera.value;
+  const scale = fitScale * zoom;
+  const halfWidth = width / scale / 2, halfHeight = height / scale / 2;
+  return { left: x - halfWidth, right: x + halfWidth, bottom: y - halfHeight, top: y + halfHeight, scale };
+});
+const stageViewBox = computed(() => {
+  const { left, right, bottom, top } = stageViewport.value;
+  return [left, -top, right - left, top - bottom].join(" ");
+});
 const white: ColorRGBA = { r: 255, g: 255, b: 255, a: 1 };
 const colorCss = (c: ColorRGBA) => "rgba(" + c.r + "," + c.g + "," + c.b + "," + c.a + ")";
 const layers = computed(() => project.value.emitters.filter(e => e.enabled).map(emitter => ({
@@ -222,7 +263,28 @@ const presets: { id: PresetName; name: string; description: string; icon: string
   { id: "coins", name: "金币汇聚", description: "贝塞尔 · 定点收集", icon: "◌" },
 ];
 const shapes: { value: ParticleEmitter["shape"]; label: string }[] = [{ value: "point", label: "点" }, { value: "circle", label: "圆" }, { value: "ring", label: "圆环" }, { value: "box", label: "矩形" }];
-const pathHandles: { key: "control1" | "control2" | "target"; label: string }[] = [{ key: "control1", label: "P1" }, { key: "control2", label: "P2" }, { key: "target", label: "终点" }];
+type PathHandleKey = "control1" | "control2" | "target";
+type HandleKey = "origin" | PathHandleKey;
+const pathHandles: { key: PathHandleKey; label: string }[] = [{ key: "control1", label: "P1" }, { key: "control2", label: "P2" }, { key: "target", label: "终点" }];
+const stageHandles = computed(() => {
+  const emitter = selected.value;
+  const { left, right, bottom, top, scale } = stageViewport.value;
+  const insetX = Math.min(20 / scale, (right - left) / 2);
+  const insetY = Math.min(20 / scale, (top - bottom) / 2);
+  const handles: { key: HandleKey; label: string }[] = emitter.motion === "bezier" ? [...pathHandles] : [];
+  handles.push({ key: "origin", label: "发射点" });
+  return handles.map(({ key, label }) => {
+    const value = emitter[key];
+    const x = key === "origin" ? value.x : emitter.origin.x + value.x;
+    const y = key === "origin" ? value.y : emitter.origin.y + value.y;
+    const point = {
+      x: Math.max(left + insetX, Math.min(right - insetX, x)),
+      y: Math.max(bottom + insetY, Math.min(top - insetY, y)),
+    };
+    const labelX = (key === "origin" ? 22 : 14) * ((right - point.x) * scale < 60 ? -1 : 1);
+    return { key, label, point, labelX, pinned: point.x !== x || point.y !== y, transform: `translate(${point.x},${-point.y}) scale(${1 / scale})` };
+  });
+});
 const rangeFields: { key: "lifetime" | "size" | "speed" | "rotation" | "spin"; label: string; unit: string; min: number; max: number; step: number }[] = [
   { key: "lifetime", label: "寿命", unit: "s", min: .05, max: 30, step: .05 },
   { key: "size", label: "尺寸", unit: "px", min: 1, max: 300, step: 1 },
@@ -274,18 +336,36 @@ function restart() { time.value = 0; playing.value = true; }
 function togglePlay() { if (!playing.value && time.value >= project.value.previewDuration) time.value = 0; playing.value = !playing.value; }
 function scrub(event: Event) { playing.value = false; time.value = Number((event.target as HTMLInputElement).value); }
 watch(() => project.value.previewDuration, duration => { time.value = Math.min(time.value, duration); });
-let drag: { key: "origin" | "control1" | "control2" | "target"; id: number; emitter: ParticleEmitter; offset: Point } | null = null;
-function stagePoint(event: PointerEvent): Point | null {
+let drag: { key: HandleKey; id: number; emitter: ParticleEmitter; offset: Point } | null = null;
+function stagePoint(event: MouseEvent): Point | null {
   const matrix = stage.value?.getScreenCTM();
   if (!matrix) return null;
   const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
   return { x: point.x, y: -point.y };
 }
-function dragStart(event: PointerEvent, key: "origin" | "control1" | "control2" | "target") {
+function zoomStage(event: WheelEvent) {
+  if (drag || !stage.value) return;
+  const { zoom, x, y } = stageCamera.value;
+  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? stage.value.clientHeight : 1;
+  const nextZoom = Math.max(.25, Math.min(4, zoom * Math.exp(-event.deltaY * unit * .0015)));
+  if (nextZoom === zoom) return;
+  const pointer = stagePoint(event);
+  if (!pointer) return;
+  const ratio = zoom / nextZoom;
+  stageCamera.value = {
+    zoom: nextZoom,
+    x: pointer.x + (x - pointer.x) * ratio,
+    y: pointer.y + (y - pointer.y) * ratio,
+  };
+}
+function resetStageZoom() {
+  stageCamera.value = { zoom: 1, x: 0, y: 0 };
+}
+function dragStart(event: PointerEvent, key: HandleKey, point: Point) {
+  if (drag || !event.isPrimary || event.button !== 0) return;
   const p = stagePoint(event); if (!p) return;
-  const e = selected.value, value = e[key];
-  const origin = key === "origin" ? { x: 0, y: 0 } : e.origin;
-  drag = { key, id: event.pointerId, emitter: e, offset: { x: p.x - value.x - origin.x, y: p.y - value.y - origin.y } };
+  drag = { key, id: event.pointerId, emitter: selected.value, offset: { x: p.x - point.x, y: p.y - point.y } };
   stage.value?.setPointerCapture(event.pointerId);
 }
 function dragMove(event: PointerEvent) {
@@ -433,6 +513,7 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
   }
 }
 let saveTimer: ReturnType<typeof setTimeout> | undefined, frameId = 0, lastTime = 0;
+let stageObserver: ResizeObserver | undefined;
 function saveLocal() {
   if (validationError.value) return;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(project.value)); storageError.value = ""; }
@@ -461,6 +542,12 @@ function keyboard(event: KeyboardEvent) {
   if (event.code === "Space") { event.preventDefault(); togglePlay(); }
 }
 onMounted(() => {
+  if (stage.value) {
+    stageObserver = new ResizeObserver(([{ contentRect }]) => {
+      stageSize.value = { width: contentRect.width, height: contentRect.height };
+    });
+    stageObserver.observe(stage.value);
+  }
   void loadImageCatalog(); void loadImageTranslations(); void initializeOrSave(); frameId = requestAnimationFrame(animate);
   window.addEventListener("keydown", keyboard); window.addEventListener("beforeunload", handleBeforeUnload);
 });
@@ -470,6 +557,7 @@ onBeforeRouteLeave(async () => {
   return runArchiveAction(() => archive.prepareToLeave());
 });
 onUnmounted(() => {
+  stageObserver?.disconnect();
   cancelAnimationFrame(frameId); clearTimeout(saveTimer);
   if (archive) void archive.dispose().catch(error => console.error("UI 特效存档保存失败", error));
   else saveLocal();
@@ -570,12 +658,13 @@ input[type=checkbox] { accent-color:#a991ee; margin:0; width:13px; height:13px; 
 .stage-options { display:flex; align-items:center; gap:10px; color:#8792a6; font-size:10px; }
 .stage-options label { display:flex; gap:5px; align-items:center; white-space:nowrap; }
 .stage-options button { padding:2px 6px; border:0; background:transparent; font-size:17px; }
+.stage-options .zoom-reset { min-width:46px; padding:4px 5px; border:1px solid #384154; border-radius:4px; font-size:10px; font-variant-numeric:tabular-nums; }
 .stage-options button.active { color:#d2bdfc; background:#3a304f; }
 .stage-area { flex:1; min-height:180px; display:flex; flex-direction:column; padding:16px 22px 13px; background:radial-gradient(ellipse at 50% 42%,#1f2333,#10141d 80%); overflow:hidden; }
 .stage-caption,.stage-footnote { display:flex; align-items:center; justify-content:space-between; color:#55637d; font-size:9px; gap:9px; }
 .stage-caption>span:first-child { letter-spacing:.2em; font-size:8px; }
-.canvas-holder { min-height:0; flex:1; display:flex; padding:22px 0; }
-.particle-stage { width:100%; height:100%; overflow:hidden; touch-action:none; }
+.canvas-holder { position:relative; min-height:0; flex:1; }
+.particle-stage { position:absolute; inset:0; width:100%; height:100%; overflow:hidden; touch-action:none; }
 .canvas-background { fill:#0d111a; stroke:#343e52; stroke-width:1; }
 .grid-fill { color:#30394d; opacity:.5; }
 .axes path { fill:none; stroke:#39425a; stroke-width:.8; stroke-dasharray:4 7; }
@@ -594,6 +683,7 @@ input[type=checkbox] { accent-color:#a991ee; margin:0; width:13px; height:13px; 
 .emitter-guides text { fill:#afa2cf; font-size:11px; user-select:none; }
 .origin-handle circle { fill:#1c1c3099; stroke:#b9a4ee; stroke-width:1.3; }
 .origin-handle path { fill:none; stroke:#b9a4ee; stroke-width:1.3; }
+.emitter-guides .pinned circle { stroke-dasharray:3 2; }
 .transport { border-top:1px solid var(--edge); background:#171d28; padding:12px 20px 10px; flex-shrink:0; }
 .transport-top { display:flex; align-items:center; gap:10px; }
 .restart-button { font-size:20px; padding:0 4px; border:0; background:none; }
@@ -651,7 +741,7 @@ details>.pair,details>.range-row,details>.segmented { margin-bottom:10px; }
 .export-dialog .export-note { font-size:10px; color:#7888a1; margin:13px 0 20px; }
 .modal-actions { display:flex; justify-content:flex-end; gap:9px; }
 .modal-actions button:first-child { margin-right:auto; background:transparent; }
-@media (min-width:1550px) { .editor-layout { grid-template-columns:232px minmax(200px,1fr) 324px; } .stage-area { padding:22px 35px 18px; } .canvas-holder { padding:35px 0; } }
+@media (min-width:1550px) { .editor-layout { grid-template-columns:232px minmax(200px,1fr) 324px; } .stage-area { padding:22px 35px 18px; } }
 @media (max-width:1080px) { .editor-layout { grid-template-columns:180px minmax(200px,1fr) 270px; } .save-state,.prototype-tag { display:none; } .editor-toolbar { padding:12px; } .stage-toolbar { padding:10px; } .stage-title>span:last-child { display:none; } .stage-area { padding:12px; } .preset-card { gap:6px; } .preset-art { width:26px; } .preset-card small { font-size:8px; } }
 @media (max-width:820px) { .editor-layout { grid-template-columns:minmax(260px,1fr) 250px; } .left-panel { display:none; } .brand span,.quiet-button:first-of-type { display:none; } .brand strong { font-size:12px; } .editor-toolbar { gap:4px; } .editor-toolbar button { padding:7px; font-size:10px; } .transport { padding:12px; } }
 @media (max-width:820px) { .particle-editor { overflow:auto; } .editor-layout { display:flex; flex-direction:column; overflow:visible; } .workspace { flex-shrink:0; height:420px; } .inspector { min-height:300px; overflow:visible; border-left:0; } .inspector-scroll { overflow:visible; } .editor-toolbar { flex-wrap:wrap; } .brand-mark { width:28px; height:28px; } .left-panel { display:flex; max-height:310px; flex-shrink:0; border-bottom:1px solid var(--edge); } .budget-card,.left-footer { display:none; } .presets { flex-direction:row; } .preset-card { flex:1; min-width:0; } .preset-art,.preset-card small,.preset-arrow,.section-label { display:none; } .emitter-list { max-height:120px; overflow-y:auto; } }
