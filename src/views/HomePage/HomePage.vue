@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { contactLinks } from "@/configs/contactLinks";
 import homePageData from "@/configs/homePage.json";
+import ResourceUpdatesDialog from "./ResourceUpdatesDialog.vue";
 
 interface HomeCard {
   id: string;
@@ -17,6 +18,7 @@ interface HomeCard {
   credit?: string;
   badge?: string;
   badgeKey?: string;
+  resourceIndex?: string;
 }
 interface HomeCategory {
   id: string;
@@ -36,6 +38,11 @@ const categories: HomeCategory[] = homePageData.categories;
 const acknowledgements: HomeAcknowledgement[] = homePageData.acknowledgements;
 const { t, te } = useI18n({ useScope: "global" });
 const displayText = (value: string, key?: string) => key && te(key) ? t(key) : value;
+const resourceCategory = categories.find(category => category.id === "resources");
+const resourceUpdates = computed(() => (resourceCategory?.cards ?? []).flatMap(card => card.resourceIndex
+  ? [{ id: card.id, title: displayText(card.title, card.titleKey), index: card.resourceIndex }]
+  : []));
+const resourceUpdatesDialog = ref<InstanceType<typeof ResourceUpdatesDialog> | null>(null);
 const failedPreviewImages = ref(new Set<string>());
 const cardPreviews = (card: HomeCard) => (card.previewImages ?? [])
   .map(src => src.trim())
@@ -61,7 +68,7 @@ const cardPreviews = (card: HomeCard) => (card.previewImages ?? [])
           :style="{ '--category-color': category.color, '--category-background': category.background }"
         >
           <legend>
-            <h2>{{ displayText(category.title, category.titleKey) }} <span>· {{ category.cards.length }}</span></h2>
+            <h2>{{ displayText(category.title, category.titleKey) }} <span>· {{ category.cards.length + (category === resourceCategory ? 1 : 0) }}</span></h2>
           </legend>
           <div class="card-grid">
             <a v-for="card in category.cards" :key="card.id" class="tool-card" :href="card.href">
@@ -86,6 +93,21 @@ const cardPreviews = (card: HomeCard) => (card.previewImages ?? [])
               </div>
               <span class="card-arrow" aria-hidden="true">›</span>
             </a>
+            <button v-if="category === resourceCategory" type="button" class="tool-card resource-updates-card"
+              aria-haspopup="dialog" aria-controls="resource-updates-dialog" @click="resourceUpdatesDialog?.show()">
+              <span class="card-icon" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="5" width="18" height="16" rx="2" />
+                  <path d="M7 3v4m10-4v4M3 10h18m-11 5 2 2 3-3" />
+                </svg>
+              </span>
+              <span class="card-content">
+                <span class="resource-updates-title">{{ t('homePage.resourceUpdates.title') }}</span>
+                <span class="resource-updates-description">{{ t('homePage.resourceUpdates.description') }}</span>
+              </span>
+              <span class="card-arrow" aria-hidden="true">›</span>
+            </button>
           </div>
         </fieldset>
         <details v-if="acknowledgements.length" class="acknowledgements-card" aria-labelledby="acknowledgements-title">
@@ -123,6 +145,7 @@ const cardPreviews = (card: HomeCard) => (card.previewImages ?? [])
       </div>
     </section>
     </div>
+    <ResourceUpdatesDialog ref="resourceUpdatesDialog" :entries="resourceUpdates" />
   </div>
 </template>
 
@@ -225,6 +248,15 @@ const cardPreviews = (card: HomeCard) => (card.previewImages ?? [])
   outline: 3px solid var(--category-color);
   outline-offset: 3px;
 }
+.resource-updates-card {
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.resource-updates-title,
+.resource-updates-description {
+  display: block;
+}
 .card-previews {
   position: absolute;
   inset: 0;
@@ -311,12 +343,15 @@ const cardPreviews = (card: HomeCard) => (card.previewImages ?? [])
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.card-content h3 {
+.card-content h3,
+.resource-updates-title {
   margin: 0;
   font-size: 18px;
+  font-weight: bold;
   line-height: 1.5;
 }
-.card-content p {
+.card-content p,
+.resource-updates-description {
   margin: 6px 0 0;
   color: #697795;
   font-size: 14px;
@@ -477,7 +512,7 @@ const cardPreviews = (card: HomeCard) => (card.previewImages ?? [])
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.card-content h3 { font-size: 17px; }
+.card-content h3, .resource-updates-title { font-size: 17px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tool-card { transition: none; }

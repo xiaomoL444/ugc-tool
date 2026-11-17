@@ -7,9 +7,13 @@
 - 卡片可选字段：`cover` 封面图片 URL、`credit` 署名、`titleKey` 和 `descriptionKey` 多语言键。
 - 设置 `cover` 时显示图片，否则显示 `icon`。本地图片放入 `public`，例如 `public/covers/demo.png` 对应 `/covers/demo.png`。
 - 当前语言存在对应翻译键时优先使用翻译，否则使用 JSON 中的文案。要直接改写展示文案，请同时修改翻译或移除相应翻译键。
-- 分类数量根据 `cards` 自动计算；新增分类无需修改 Vue 模板。
+- 分类数量自动计算，资源预览额外计入「资源更新日期」；新增分类无需修改 Vue 模板。
 - 侧边栏沿用分类的 `color`、`background` 和多语言标题；站内链接通过路由切换，HTTP(S) 外链在新标签页打开。
 - JSON 配置首页展示内容和侧边栏导航。新增应用页面仍需在 `src/configs/routes.ts` 注册路由。
+
+## 资源更新日期
+
+「资源更新日期」是首页「资源预览」分类的固定末项。该分类的卡片可用 `resourceIndex` 指定 OSS 根目录下的索引路径，例如 `EffectPlayer/data.json`；设置后会在弹窗中显示一行。打开弹窗或点击刷新时，请求索引，用响应头的 `Last-Modified` 显示日期，用 JSON 顶层的 `latestGiVersion` 显示最高收录版本。缺少版本字段时省略版本标签。没有返回有效时间时显示「暂无更新日期」。
 
 ## 卡片背景截图
 

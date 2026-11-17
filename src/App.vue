@@ -336,7 +336,7 @@ import PanelLayout from './components/Layout/PanelLayout.vue'
 import StorageSettings from './components/StorageSettings.vue'
 import { DesktopStorageError } from './services/storage/desktopStorage'
 import { StorageSyncPausedError } from './services/storage/storage'
-import { homePageCategories } from './configs/homePageVisibility'
+import homePageData from './configs/homePage.json'
 
 interface NavigationCard {
   id: string;
@@ -354,7 +354,7 @@ interface NavigationCategory {
   cards: NavigationCard[];
 }
 
-const navigationCategories: NavigationCategory[] = homePageCategories
+const navigationCategories: NavigationCategory[] = homePageData.categories
 
 const route = useRoute()
 onErrorCaptured((error) => {
