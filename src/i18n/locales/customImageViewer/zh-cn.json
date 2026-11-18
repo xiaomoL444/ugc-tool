@@ -1,0 +1,15 @@
+{
+  "customImageViewer.ui.title": "自定义图片预览器",
+  "customImageViewer.ui.description": "按分类浏览 UI 图片，对比原图与横纵拉伸效果",
+  "customImageViewer.ui.library": "图片列表",
+  "customImageViewer.ui.preview": "查看图片",
+  "customImageViewer.ui.search": "搜索（分类或 ID）",
+  "customImageViewer.ui.totalCount": "共 {count} 张",
+  "customImageViewer.ui.filteredCount": "{count} / {total} 张",
+  "customImageViewer.ui.original": "原图",
+  "customImageViewer.ui.horizontal": "左右拉伸",
+  "customImageViewer.ui.vertical": "上下拉伸",
+  "customImageViewer.ui.unavailable": "图片不可用",
+  "customImageViewer.ui.select": "请选择图片",
+  "customImageViewer.ui.loading": "加载图片中…"
+}

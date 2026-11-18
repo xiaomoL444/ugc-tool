@@ -1,4 +1,5 @@
 {
+  "clientUIAnimationEditor.category.19": "手柄焦点提示",
   "clientUIAnimationEditor.ui.primitiveFit.lowMemorySuffix": " · 低内存",
   "clientUIAnimationEditor.ui.primitives.defaultWorkersHint": " · 默认",
   "clientUIAnimationEditor.ui.primitiveResources.skippedImagesSuffix": "，跳过 {skipped} 张",

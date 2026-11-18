@@ -1,4 +1,5 @@
 {
+  "clientUIAnimationEditor.category.19": "Controller Focus Hint",
   "clientUIAnimationEditor.ui.primitiveFit.lowMemorySuffix": " · Low memory",
   "clientUIAnimationEditor.ui.primitives.defaultWorkersHint": " · Default",
   "clientUIAnimationEditor.ui.primitiveResources.skippedImagesSuffix": ", {skipped} images skipped",

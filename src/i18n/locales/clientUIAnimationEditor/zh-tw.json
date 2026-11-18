@@ -1,4 +1,5 @@
 {
+  "clientUIAnimationEditor.category.19": "控制器焦點提示",
   "clientUIAnimationEditor.ui.primitiveFit.lowMemorySuffix": " · 低記憶體",
   "clientUIAnimationEditor.ui.primitives.defaultWorkersHint": " · 預設",
   "clientUIAnimationEditor.ui.primitiveResources.skippedImagesSuffix": "，略過 {skipped} 張",

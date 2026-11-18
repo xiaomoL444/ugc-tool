@@ -1,4 +1,5 @@
 {
+  "clientUIAnimationEditor.category.19": "Индикатор фокуса контроллера",
   "clientUIAnimationEditor.ui.primitiveFit.lowMemorySuffix": " · Мало памяти",
   "clientUIAnimationEditor.ui.primitives.defaultWorkersHint": " · По умолчанию",
   "clientUIAnimationEditor.ui.primitiveResources.skippedImagesSuffix": ", пропущено изображений: {skipped}",

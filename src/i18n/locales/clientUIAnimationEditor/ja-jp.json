@@ -1,4 +1,5 @@
 {
+  "clientUIAnimationEditor.category.19": "コントローラーのフォーカス表示",
   "clientUIAnimationEditor.ui.primitiveFit.lowMemorySuffix": " · 低メモリ",
   "clientUIAnimationEditor.ui.primitives.defaultWorkersHint": " · デフォルト",
   "clientUIAnimationEditor.ui.primitiveResources.skippedImagesSuffix": "、{skipped} 枚をスキップ",

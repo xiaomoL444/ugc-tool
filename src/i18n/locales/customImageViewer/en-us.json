@@ -1,0 +1,15 @@
+{
+  "customImageViewer.ui.title": "Custom Image Viewer",
+  "customImageViewer.ui.description": "Browse UI images by category and compare their original and stretched layouts",
+  "customImageViewer.ui.library": "Image list",
+  "customImageViewer.ui.preview": "Image preview",
+  "customImageViewer.ui.search": "Search (category or ID)",
+  "customImageViewer.ui.totalCount": "{count} images",
+  "customImageViewer.ui.filteredCount": "{count} / {total} images",
+  "customImageViewer.ui.original": "Original",
+  "customImageViewer.ui.horizontal": "Horizontal stretch",
+  "customImageViewer.ui.vertical": "Vertical stretch",
+  "customImageViewer.ui.unavailable": "Image unavailable",
+  "customImageViewer.ui.select": "Select an image",
+  "customImageViewer.ui.loading": "Loading image…"
+}

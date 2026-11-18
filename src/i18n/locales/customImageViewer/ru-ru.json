@@ -1,0 +1,15 @@
+{
+  "customImageViewer.ui.title": "Просмотр пользовательских изображений",
+  "customImageViewer.ui.description": "Просмотр изображений интерфейса по категориям и сравнение вариантов растяжения",
+  "customImageViewer.ui.library": "Список изображений",
+  "customImageViewer.ui.preview": "Предпросмотр",
+  "customImageViewer.ui.search": "Поиск (категория или ID)",
+  "customImageViewer.ui.totalCount": "Всего изображений: {count}",
+  "customImageViewer.ui.filteredCount": "Изображений: {count} из {total}",
+  "customImageViewer.ui.original": "Оригинал",
+  "customImageViewer.ui.horizontal": "По горизонтали",
+  "customImageViewer.ui.vertical": "По вертикали",
+  "customImageViewer.ui.unavailable": "Изображение недоступно",
+  "customImageViewer.ui.select": "Выберите изображение",
+  "customImageViewer.ui.loading": "Загрузка изображения…"
+}

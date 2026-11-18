@@ -1,0 +1,15 @@
+{
+  "customImageViewer.ui.title": "自訂圖片預覽器",
+  "customImageViewer.ui.description": "依分類瀏覽 UI 圖片，比較原圖與橫向、縱向拉伸效果",
+  "customImageViewer.ui.library": "圖片列表",
+  "customImageViewer.ui.preview": "查看圖片",
+  "customImageViewer.ui.search": "搜尋（分類或 ID）",
+  "customImageViewer.ui.totalCount": "共 {count} 張",
+  "customImageViewer.ui.filteredCount": "{count} / {total} 張",
+  "customImageViewer.ui.original": "原圖",
+  "customImageViewer.ui.horizontal": "左右拉伸",
+  "customImageViewer.ui.vertical": "上下拉伸",
+  "customImageViewer.ui.unavailable": "圖片無法顯示",
+  "customImageViewer.ui.select": "請選擇圖片",
+  "customImageViewer.ui.loading": "正在載入圖片…"
+}
