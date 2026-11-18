@@ -57,9 +57,14 @@ export async function loadWorkspaceSettings(storage: { exists(path: string): Pro
   return await storage.exists(path) ? decodeWorkspaceSettings(JSON.parse(await storage.readFile(path))) : createWorkspaceSettings();
 }
 
+export function isWorkspaceImportStaging(name: string): boolean {
+  return /^\.dsfg-import-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(name);
+}
+
 export function workspaceNameError(name: string, workspaces: string[], current = ""): string {
   const value = name.trim();
   if (!value) return "工作区名称不可为空";
+  if (isWorkspaceImportStaging(value)) return "此名称用于临时导入目录，请更换工作区名称";
   if (/[<>:"/\\|?*\u0000-\u001f]/.test(value) || /[. ]$/.test(value)
     || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(value)) return "工作区名称不能包含路径或特殊字符";
   if (workspaces.some(id => id !== current && id.toLocaleLowerCase() === value.toLocaleLowerCase())) return "已有相同名称的工作区，无法重复添加";

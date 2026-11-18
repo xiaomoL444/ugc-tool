@@ -6,6 +6,7 @@ import {
   reactive,
   computed,
   ref,
+  shallowRef,
   watch,
   nextTick,
   onMounted,
@@ -18,6 +19,7 @@ import {
 import { consola } from "consola";
 import { toast } from "vue-sonner";
 import { StorageClass } from "@/services/storage/storage";
+import { downloadBlob } from "@/utils/download";
 import { ProjectID } from "./constant/constant";
 import DialogueEditor from "./components/DialogueEditor/DialogueEditor.vue";
 import QuestEditor from "./components/QuestEditor/QuestEditor.vue";
@@ -28,6 +30,9 @@ import CameraEditor from "./components/CameraEditor/CameraEditor.vue";
 import { SCENE_FILE, createSceneProject, encodeSceneProject } from "./components/SceneEditor/sceneProject";
 import StudioIcon from "./components/StudioIcon.vue";
 import StudioCreateDialog from "./components/StudioCreateDialog.vue";
+import WorkspaceArchiveImport from "./components/WorkspaceArchiveImport.vue";
+import { collectWorkspaceArchive, restoreWorkspaceArchive, type WorkspaceEntry } from "./components/workspaceArchive";
+import { zipWorkspace } from "./components/workspaceZip";
 import StudioWorkspaceSelect from "./components/StudioWorkspaceSelect.vue";
 import StudioEditorSession from "./components/StudioEditorSession.vue";
 import StudioHistoryToolbar from "./components/StudioHistoryToolbar.vue";
@@ -37,7 +42,7 @@ import WorkspaceStructIdSettings from "./components/WorkspaceStructIdSettings.vu
 import StudioSelectField from "./components/StudioSelectField.vue";
 import { workspaceFileTypeOptions, isWorkspaceFileType, WorkspaceFileType } from "./components/versioning/types";
 import WorkspaceVersionSettings from "./components/WorkspaceVersionSettings.vue";
-import { createWorkspaceSettings, createNewWorkspaceSettings, encodeWorkspaceSettings, loadWorkspaceSettings, workspaceNameError, workspaceTargetKey,
+import { createWorkspaceSettings, createNewWorkspaceSettings, encodeWorkspaceSettings, loadWorkspaceSettings, workspaceNameError, workspaceTargetKey, isWorkspaceImportStaging,
   WORKSPACE_SETTINGS_FILE, type WorkspaceSettings } from "./components/workspaceSettings";
 import { workspaceTargetErrors } from "./components/versioning/catalog";
 import { workspaceSettingsKey } from "./components/useWorkspaceSettings";
@@ -75,6 +80,11 @@ const activeEditor = () => editorSessions.get(selectedFunction.value);
 const switchingEditor = ref(false);
 const creatingWorkspace = ref(false);
 const newWorkspaceName = ref("");
+const newWorkspaceMode = ref<"blank" | "import">("blank");
+const workspaceArchive = shallowRef<WorkspaceEntry[]>();
+watch([creatingWorkspace, newWorkspaceMode], () => {
+  if (!creatingWorkspace.value || newWorkspaceMode.value === "blank") workspaceArchive.value = undefined;
+}, { flush: "sync" });
 const newWorkspaceSettings = ref(createNewWorkspaceSettings());
 const newWorkspaceFileType = computed<WorkspaceFileType>({
   get: () => newWorkspaceSettings.value.fileType,
@@ -91,6 +101,7 @@ const newWorkspaceCalibrationFiles = computed(() => {
   catch { return undefined; }
 });
 function openCreateWorkspace() {
+  newWorkspaceMode.value = "blank";
   newWorkspaceName.value = "";
   newWorkspaceSettings.value = createNewWorkspaceSettings();
   newWorkspaceCalibration.value = undefined;
@@ -183,6 +194,11 @@ async function retryStructSettings() {
   structSettingsOpen.value = false;
   await openStructSettings();
 }
+async function exportWorkspace() {
+  const name = selectedWorkspaceId.value;
+  const entries = await collectWorkspaceArchive(storage, name);
+  downloadBlob(await zipWorkspace(entries), `${name}.zip`);
+}
 async function saveStructSettings(ids: WorkspaceStructIds, settings: WorkspaceSettings, name: string) {
   if (settingsLoadError.value) throw new Error("请先重新读取工作区设置，原文件未被覆盖。");
   const nextName = name.trim(), nameError = workspaceNameError(nextName, workspaceIds.value, selectedWorkspaceId.value);
@@ -237,7 +253,13 @@ function selectWorkspace(id: string) {
  */
 async function RefreshWorkspace() {
   consola.debug("刷新工作区");
-  workspaceIds.value = await storage.getFolders("/");
+  workspaceIds.value = (await storage.setProject(ProjectID).getFolders("/")).filter(name => !isWorkspaceImportStaging(name));
+}
+async function openCreatedWorkspace(id: string) {
+  await RefreshWorkspace();
+  creatingWorkspace.value = false;
+  newWorkspaceName.value = "";
+  await ChangeWorkspace(id);
 }
 /**
  * 添加工作区
@@ -247,6 +269,16 @@ async function AddWorkspace() {
   const inputId = newWorkspaceName.value.trim();
   const nameError = workspaceNameError(inputId, workspaceIds.value);
   if (nameError) { toast.warning(nameError); return; }
+  if (newWorkspaceMode.value === "import") {
+    if (!workspaceArchive.value) { toast.warning("请选择工作区备份文件"); return; }
+    addingWorkspace.value = true;
+    try {
+      await restoreWorkspaceArchive(storage, inputId, workspaceArchive.value);
+      await openCreatedWorkspace(inputId);
+    } catch (reason) { toast.error(reason instanceof Error ? reason.message : "工作区导入失败，请重试。"); }
+    finally { addingWorkspace.value = false; }
+    return;
+  }
   if (!isWorkspaceFileType(newWorkspaceFileType.value)) { toast.warning("请选择项目文件类型"); return; }
   if (newWorkspaceTargetErrors.value.length) { toast.warning(newWorkspaceTargetErrors.value.join("；")); return; }
   const calibratedFiles = newWorkspaceRequiresGil.value ? newWorkspaceCalibrationFiles.value : undefined;
@@ -263,9 +295,7 @@ async function AddWorkspace() {
     for (const [file, text] of Object.entries(calibratedFiles ?? {})) await storage.setProject(ProjectID).writeFile(`${workspacePath}/${file}`, text);
     await storage.setProject(ProjectID).writeFile(`${workspacePath}/${WORKSPACE_SETTINGS_FILE}`, encodeWorkspaceSettings(settings));
     initialized = true;
-    await RefreshWorkspace();
-    creatingWorkspace.value = false; newWorkspaceName.value = "";
-    await ChangeWorkspace(inputId);
+    await openCreatedWorkspace(inputId);
   } catch (error) {
     consola.error(error);
     if (created && !initialized) {
@@ -427,19 +457,74 @@ const functionViewMap: Record<StudioEditorKind, Component> = {
         </template>
         <div v-else class="studio-empty"><StudioIcon name="folder" :size="44" /><h2>从一个工作区开始</h2><p>在左侧选择工作区，或创建一个新的工作区。</p><button type="button" @click="openCreateWorkspace">＋ 新建工作区</button></div>
     </main>
-    <StudioCreateDialog v-if="creatingWorkspace" v-model="newWorkspaceName" class="workspace-create-dialog" title="新建工作区" label="工作区名称" placeholder="输入工作区名称" :busy="addingWorkspace" :submit-disabled="!!newWorkspaceTargetErrors.length || newWorkspaceGilBusy || (newWorkspaceRequiresGil && !newWorkspaceCalibrationFiles)" @submit="AddWorkspace()" @close="creatingWorkspace = false">
+    <StudioCreateDialog v-if="creatingWorkspace" v-model="newWorkspaceName" class="workspace-create-dialog" title="新建工作区" label="工作区名称" placeholder="输入工作区名称" :busy="addingWorkspace"
+      :submit-label="newWorkspaceMode === 'import' ? '导入并打开' : '创建'" :busy-label="newWorkspaceMode === 'import' ? '导入中…' : '创建中…'"
+      :submit-disabled="newWorkspaceMode === 'import' ? !workspaceArchive : !!newWorkspaceTargetErrors.length || newWorkspaceGilBusy || (newWorkspaceRequiresGil && !newWorkspaceCalibrationFiles)" @submit="AddWorkspace()" @close="creatingWorkspace = false">
       <template #default="{ overlayTarget }">
-        <label class="workspace-create-field">项目文件类型<StudioSelectField v-model="newWorkspaceFileType" :to="overlayTarget" :disabled="addingWorkspace || newWorkspaceGilBusy" aria-label="项目文件类型"><option v-for="option in workspaceFileTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></StudioSelectField></label>
-        <WorkspaceVersionSettings v-model="newWorkspaceSettings" :overlay-target="overlayTarget" :disabled="addingWorkspace || newWorkspaceGilBusy" />
-        <WorkspaceGilCalibrationPanel v-if="newWorkspaceRequiresGil" :target="newWorkspaceSettings" :overlay-target="overlayTarget" :disabled="addingWorkspace" @change="newWorkspaceCalibration = $event" @busy="newWorkspaceGilBusy = $event" />
+        <fieldset class="workspace-create-mode" :disabled="addingWorkspace">
+          <legend>创建方式</legend>
+          <div class="workspace-mode-options">
+            <label>
+              <input v-model="newWorkspaceMode" type="radio" value="blank" name="workspace-create-mode" />
+              <span><StudioIcon name="plus" :size="16" />空白工作区</span>
+            </label>
+            <label>
+              <input v-model="newWorkspaceMode" type="radio" value="import" name="workspace-create-mode" />
+              <span><StudioIcon name="folder" :size="16" />导入工作区</span>
+            </label>
+          </div>
+        </fieldset>
+        <WorkspaceArchiveImport v-if="newWorkspaceMode === 'import'" :disabled="addingWorkspace" @change="workspaceArchive = $event" />
+        <template v-else>
+          <label class="workspace-create-field">项目文件类型<StudioSelectField v-model="newWorkspaceFileType" :to="overlayTarget" :disabled="addingWorkspace || newWorkspaceGilBusy" aria-label="项目文件类型"><option v-for="option in workspaceFileTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></StudioSelectField></label>
+          <WorkspaceVersionSettings v-model="newWorkspaceSettings" :overlay-target="overlayTarget" :disabled="addingWorkspace || newWorkspaceGilBusy" />
+          <WorkspaceGilCalibrationPanel v-if="newWorkspaceRequiresGil" :target="newWorkspaceSettings" :overlay-target="overlayTarget" :disabled="addingWorkspace" @change="newWorkspaceCalibration = $event" @busy="newWorkspaceGilBusy = $event" />
+        </template>
       </template>
     </StudioCreateDialog>
-    <WorkspaceStructIdSettings v-if="structSettingsOpen" :workspace="selectedWorkspaceId" :state="structSettings" :settings="workspaceSettings" :load-error="settingsLoadError" :save-settings="saveStructSettings" :finish-settings="finishWorkspaceSettings" :delete-workspace="DelectWorkspace" @close="structSettingsOpen = false" @retry="retryStructSettings" />
+    <WorkspaceStructIdSettings v-if="structSettingsOpen" :workspace="selectedWorkspaceId" :state="structSettings" :settings="workspaceSettings" :load-error="settingsLoadError" :save-settings="saveStructSettings" :finish-settings="finishWorkspaceSettings" :delete-workspace="DelectWorkspace" :export-workspace="exportWorkspace" @close="structSettingsOpen = false" @retry="retryStructSettings" />
   </div>
 </template>
 
 <style scoped>
 .workspace-create-field { display: grid; gap: 8px; color: #34445b; font-size: 13px; }
+.workspace-create-mode { min-width: 0; margin: 0; padding: 0; border: 0; }
+.workspace-create-mode legend { margin-bottom: 8px; padding: 0; }
+.workspace-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #dce2f2;
+  border-radius: 10px;
+  background: #edf0f8;
+}
+.workspace-mode-options label { position: relative; min-width: 0; }
+.workspace-mode-options input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.workspace-mode-options span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  border-radius: 6px;
+  color: #526487;
+  white-space: nowrap;
+}
+.workspace-mode-options input:enabled:not(:checked):hover + span { background: #e3e9f6; }
+.workspace-mode-options input:checked + span { background: white; color: #265eaa; font-weight: 600; box-shadow: 0 1px 3px #35476c24; }
+.workspace-mode-options input:focus-visible + span { outline: 2px solid #2877c7; outline-offset: -2px; }
+.workspace-mode-options input:disabled { cursor: default; }
+.workspace-create-mode:disabled .workspace-mode-options { opacity: .6; }
 .workspace-create-dialog.studio-create-dialog { width: min(540px, calc(100vw - 32px)); }
 .editor-switching { pointer-events: none; opacity: .75; }
 .timeline-editor {

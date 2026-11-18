@@ -19,6 +19,7 @@ const props = defineProps<{ workspace: string; state: WorkspaceStructIdState; lo
   settings: WorkspaceSettings;
   saveSettings: (ids: WorkspaceStructIds, settings: WorkspaceSettings, name: string) => Promise<void>;
   finishSettings?: (name: string) => Promise<void>;
+  exportWorkspace: () => Promise<void>;
   deleteWorkspace: () => Promise<boolean> }>();
 const emit = defineEmits<{ close: []; retry: [] }>();
 const draft = ref({ ...props.state.ids });
@@ -57,6 +58,14 @@ const skillName = (id: string) => draftSkills.value.find(preset => preset.id ===
 const fieldsFor = (group: string) => WORKSPACE_STRUCT_ID_FIELDS.filter(field => field.group === group);
 const labelFor = (key: string) => { const field = WORKSPACE_STRUCT_ID_FIELDS.find(item => item.key === key)!; return `${field.group} · ${field.label}`; };
 function close() { if (!busy.value) emit("close"); }
+async function downloadWorkspace() {
+  if (busy.value) return;
+  busy.value = true;
+  error.value = "";
+  try { await props.exportWorkspace(); }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : "工作区导出失败，请重试。"; }
+  finally { busy.value = false; }
+}
 async function removeWorkspace() {
   if (busy.value) return;
   busy.value = true;
@@ -182,7 +191,17 @@ onBeforeUnmount(() => previousFocus?.focus());
             </section>
           </fieldset>
         </section>
-        <footer><div><button type="button" class="danger" :disabled="busy" @click="removeWorkspace">删除工作区</button><button type="button" :disabled="busy || !!loadError" @click="reset">恢复默认结构体 ID</button></div><div class="save-actions"><button type="button" :disabled="busy" @click="close">取消</button><button type="submit" class="primary" :disabled="busy || !!loadError || !!errors.length || !draftName.trim()">{{ busy ? '处理中…' : '保存设置' }}</button></div></footer>
+        <footer>
+          <div>
+            <button type="button" class="danger" :disabled="busy" @click="removeWorkspace">删除工作区</button>
+            <button type="button" :disabled="busy || !!loadError" @click="reset">恢复默认结构体 ID</button>
+            <button type="button" title="下载工作区 ZIP 压缩包" :disabled="busy" @click="downloadWorkspace">导出工作区</button>
+          </div>
+          <div class="save-actions">
+            <button type="button" :disabled="busy" @click="close">取消</button>
+            <button type="submit" class="primary" :disabled="busy || !!loadError || !!errors.length || !draftName.trim()">{{ busy ? '处理中…' : '保存设置' }}</button>
+          </div>
+        </footer>
       </form>
     </div>
   </Teleport>
