@@ -1,4 +1,4 @@
-import { clientImageCatalog } from "@/views/ClientUIAnimationEditor/imageAssets";
+import { clientImageCatalog } from "@/views/CustomImageViewer/imageAssets";
 import { createOss } from "@/utils/oss";
 
 // 公共图片目录与客户端图库共用分类编号及其翻译。

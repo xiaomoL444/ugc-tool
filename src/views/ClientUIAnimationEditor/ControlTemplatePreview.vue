@@ -14,7 +14,7 @@
 import { t } from '../../i18n';
 import { computed, type CSSProperties } from "vue";
 import { buildTemplateScene, type ControlTemplateAsset, type TemplateSceneNode } from "./controlTemplates";
-import { imageAssetById, loadImageCatalog } from "./imageAssets";
+import { imageAssetById, loadImageCatalog } from "@/views/CustomImageViewer/imageAssets";
 import SpriteImage from "./SpriteImage.vue";
 import type { ColorRGBA } from "./types";
 

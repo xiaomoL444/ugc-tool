@@ -24,7 +24,7 @@ import { t } from '../../i18n';
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import EditorIcon from "./EditorIcon.vue";
-import { clientImageCatalog, type createImageCatalog, type UIImageAsset } from "./imageAssets";
+import { clientImageCatalog, type createImageCatalog, type UIImageAsset } from "@/views/CustomImageViewer/imageAssets";
 const props = withDefaults(defineProps<{ selectedId: number | null; catalog?: ReturnType<typeof createImageCatalog>; loadMetadata?: boolean }>(), { loadMetadata: true });
 const { imageAssets, imageAssetById, imageCategories, imageCategoryLabel, imageCatalogLoading, imageCatalogError, loadImageCatalog, useImageCatalogTranslations, loadSpriteMetadata } = props.catalog ?? clientImageCatalog;
 const loadTranslations = useImageCatalogTranslations();

@@ -13,6 +13,13 @@ export interface AppRoute {
 
 export const appRoutes: AppRoute[] = [
   {
+    path: "/CustomImageViewer",
+    name: "CustomImageViewer",
+    title: "自定义图片预览器",
+    titleKey: "customImageViewer.ui.title",
+    descriptionKey: "customImageViewer.ui.description",
+  },
+  {
     path: "/StructViewer",
     name: "StructViewer",
     title: "结构体编辑器",

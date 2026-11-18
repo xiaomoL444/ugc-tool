@@ -108,6 +108,9 @@ function finishEditing() {
   if (raw === "" && props.allowEmpty) {
     emit("update:modelValue", null);
     emit("change", null);
+    nextTick(() => {
+      if (!editing.value && !scrubbing.value) draft.value = formatValue(props.modelValue);
+    });
   } else {
     const parsed = Number(raw);
     const value = Number.isFinite(parsed) ? clampValue(parsed) : numericValue();

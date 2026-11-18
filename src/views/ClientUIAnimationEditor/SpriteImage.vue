@@ -27,8 +27,8 @@
 </template>
 <script setup lang="ts">
 import { computed, getCurrentInstance, watch } from "vue";
-import { loadSpriteMetadata, type UIImageAsset } from "./imageAssets";
-import { spriteSlices } from "./spriteGeometry";
+import { loadSpriteMetadata, type UIImageAsset } from "@/views/CustomImageViewer/imageAssets";
+import { spriteSlices } from "@/views/CustomImageViewer/spriteGeometry";
 import type { ColorRGBA, UIImageType, ClientUIImageControlProperties } from "./types";
 import { imageFeatherPreview } from './imageFeatherPreview';
 import ImageMaskCoverageFilter from './ImageMaskCoverageFilter.vue';

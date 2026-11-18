@@ -1,0 +1,23 @@
+.asset-group-frame {
+  box-sizing: border-box;
+  position: relative;
+  padding: 12px 5px 5px;
+  border: 2px solid var(--category-color, rgba(106, 90, 205, .5));
+  border-radius: 10px;
+  background: var(--category-background, rgba(106, 90, 205, .04));
+}
+
+.asset-group-label {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 10px;
+  margin: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f1f1ff;
+  color: var(--category-color, rgba(106, 90, 205, .5));
+  font-size: .82rem;
+  font-weight: 600;
+  transform: translateY(-50%);
+}

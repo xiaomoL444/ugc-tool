@@ -56,6 +56,16 @@
           "badge": "v7.2 Update"
         },
         {
+          "id": "customImages",
+          "href": "/CustomImageViewer",
+          "resourceIndex": "Public/CustomUIImage/data.json",
+          "title": "自定义图片预览器",
+          "titleKey": "customImageViewer.ui.title",
+          "description": "按分类浏览 UI 图片，对比原图与横纵拉伸效果",
+          "descriptionKey": "customImageViewer.ui.description",
+          "icon": "▧"
+        },
+        {
           "id": "animation",
           "href": "/AnimationViewer",
           "resourceIndex": "AnimationViewer/data.json",

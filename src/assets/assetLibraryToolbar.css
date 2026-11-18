@@ -1,0 +1,122 @@
+.search-bar {
+    position: relative;
+    z-index: 1;
+    flex-wrap: wrap;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+}
+
+.search-label {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.search-bar input {
+    flex: 1;
+    min-width: 180px;
+}
+
+.search-count,
+.category-count {
+    color: rgba(0, 0, 0, 0.55);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.expand-all-button {
+    flex: 0 0 auto;
+    height: 28px;
+    padding: 0 12px;
+    border: 1px solid rgba(106, 90, 205, 0.35);
+    border-radius: 6px;
+    background: rgba(106, 90, 205, 0.1);
+    color: #4d429b;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.expand-all-button:hover:not(:disabled) {
+    background: rgba(106, 90, 205, 0.18);
+}
+
+.expand-all-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.library-controls {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: start;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.category-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 4px;
+    flex: 1 1 560px;
+    min-width: 0;
+}
+
+.version-filter {
+    --dropdown-height: 38px;
+    margin-left: auto;
+}
+
+.category-header {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 38px;
+    min-width: 0;
+    padding: 0 8px;
+    border: 1px solid rgba(106, 90, 205, 0.2);
+    border-radius: 8px;
+    background: rgba(106, 90, 205, 0.04);
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+}
+
+.category-header.expanded {
+    border-color: rgba(106, 90, 205, 0.55);
+    background: rgba(106, 90, 205, 0.14);
+}
+
+.category-header:hover {
+    background: rgba(106, 90, 205, 0.08);
+}
+
+.category-header:focus-visible,
+.expand-all-button:focus-visible {
+    outline: 2px solid #0ea2e5;
+    outline-offset: 2px;
+}
+
+.category-arrow {
+    margin-right: 8px;
+    font-size: 0.7rem;
+    transition: transform 0.18s ease;
+}
+
+.category-arrow.expanded {
+    transform: rotate(90deg);
+}
+
+.category-title {
+    min-width: 0;
+    margin-right: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}

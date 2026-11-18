@@ -17,7 +17,7 @@ import { t } from '../../i18n';
 import { computed, ref, watch, type CSSProperties } from "vue";
 import { primitiveImageSource } from "./primitiveControl";
 import { primitiveContentScale, type PrimitiveElement, type PrimitiveFitData } from "./primitiveData";
-import { imageAssetById, loadImageCatalog } from "./imageAssets";
+import { imageAssetById, loadImageCatalog } from "@/views/CustomImageViewer/imageAssets";
 import SpriteImage from "./SpriteImage.vue";
 const props = defineProps<{ imageUrl: string; previewMode?: string; fitData?: PrimitiveFitData | null; width: number; height: number }>();
 const source = computed(() => primitiveImageSource(props.imageUrl)), failed = ref(false);

@@ -18,7 +18,7 @@ import { useI18n } from "vue-i18n";
 import ColorRGBAField from "./ColorRGBAField.vue";
 import ScrubbableNumberInput from "./ScrubbableNumberInput.vue";
 import EditorIcon from "./EditorIcon.vue";
-import { imageCategoryLabel, type UIImageAsset } from "./imageAssets";
+import { imageCategoryLabel, type UIImageAsset } from "@/views/CustomImageViewer/imageAssets";
 import type { ClientUIImageControlProperties } from "./types";
 const props = defineProps<{ modelValue: ClientUIImageControlProperties; asset: UIImageAsset | null; animated: boolean }>();
 defineEmits<{ (event: "update:modelValue", value: Record<string, unknown>): void; (event: "select", id: number | null): void; (event: "open-library"): void; (event: "reset-size"): void }>();

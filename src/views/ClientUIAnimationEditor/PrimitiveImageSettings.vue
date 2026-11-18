@@ -42,7 +42,7 @@ import { t } from '../../i18n';
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { primitiveImageSource } from "./primitiveControl";
 import { buildPrimitiveResourceParameters, normalizePrimitiveOptions, primitiveWorkerLimit, type PrimitiveFitOptions, type PrimitiveProperties, type PrimitiveShape } from "./primitiveData";
-import { imageAssetById, imageCatalogLoading, loadImageCatalog } from "./imageAssets";
+import { imageAssetById, imageCatalogLoading, loadImageCatalog } from "@/views/CustomImageViewer/imageAssets";
 import { exportPrimitiveSvg, importPrimitiveSvg, MAX_PRIMITIVE_SVG_BYTES } from "./primitiveSvg";
 import { exportPrimitiveCss, importPrimitiveCss, MAX_PRIMITIVE_CSS_BYTES } from "./primitiveCss";
 const props = defineProps<{ modelValue: PrimitiveProperties; name: string }>();

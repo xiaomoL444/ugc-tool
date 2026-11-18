@@ -11,12 +11,13 @@ export interface UIImageAsset {
   id: number;
   src: string;
   borderPath: string;
+  giVersion?: string;
   categories: string[];
   metadata?: SpriteMetadata;
   missing?: boolean;
 }
 export interface ImageCatalog {
-  imageData: Record<string, { id: number; img: string; border: string }>;
+  imageData: Record<string, { id: number; img: string; border: string; giVersion?: string }>;
   category: Record<string, { id: number; images: number[] }>;
 }
 const imageCategorySources: Record<string, string> = {
@@ -32,18 +33,18 @@ export function createImageCatalog(project: string, categoryProject = project) {
   const imageCatalogLoading = ref(false);
   const catalogFailed = ref(false);
   const categoryFailures = reactive(new Set<string>());
-  const imageCatalogError = computed<string>(() => catalogFailed.value
-    ? t("clientUIAnimationEditor.ui.images.libraryLoadFailed")
-    : categoryFailures.has(i18n.global.locale.value)
+  const imageCatalogLoadError = computed(() => catalogFailed.value ? t("clientUIAnimationEditor.ui.images.libraryLoadFailed") : "");
+  const imageCatalogError = computed(() => imageCatalogLoadError.value
+    || (categoryFailures.has(i18n.global.locale.value)
       ? t("clientUIAnimationEditor.ui.imageLibrary.categoryLoadPartial")
-      : "");
+      : ""));
   let catalogRequest: Promise<void> | undefined;
   const metadataRequests = new Map<number, Promise<SpriteMetadata | undefined>>();
 
   function normalizeImageCatalog(data: ImageCatalog): UIImageAsset[] {
     const entries = new Map<number, UIImageAsset>();
     for (const item of Object.values(data.imageData)) {
-      entries.set(item.id, { id: item.id, src: item.img ? oss.path(item.img) : "", borderPath: item.border, categories: [] });
+      entries.set(item.id, { id: item.id, src: item.img ? oss.path(item.img) : "", borderPath: item.border, giVersion: item.giVersion, categories: [] });
     }
     for (const [category, group] of Object.entries(data.category)) {
       for (const id of group.images) {
@@ -119,7 +120,7 @@ export function createImageCatalog(project: string, categoryProject = project) {
     metadataRequests.set(asset.id, request);
     return request;
   }
-  return { imageAssets, imageAssetById, imageCategories, imageCatalogLoading, imageCatalogError, normalizeImageCatalog, loadImageCatalog, loadImageCategoryNames, useImageCatalogTranslations, imageCategoryLabel, loadSpriteMetadata };
+  return { imageAssets, imageAssetById, imageCategories, imageCatalogLoading, imageCatalogLoadError, imageCatalogError, normalizeImageCatalog, loadImageCatalog, loadImageCategoryNames, useImageCatalogTranslations, imageCategoryLabel, loadSpriteMetadata };
 }
 
 export const clientImageCatalog = createImageCatalog("Public/CustomUIImage", "ClientUIAnimationEditor");
