@@ -181,7 +181,7 @@ import JSZip from "jszip";
 import ImageAssetLibrary from "../ClientUIAnimationEditor/ImageAssetLibrary.vue";
 import SpriteImage from "../ClientUIAnimationEditor/SpriteImage.vue";
 import ColorRGBAField from "../ClientUIAnimationEditor/ColorRGBAField.vue";
-import { imageAssetById, loadImageCatalog, imageCatalogError, useImageCatalogTranslations } from "../ClientUIAnimationEditor/imageAssets";
+import { imageAssetById, loadImageCatalog, imageCatalogError, useImageCatalogTranslations } from "@/views/CustomImageViewer/imageAssets";
 const loadImageTranslations = useImageCatalogTranslations();
 import type { ColorRGBA } from "../ClientUIAnimationEditor/types";
 import ParticleNumber from "./ParticleNumber.vue";
