@@ -56,6 +56,7 @@
   "aiSearch.agentSkills.welcomeHint": "Search Miliastra Wonderland assets from your agent",
   "aiSearch.agentSkills.description": "Choose your agent to see how to get its asset search tool.",
   "aiSearch.agentSkills.downloadSkill": "Download Skill",
+  "aiSearch.agentSkills.githubSource": "GitHub source",
   "aiSearch.agentSkills.deepSeekInstallHint": "Open “Add Plugin” and search for {name}.",
   "aiSearch.exampleSoundTitle": "Find a sound",
   "aiSearch.exampleSound": "A short, deep thunder sound without a long tail",

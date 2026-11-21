@@ -106,9 +106,14 @@
               <span v-if="entry.installHintKey" class="agent-skill-install-hint">{{ t(entry.installHintKey, { name: entry.name }) }}</span>
               <span v-else>{{ entry.name }}</span>
             </div>
-            <a v-if="entry.filename" class="agent-skill-download" :href="agentDownloadsOss.path(entry.filename)" :download="entry.filename" :aria-label="`${t(entry.downloadLabelKey)} · ${entry.agent}`" target="_blank" rel="noopener">
-              <SearchIcon name="download" />{{ t(entry.downloadLabelKey) }}
-            </a>
+            <div v-if="entry.filename" class="agent-skill-actions">
+              <a class="agent-skill-download" :href="agentDownloadsOss.path(entry.filename)" :download="entry.filename" :aria-label="`${t(entry.downloadLabelKey)} · ${entry.agent}`" target="_blank" rel="noopener">
+                <SearchIcon name="download" />{{ t(entry.downloadLabelKey) }}
+              </a>
+              <a v-if="entry.githubUrl" class="agent-skill-source" :href="entry.githubUrl" target="_blank" rel="noopener">
+                {{ t('aiSearch.agentSkills.githubSource') }}<SearchIcon name="external" />
+              </a>
+            </div>
           </li>
         </ul>
       </dialog>
@@ -178,11 +183,12 @@ const agentTools = [
     name: 'ugc-asset-search',
     filename: 'ugc-asset-search-codex-skill.zip',
     downloadLabelKey: 'aiSearch.agentSkills.downloadSkill',
+    githubUrl: 'https://github.com/xiaomoL444/ugc-asset-search-codex-skill',
   },
   {
     agent: 'DeepSeek',
     icon: new URL('./deepseek-icon.svg', import.meta.url).href,
-    name: 'ugc-asset-search',
+    name: 'miliastra-ugc-asset-search',
     installHintKey: 'aiSearch.agentSkills.deepSeekInstallHint',
   },
 ]

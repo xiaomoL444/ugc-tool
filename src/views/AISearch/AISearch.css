@@ -241,16 +241,20 @@
 .ai-search-dialog .agent-skill-name strong { font-size: 15px; }
 .ai-search-dialog .agent-skill-name > span { color: var(--ai-muted); font-size: 12px; }
 .ai-search-dialog .agent-skill-install-hint { line-height: 1.5; -webkit-user-select: text; user-select: text; }
+.ai-search-dialog .agent-skill-actions { display: grid; gap: 4px; }
 .ai-search-dialog .agent-skill-download { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 8px 12px; border-radius: 8px; background: #1667c1; color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap; }
 .ai-search-dialog .agent-skill-download:hover { background: #1256a4; }
 .ai-search-dialog .agent-skill-download svg { width: 16px; height: 16px; }
+.ai-search-dialog .agent-skill-source { display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 24px; color: var(--ai-accent-hover); font-size: 11px; line-height: 1.4; text-align: center; text-decoration: underline; text-underline-offset: 2px; }
+.ai-search-dialog .agent-skill-source svg { width: 11px; height: 11px; }
 @media (max-width: 420px) {
   .ai-search-dialog .agent-skill-row { gap: 8px; padding: 10px; }
   .ai-search-dialog .agent-skill-icon { width: 40px; height: 40px; border-radius: 10px; }
   .ai-search-dialog .agent-skill-download { padding-right: 8px; padding-left: 8px; }
 }
 @media (max-width: 360px) {
-  .ai-search-dialog .agent-skill-download { max-width: 100px; text-align: center; white-space: normal; }
+  .ai-search-dialog .agent-skill-actions { max-width: 100px; }
+  .ai-search-dialog .agent-skill-download { text-align: center; white-space: normal; }
   .ai-search-dialog .agent-skill-download svg { display: none; }
 }
 .ai-search-dialog .model-mode-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 4px; margin-bottom: 18px; border: 1px solid #e0e5ef; border-radius: 12px; background: #f5f7fb; }

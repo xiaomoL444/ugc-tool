@@ -56,6 +56,7 @@
   "aiSearch.agentSkills.welcomeHint": "在你的 Agent 中搜索千星奇域素材",
   "aiSearch.agentSkills.description": "选择 Agent，查看对应的获取方式。",
   "aiSearch.agentSkills.downloadSkill": "下载 Skill",
+  "aiSearch.agentSkills.githubSource": "GitHub 下载源",
   "aiSearch.agentSkills.deepSeekInstallHint": "打开「添加插件」，搜索 {name}。",
   "aiSearch.exampleSoundTitle": "寻找一种声音",
   "aiSearch.exampleSound": "低沉、短促的雷声，尾音不要太长",

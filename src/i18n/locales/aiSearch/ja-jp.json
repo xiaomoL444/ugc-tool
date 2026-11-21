@@ -56,6 +56,7 @@
   "aiSearch.agentSkills.welcomeHint": "お使いのエージェントで千星奇域の素材を検索",
   "aiSearch.agentSkills.description": "お使いのエージェントに対応する素材検索ツールを選べます。",
   "aiSearch.agentSkills.downloadSkill": "スキルを入手",
+  "aiSearch.agentSkills.githubSource": "GitHub 配布元",
   "aiSearch.agentSkills.deepSeekInstallHint": "「プラグインを追加」を開き、{name} を検索します。",
   "aiSearch.exampleSoundTitle": "音を探す",
   "aiSearch.exampleSound": "低く短い雷の音。余韻は長すぎないもの",
