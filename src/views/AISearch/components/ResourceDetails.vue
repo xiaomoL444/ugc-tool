@@ -46,26 +46,33 @@ let hoverDismissed = false
 let lastPointerType = ''
 let generation = 0
 let dismissFrame: number | undefined
+let positionFrame: number | undefined
 
 function clearDismissFrame() {
   if (dismissFrame !== undefined) cancelAnimationFrame(dismissFrame)
   dismissFrame = undefined
 }
 
-async function show() {
+function show() {
   if (opened.value) return
-  const request = ++generation
-  const preferredWidth = props.card.kind === 'bgm' ? 720 : wideDetails.value ? 640 : 360
-  width.value = Math.min(preferredWidth, Math.max(0, window.innerWidth - 24))
   scrollable.value = false
   positioned.value = false
   opened.value = true
-  await nextTick()
-  if (request !== generation || !opened.value || !trigger.value || !popover.value) return
-  scrollable.value = popover.value.scrollHeight > popover.value.clientHeight
+  void positionPopover()
+}
+
+async function positionPopover() {
+  const request = ++generation
+  const preferredWidth = props.card.kind === 'bgm' ? 720 : wideDetails.value ? 640 : 360
+  width.value = Math.min(preferredWidth, Math.max(0, window.innerWidth - 24))
   await nextTick()
   if (request !== generation || !opened.value || !trigger.value || !popover.value) return
   const anchor = trigger.value.getBoundingClientRect()
+  if (anchor.bottom <= 0 || anchor.top >= window.innerHeight || anchor.right <= 0 || anchor.left >= window.innerWidth) {
+    hide()
+    return
+  }
+  scrollable.value = popover.value.scrollHeight > popover.value.clientHeight
   const height = popover.value.getBoundingClientRect().height
   left.value = Math.max(12, Math.min(anchor.left, window.innerWidth - width.value - 12))
   const below = anchor.bottom + 8
@@ -73,6 +80,15 @@ async function show() {
   top.value = Math.max(12, Math.min(preferredTop, window.innerHeight - height - 12))
   positioned.value = true
 }
+
+function schedulePosition() {
+  if (positionFrame !== undefined) return
+  positionFrame = requestAnimationFrame(() => {
+    positionFrame = undefined
+    if (opened.value) void positionPopover()
+  })
+}
+
 function hide() {
   clearDismissFrame()
   generation += 1
@@ -96,7 +112,7 @@ function enterTrigger(event: PointerEvent) {
   if (!pinned.value) touchInteractive.value = false
   triggerHovered = true
   if (hoverDismissed) return
-  void show()
+  show()
 }
 function leaveTrigger(event: PointerEvent) {
   if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return
@@ -111,7 +127,7 @@ function toggleDetails() {
   hoverDismissed = false
   pinned.value = true
   touchInteractive.value = lastPointerType === 'touch'
-  void show()
+  show()
 }
 function scrollDetails(event: WheelEvent) {
   const panel = popover.value
@@ -146,20 +162,23 @@ function keyDown(event: KeyboardEvent) {
 }
 function handleScroll(event: Event) {
   if (event.target instanceof Node && popover.value?.contains(event.target)) return
-  hide()
+  if (triggerHovered && trigger.value?.matches(':hover')) schedulePosition()
+  else hide()
 }
 function removeListeners() {
   document.removeEventListener('pointerdown', pointerOutside, true)
   document.removeEventListener('keydown', keyDown)
   document.removeEventListener('scroll', handleScroll, true)
-  window.removeEventListener('resize', hide)
+  window.removeEventListener('resize', schedulePosition)
+  if (positionFrame !== undefined) cancelAnimationFrame(positionFrame)
+  positionFrame = undefined
 }
 watch(opened, value => {
   if (!value) { removeListeners(); return }
   document.addEventListener('pointerdown', pointerOutside, true)
   document.addEventListener('keydown', keyDown)
   document.addEventListener('scroll', handleScroll, true)
-  window.addEventListener('resize', hide)
+  window.addEventListener('resize', schedulePosition)
 })
 watch(() => props.card, hide)
 onBeforeUnmount(() => { clearDismissFrame(); generation += 1; removeListeners() })

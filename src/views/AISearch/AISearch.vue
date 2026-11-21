@@ -14,7 +14,10 @@
           <div class="conversation-actions"><button class="icon-button" :disabled="busy || loadingArchive" :aria-label="t('aiSearch.rename')" @click="openAction('rename', conversation.id)"><SearchIcon name="edit" /></button><button class="icon-button" :disabled="busy || loadingArchive" :aria-label="t('aiSearch.delete')" @click="openAction('delete', conversation.id)"><SearchIcon name="trash" /></button></div>
         </div>
       </div>
-      <div class="sidebar-footer"><SearchIcon name="shield" /><span>{{ t('aiSearch.localHistory') }}</span></div>
+      <div class="sidebar-footer">
+        <div class="sidebar-history-note"><SearchIcon name="shield" /><span>{{ t('aiSearch.localHistory') }}</span></div>
+        <button type="button" class="agent-skills-trigger" aria-haspopup="dialog" aria-controls="ai-agent-skills-dialog" :aria-expanded="agentSkillsOpen" @click="openAgentSkills"><SearchIcon name="download" />{{ t('aiSearch.agentSkills.title') }}</button>
+      </div>
     </aside>
     <div class="history-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="ai-search-history-panel" :aria-label="t('aiSearch.resizeHistory')" :title="t('aiSearch.resizeHistoryHint')" :aria-valuemin="220" :aria-valuemax="historyMaxWidth" :aria-valuenow="historyWidth" :aria-valuetext="`${historyWidth}px`" @pointerdown="startHistoryResize" @pointermove="moveHistoryResize" @pointerup="finishHistoryResize" @pointercancel="finishHistoryResize" @lostpointercapture="finishHistoryResize" @keydown="handleHistoryResizeKey" @dblclick="resetHistoryWidth"><span></span></div>
     <section id="ai-search-chat-panel" class="search-main" aria-labelledby="ai-chat-title">
@@ -25,6 +28,10 @@
           <div class="welcome-symbol"><SearchIcon name="sparkles" /><span class="welcome-orbit orbit-one"></span><span class="welcome-orbit orbit-two"></span></div>
           <div class="welcome-eyebrow"><span class="status-dot" :class="{ loading: loadingCatalog }"></span>{{ loadingCatalog ? t(serverRetrieval ? 'aiSearch.loadingServerCatalog' : 'aiSearch.loadingCatalog') : catalogError && !catalogCount ? catalogErrorMessage || t('aiSearch.catalogError') : t('aiSearch.statusReady') }}<span v-if="catalogCount && !loadingCatalog" class="catalog-count">{{ catalogCount.toLocaleString() }}</span></div>
           <h2>{{ t('aiSearch.emptyTitle') }}</h2><p class="welcome-description">{{ t('aiSearch.emptySubtitle') }}</p>
+          <div class="welcome-skill-prompt">
+            <span>{{ t('aiSearch.agentSkills.welcomeHint') }}</span>
+            <button type="button" class="agent-skills-trigger" aria-haspopup="dialog" aria-controls="ai-agent-skills-dialog" :aria-expanded="agentSkillsOpen" @click="openAgentSkills"><SearchIcon name="download" />{{ t('aiSearch.agentSkills.title') }}</button>
+          </div>
           <div class="example-grid">
             <button v-for="example in examples" :key="example.kind" class="example-card" :class="`example-${example.kind}`" :disabled="busy || loadingArchive" @click="useExample(example.key, example.kind)"><span class="example-icon"><SearchIcon :name="example.icon" /></span><strong>{{ t(`aiSearch.${example.titleKey}`) }}</strong><p>{{ t(`aiSearch.${example.key}`) }}</p><span class="example-arrow">↗</span></button>
           </div>
@@ -83,6 +90,28 @@
     </section>
     <ConversationSearchDialog ref="conversationSearchDialog" :conversations="conversations" :active-conversation-id="activeConversationId" :disabled="busy || loadingArchive" @update:open="historySearchOpen = $event" @select="openSearchResult" />
     <Teleport to="body">
+      <dialog id="ai-agent-skills-dialog" ref="agentSkillsDialog" class="ai-search-dialog agent-skills-dialog" aria-labelledby="ai-agent-skills-title" aria-describedby="ai-agent-skills-description" @cancel.prevent="closeAgentSkills" @pointerdown.capture="trackDialogPointerDown" @pointercancel="resetDialogPointerDown" @click="handleDialogBackdrop($event, closeAgentSkills)">
+        <div class="dialog-heading">
+          <div>
+            <h2 id="ai-agent-skills-title">{{ t('aiSearch.agentSkills.title') }}</h2>
+            <p id="ai-agent-skills-description">{{ t('aiSearch.agentSkills.description') }}</p>
+          </div>
+          <button type="button" class="icon-button" :aria-label="t('aiSearch.dismiss')" @click="closeAgentSkills"><SearchIcon name="close" /></button>
+        </div>
+        <ul class="agent-skill-list">
+          <li v-for="entry in agentTools" :key="entry.agent" class="agent-skill-row">
+            <img class="agent-skill-icon" :src="entry.icon" width="48" height="48" alt="" />
+            <div class="agent-skill-name">
+              <strong>{{ entry.agent }}</strong>
+              <span v-if="entry.installHintKey" class="agent-skill-install-hint">{{ t(entry.installHintKey, { name: entry.name }) }}</span>
+              <span v-else>{{ entry.name }}</span>
+            </div>
+            <a v-if="entry.filename" class="agent-skill-download" :href="agentDownloadsOss.path(entry.filename)" :download="entry.filename" :aria-label="`${t(entry.downloadLabelKey)} · ${entry.agent}`" target="_blank" rel="noopener">
+              <SearchIcon name="download" />{{ t(entry.downloadLabelKey) }}
+            </a>
+          </li>
+        </ul>
+      </dialog>
       <dialog id="ai-model-dialog" ref="settingsDialog" class="ai-search-dialog model-dialog" :class="{ 'custom-model-dialog': configMode === 'custom' }" aria-labelledby="ai-settings-title" @cancel="closeSettings" @pointerdown.capture="trackDialogPointerDown" @pointercancel="resetDialogPointerDown" @click="handleDialogBackdrop($event, closeSettings)">
         <form @submit.prevent="persistSettings"><div class="dialog-heading"><div><h2 id="ai-settings-title">{{ t('aiSearch.configTitle') }}</h2><p>{{ t('aiSearch.configSubtitle') }}</p></div><button type="button" class="icon-button" :aria-label="t('aiSearch.dismiss')" @click="closeSettings"><SearchIcon name="close" /></button></div>
           <div class="model-mode-options" role="group" :aria-label="t('aiSearch.selectModel')"><button v-for="option in modelModes" :key="option.mode" type="button" :data-search-mode-option="option.mode" :aria-pressed="configMode === option.mode" @click="selectConfigMode(option.mode)"><SearchIcon :name="option.icon" /><span>{{ t(`aiSearch.modes.${option.mode}`) }}</span></button></div>
@@ -115,6 +144,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
+import { createOss } from '@/utils/oss'
 import SearchIcon from './components/SearchIcon.vue'
 import ResourceResults from './components/ResourceResults.vue'
 import AnswerSections from './components/AnswerSections.vue'
@@ -140,6 +170,24 @@ watch(dataUpdateVersion, () => {
 })
 const scopes = ['all', 'sound', 'effect', 'bgm'] as const
 const examples = [{ kind: 'sound', icon: 'sound', key: 'exampleSound', titleKey: 'exampleSoundTitle' }, { kind: 'effect', icon: 'effect', key: 'exampleEffect', titleKey: 'exampleEffectTitle' }, { kind: 'bgm', icon: 'music', key: 'exampleBgm', titleKey: 'exampleBgmTitle' }] as const
+const agentDownloadsOss = createOss('AISearch')
+const agentTools = [
+  {
+    agent: 'Codex',
+    icon: new URL('./codex-icon.png', import.meta.url).href,
+    name: 'ugc-asset-search',
+    filename: 'ugc-asset-search-codex-skill.zip',
+    downloadLabelKey: 'aiSearch.agentSkills.downloadSkill',
+  },
+  {
+    agent: 'DeepSeek',
+    icon: new URL('./deepseek-icon.svg', import.meta.url).href,
+    name: 'ugc-asset-search',
+    installHintKey: 'aiSearch.agentSkills.deepSeekInstallHint',
+  },
+]
+const agentSkillsDialog = ref<HTMLDialogElement>()
+const agentSkillsOpen = ref(false)
 const draft = ref('')
 const historyOpen = ref(false)
 const historyCollapsed = ref(false)
@@ -264,6 +312,16 @@ async function openSearchResult(id: string, messageId?: string) {
 }
 async function showDialog(dialog: HTMLDialogElement | undefined) { if (dialog) dialogBackdropStarts.delete(dialog); previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null; await nextTick(); dialog?.showModal() }
 function restoreFocus() { const target = previousFocus; previousFocus = null; void nextTick(() => { if (target?.isConnected) target.focus(); else composer.value?.focus() }) }
+async function openAgentSkills() {
+  await showDialog(agentSkillsDialog.value)
+  agentSkillsOpen.value = agentSkillsDialog.value?.open ?? false
+}
+function closeAgentSkills() {
+  if (agentSkillsDialog.value) dialogBackdropStarts.delete(agentSkillsDialog.value)
+  agentSkillsDialog.value?.close()
+  agentSkillsOpen.value = false
+  restoreFocus()
+}
 async function openSettingsForMode(value: SearchMode) { Object.assign(configDraft, modelConfig.value); configMode.value = value; settingsError.value = ''; keyVisible.value = false; await showDialog(settingsDialog.value); settingsOpen.value = true }
 function openSettings() { return openSettingsForMode(mode.value) }
 async function useOwnModel() {
@@ -312,7 +370,7 @@ watch(() => messages.value[messages.value.length - 1]?.progress?.answerPreview, 
   if (viewport && followsAnswer) viewport.scrollTop = viewport.scrollHeight
 })
 watch(activeConversationId, async () => { await nextTick(); if (messageViewport.value) messageViewport.value.scrollTop = messageViewport.value.scrollHeight })
-onBeforeUnmount(() => { clearModelProbe(); if (dataUpdateToastId !== undefined) toast.dismiss(dataUpdateToastId); composerObserver?.disconnect(); settingsDialog.value?.close(); actionDialog.value?.close() })
+onBeforeUnmount(() => { clearModelProbe(); if (dataUpdateToastId !== undefined) toast.dismiss(dataUpdateToastId); composerObserver?.disconnect(); settingsDialog.value?.close(); actionDialog.value?.close(); agentSkillsDialog.value?.close() })
 </script>
 
 <style src="./AISearch.css"></style>

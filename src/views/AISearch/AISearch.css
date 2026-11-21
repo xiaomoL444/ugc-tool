@@ -26,7 +26,7 @@
 .ai-search-workspace button, .ai-search-dialog button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .ai-search-workspace button:disabled, .ai-search-dialog button:disabled { cursor: not-allowed; opacity: .5; }
 .ai-search-workspace svg, .ai-search-dialog svg { width: 20px; height: 20px; flex-shrink: 0; }
-.ai-search-workspace button:focus-visible, .ai-search-workspace a:focus-visible, .ai-search-workspace select:focus-visible, .ai-search-dialog button:focus-visible { outline: 3px solid #54a8ff; outline-offset: 3px; }
+.ai-search-workspace button:focus-visible, .ai-search-workspace a:focus-visible, .ai-search-workspace select:focus-visible, .ai-search-dialog button:focus-visible, .ai-search-dialog a:focus-visible { outline: 3px solid #54a8ff; outline-offset: 3px; }
 .ai-search-workspace .icon-button, .ai-search-dialog .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0; border: 0; border-radius: 9px; color: var(--ai-muted); background: transparent; }
 .ai-search-workspace .icon-button:hover, .ai-search-dialog .icon-button:hover { background: var(--ai-accent-soft); color: var(--ai-accent); }
 
@@ -56,8 +56,12 @@
 .ai-search-workspace .conversation-actions .icon-button { width: 26px; height: 32px; }
 .ai-search-workspace .conversation-actions svg { width: 14px; height: 14px; }
 .ai-search-workspace .conversation-row:hover .conversation-actions, .ai-search-workspace .conversation-row:focus-within .conversation-actions { display: flex; }
-.ai-search-workspace .sidebar-footer { display: flex; align-items: center; gap: 6px; border-top: 1px solid #d7e3f1; padding: 12px 2px 0; font-size: 10px; color: #62718a; line-height: 1.6; }
-.ai-search-workspace .sidebar-footer svg { width: 15px; height: 15px; }
+.ai-search-workspace .sidebar-footer { display: grid; gap: 10px; border-top: 1px solid #d7e3f1; padding: 12px 2px 0; }
+.ai-search-workspace .sidebar-history-note { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #62718a; line-height: 1.6; }
+.ai-search-workspace .sidebar-history-note svg { width: 15px; height: 15px; }
+.ai-search-workspace .agent-skills-trigger { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 6px 11px; border: 1px solid #c6daf1; border-radius: 8px; background: #f4f8ff; color: #245f9f; font-size: 12px; font-weight: 600; line-height: 1.5; text-align: left; }
+.ai-search-workspace .agent-skills-trigger:hover { border-color: #8eb9e7; background: var(--ai-accent-soft); color: var(--ai-accent-hover); }
+.ai-search-workspace .agent-skills-trigger svg { width: 15px; height: 15px; }
 
 .ai-search-workspace .history-resizer { display: flex; align-items: center; justify-content: center; flex: 0 0 14px; min-height: 0; outline: none; cursor: col-resize; touch-action: none; user-select: none; }
 .ai-search-workspace .history-resizer>span { width: 3px; height: 44px; border-radius: 3px; background: #b0a7e5; opacity: .5; transition: opacity .15s, background .15s; }
@@ -86,7 +90,8 @@
 .ai-search-workspace .status-dot.loading { background: #aa720b; animation: ai-pulse 1.2s infinite; }
 .ai-search-workspace .catalog-count { color: #326ba9; background: #e1edfb; padding: 3px 8px; border-radius: 6px; font-weight: 600; }
 .ai-search-workspace .search-welcome h2 { margin: 0; color: #202b43; font-size: clamp(24px, 2.3vw, 34px); line-height: 1.4; font-weight: 700; letter-spacing: -.02em; }
-.ai-search-workspace .welcome-description { max-width: 700px; margin: 12px 0 28px; color: var(--ai-muted); font-size: 14px; line-height: 1.8; }
+.ai-search-workspace .welcome-description { max-width: 700px; margin: 12px 0 14px; color: var(--ai-muted); font-size: 14px; line-height: 1.8; }
+.ai-search-workspace .welcome-skill-prompt { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin-bottom: 24px; color: var(--ai-muted); font-size: 12px; line-height: 1.6; }
 .ai-search-workspace .example-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; width: 100%; }
 .ai-search-workspace .example-card { --example-color: #245ec9; --example-soft: #e8efff; position: relative; padding: 20px 20px 22px; min-width: 0; min-height: 158px; border: 1px solid #d5ddec; border-top: 3px solid var(--example-color); border-radius: 12px; background: #fff; text-align: left; color: var(--ai-ink); box-shadow: 0 3px 8px #26324b05; transition: border-color .15s, transform .15s, box-shadow .15s; }
 .ai-search-workspace .example-effect { --example-color: #1781a5; --example-soft: #e5f3f8; }
@@ -228,6 +233,26 @@
 .ai-search-dialog .dialog-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 22px; }
 .ai-search-dialog .dialog-heading h2 { margin: 4px 0 0; color: #202b43; font-size: 20px; font-weight: 700; line-height: 1.5; }
 .ai-search-dialog .dialog-heading p { margin: 8px 0 0; color: var(--ai-muted); font-size: 13px; line-height: 1.7; }
+.ai-search-dialog.agent-skills-dialog { width: min(472px, calc(100vw - 32px)); }
+.ai-search-dialog .agent-skill-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.ai-search-dialog .agent-skill-row { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-auto-flow: column; align-items: center; gap: 12px; padding: 12px; border: 1px solid #dce2ee; border-radius: 12px; background: #f7f9fd; }
+.ai-search-dialog .agent-skill-icon { display: block; width: 48px; height: 48px; padding: 5px; border-radius: 12px; background: #fff; box-shadow: 0 2px 5px #202b4314; }
+.ai-search-dialog .agent-skill-name { display: grid; gap: 3px; overflow-wrap: anywhere; }
+.ai-search-dialog .agent-skill-name strong { font-size: 15px; }
+.ai-search-dialog .agent-skill-name > span { color: var(--ai-muted); font-size: 12px; }
+.ai-search-dialog .agent-skill-install-hint { line-height: 1.5; -webkit-user-select: text; user-select: text; }
+.ai-search-dialog .agent-skill-download { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 8px 12px; border-radius: 8px; background: #1667c1; color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.ai-search-dialog .agent-skill-download:hover { background: #1256a4; }
+.ai-search-dialog .agent-skill-download svg { width: 16px; height: 16px; }
+@media (max-width: 420px) {
+  .ai-search-dialog .agent-skill-row { gap: 8px; padding: 10px; }
+  .ai-search-dialog .agent-skill-icon { width: 40px; height: 40px; border-radius: 10px; }
+  .ai-search-dialog .agent-skill-download { padding-right: 8px; padding-left: 8px; }
+}
+@media (max-width: 360px) {
+  .ai-search-dialog .agent-skill-download { max-width: 100px; text-align: center; white-space: normal; }
+  .ai-search-dialog .agent-skill-download svg { display: none; }
+}
 .ai-search-dialog .model-mode-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 4px; margin-bottom: 18px; border: 1px solid #e0e5ef; border-radius: 12px; background: #f5f7fb; }
 .ai-search-dialog .model-mode-options button { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; padding: 10px 6px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #59677f; font-size: 12px; }
 .ai-search-dialog .model-mode-options button[aria-pressed="true"] { border-color: #c3daf3; background: #fff; color: var(--ai-accent); box-shadow: 0 2px 5px #1976d210; }
@@ -305,7 +330,8 @@
   .ai-search-workspace .welcome-symbol { width: 56px; height: 56px; border-radius: 17px; margin: 5px 0 18px; }
   .ai-search-workspace .welcome-symbol>svg { width: 28px; height: 28px; }
   .ai-search-workspace .search-welcome h2 { font-size: 24px; }
-  .ai-search-workspace .welcome-description { font-size: 13px; margin: 11px 0 22px; }
+  .ai-search-workspace .welcome-description { font-size: 13px; margin: 11px 0 12px; }
+  .ai-search-workspace .welcome-skill-prompt { margin-bottom: 18px; }
   .ai-search-workspace .example-grid { grid-template-columns: 1fr; gap: 10px; }
   .ai-search-workspace .example-card { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 4px 12px; min-height: 0; padding: 14px 28px 14px 13px; border-top-width: 1px; border-left: 3px solid var(--example-color); border-radius: 10px; }
   .ai-search-workspace .example-icon { grid-row: span 2; margin: 0; width: 34px; height: 34px; align-self: center; }

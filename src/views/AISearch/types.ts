@@ -1,4 +1,5 @@
 import type { RequestDiagnostic } from "./requestDiagnostics";
+import type { PreviewMedia } from "./previewMedia";
 import type { OutputMode, OutputConstraint, AnswerSection } from "../../../tools/ai-search-service/model-output-policy.mjs";
 export type { AnswerSection } from "../../../tools/ai-search-service/model-output-policy.mjs";
 
@@ -20,6 +21,7 @@ export interface ResourceCard {
   matchReason?: string;
   matchType?: "feature" | "suggestion";
   audioMatch?: boolean;
+  previewMedia?: PreviewMedia;
   /** Model reference with no verified catalogue metadata; never load media or asset routes. */
   unresolved?: boolean;
 }

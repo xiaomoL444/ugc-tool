@@ -40,7 +40,7 @@ async function load() {
   unavailable.value = false
   failed.value = false
   try {
-    const result = await loadPreviewMedia(props.card)
+    const result = props.card.previewMedia ?? await loadPreviewMedia(props.card)
     if (request !== generation) return
     media.value = result
     unavailable.value = !result
@@ -49,7 +49,7 @@ async function load() {
     unavailable.value = failed.value = true
   } finally { if (request === generation) loading.value = false }
 }
-watch(() => props.card.resourceId, () => {
+watch(() => [props.card.resourceId, props.card.previewMedia] as const, () => {
   generation += 1
   media.value = null
   loading.value = unavailable.value = failed.value = false

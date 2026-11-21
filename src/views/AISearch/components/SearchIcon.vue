@@ -9,6 +9,7 @@
     <template v-else-if="name === 'music'"><path d="M9 18V5l12-2v13M9 8l12-2"/><ellipse cx="5" cy="18" rx="4" ry="3"/><ellipse cx="17" cy="16" rx="4" ry="3"/></template>
     <template v-else-if="name === 'arrow'"><path d="m4 12 16-8-5 16-3-7-8-1Z"/><path d="m12 13 8-9"/></template>
     <template v-else-if="name === 'send-up'"><path d="M12 19V5m-6 6 6-6 6 6"/></template>
+    <template v-else-if="name === 'download'"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></template>
     <template v-else-if="name === 'chevron'"><path d="m6 9 6 6 6-6"/></template>
     <template v-else-if="name === 'search'"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></template>
     <template v-else-if="name === 'external'"><path d="M14 3h7v7M21 3 11 13M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></template>
